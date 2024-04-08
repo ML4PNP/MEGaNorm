@@ -1,0 +1,33 @@
+
+MEG data
+
+MEG data were collected during resting state, a sensorimotor task, and an audio-visual (passive)
+
+T1 and T2 weighted MRI
+
+Gathered at a single site
+306 sensor (102 magnetometer and 204 planer gradiometer)
+light magnetically shilded room
+
+fs = 1000 hz
+high pass filter (cutoff 0.03)
+
+other signals:    
+    - Head-position Indicator (HPI)
+    - one vertical and one horizontal EOG
+    - ECG
+
+
+eyes closed
+
+signal duration: 8min and 40s
+
+preprocessing:
+    temporal signal space seperation (tSSS) ==> removing noise including external and HPI coils noise (correlation threshold 0.98, 10-sec sliding window)
+    head motion corection
+    maxwell filter (notchfilter(50Hz) and automatically detect and virtually reconstruct any noisy channels)
+    transformed into a common head position
+    ICA (those ICs that had the highest correlation with ECG, VEOG and HOG were projected out ==> Therefore, 3 ICs were projected out)
+
+
+numbers of participants per seven decades from 18 to 87, respectively: 47, 102, 100, 97, 94, 93, 90 (Notice that these are those participants that had both resting and task MEG)
