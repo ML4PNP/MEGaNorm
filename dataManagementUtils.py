@@ -1,8 +1,8 @@
 import h5py
+import pickle
 from csv import writer
 
-def storeFooofRes(path, subjId, periodicsPeaks, aperiodic, periodic, freqs, 
-                  aperiodicParams, periodicParams) -> None:
+def storeFooofModels(path, subjId, fooofModels) -> None:
     """
     This function stores the periodic and aperiodic 
     results in a h5py file
@@ -15,14 +15,7 @@ def storeFooofRes(path, subjId, periodicsPeaks, aperiodic, periodic, freqs,
     subjid: str
     subject ID
 
-    periodic: ndarray
-    periodic signal
-
-    aperiodic: ndarray
-    aperiodic signal
-
-    freqs: array
-    list of frequencies
+    fooofModels: object
 
     returns
     -------------
@@ -30,15 +23,13 @@ def storeFooofRes(path, subjId, periodicsPeaks, aperiodic, periodic, freqs,
 
     """
 
-    with h5py.File(path, "a") as hdf:
+    with open(path, "ab") as file:
+        pickle.dump({subjId: fooofModels}, file)
+    # with h5py.File(path, "a") as hdf:
         
-        participant = hdf.create_group(subjId)
-        participant.create_dataset("periodics Peaks", data=periodicsPeaks)
-        participant.create_dataset("periodic", data=periodic)
-        participant.create_dataset("aperiodic", data=aperiodic)
-        participant.create_dataset("aperiodic Params", data=aperiodicParams)
-        participant.create_dataset("periodic Params", data=periodicParams)
-        participant.create_dataset("freqs", data=freqs)
+    #     participant = hdf.create_group(subjId)
+    #     participant.create_dataset("fooof Models", data=fooofModels)
+
 
 
 

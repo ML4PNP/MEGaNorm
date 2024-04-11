@@ -19,11 +19,74 @@ class neuralParameterize():
     """
 
 
-
     @staticmethod
     def fooofModeling(segments, spectrumMethod, fs, freqRange=[1, 60]):
 
         """
+        fooofModeling fit multiple models (group fooof) and returns 
+        periodic and aperiodic signals
+
+        parameters
+        --------------
+        segments: ndarray
+        segmented data
+
+        spectrumMethod: str
+        the method to be used to calculate power spectrum
+
+        fs:int
+        sampling rate
+        
+        freqRange: list[int]
+        desired frequency range to be modeled by fooof model
+        default: [1, 60]
+
+        return
+        --------------
+        fooofModels: object
+        """ 
+        
+        # welch PSD
+        if spectrumMethod == "welch":
+            psds, freqs = segments.compute_psd( 
+                            method = spectrumMethod,
+                            fmin = 3,
+                            fmax = 40,
+                            n_jobs = -1,
+                            average = "mean",
+                            # having at least two cycles of 1Hz
+                            n_overlap = 1*fs,
+                            n_fft = 2*fs,
+                            n_per_seg = 2*fs, 
+                            verbose=False).average().get_data(return_freqs=True)
+        
+        NumChannel = segments.get_data().shape[0]       
+
+        # fitting seperate models for each channel
+        fooofModels = f.FOOOFGroup(peak_width_limits=[1, 12.0], 
+                                   min_peak_height=0, 
+                                   peak_threshold=2, 
+                                   aperiodic_mode='fixed')
+        fooofModels.fit(freqs, psds, freqRange, n_jobs=-1)
+
+
+        return fooofModels
+    
+
+    def extractFooofFeatures():
+        pass
+
+
+
+
+
+    @staticmethod
+    def fooofModeling2(segments, spectrumMethod, fs, freqRange=[1, 60]):
+
+        """
+        Deprecated
+
+        
         fooofModeling fit multiple models (group fooof) and returns 
         periodic and aperiodic signals
 
@@ -54,20 +117,29 @@ class neuralParameterize():
         list of frequencies
         """
 
-        NumChannel = segments.shape[0]
+        
         
         # welch PSD
         if spectrumMethod == "welch":
-            psds, freqs = mne.time_frequency.psd_array_welch(segments, 
-                                                            sfreq=500,
-                                                            n_jobs=-1,
-                                                            average = "mean",
-                                                            # having at least two cycles of 1Hz
-                                                            n_overlap = 1*fs,
-                                                            n_fft = 2*fs,
-                                                            n_per_seg = 2*fs, 
-                                                            verbose=False)
-        print(freqs)
+            psds, freqs = segments.compute_psd( 
+                            method = spectrumMethod,
+                            fmin = 3,
+                            fmax = 40,
+                            n_jobs = -1,
+                            average = "mean",
+                            # having at least two cycles of 1Hz
+                            n_overlap = 1*fs,
+                            n_fft = 2*fs,
+                            n_per_seg = 2*fs, 
+                            verbose=False).average().get_data(return_freqs=True)
+        
+        print("hereeeeee: ",np.shape(psds))
+
+        NumChannel = segments.get_data().shape[0]
+        
+        
+
+
         # fitting seperate models for each channel
         foofModels = f.FOOOFGroup()
         foofModels.fit(freqs, psds, freqRange, n_jobs=-1)
@@ -121,6 +193,7 @@ class neuralParameterize():
     @staticmethod
     def plotFooof(periodics, aperiodics, periodicsPeaks, fmDesired, freqs, ind):
         """
+        Deprecated
         plot the results
         """
         fig, ax = plt.subplots(2,2, figsize=(25, 20))
@@ -206,6 +279,13 @@ class features:
 
         return delta, theta, alpha, beta, gamma
     
+
+
+
+
+
+
+
 
 
 

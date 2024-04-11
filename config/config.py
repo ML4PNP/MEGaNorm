@@ -1,4 +1,5 @@
 
+# https://doi.org/10.1016/j.neuroimage.2019.02.065 mag: 5 picoTesla , Grad: 400 pT
 
 rejectCriteria = dict(
                      mag = 3000e-15,

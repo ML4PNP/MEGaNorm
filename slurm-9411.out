@@ -1,0 +1,27 @@
+/home/zamanzad/trial1/fooofAnalysis.py:5: DeprecationWarning: 
+The `fooof` package is being deprecated and replaced by the `specparam` (spectral parameterization) package.
+This version of `fooof` (1.1) is fully functional, but will not be further updated.
+New projects are recommended to update to using `specparam` (see Changelog for details).
+  import fooof as f
+  0%|          | 0/643 [00:00<?, ?it/s]Using data from preloaded Raw for 65 events and 5000 original time points ...
+0 bad epochs dropped
+Setting channel interpolation method to {'meg': 'MNE'}.
+Running FOOOFGroup across 306 power spectra.
+  0%|          | 1/643 [00:07<1:22:20,  7.70s/it]------------------------------
+Using data from preloaded Raw for 65 events and 5000 original time points ...
+0 bad epochs dropped
+Setting channel interpolation method to {'meg': 'MNE'}.
+Running FOOOFGroup across 306 power spectra.
+  0%|          | 2/643 [00:14<1:15:21,  7.05s/it]------------------------------
+Using data from preloaded Raw for 65 events and 5000 original time points ...
+0 bad epochs dropped
+Setting channel interpolation method to {'meg': 'MNE'}.
+Running FOOOFGroup across 306 power spectra.
+  0%|          | 3/643 [00:21<1:13:58,  6.94s/it]------------------------------
+Using data from preloaded Raw for 65 events and 5000 original time points ...
+0 bad epochs dropped
+Setting channel interpolation method to {'meg': 'MNE'}.
+Running FOOOFGroup across 306 power spectra.
+  1%|          | 4/643 [00:27<1:12:51,  6.84s/it]------------------------------
+Using data from preloaded Raw for 65 events and 5000 original time points ...
+slurmstepd-zaffre: error: *** JOB 9411 ON zaffre CANCELLED AT 2024-04-10T21:02:50 ***

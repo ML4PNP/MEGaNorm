@@ -3,11 +3,17 @@ import numpy as np
 import mne
 
 
+
+
+
 class AutoICA:
     """
     This class of functions serves as an automated noise detection tool
     in ICA components using both ECG and EOG
     """
+
+
+
 
     @staticmethod
     def findComponent(ica, data, phisNoise):
@@ -39,7 +45,7 @@ class AutoICA:
 
 
     @staticmethod
-    def autoICA(data, n_components=30, max_iter=800, plot=False):
+    def autoICA(data, n_components=30, max_iter=1000, plot=False):
 
         """
         This function serves as an automated noise detection tool
@@ -72,12 +78,14 @@ class AutoICA:
         # downsampling data ==> fewer computation
         megResFil = data.copy().pick(picks=["meg"])
         megResFil.resample(200, verbose=False, n_jobs=-1)
-        megResFil.filter(1, 60, verbose=False)
+        megResFil.filter(1, 40, verbose=False, n_jobs=-1) 
+
 
         # Extracting EOGs and ECG channels
         phisNoise = data.copy().pick(picks=["eog", "ecg"])
         phisNoise.resample(200, verbose=False, n_jobs=-1)
-        # phisNoise.filter(1, 60, verbose=False) # investigate why it results in an error
+        phisNoise.filter(1, 40, picks=["eog", "ecg"], 
+                         verbose=False, n_jobs=-1) 
         ecg, eogV, eogH = phisNoise.get_data()
 
 
@@ -88,9 +96,9 @@ class AutoICA:
                                 method="fastica",
                                 random_state=42,
                                 verbose=False)
-        ica.fit(megResFil,
-                verbose=False)
+        ica.fit(megResFil, verbose=False)
         
+
         # calculating bad ica components using automatic method
         badComponents = []
         badComponents.append(AutoICA.findComponent(ica, megResFil, ecg))
@@ -99,13 +107,20 @@ class AutoICA:
 
         ica.exclude = badComponents.copy()
 
-        if plot == True:
-            AutoICA.plotICA(ica, data, badComponents, "grad")
-            AutoICA.plotICA(ica, data, badComponents, "mag")
 
+
+        # you can uncomment the below codes to plot the ica results
+        # if plot == True:
+        #     AutoICA.plotICA(ica, data, badComponents, "grad")
+        #     AutoICA.plotICA(ica, data, badComponents, "mag")
 
         return ica
-    
+
+
+
+
+
+    @staticmethod
     def plotICA(ica, data, badComponents, pick=None):
 
         # ocular artifact manifestation
