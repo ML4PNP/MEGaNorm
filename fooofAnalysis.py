@@ -22,11 +22,7 @@ def fooof(dataPaths, savePath, freqRange, fs, powerNoise, tmin, tmax) -> None:
     This function will do the following steps
     1. 
     """
-
-    
-
     subjId = subjPath.split("/")[-1][:-4]
-
 
     # read the data
     data = mne.io.read_raw_fif(subjPath,
@@ -36,10 +32,9 @@ def fooof(dataPaths, savePath, freqRange, fs, powerNoise, tmin, tmax) -> None:
     # We exclude 20s from both begining and end of signals 
     # since participants usually open and close their eyes
     # in this time interval
+    tmax = int(np.shape(data.get_data())[1]/fs + tmax)
     data.crop(tmin=tmin, tmax=tmax)
     
-
-
     segments = mne.make_fixed_length_epochs(data,
                                             duration=10,
                                             overlap=2,
@@ -50,7 +45,7 @@ def fooof(dataPaths, savePath, freqRange, fs, powerNoise, tmin, tmax) -> None:
     # mag ==> grad
     # segments.as_type(ch_type='grad', mode='fast')
 
-    # rejecting noisy epchs
+    # rejecting noisy epchs (this part needs to be modified)
     # segments = segments.drop_bad(
     #                 reject=rejectCriteria, 
     #                 flat=flatCriteria, 
@@ -65,24 +60,19 @@ def fooof(dataPaths, savePath, freqRange, fs, powerNoise, tmin, tmax) -> None:
     # if isNan(np.nanmean(segments.get_data())): raise ValueError("NaN input")
     
     segments = segments.load_data().interpolate_bads()
-
-    
-        
     
     # parametrizing neural spectrum        
-    fooofModels = neuralParameterize.fooofModeling(segments, 
+    fooofModels, psds, freqs = neuralParameterize.fooofModeling(segments, 
                                                         "welch", 
                                                         fs,
                                                         freqRange)
-    
 
     # # save the results
     storeFooofModels(savePath, 
                     subjId, 
-                    fooofModels)
-
-    
-
+                    fooofModels,
+                    psds,
+                    freqs)
     print(30*"-")
             
 
@@ -100,7 +90,7 @@ if __name__ == "__main__":
     fs = 500 #sampling rate
     powerNoise = 50
 
-    tmin, tmax = 20, 562-20
+    tmin, tmax = 20, -20
 
     for count, subjPath in enumerate(tqdm(dataPaths[:])):
         subjId = subjPath.split("/")[-1][:-4]
@@ -110,6 +100,9 @@ if __name__ == "__main__":
         fooof(subjPath, savePath, freqRange, fs, powerNoise, tmin, tmax)
         logFunc("logs/fooofLog.txt", subjId)
         logFunc("logs/fooofLog2.txt", f"{count}_")
+
+     
+        
 
 
 

@@ -12,9 +12,20 @@ flatCriteria = dict(
 
 
 # Define frequency bands
-freq_bands = {      # individualized peak
-    'theta': (4, 8), # (-1, +1)
-    'alpha': (8, 13), # (-2, +2)
-    'beta': (13, 30), # (-5, +5)
-    'gamma': (30, 40), #(-5, +5)
+freqBands = {
+    'Theta': (4, 8),
+    'Alpha': (8, 13),
+    'Beta': (13, 30),
+    'Gamma': (30, 40),
+    'Broadband': (3, 40)
 }
+
+# Define individualized frequency range over main peaks in each freq band
+bandSubRanges = {
+    'Theta': (-1, 1),
+    'Alpha': (-2, 4),
+    'Beta': (-5, 5),
+    'Gamma': (-5, 5),
+}
+
+channelsOfInterest = []

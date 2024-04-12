@@ -69,13 +69,8 @@ class neuralParameterize():
                                    aperiodic_mode='fixed')
         fooofModels.fit(freqs, psds, freqRange, n_jobs=-1)
 
-
-        return fooofModels
+        return fooofModels, psds, freqs
     
-
-    def extractFooofFeatures():
-        pass
-
 
 
 
@@ -162,7 +157,7 @@ class neuralParameterize():
                                         freqs <= freqRange[-1]))[0]
             # since we want to save both periodic peaks and 
             # full signal - "periodic peaks"
-            periodic.append(np.log10(psds[channelNum, desiredFreq]) - aperiodic) # change periodic to flattened
+            periodic.append(np.log10(psds[channelNum, desiredFreq]) - aperiodic) 
 
             # this is just for the sake of plotting the whole model 
             # for a specific index, therefore, you can comment the next
@@ -182,7 +177,8 @@ class neuralParameterize():
         periodicParams = foofModels.get_params('peak_params')
 
         # optional (just for visualization)
-        # neuralParameterize.plotFooof(periodic, aperiodics, periodicsPeaks, fmDesired, freqs, desiredInd)
+        # neuralParameterize.plotFooof(periodic, aperiodics, 
+            #periodicsPeaks, fmDesired, freqs, desiredInd)
 
         return periodicsPeaks, aperiodics, periodic, freqs, aperiodicParams, periodicParams
     
@@ -398,7 +394,44 @@ def normalize(x):
 
 
 
-        
+class Features:
+
+    @staticmethod
+    def fmFeaturesContainer(lenCh, freqBands):
+            """
+            This function returns a dictionary which can be used
+            to store features in a matrix
+            
+            parameters:
+            --------------
+            lenCh: int
+            number of channels
+
+            freqBands: dictionary
+            cancical frequency bands and their corresponding range
+
+            return
+            ------------
+            fearures: dictionary
+            """
+
+            # Initialize a dictionary to hold the dominant peak frequency for each band and channel
+            features = {'dominant_peak_freqs':
+                            {band: np.zeros((lenCh,)) for band in freqBands},
+                        'dominant_peak_power':
+                            {band: np.zeros((lenCh,)) for band in freqBands},
+                        'dominant_peak_width':
+                            {band: np.zeros((lenCh,)) for band in freqBands},
+                        'offset': 
+                            np.zeros((lenCh,)), 'exponent': np.zeros((lenCh,)),
+                        'canonical_band_power':
+                            {band: np.zeros((lenCh,)) for band in list(freqBands.keys())[:-1]},
+                        'individualized_band_power':
+                        {band: np.zeros((lenCh,)) for band in list(freqBands.keys())[:-1]}, # -1 because of Broadband
+                }
+            return features
+    
+
 
 
 

@@ -2,7 +2,7 @@ import h5py
 import pickle
 from csv import writer
 
-def storeFooofModels(path, subjId, fooofModels) -> None:
+def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
     """
     This function stores the periodic and aperiodic 
     results in a h5py file
@@ -24,11 +24,8 @@ def storeFooofModels(path, subjId, fooofModels) -> None:
     """
 
     with open(path, "ab") as file:
-        pickle.dump({subjId: fooofModels}, file)
-    # with h5py.File(path, "a") as hdf:
-        
-    #     participant = hdf.create_group(subjId)
-    #     participant.create_dataset("fooof Models", data=fooofModels)
+        pickle.dump({subjId: [fooofModels, psds, freqs]}, file)
+
 
 
 
