@@ -76,10 +76,10 @@ def subjectList(path):
 
 def saveFeatures(path, arr):
     
-    with open(path, "a") as file:
-        writerObj = writer(file)
+    with open(path, "a") as fileObj:
+        writerObj = writer(fileObj)
         writerObj.writerow(arr)
-        file.close()
+        fileObj.close()
 
 
 
