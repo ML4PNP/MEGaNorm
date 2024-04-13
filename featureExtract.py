@@ -1,16 +1,23 @@
+import mne
 import h5py
+import glob
 import tqdm
 import fooof
+import json
 import numpy as np
 import pickle
 import itertools
+import matplotlib.pyplot as plt
 
 from dataManagementUtils import readFooofres, subjectList, saveFeatures
 from config.config import freqBands, bandSubRanges
 from processUtils import Features, isNan
 
 
-def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2):
+
+
+
+def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes):
     """
     This function extract features from periodic data
     and save them along with aperiodic paramereters
@@ -18,95 +25,84 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2):
 
     features = Features.fmFeaturesContainer(psds.shape[0], freqBands)
 
+    # in order to save features and their name
+    featuresRow, FeaturesName = [], []
+
     for i in range(psds.shape[0]):
+        
 
         # getting the fooof model of ith channel
         fm = fmGroup.get_fooof(ind=i)
 
         # if fooof model is overfitted => exclude the channel
-        if fm.r_squared_ < leastR2: continue
+        if fm.r_squared_ < leastR2: 
+            empty = np.empty(25)
+            empty[:] = np.nan
+            featuresRow.extend(empty.tolist())
+            continue
 
+        # # ################################# exponent and offset ##############################
+        featRow, featName = Features.apperiodicFeatures(fm=fm, channelNmaes=channelNmaes[i])
+        featuresRow.extend(featRow); FeaturesName.extend(featName)
+        # #===================================================================================== 
+
+        # isolate periodic parts of signals
+        flattenedPsd = Features.flatPeriodic(fm, psds[i, :])
+        
+        totalPowerFlattened = np.trapz(flattenedPsd, freqs)
+
+        #Loop through each frequency band
+        for bandName, (fmin, fmax) in freqBands.items():
+
+            if bandName != "Broadband": 
+
+                # ################################# Power Features ##############################
+                featRow, featName = Features.canonicalBandPower(flattenedPsd, 
+                                                                freqs, 
+                                                                fmin, 
+                                                                fmax, 
+                                                                channelNmaes[i], 
+                                                                bandName)
+                featuresRow.append(featRow); FeaturesName.append(featName)
+                #================================================================================ 
+
+
+
+        #     ################################# Peak Features ################################
+            (featRow, 
+            featName, 
+            dominant_peak,
+            nanFlag) = Features.peakParameters(fm, 
+                                                freqs, 
+                                                fmin, 
+                                                fmax, 
+                                                channelNmaes[i], 
+                                                bandName)
+            featuresRow.extend(featRow); FeaturesName.extend(featName)
+        #     #================================================================================
+
+
+        #     ################################# Individualized band power ################################
+            if bandName != "Broadband":
+                featRow, featName = Features.individulizedBandPower(flattenedPsd, 
+                                                                    totalPowerFlattened, 
+                                                                    dominant_peak, 
+                                                                    freqs, 
+                                                                    bandSubRanges, 
+                                                                    nanFlag, 
+                                                                    bandName, 
+                                                                    channelNmaes[i])
+                featuresRow.extend(featRow); FeaturesName.extend(featName)
+                # 
+        #     #============================================================================================
     
-        features['offset'][i] = fm.get_params('aperiodic_params')[0]
-        features['exponent'][i] = fm.get_params('aperiodic_params')[1]
-        
-        # Using linear frequency space when calculating powers 
-        flattened_psd = psds[i, :] - 10**fm._ap_fit 
-        
-        # Compute total power in the flattened spectrum for normalization
-        total_power_flattened = np.trapz(flattened_psd, freqs)
-        
-        # Loop through each frequency band
-        for band, (fmin, fmax) in freqBands.items():
-            
-            if band != 'Broadband':
-                ################################# Power Features ##############################
-                
-                # Find indices of frequencies within the current band
-                band_indices = np.logical_and(freqs >= fmin,
-                                            freqs <= fmax)
-                
-                # Integrate the power within the band on the flattened spectrum
-                band_power_flattened = np.trapz(flattened_psd[band_indices], 
-                                                freqs[band_indices])
-                
-                # Compute the average relative power for the band on the flattened spectrum
-                features['canonical_band_power'][band][i] = band_power_flattened / total_power_flattened
-                
-                ################################# Peak Features ##############################
-            
-            # Filter the peaks that fall within the current frequency band
-            band_peaks = []
-            for peak in fm.get_params('peak_params'):
-                if np.any(peak != peak):
-                    band_peaks = [np.nan, np.nan, np.nan]
-                else: 
-                    band_peaks = [peak for peak in 
-                                fm.get_params('peak_params') if fmin <= peak[0] <= fmax] 
-
-
-            # band_peaks = [peak for peak in 
-            #               fm.get_params('peak_params') if fmin <= peak[0] <= fmax]
-
-            
-            # If there are peaks within this band, find the one with the highest amplitude
-            if band_peaks and not np.any(np.array(band_peaks) != np.array(band_peaks)):
-                # Sort the peaks by amplitude (peak[1]) and get the frequency of the highest amplitude peak
-                dominant_peak = max(band_peaks, key=lambda x: x[1])
-                features['dominant_peak_freqs'][band][i] = dominant_peak[0] 
-                features['dominant_peak_power'][band][i] = dominant_peak[1]  
-                features['dominant_peak_width'][band][i] = dominant_peak[2] 
-
-                # Individualized Band Power 
-                if band != 'Broadband':
-                    # Define the range around the peak frequency and Find indices of frequencies within this range
-                    peak_range_indices = np.logical_and(freqs >= dominant_peak[0] + 
-                                                            bandSubRanges[band][0], 
-                                                        freqs <= dominant_peak[0] + 
-                                                            bandSubRanges[band][1])
-                    
-                    # Integrate power within the range on the flattened spectrum
-                    
-                    #  the power within the band on the flattened spectrum
-                    avg_power = np.trapz(flattened_psd[peak_range_indices], freqs[peak_range_indices])
-                
-                    # Compute the average relative power for the band on the flattened spectrum
-                    features['individualized_band_power'][band][i] = avg_power / total_power_flattened
-
-            elif not band_peaks and np.any(band_peaks != band_peaks):
-                features['dominant_peak_freqs'][band][i] = np.nan
-                features['dominant_peak_power'][band][i] = np.nan 
-                features['dominant_peak_width'][band][i] = np.nan
-                if band != "Broadband":
-                    features['individualized_band_power'][band][i] = np.nan
-
-        featureRow = []
-        for key1, value1 in features.items():
-            print(np.shape(value1))
-            # for key2, value2 in value1.items():
-            #     featureRow.extend(value2)
-
+    if len(FeaturesName) == 7650:
+        with open("data/features/featuresNames.josn", "w") as file:
+            json.dump(FeaturesName, file)
+    
+    
     return features
+
 
 
 
@@ -118,11 +114,14 @@ if __name__ == "__main__":
         counter = 0
         while True:
             try: pickle.load(fooofFile) ; counter += 1
-            
             except: break
+
+    basPath = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif"
+    dataPaths = glob.glob(basPath)
+    raw = mne.io.read_raw_fif(dataPaths[0]).pick(picks="meg")
+    channelNmaes = raw.info['ch_names']
     
-    print(counter)
-    savePath = "/home/zamanzad/trial1/data/features/featureMatrix.csv"
+    savePath = "data/features/featureMatrix.csv"
     leastR2 = 0.9 # least acceptable R squred of fitted models
 
 
@@ -131,12 +130,10 @@ if __name__ == "__main__":
         for j in tqdm.tqdm(range(counter)):
             
             subjectId, (fmGroup, psds, freqs) = next(iter(pickle.load(fooofFile).items()))
-            print(subjectId)
 
-            featureSet = featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2)
-            break
-
-    #         saveFeatures(savePath, featureSet)
+            featureSet = featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
+            saveFeatures(savePath, featureSet)
+            
     
     
 
