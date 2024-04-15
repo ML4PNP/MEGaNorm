@@ -23,7 +23,6 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
     and save them along with aperiodic paramereters
     """
 
-    features = Features.fmFeaturesContainer(psds.shape[0], freqBands)
 
     # in order to save features and their name
     featuresRow, FeaturesName = [], []
@@ -95,13 +94,13 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
                 featuresRow.extend(featRow); FeaturesName.extend(featName)
                 # 
         #     #============================================================================================
-    
+
     if len(FeaturesName) == 7650:
         with open("data/features/featuresNames.josn", "w") as file:
             json.dump(FeaturesName, file)
     
     
-    return features
+    return featuresRow
 
 
 
@@ -132,7 +131,10 @@ if __name__ == "__main__":
             subjectId, (fmGroup, psds, freqs) = next(iter(pickle.load(fooofFile).items()))
 
             featureSet = featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
+            print(len(featureSet))
+            
             saveFeatures(savePath, featureSet)
+            
             
     
     

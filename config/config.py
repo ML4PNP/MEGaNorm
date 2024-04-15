@@ -57,3 +57,14 @@ channels_spatial_layouts = {'MAG_frontal_left':['MEG0121', 'MEG0341','MEG0311','
                  }
 
 
+
+featuresCategories = ["offset", # 1
+                      "exponent", # 1
+                      "integrated power", # 4
+                      "frequency of dominant peak", # 5
+                      "power of dominant peak", # 5
+                      "width of dominant peak", # 5
+                      "Individualized power",   # 4
+                      ]
+
+
