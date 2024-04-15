@@ -11,6 +11,7 @@ from config.config import channels_spatial_layouts, featuresCategories, freqBand
 def featureSummarize(featureMatrix, savePath):
 
     dfs_to_concat = []
+    newNames = []
 
     # no band-related features
     for featureCategory in ["offset", "exponent"]:
@@ -26,7 +27,7 @@ def featureSummarize(featureMatrix, savePath):
                             featureMatrix.columns.str.contains(channelName)))
                         selectedColumns.append(col[0].item())
 
-                    newName = f"{featureCategory} - {brainReigion}"
+                    newNames.append(f"{featureCategory} - {brainReigion}")
                     dfs_to_concat.append(featureMatrix.iloc[:,selectedColumns].mean(axis=1))
 
     for featureCategory in featuresCategories:
@@ -50,10 +51,14 @@ def featureSummarize(featureMatrix, savePath):
                             selectedColumns.append(col[0].item())
                         
                     if band == "Broadband" and featureCategory not in featuresCategories[-4:-1]:  continue
-                    newName = f"{featureCategory} - {band} - {brainReigion}"
+                    newNames.append(f"{featureCategory} - {band} - {brainReigion}")
                     dfs_to_concat.append(featureMatrix.iloc[:,selectedColumns].mean(axis=1))
 
+    
     df = pd.concat(dfs_to_concat, axis=1)
+    df.columns = newNames
+    df["participant_id"] = featureMatrix.loc[:,"participant_id"]
+
     df.to_csv(savePath)
 
 
@@ -62,6 +67,7 @@ if __name__=="__main__":
 
     with open("data/features/featuresNames.josn", "r") as file:
         featureNames = json.load(file)
+        featureNames.insert(0, "participant_id")
     featureMatrix = pd.read_csv("data/features/featureMatrix.csv", names=featureNames)
 
     savePath = "data/features/summarizedResVar.csv"

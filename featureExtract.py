@@ -131,7 +131,7 @@ if __name__ == "__main__":
             subjectId, (fmGroup, psds, freqs) = next(iter(pickle.load(fooofFile).items()))
 
             featureSet = featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
-            print(len(featureSet))
+            featureSet.insert(0, subjectId)
             
             saveFeatures(savePath, featureSet)
             
