@@ -1,386 +1,0 @@
-/home/zamanzad/trial1/fooofAnalysis.py:5: DeprecationWarning: 
-The `fooof` package is being deprecated and replaced by the `specparam` (spectral parameterization) package.
-This version of `fooof` (1.1) is fully functional, but will not be further updated.
-New projects are recommended to update to using `specparam` (see Changelog for details).
-  import fooof as f
-  0%|          | 0/76 [00:00<?, ?it/s]Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-  1%|▏         | 1/76 [00:16<21:10, 16.94s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-  3%|▎         | 2/76 [00:29<17:36, 14.28s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-  4%|▍         | 3/76 [00:41<16:00, 13.15s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-  5%|▌         | 4/76 [00:54<15:49, 13.18s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-  7%|▋         | 5/76 [01:07<15:31, 13.12s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-  8%|▊         | 6/76 [01:18<14:20, 12.29s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-  9%|▉         | 7/76 [01:27<13:02, 11.34s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 11%|█         | 8/76 [01:36<12:01, 10.61s/it]------------------------------
-Using data from preloaded Raw for 64 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 12%|█▏        | 9/76 [01:46<11:47, 10.57s/it]------------------------------
-Using data from preloaded Raw for 64 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 13%|█▎        | 10/76 [01:56<11:16, 10.26s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 14%|█▍        | 11/76 [02:07<11:23, 10.51s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 16%|█▌        | 12/76 [02:19<11:34, 10.85s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 17%|█▋        | 13/76 [02:30<11:36, 11.05s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 18%|█▊        | 14/76 [02:43<11:49, 11.44s/it]------------------------------
-Using data from preloaded Raw for 69 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 20%|█▉        | 15/76 [02:56<12:22, 12.17s/it]------------------------------
-Using data from preloaded Raw for 64 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 21%|██        | 16/76 [03:09<12:14, 12.24s/it]------------------------------
-Using data from preloaded Raw for 70 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 22%|██▏       | 17/76 [03:22<12:22, 12.58s/it]------------------------------
-Using data from preloaded Raw for 64 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 24%|██▎       | 18/76 [03:34<11:57, 12.37s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 25%|██▌       | 19/76 [03:46<11:40, 12.30s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 26%|██▋       | 20/76 [03:57<10:54, 11.69s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 28%|██▊       | 21/76 [04:06<10:02, 10.95s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 29%|██▉       | 22/76 [04:15<09:26, 10.50s/it]------------------------------
-Using data from preloaded Raw for 67 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 30%|███       | 23/76 [04:25<09:11, 10.41s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 32%|███▏      | 24/76 [04:35<08:49, 10.19s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 33%|███▎      | 25/76 [04:45<08:32, 10.04s/it]------------------------------
-Using data from preloaded Raw for 68 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 34%|███▍      | 26/76 [04:55<08:18,  9.97s/it]------------------------------
-Using data from preloaded Raw for 67 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 36%|███▌      | 27/76 [05:05<08:08,  9.98s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 37%|███▋      | 28/76 [05:14<07:57,  9.94s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 38%|███▊      | 29/76 [05:25<07:53, 10.08s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 39%|███▉      | 30/76 [05:36<07:53, 10.29s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 41%|████      | 31/76 [05:47<07:52, 10.49s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 42%|████▏     | 32/76 [05:57<07:39, 10.44s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 43%|████▎     | 33/76 [06:08<07:31, 10.51s/it]------------------------------
-Using data from preloaded Raw for 75 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 45%|████▍     | 34/76 [06:21<07:57, 11.38s/it]------------------------------
-Using data from preloaded Raw for 64 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 46%|████▌     | 35/76 [06:32<07:47, 11.39s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 47%|████▋     | 36/76 [06:42<07:17, 10.94s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 49%|████▊     | 37/76 [06:52<06:49, 10.50s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 50%|█████     | 38/76 [07:02<06:30, 10.29s/it]------------------------------
-Using data from preloaded Raw for 64 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 51%|█████▏    | 39/76 [07:11<06:14, 10.12s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 53%|█████▎    | 40/76 [07:21<05:59,  9.98s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 54%|█████▍    | 41/76 [07:30<05:44,  9.84s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 55%|█████▌    | 42/76 [07:40<05:35,  9.87s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 57%|█████▋    | 43/76 [07:51<05:29,  9.98s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 58%|█████▊    | 44/76 [08:00<05:13,  9.80s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 59%|█████▉    | 45/76 [08:09<05:00,  9.69s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 61%|██████    | 46/76 [08:19<04:49,  9.66s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 62%|██████▏   | 47/76 [08:28<04:37,  9.58s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 63%|██████▎   | 48/76 [08:38<04:26,  9.52s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 64%|██████▍   | 49/76 [08:47<04:17,  9.55s/it]------------------------------
-Using data from preloaded Raw for 72 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 66%|██████▌   | 50/76 [08:58<04:14,  9.79s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 67%|██████▋   | 51/76 [09:07<04:01,  9.65s/it]------------------------------
-Using data from preloaded Raw for 68 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 68%|██████▊   | 52/76 [09:18<03:59,  9.96s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 70%|██████▉   | 53/76 [09:28<03:47,  9.91s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 71%|███████   | 54/76 [09:38<03:40, 10.00s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 72%|███████▏  | 55/76 [09:48<03:28,  9.95s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 74%|███████▎  | 56/76 [09:58<03:22, 10.14s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 75%|███████▌  | 57/76 [10:09<03:17, 10.37s/it]------------------------------
-Using data from preloaded Raw for 68 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 76%|███████▋  | 58/76 [10:21<03:13, 10.74s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 78%|███████▊  | 59/76 [10:32<03:03, 10.79s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 79%|███████▉  | 60/76 [10:42<02:51, 10.72s/it]------------------------------
-Using data from preloaded Raw for 66 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 80%|████████  | 61/76 [10:53<02:42, 10.85s/it]------------------------------
-Using data from preloaded Raw for 67 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 82%|████████▏ | 62/76 [11:06<02:38, 11.33s/it]------------------------------
-Using data from preloaded Raw for 76 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 83%|████████▎ | 63/76 [11:20<02:36, 12.07s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 84%|████████▍ | 64/76 [11:30<02:19, 11.63s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 86%|████████▌ | 65/76 [11:39<02:00, 10.94s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 87%|████████▋ | 66/76 [11:49<01:46, 10.64s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 88%|████████▊ | 67/76 [11:59<01:32, 10.24s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 89%|████████▉ | 68/76 [12:09<01:21, 10.23s/it]------------------------------
-Using data from preloaded Raw for 73 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 91%|█████████ | 69/76 [12:20<01:13, 10.43s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 92%|█████████▏| 70/76 [12:29<01:00, 10.11s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 93%|█████████▎| 71/76 [12:39<00:50, 10.01s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 95%|█████████▍| 72/76 [12:49<00:39,  9.87s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 96%|█████████▌| 73/76 [12:58<00:29,  9.71s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 97%|█████████▋| 74/76 [13:08<00:19,  9.69s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
- 99%|█████████▊| 75/76 [13:17<00:09,  9.62s/it]------------------------------
-Using data from preloaded Raw for 65 events and 5000 original time points ...
-0 bad epochs dropped
-Setting channel interpolation method to {'meg': 'MNE'}.
-Running FOOOFGroup across 306 power spectra.
-100%|██████████| 76/76 [13:26<00:00,  9.49s/it]100%|██████████| 76/76 [13:26<00:00, 10.61s/it]
-------------------------------
