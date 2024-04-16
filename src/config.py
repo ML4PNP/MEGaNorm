@@ -1,4 +1,5 @@
 
+# preprocess configurations =================================================
 # downsample data
 targetFS = 500
 
@@ -10,6 +11,7 @@ cutoffFreq = [1, 40]
 
 
 
+
 rejectCriteria = dict(
                      mag = 3000e-15,
                      grad = 3000e-13)
@@ -18,8 +20,21 @@ flatCriteria = dict(
                     mag=1e-15,
                     grad=1e-13)
 
+# fooof analysis configurations ==============================================
+# Desired frequency range to run FOOOF
+freqRange = [3, 40]
+# sampling rate
+fs = 500
+#start time of the raw data to use in seconds
+tmin = 20
+# end time of the raw data to use in seconds
+tmax = -20
+# length of MEG segments in seconds
+segmentsLength = 10
+# amount of overlap between MEG sigals in seconds
+overlap = 2
 
-
+# feature extraction ==========================================================
 # Define frequency bands
 freqBands = {
     'Theta': (4, 8),

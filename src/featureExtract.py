@@ -9,7 +9,7 @@ import pickle
 import itertools
 import matplotlib.pyplot as plt
 
-from dataManagementUtils import readFooofres, subjectList, saveFeatures
+from src.dataManagementUtils import readFooofres, subjectList, saveFeatures
 from config.config import freqBands, bandSubRanges
 from processUtils import Features, isNan
 

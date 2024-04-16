@@ -1,12 +1,14 @@
-import matplotlib.pyplot as plt
-from glob import glob
-from tqdm import tqdm
-import numpy as np
-import fooof as f
+import ast
 import mne
 import h5py
+import argparse
+import fooof as f
+import numpy as np
+from tqdm import tqdm
+from glob import glob
+import matplotlib.pyplot as plt
 
-from config.config import *
+import config
 from processUtils import neuralParameterize, isNan
 from dataManagementUtils import storeFooofModels, logFunc
 
@@ -17,11 +19,16 @@ warnings.filterwarnings('ignore')
 
 
 
-def fooof(dataPaths, savePath, freqRange, fs, powerNoise, tmin, tmax) -> None: 
+def fooof(dataPaths, savePath, freqRange, fs, tmin, tmax, segmentsLength, overlap) -> None: 
     """
     This function will do the following steps
     1. 
     """
+
+    if freqRange[1] > 45:
+        raise Exception("You Need to implement a notch filter for power line noise")
+
+
     subjId = subjPath.split("/")[-1][:-4]
 
     # read the data
@@ -36,8 +43,8 @@ def fooof(dataPaths, savePath, freqRange, fs, powerNoise, tmin, tmax) -> None:
     data.crop(tmin=tmin, tmax=tmax)
     
     segments = mne.make_fixed_length_epochs(data,
-                                            duration=10,
-                                            overlap=2,
+                                            duration=segmentsLength,
+                                            overlap=overlap,
                                             reject_by_annotation=True,
                                             verbose=False
                                             )
@@ -81,25 +88,61 @@ def fooof(dataPaths, savePath, freqRange, fs, powerNoise, tmin, tmax) -> None:
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser()
+
+    # positional arguments (remember to delete --) TODO
+    parser.add_argument("--paths", help="Address to your data")
+    parser.add_argument("--subIdPosition",
+            help="where subject IDs are positioned in paths")
+    parser.add_argument("--savePath",
+            help="where to save results")
+
+    # optional arguments
+    parser.add_argument("--freqRangeLow", 
+                help="Desired frequency range to run FOOOF (lower limit)")
+    parser.add_argument("--freqRangeHigh", 
+                help="Desired frequency range to run FOOOF (higher limit)")
+    parser.add_argument("--fs",
+                help="sampling rate")
+    parser.add_argument("--tmin",
+                help="start time of the raw data to use in seconds")
+    parser.add_argument("--tmax",
+                help="end time of the raw data to use in seconds")
+    parser.add_argument("--segmentsLength",
+                help="length of MEG segments in seconds")
+    parser.add_argument("--overlap",
+                help="amount of overlap between MEG sigals")
+
+    args = parser.parse_args()
+
+    if not args.freqRangeLow : args.freqRangeLow = config.freqRange[0]
+    if not args.freqRangeHigh : args.freqRangeHigh = config.freqRange[1]
+    if not args.fs: args.fs = config.fs
+    if not args.tmin: args.tmin = config.tmin
+    if not args.tmax: args.tmax = config.tmax
+    if not args.segmentsLength: args.segmentsLength = config.segmentsLength
+    if not args.overlap: args.overlap = config.overlap
+
+
+    # remember to remove the following two lines
     basPath = "data/icaPreprocessed/*.fif"
-    dataPaths = glob(basPath)
-    
     savePath = "data/fooofResults/fooofModels.pkl"
 
-    freqRange :list = [3.0, 40.0]
-    fs = 500 #sampling rate
-    powerNoise = 50
-
-    tmin, tmax = 20, -20
+    dataPaths = glob(basPath)
 
     for count, subjPath in enumerate(tqdm(dataPaths[:])):
-        subjId = subjPath.split("/")[-1][:-4]
-
+        subjId = subjPath.split("/")[args.subIdPosition][:-4] # -1
 
         # parametrizing neural spectrum and saving the res
-        fooof(subjPath, savePath, freqRange, fs, powerNoise, tmin, tmax)
-        logFunc("logs/fooofLog.txt", subjId)
-        logFunc("logs/fooofLog2.txt", f"{count}_")
+        fooof(subjPath,
+        savePath,
+        int(args.freqRange),
+        int(args.fs),
+        int(args.tmin),
+        int(args.tmax),
+        int(args.segmentsLength),
+        int(args.overlap))
+
 
      
         

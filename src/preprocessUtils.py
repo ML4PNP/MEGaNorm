@@ -45,7 +45,7 @@ class AutoICA:
 
 
     @staticmethod
-    def autoICA(data, n_components=30, max_iter=1000, plot=False):
+    def autoICA(data, n_components=30, max_iter=1000, IcaMethod="fastica", cutoffFreq=[1,40], plot=False):
 
         """
         This function serves as an automated noise detection tool
@@ -78,13 +78,13 @@ class AutoICA:
         # downsampling data ==> fewer computation
         megResFil = data.copy().pick(picks=["meg"])
         megResFil.resample(200, verbose=False, n_jobs=-1)
-        megResFil.filter(1, 40, verbose=False, n_jobs=-1) 
+        megResFil.filter(cutoffFreq[0], cutoffFreq[1], verbose=False, n_jobs=-1) 
 
 
         # Extracting EOGs and ECG channels
         phisNoise = data.copy().pick(picks=["eog", "ecg"])
         phisNoise.resample(200, verbose=False, n_jobs=-1)
-        phisNoise.filter(1, 40, picks=["eog", "ecg"], 
+        phisNoise.filter(cutoffFreq[0], cutoffFreq[1], picks=["eog", "ecg"], 
                          verbose=False, n_jobs=-1) 
         ecg, eogV, eogH = phisNoise.get_data()
 
@@ -93,7 +93,7 @@ class AutoICA:
         # ICA
         ica = mne.preprocessing.ICA(n_components=n_components,
                                 max_iter=max_iter,
-                                method="fastica",
+                                method=IcaMethod,
                                 random_state=42,
                                 verbose=False)
         ica.fit(megResFil, verbose=False)
