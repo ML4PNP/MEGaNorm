@@ -1,2 +1,6 @@
 data
 tests
+job.sh
+log.txt
+slurm-9429.out
+slurm-9439.out
