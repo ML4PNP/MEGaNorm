@@ -33,7 +33,7 @@ def normativePrepare(featurePath:str,
     # featMat = featMat.T.groupby(
     #     lambda x: x.split(" ")[0]).mean(numeric_only=True).T
     
-    # print(featMat.info(verbose=True, show_counts=True))
+
     covMat.to_csv(covSavePath,
                     sep=" ",
                     header=False,
@@ -43,8 +43,6 @@ def normativePrepare(featurePath:str,
                     sep=" ",
                     header=False,
                     index=False)
-    
-
 
     return 
 
@@ -53,13 +51,27 @@ if __name__=="__main__":
 
     parser = argparse.ArgumentParser()
     
+    parser.add_argument("--featurePath", type=str,
+            help="address to feature matrix file")
+    parser.add_argument("--metaDataPath", type=str,
+            help="address to metadata file")
+    
+    parser.add_argument("--covSavePath", type=str,
+            help="where to save covariates")
+    parser.add_argument("--featSavePath", type=str,
+            help="where to save response variables")
+    
+    args = parser.parse_args()
 
-    featurePath = "data/features/summarizedResVar.csv"
-    metaDataPath = "data/participants.tsv"
+    # remove these
+    args.featurePath = "data/features/summarizedResVar.csv"
+    args.metaDataPath = "data/participants.tsv"
+    args.covSavePath = "data/normativeInput/covariateNormSample.txt"
+    args.featSavePath = "data/normativeInput/responseVarNorm.txt"
 
-    covSavePath = "data/normativeInput/covariateNormSample.txt"
-    featSavePath = "data/normativeInput/responseVarNorm.txt"
-
-    normativePrepare(featurePath, metaDataPath, covSavePath, featSavePath)
+    normativePrepare(args.featurePath,
+                    args.metaDataPath,
+                    args.covSavePath,
+                    args.featSavePath)
 
 

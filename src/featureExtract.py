@@ -152,6 +152,10 @@ if __name__ == "__main__":
             
             subjectId, (fmGroup, psds, freqs) = next(iter(pickle.load(fooofFile).items()))
 
+            if np.quantile(fmGroup.get_params(name="r_squared"), 0.25) < 0.9 : 
+                print(f"The fooof model for the subject: {subjectId} is overfitted")
+                continue
+
             featureSet = featureEx(subjectId,
                                     fmGroup,
                                     psds,
