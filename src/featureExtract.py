@@ -4,20 +4,21 @@ import glob
 import tqdm
 import fooof
 import json
-import numpy as np
 import pickle
+import argparse
 import itertools
+import numpy as np
 import matplotlib.pyplot as plt
 
-from src.dataManagementUtils import readFooofres, subjectList, saveFeatures
-from config.config import freqBands, bandSubRanges
+from dataManagementUtils import readFooofres, subjectList, saveFeatures
 from processUtils import Features, isNan
+import config
 
 
 
 
 
-def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes):
+def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes, bandSubRanges):
     """
     This function extract features from periodic data
     and save them along with aperiodic paramereters
@@ -92,7 +93,7 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
                                                                     bandName, 
                                                                     channelNmaes[i])
                 featuresRow.extend(featRow); FeaturesName.extend(featName)
-                # 
+
         #     #============================================================================================
 
     if len(FeaturesName) == 7650:
@@ -109,31 +110,60 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
 
 if __name__ == "__main__":
 
-    with open("data/fooofResults/fooofModels.pkl", "rb") as fooofFile:
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--dir", type=str,
+            help="data directory (pickle format)")
+    parser.add_argument("--rawMegData", type=str,
+            help="address to where meg data in order to extract channel names")
+    parser.add_argument("--leastR2", type=float,
+            help="least acceptable R squared for a fooof model")
+    parser.add_argument("--savePath", type=str,
+            help="where to save data")
+    
+    args = parser.parse_args()
+
+    # remove the following lines
+    args.dir = "data/fooofResults/fooofModels.pkl"
+    args.rawMegData = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif"
+    args.savePath = "data/features/featureMatrix.csv"
+
+
+
+    with open(args.dir, "rb") as fooofFile:
         counter = 0
         while True:
             try: pickle.load(fooofFile) ; counter += 1
             except: break
 
-    basPath = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif"
-    dataPaths = glob.glob(basPath)
+    
+    dataPaths = glob.glob(args.rawMegData)
     raw = mne.io.read_raw_fif(dataPaths[0]).pick(picks="meg")
     channelNmaes = raw.info['ch_names']
     
-    savePath = "data/features/featureMatrix.csv"
-    leastR2 = 0.9 # least acceptable R squred of fitted models
+    if not args.leastR2 : args.leastR2 = config.leastR2
+    
 
 
-    with open("data/fooofResults/fooofModels.pkl", "rb") as fooofFile:
+    with open(args.dir, "rb") as fooofFile:
        
         for j in tqdm.tqdm(range(counter)):
             
             subjectId, (fmGroup, psds, freqs) = next(iter(pickle.load(fooofFile).items()))
 
-            featureSet = featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes)
+            featureSet = featureEx(subjectId,
+                                    fmGroup,
+                                    psds,
+                                    freqs,
+                                    config.freqBands,
+                                    args.leastR2,
+                                    channelNmaes,
+                                    config.bandSubRanges)
+
             featureSet.insert(0, subjectId)
             
-            saveFeatures(savePath, featureSet)
+            saveFeatures(args.savePath, featureSet)
             
             
     

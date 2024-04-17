@@ -15,8 +15,8 @@ warnings.filterwarnings('ignore')
 
 
 
-def preprocess(subjectPath:str, subIdPosition:int, targetFS:int, 
-               n_component:int, maxIter:int, IcaMethod:str, cutoffFreq:list):
+def preprocess(subjectPath:str, subIdPosition:int, targetFS:int, n_component:int,
+        maxIter:int, IcaMethod:str, cutoffFreqLow:float, cutoffFreqHigh:float):
     """
     This function perprocess MEG signal.
     """
@@ -33,12 +33,13 @@ def preprocess(subjectPath:str, subIdPosition:int, targetFS:int,
                           n_components=n_component, # FLUX default
                           max_iter=maxIter, # FLUX default,
                           IcaMethod = IcaMethod,
-                          cutoffFreq=cutoffFreq,
+                          cutoffFreq=[cutoffFreqLow, cutoffFreqHigh],
                           plot=True)
     ica.apply(data, verbose=False)
 
     # downsample & band pass filter
     data.resample(targetFS, verbose=False, n_jobs=-1) ; data.filter(1, 100, n_jobs=-1, verbose=False)
+    print(data.get_data().shape)
 
     # data.save(f'/home/zamanzad/trial1/data/icaPreprocessed/{subID}.fif', overwrite=True)
 
@@ -47,22 +48,25 @@ def preprocess(subjectPath:str, subIdPosition:int, targetFS:int,
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    # positional Arguments (remember to delete --) TODO
-    parser.add_argument("--paths", help="Address to your data")
+    # positional Arguments 
+    parser.add_argument("--dir", 
+            help="Address to your data")
     parser.add_argument("--subIdPosition",
             help="where subject IDs are positioned in paths")
 
     # optional arguments
-    parser.add_argument("--targetFS", 
+    parser.add_argument("--targetFS", type=int,
             help="Specify the desired sampling rate for resampling your data.")
-    parser.add_argument("--n_component", 
+    parser.add_argument("--n_component", type=float,
             help="ICA n_components")
-    parser.add_argument("--maxIter", 
+    parser.add_argument("--maxIter", type=int,
             help="maximum number of iteration in the ICA algorithm")
-    parser.add_argument("--IcaMethod",
+    parser.add_argument("--IcaMethod", type=str,
             choices=["fastica", "infomax", "picard"],
             help="which ICA method to use")
-    parser.add_argument("--cutoffFreq",
+    parser.add_argument("--cutoffFreqHigh", type=int,
+            help="Cutoff frequency for filtering data prior to feeding it into ICA.")
+    parser.add_argument("--cutoffFreqLow", type=int,
             help="Cutoff frequency for filtering data prior to feeding it into ICA.")
     
     args = parser.parse_args()
@@ -72,17 +76,23 @@ if __name__ == "__main__":
     if not args.n_component: args.n_component = config.n_component
     if not args.maxIter: args.maxIter = config.maxIter
     if not args.IcaMethod: args.IcaMethod = config.IcaMethod
-    if not args.cutoffFreq: args.cutoffFreq = config.cutoffFreq
+    if not args.cutoffFreqHigh: args.cutoffFreqHigh = config.cutoffFreqHigh
+    if not args.cutoffFreqLow: args.cutoffFreqLow = config.cutoffFreqLow
 
-    basPath = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif"
-    dataPaths = glob(basPath)
+#     # remove the following two lines
+#     args.dir = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif"
+#     args.subIdPosition = -1
+
+    dataPaths = glob(args.dir)
     # loop over all of data 
     for count, subjectPath in enumerate(tqdm.tqdm(dataPaths[:])):
         preprocess(subjectPath,
-            int(args.subIdPosition),
-            int(args.targetFS),
-            int(args.n_component),
-            int(args.maxIter),
+            args.subIdPosition,
+            args.targetFS,
+            args.n_component,
+            args.maxIter,
             args.IcaMethod,
-            ast.literal_eval(args.cutoffFreq))
+            args.cutoffFreqLow,
+            args.cutoffFreqHigh)
+        
 

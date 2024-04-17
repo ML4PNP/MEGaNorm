@@ -1,5 +1,6 @@
 import pandas as pd
 import json
+import argparse
 
 
 
@@ -49,6 +50,9 @@ def normativePrepare(featurePath:str,
 
 
 if __name__=="__main__":
+
+    parser = argparse.ArgumentParser()
+    
 
     featurePath = "data/features/summarizedResVar.csv"
     metaDataPath = "data/participants.tsv"

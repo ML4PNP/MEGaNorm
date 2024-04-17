@@ -7,22 +7,12 @@ targetFS = 500
 n_component = 30
 maxIter = 800
 IcaMethod = "fastica"
-cutoffFreq = [1, 40]
+cutoffFreqLow, cutoffFreqHigh = [1, 40]
 
-
-
-
-rejectCriteria = dict(
-                     mag = 3000e-15,
-                     grad = 3000e-13)
-
-flatCriteria = dict(
-                    mag=1e-15,
-                    grad=1e-13)
 
 # fooof analysis configurations ==============================================
 # Desired frequency range to run FOOOF
-freqRange = [3, 40]
+freqRangeLow, freqRangeHigh = [3, 40]
 # sampling rate
 fs = 500
 #start time of the raw data to use in seconds
@@ -33,6 +23,16 @@ tmax = -20
 segmentsLength = 10
 # amount of overlap between MEG sigals in seconds
 overlap = 2
+#Absolute threshold for detecting peaks
+min_peak_height = 0
+#Relative threshold for detecting peaks
+peak_threshold = 2
+# Spectral estimation method
+psdMethod = "welch"
+# amount of overlap between windows in Welch's method
+psd_n_overlap = 1
+psd_n_fft = 2
+
 
 # feature extraction ==========================================================
 # Define frequency bands
@@ -51,6 +51,9 @@ bandSubRanges = {
     'Beta': (-5, 5),
     'Gamma': (-5, 5),
 }
+
+# least acceptable R squred of fitted models
+leastR2 = 0.9 
 
 
 
@@ -90,5 +93,9 @@ featuresCategories = ["offset", # 1
                       "width of dominant peak", # 5
                       "Individualized power",   # 4
                       ]
+
+
+
+
 
 

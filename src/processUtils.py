@@ -20,7 +20,8 @@ class neuralParameterize():
 
 
     @staticmethod
-    def fooofModeling(segments, spectrumMethod, fs, freqRange=[1, 60]):
+    def fooofModeling(segments, freqRangeLow, freqRangeHigh, min_peak_height,
+                     peak_threshold, fs, psdMethod, psd_n_overlap, psd_n_fft):
 
         """
         fooofModeling fit multiple models (group fooof) and returns 
@@ -46,28 +47,27 @@ class neuralParameterize():
         fooofModels: object
         """ 
         
-        # welch PSD
-        if spectrumMethod == "welch":
-            psds, freqs = segments.compute_psd( 
-                            method = spectrumMethod,
-                            fmin = 3,
-                            fmax = 40,
-                            n_jobs = -1,
-                            average = "mean",
-                            # having at least two cycles of 1Hz
-                            n_overlap = 1*fs,
-                            n_fft = 2*fs,
-                            n_per_seg = 2*fs, 
-                            verbose=False).average().get_data(return_freqs=True)
+
+        psds, freqs = segments.compute_psd( 
+                        method = psdMethod,
+                        fmin = freqRangeLow,
+                        fmax = freqRangeHigh,
+                        n_jobs = -1,
+                        average = "mean",
+                        # having at least two cycles of 1Hz
+                        n_overlap = psd_n_overlap*fs, #1
+                        n_fft = psd_n_fft*fs, #2
+                        n_per_seg = 2*fs, 
+                        verbose=False).average().get_data(return_freqs=True)
         
         NumChannel = segments.get_data().shape[0]       
 
         # fitting seperate models for each channel
         fooofModels = f.FOOOFGroup(peak_width_limits=[1, 12.0], 
-                                   min_peak_height=0, 
-                                   peak_threshold=2, 
+                                   min_peak_height=min_peak_height, 
+                                   peak_threshold=peak_threshold, 
                                    aperiodic_mode='fixed')
-        fooofModels.fit(freqs, psds, freqRange, n_jobs=-1)
+        fooofModels.fit(freqs, psds, [freqRangeLow, freqRangeHigh], n_jobs=-1)
 
         return fooofModels, psds, freqs
     
@@ -128,11 +128,8 @@ class neuralParameterize():
                             n_per_seg = 2*fs, 
                             verbose=False).average().get_data(return_freqs=True)
         
-        print("hereeeeee: ",np.shape(psds))
 
         NumChannel = segments.get_data().shape[0]
-        
-        
 
 
         # fitting seperate models for each channel
@@ -282,9 +279,6 @@ class features:
 
 
 
-
-
-
 class normative:
     """
     A class of various functions, related to
@@ -385,8 +379,6 @@ class normative:
 
 def normalize(x):
     return (x - np.min(x)) / (np.max(x) - np.min(x))
-
-
 
 
 
