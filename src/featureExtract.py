@@ -97,10 +97,11 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes,
         #     #============================================================================================
 
     if len(FeaturesName) == 7650:
-        with open("data/features/featuresNames.josn", "w") as file:
+        with open("data/features/featuresNames.json", "w") as file:
+            FeaturesName.insert(0, "participant_id")
             json.dump(FeaturesName, file)
     
-    
+    featuresRow.insert(0, subjectId)
     return featuresRow
 
 
@@ -165,7 +166,6 @@ if __name__ == "__main__":
                                     channelNmaes,
                                     config.bandSubRanges)
 
-            featureSet.insert(0, subjectId)
             
             saveFeatures(args.savePath, featureSet)
             
