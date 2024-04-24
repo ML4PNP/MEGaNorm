@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import argparse
 import config
-import tqdm
 import json
 import os
 
@@ -11,7 +10,6 @@ from preprocess import preprocess
 from fooofAnalysis import fooof
 from dataManagementUtils import storeFooofModels
 from featureExtract import featureEx
-from Summarize import featureSummarize
 from dataManagementUtils import saveFeatures
 
 
@@ -19,9 +17,9 @@ from dataManagementUtils import saveFeatures
 
 parser = argparse.ArgumentParser()
 # positional Arguments (remove --)
-parser.add_argument("dir", 
+parser.add_argument("--dir", 
         help="Address to your data")
-parser.add_argument("saveDir", type="str",
+parser.add_argument("--saveDir", type=str,
         help="where to save extracted features")
 
 
@@ -111,20 +109,20 @@ if not args.leastR2 : args.leastR2 = config.leastR2
 
 
 # args.dir = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif"
-
+args.dir = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC410226/mf2pt2_sub-CC410226_ses-rest_task-rest_megtransdef.fif"
+args.saveDir = "data/parallelData"
 
 # subject ID
-subID = args.dir.split("/")[-1]
+subID = args.dir.split("/")[-2]
 
 # preproces ========================================================================
-filteredData = preprocess(args.dir,
-                        args.subIdPosition,
-                        args.targetFS,
-                        args.n_component,
-                        args.maxIter,
-                        args.IcaMethod,
-                        args.cutoffFreqLow,
-                        args.cutoffFreqHigh)
+filteredData = preprocess(subjectPath = args.dir,
+                        targetFS = args.targetFS,
+                        n_component = args.n_component,
+                        maxIter = args.maxIter,
+                        IcaMethod = args.IcaMethod,
+                        cutoffFreqLow = args.cutoffFreqLow,
+                        cutoffFreqHigh = args.cutoffFreqHigh)
 
 # fooof analysis ====================================================================
 filteredData = filteredData.pick(picks=["mag"])
@@ -156,14 +154,14 @@ if np.quantile(fmGroup.get_params(name="r_squared"), 0.25) < 0.9 :
     print(f"The fooof model for the subject: {subID} is overfitted")
     raise Exception
 
-featureSet, FeaturesName = featureEx(subID = subID,
-                        fmGroup = fmGroup,
-                        psds = psds,
-                        freqs = freqs,
-                        freqBands = config.freqBands,
-                        leastR2 = args.leastR2,
-                        channelNames = channelNames,
-                        bandSubRanges = config.bandSubRanges)
+featureSet, FeaturesName = featureEx(subjectId = subID,
+                                fmGroup = fmGroup,
+                                psds = psds,
+                                freqs = freqs,
+                                freqBands = config.freqBands,
+                                leastR2 = args.leastR2,
+                                channelNames = channelNames,
+                                bandSubRanges = config.bandSubRanges)
 
 
 if len(FeaturesName) == 4998:
@@ -172,3 +170,5 @@ if len(FeaturesName) == 4998:
         json.dump(FeaturesName, file)
 
 saveFeatures(os.path.join(args.saveDir, f"{subID}.csv"), featureSet)
+
+
