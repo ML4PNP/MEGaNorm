@@ -10,3 +10,5 @@ logs
 pictures
 slurm-9591.out
 __pycache__
+config
+src/__pycache__
