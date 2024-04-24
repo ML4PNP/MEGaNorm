@@ -9,3 +9,4 @@ test.py
 logs
 pictures
 slurm-9591.out
+__pycache__
