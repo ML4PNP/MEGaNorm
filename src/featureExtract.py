@@ -18,10 +18,37 @@ import config
 
 
 
-def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes, bandSubRanges):
+def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNames, bandSubRanges):
     """
-    This function extract features from periodic data
-    and save them along with aperiodic paramereters
+    extract features from fooof results
+
+    parameters
+    -----------
+    subjectId: str
+    subject ID
+    
+    fmGroup: fooof object
+    here, group represent channels
+
+    psds: array
+    original power spectrum (not flattened)
+
+    freqs: list
+    frequency values corresponding to each power value
+
+    freqBands: dictionary
+
+    leastR2: float
+    least accpetable r_squared in fitting fooof mdeols
+
+    channelNames: list
+
+    bandSubRanges: dict
+    individualized frequency ranges
+
+    return
+    -------------
+    featuresRow: list
     """
 
 
@@ -36,13 +63,13 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes,
 
         # if fooof model is overfitted => exclude the channel
         if fm.r_squared_ < leastR2: 
-            empty = np.empty(25)
+            empty = np.empty(49)
             empty[:] = np.nan
             featuresRow.extend(empty.tolist())
             continue
 
         # # ################################# exponent and offset ##############################
-        featRow, featName = Features.apperiodicFeatures(fm=fm, channelNmaes=channelNmaes[i])
+        featRow, featName = Features.apperiodicFeatures(fm=fm, channelNames=channelNames[i])
         featuresRow.extend(featRow); FeaturesName.extend(featName)
         # #===================================================================================== 
 
@@ -54,20 +81,6 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes,
         #Loop through each frequency band
         for bandName, (fmin, fmax) in freqBands.items():
 
-            if bandName != "Broadband": 
-
-                # ################################# Power Features ##############################
-                featRow, featName = Features.canonicalBandPower(flattenedPsd, 
-                                                                freqs, 
-                                                                fmin, 
-                                                                fmax, 
-                                                                channelNmaes[i], 
-                                                                bandName)
-                featuresRow.append(featRow); FeaturesName.append(featName)
-                #================================================================================ 
-
-
-
         #     ################################# Peak Features ################################
             (featRow, 
             featName, 
@@ -76,33 +89,65 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNmaes,
                                                 freqs, 
                                                 fmin, 
                                                 fmax, 
-                                                channelNmaes[i], 
+                                                channelNames[i], 
                                                 bandName)
             featuresRow.extend(featRow); FeaturesName.extend(featName)
         #     #================================================================================
 
+            if bandName != "Broadband": 
 
-        #     ################################# Individualized band power ################################
-            if bandName != "Broadband":
-                featRow, featName = Features.individulizedBandPower(flattenedPsd, 
+                ################################# Power Features  #######################################
+                # adjusted
+                RelFeatRow, RelFeatName, AbsFeatRow, AbsFeatName = Features.canonicalPower(flattenedPsd, 
+                                                                        freqs, 
+                                                                        fmin, 
+                                                                        fmax, 
+                                                                        channelNames[i], 
+                                                                        bandName,
+                                                                        psdType="adjusted")
+                featuresRow.extend([RelFeatRow, AbsFeatRow]); FeaturesName.extend([RelFeatName, AbsFeatName])
+                # original psd
+                RelFeatRow, RelFeatName, AbsFeatRow, AbsFeatName = Features.canonicalPower(psds[i, :], 
+                                                                        freqs, 
+                                                                        fmin, 
+                                                                        fmax, 
+                                                                        channelNames[i], 
+                                                                        bandName,
+                                                                        psdType="original psd")
+                featuresRow.extend([RelFeatRow, AbsFeatRow]); FeaturesName.extend([RelFeatName, AbsFeatName])  
+                #=========================================================================================== 
+
+
+
+                ################################# Individualized band power ################################
+                # adjusted
+                RelFeatRow, RelFeatName, AbsFeatRow, AbsFeatName = Features.individulizedPower(flattenedPsd, 
                                                                     totalPowerFlattened, 
                                                                     dominant_peak, 
                                                                     freqs, 
                                                                     bandSubRanges, 
                                                                     nanFlag, 
                                                                     bandName, 
-                                                                    channelNmaes[i])
-                featuresRow.extend(featRow); FeaturesName.extend(featName)
+                                                                    channelNames[i],
+                                                                    psdType="adjusted")
+                featuresRow.extend([RelFeatRow, AbsFeatRow]); FeaturesName.extend([RelFeatName, AbsFeatName]) 
+                # original psd
+                RelFeatRow, RelFeatName, AbsFeatRow, AbsFeatName = Features.individulizedPower(psds[i, :], 
+                                                                    totalPowerFlattened, 
+                                                                    dominant_peak, 
+                                                                    freqs, 
+                                                                    bandSubRanges, 
+                                                                    nanFlag, 
+                                                                    bandName, 
+                                                                    channelNames[i],
+                                                                    psdType="original psd")
+                featuresRow.extend([RelFeatRow, AbsFeatRow]); FeaturesName.extend([RelFeatName, AbsFeatName]) 
+                #============================================================================================
 
-        #     #============================================================================================
 
-    if len(FeaturesName) == 7650:
-        with open("data/features/featuresNames.json", "w") as file:
-            FeaturesName.insert(0, "participant_id")
-            json.dump(FeaturesName, file)
     
     featuresRow.insert(0, subjectId)
-    return featuresRow
+    return featuresRow, FeaturesName
 
 
 
@@ -138,10 +183,10 @@ if __name__ == "__main__":
             try: pickle.load(fooofFile) ; counter += 1
             except: break
 
-    
+
     dataPaths = glob.glob(args.rawMegData)
     raw = mne.io.read_raw_fif(dataPaths[0]).pick(picks="meg")
-    channelNmaes = raw.info['ch_names']
+    channelNames = raw.info['ch_names']
     
     if not args.leastR2 : args.leastR2 = config.leastR2
     
@@ -157,14 +202,20 @@ if __name__ == "__main__":
                 print(f"The fooof model for the subject: {subjectId} is overfitted")
                 continue
 
-            featureSet = featureEx(subjectId,
+            featureSet, FeaturesName = featureEx(subjectId,
                                     fmGroup,
                                     psds,
                                     freqs,
                                     config.freqBands,
                                     args.leastR2,
-                                    channelNmaes,
+                                    channelNames,
                                     config.bandSubRanges)
+            
+            
+            if len(FeaturesName) == 4998:
+                with open("data/features/featuresNames.json", "w") as file:
+                    FeaturesName.insert(0, "participant_id")
+                    json.dump(FeaturesName, file)            
 
             
             saveFeatures(args.savePath, featureSet)

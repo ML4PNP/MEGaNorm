@@ -388,95 +388,25 @@ def normalize(x):
 
 class Features:
 
-    @staticmethod
-    def fmFeaturesContainer(lenCh, freqBands):
-            """
-            This function returns a dictionary which can be used
-            to store features in a matrix
-            
-            parameters:
-            --------------
-            lenCh: int
-            number of channels
-
-            freqBands: dictionary
-            cancical frequency bands and their corresponding range
-
-            return
-            ------------
-            fearures: dictionary
-            """
-
-            # Initialize a dictionary to hold the dominant peak frequency for each band and channel
-            features = {'dominant_peak_freqs':
-                            {band: np.zeros((lenCh,)) for band in freqBands},
-                        'dominant_peak_power':
-                            {band: np.zeros((lenCh,)) for band in freqBands},
-                        'dominant_peak_width':
-                            {band: np.zeros((lenCh,)) for band in freqBands},
-                        'offset': 
-                            np.zeros((lenCh,)), 'exponent': np.zeros((lenCh,)),
-                        'canonical_band_power':
-                            {band: np.zeros((lenCh,)) for band in list(freqBands.keys())[:-1]},
-                        'individualized_band_power':
-                        {band: np.zeros((lenCh,)) for band in list(freqBands.keys())[:-1]}, # -1 because of Broadband
-                }
-            return features
-    
 
     @staticmethod
-    def apperiodicFeatures(fm, channelNmaes):
+    def apperiodicFeatures(fm, channelNames):
         """
-        This function returns aperiodic features and
-        their name
+        returns aperiodic features (exponent and offset) and their names
         """
         featRow, featName = [], []
 
-        featRow.append(fm.get_params("aperiodic_params")[0])
-        featRow.append(fm.get_params("aperiodic_params")[1])
-
-        featName.extend([f"offset - {channelNmaes}", f"exponent - {channelNmaes}"])
-
-        return featRow, featName
-    
-
-
-    @staticmethod
-    def flatPeriodic(fm, psd):
-        """
-        this function isolate periodic parts of signal
-        through subtracting aperiodic fit from original psds
-        """
-        return psd - 10**fm._ap_fit 
-    
-
-
-    @staticmethod
-    def canonicalBandPower(flattenedPSD, freqs, fmin, fmax, channelNmaes, bandName):
-        """
-        This function integrates power for a specific frequency
-        band.
-        """
-
-        totalPowerFlattened = np.trapz(flattenedPSD, freqs)
-
-        # Find indices of frequencies within the current band
-        bandIndices = np.logical_and(freqs >= fmin, freqs <= fmax)
-        
-        # Integrate the power within the band on the flattened spectrum
-        bandPowerFlattened = np.trapz(flattenedPSD[bandIndices], freqs[bandIndices])
-        
-        # Compute the average relative power for the band on the flattened spectrum
-        featRow = bandPowerFlattened / totalPowerFlattened
-        featName = f"integrated power for {bandName} of {channelNmaes}"
+        # feature value
+        featRow.extend([fm.get_params("aperiodic_params")[0], fm.get_params("aperiodic_params")[1]])
+        # add feature name
+        featName.extend([f"offset - {channelNames}", f"exponent - {channelNames}"])
 
         return featRow, featName
-    
 
 
     
     @staticmethod
-    def peakParameters(fm, freqs, fmin, fmax, channelNmaes, bandName):
+    def peakParameters(fm, freqs, fmin, fmax, channelNames, bandName):
         """
         This function returns peak parmaters:
         1. Dominant peak frequency
@@ -493,7 +423,6 @@ class Features:
                     fm.get_params('peak_params') if np.any(peak == peak)]
 
         band_peaks = [peak for peak in band_peaks if fmin <= peak[0] <= fmax]
-        # if bandName == "Theta": print(fm.get_params('peak_params'))
         
         # If there are peaks within this band, find the one with the highest amplitude
         if band_peaks:
@@ -502,16 +431,16 @@ class Features:
             
             # frequency, power and width of dominant peak
             featRow.extend([dominant_peak[0], dominant_peak[1] , dominant_peak[2]])   
-            featName.extend([f"frequency of dominant peak {bandName} {channelNmaes}", 
-                                f"power of dominant peak {bandName} {channelNmaes}" , 
-                                f"width of dominant peak {bandName} {channelNmaes}"])
+            featName.extend([f"(1) frequency of dominant peak - {bandName} - {channelNames}", 
+                                f"(2) power of dominant peak - {bandName} - {channelNames}" , 
+                                f"(3) width of dominant peak - {bandName} - {channelNames}"])
         
         # in case there is no peak for a certain frequency band
         else:
             featRow.extend([np.nan, np.nan, np.nan])   
-            featName.extend([f"frequency of dominant peak {bandName} {channelNmaes}", 
-                                f"power of dominant peak {bandName} {channelNmaes}" , 
-                                f"width of dominant peak {bandName} {channelNmaes}"])  
+            featName.extend([f"(1) frequency of dominant peak - {bandName} - {channelNames}", 
+                                f"(2) power of dominant peak - {bandName} - {channelNames}" , 
+                                f"(3) width of dominant peak - {bandName} - {channelNames}"])  
             dominant_peak = np.nan                 
                 
 
@@ -524,14 +453,49 @@ class Features:
     
 
 
+    @staticmethod
+    def flatPeriodic(fm, psd):
+        """
+        this function isolate periodic parts of signal
+        through subtracting aperiodic fit from original psds
+        """
+        return psd - 10**fm._ap_fit 
+    
+
 
     @staticmethod
-    def individulizedBandPower(flattenedPsd, total_power_flattened, dominant_peak, freqs, bandSubRanges, nanFlag, bandName, channelNmaes):
+    def canonicalPower(flattenedPSD, freqs, fmin, fmax, channelNames, bandName, psdType):
+        """
+        calculate adjusted (isolated periodic data) relative and absolute 
+        power for canonical band powers.
+        """
+
+        totalPowerFlattened = np.trapz(flattenedPSD, freqs)
+
+        # Find indices of frequencies within the current band
+        bandIndices = np.logical_and(freqs >= fmin, freqs <= fmax)
+        
+        # Integrate the power within the band on the flattened spectrum
+        bandPowerFlattened = np.trapz(flattenedPSD[bandIndices], freqs[bandIndices])
+        
+        # Compute the average relative power for the band on the flattened spectrum
+        RelFeatRow = bandPowerFlattened / totalPowerFlattened
+        RelFeatName = f"(4) Canonical Relative Power - {bandName} - {channelNames} ({psdType})"
+        # Compute the average absolute power for the band on the flattened spectrum
+        AbsFeatRow = np.log10(np.abs(bandPowerFlattened))
+        AbsFeatName = f"(5) Canonical Absolute Power - {bandName} - {channelNames} ({psdType})"
+
+        return RelFeatRow, RelFeatName, AbsFeatRow, AbsFeatName
+    
+    
+
+    @staticmethod
+    def individulizedPower(flattenedPsd, total_power_flattened, dominant_peak, freqs, bandSubRanges, nanFlag, bandName, channelNames, psdType):
         """
         This function calculates total power for individualized 
         frequency range
         """
-        featRow, featName = [], []
+        
         if nanFlag == False: 
             # Define the range around the peak frequency and Find indices of frequencies within this range
             peak_range_indices = np.logical_and(freqs >= dominant_peak[0] + bandSubRanges[bandName][0], 
@@ -542,14 +506,26 @@ class Features:
             avg_power = np.trapz(flattenedPsd[peak_range_indices], freqs[peak_range_indices])
         
             # Compute the average relative power for the band on the flattened spectrum
-            featRow.append(avg_power / total_power_flattened) ; featName.append(f"Individualized power for {bandName} of {channelNmaes}")
+            RelFeatRow = avg_power / total_power_flattened ; RelFeatName = f"Individualized Relative Power - {bandName} - {channelNames} ({psdType})"
+
+            # Compute the average absolute power for the band on the flattened spectrum
+            AbsFeatRow = np.log10(abs(avg_power)) ; AbsFeatName = f"Individualized Absolute Power - {bandName} - {channelNames} ({psdType})" 
 
 
         else:
-            featRow.append(np.nan) ; featName.append(f"Individualized power for {bandName} of {channelNmaes}")
+            RelFeatRow = np.nan ; RelFeatName = f"(6) Individualized Relative Power - {bandName} - {channelNames} ({psdType})"
+            AbsFeatRow = np.nan ; AbsFeatName = f"(7) Individualized Absolute Power - {bandName} - {channelNames} ({psdType})"
 
-        return featRow, featName
+        return RelFeatRow, RelFeatName, AbsFeatRow, AbsFeatName
     
+
+
+
+
+    
+
+
+
 
 
     @staticmethod

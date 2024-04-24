@@ -59,14 +59,19 @@ class AutoICA:
         data: mne.raw
         meg data
 
-        phisNoise: array
-        either ECG or 
         
         n_components:int - float
         ICA n_components
 
         max_iter: int
         maximum number of iteration
+
+        IcaMethod: str
+        ICA method
+
+        cutoffFreq: list
+        cutoff frequency for filtering data before feeding it to ICA.
+        Note: this function does not filter data in place
 
         return
         -----------
@@ -85,10 +90,8 @@ class AutoICA:
         phisNoise = data.copy().pick(picks=["eog", "ecg"])
         phisNoise.resample(200, verbose=False, n_jobs=-1)
         phisNoise.filter(cutoffFreq[0], cutoffFreq[1], picks=["eog", "ecg"], 
-                         verbose=False, n_jobs=-1) 
+                        verbose=False, n_jobs=-1) 
         ecg, eogV, eogH = phisNoise.get_data()
-
-
 
         # ICA
         ica = mne.preprocessing.ICA(n_components=n_components,
