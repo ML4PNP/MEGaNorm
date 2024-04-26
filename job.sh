@@ -14,8 +14,6 @@ fi
 conda activate mne
 
 
-# preprocess
-python preprocess.py dir /home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif subIdPosition -1
+# parallel coputation
+python preprocess.py dir /home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC410226/mf2pt2_sub-CC410226_ses-rest_task-rest_megtransdef.fif saveDir data/parallelData
 
-# fooofAnalysis
-# python fooofAnalysis.py  basPath data/icaPreprocessed/*.fif subIdPosition -1 savePath data/fooofResults/fooofModels.pkl

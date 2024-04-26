@@ -15,13 +15,45 @@ warnings.filterwarnings('ignore')
 
 
 
-def preprocess(subjectPath:str, subIdPosition:int, targetFS:int, n_component:int,
-        maxIter:int, IcaMethod:str, cutoffFreqLow:float, cutoffFreqHigh:float):
+def preprocess(subjectPath:str, targetFS:int, n_component:int,
+        maxIter:int, IcaMethod:str, cutoffFreqLow:float, cutoffFreqHigh:float) -> None:
     """
-    This function perprocess MEG signal.
+    Apply preprocessing pipeline (ICA and downsampling) on MEG signals.
+
+    parameters
+    -----------
+    subjectPath: str
+    MEG signal path
+
+    subIdPosition:int
+    indicates which part of the subjectPath contain subject ID.
+
+    targetFS: int
+    MEG signals are resampled to this sampling rate
+
+    n_component: float
+    numper of component in ICA
+
+    maxIter: int
+    maximum number of iteration in ICA
+
+    IcaMethod: str
+    ICA method
+    choices : ["fastica", "picard", "infomax"]
+
+    cutoffFreqLow: int
+    lower limit of cutoff frequency in FIR bandpass filter
+
+    cutoffFreqHigh
+    higher limit of cutoff frequency in FIR bandpass filter
+
+    returns
+    --------------
+    None
+
     """
     
-    subID = subjectPath.split("/")[subIdPosition]
+    
 
     # read the data
     data = mne.io.read_raw_fif(subjectPath,
@@ -39,20 +71,20 @@ def preprocess(subjectPath:str, subIdPosition:int, targetFS:int, n_component:int
 
     # downsample & band pass filter
     data.resample(targetFS, verbose=False, n_jobs=-1) ; data.filter(1, 100, n_jobs=-1, verbose=False)
-    print(data.get_data().shape)
 
-    # data.save(f'/home/zamanzad/trial1/data/icaPreprocessed/{subID}.fif', overwrite=True)
+    return data
+
+    
 
     
     
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    # positional Arguments 
+    # positional Arguments (remove --)
     parser.add_argument("--dir", 
             help="Address to your data")
-    parser.add_argument("--subIdPosition",
-            help="where subject IDs are positioned in paths")
+
 
     # optional arguments
     parser.add_argument("--targetFS", type=int,
@@ -86,13 +118,17 @@ if __name__ == "__main__":
     dataPaths = glob(args.dir)
     # loop over all of data 
     for count, subjectPath in enumerate(tqdm.tqdm(dataPaths[:])):
-        preprocess(subjectPath,
-            args.subIdPosition,
-            args.targetFS,
-            args.n_component,
-            args.maxIter,
-            args.IcaMethod,
-            args.cutoffFreqLow,
-            args.cutoffFreqHigh)
+
+        subID = subjectPath.split("/")[-1] 
+
+        filteredData = preprocess(subjectPath,
+                                args.targetFS,
+                                args.n_component,
+                                args.maxIter,
+                                args.IcaMethod,
+                                args.cutoffFreqLow,
+                                args.cutoffFreqHigh)
+        
+        filteredData.save(f'/home/zamanzad/trial1/data/icaPreprocessed/{subID}.fif', overwrite=True)
         
 

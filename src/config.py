@@ -47,7 +47,7 @@ freqBands = {
 # Define individualized frequency range over main peaks in each freq band
 bandSubRanges = {
     'Theta': (-1, 1),
-    'Alpha': (-2, 4),
+    'Alpha': (-4, 2), # change to (-4,2)
     'Beta': (-5, 5),
     'Gamma': (-5, 5),
 }
@@ -86,12 +86,19 @@ channels_spatial_layouts = {'MAG_frontal_left':['MEG0121', 'MEG0341','MEG0311','
 
 
 featuresCategories = ["offset", # 1
-                      "exponent", # 1
-                      "integrated power", # 4
-                      "frequency of dominant peak", # 5
-                      "power of dominant peak", # 5
-                      "width of dominant peak", # 5
-                      "Individualized power",   # 4
+                     "exponent", # 1
+                      "frequency of dominant peak", # 5,
+                      "power of dominant peak", # 5,
+                      "width of dominant peak", # 5,
+                      "Canonical Relative Power",
+                      "Canonical Absolute Power",
+                      "Individualized Relative Power ",
+                      "Individualized Absolute Power",
+
+                                # "Individualized power",   # 4
+
+                                # "integrated power", # 4
+                                # "frequency of dominant peak", # 5
                       ]
 
 

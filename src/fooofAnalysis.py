@@ -19,24 +19,45 @@ warnings.filterwarnings('ignore')
 
 
 
-def fooof(dataPaths, savePath, freqRangeLow, freqRangeHigh, min_peak_height,
+def fooof(data, freqRangeLow, freqRangeHigh, min_peak_height,
         peak_threshold, fs, tmin, tmax, segmentsLength, overlap, psdMethod,
         psd_n_overlap, psd_n_fft) -> None: 
     """
-    This function will do the following steps
-    1. 
+    following steps are included in this function
+    1. data segmentation
+    2. croping data (using tmin and tmax)
+    3. interpolate bad segments
+    4. calculate power spectrum
+    5. apply fooof algorithm to parametrize neural spectrum
+
+    parameters
+    -----------
+    dataPaths: str
+    data address
+
+    save_path: str
+    where to save data
+
+    freqRangeLow: float
+    Desired frequency range to run FOOOF
+
+    freqRangeHigh: float
+    Desired frequency range to run FOOOF
+
+
+
+
+
+
+    returns
+    ------------
+    None
     """
 
     if freqRangeLow > 45:
         raise Exception("You Need to implement a notch filter for power line noise")
 
 
-    subjId = subjPath.split("/")[-1][:-4]
-
-    # read the data
-    data = mne.io.read_raw_fif(subjPath,
-                            preload=True,
-                            verbose=False).pick(picks=["meg"])
     
     # We exclude 20s from both begining and end of signals 
     # since participants usually open and close their eyes
@@ -65,13 +86,8 @@ def fooof(dataPaths, savePath, freqRangeLow, freqRangeHigh, min_peak_height,
                                                         psd_n_overlap,
                                                         psd_n_fft)
 
-    # # save the results
-    # storeFooofModels(savePath, 
-    #                 subjId, 
-    #                 fooofModels,
-    #                 psds,
-    #                 freqs)
-    print(30*"-")
+
+    return fooofModels, psds, freqs
             
 
         
@@ -83,13 +99,13 @@ if __name__ == "__main__":
 
     # positional arguments (remember to delete --) TODO
     parser.add_argument("--dir", help="Address to your data")
-    parser.add_argument("--subIdPosition",
-            help="where subject IDs are positioned in paths")
-    parser.add_argument("--savePath",
-            help="where to save results")
+    
 
+
+    
     # optional arguments
     # fooof
+
     parser.add_argument("--freqRangeLow", type=float,
                 help="Desired frequency range to run FOOOF (lower limit)")
     parser.add_argument("--freqRangeHigh", type=float,
@@ -139,34 +155,42 @@ if __name__ == "__main__":
 
     # remove
     args.dir = "data/icaPreprocessed/*.fif"
-    args.subIdPosition = -1
     args.savePath = "data/fooofResults/fooofModels.pkl"
-
     dataPaths = glob(args.dir)
 
     for count, subjPath in enumerate(tqdm(dataPaths[:])):
-        subjId = subjPath.split("/")[args.subIdPosition][:-4] # -1
+
+        subjId = subjPath.split("/")[-1][:-4] # -1
+        # read the data
+        data = mne.io.read_raw_fif(subjPath,
+                                preload=True,
+                                verbose=False).pick(picks=["mag"])
 
         # parametrizing neural spectrum and saving the res
-        fooof(subjPath,
-        args.savePath,
-        args.freqRangeLow,
-        args.freqRangeHigh,
-        args.min_peak_height,
-        args.peak_threshold,
-        args.fs,
-        args.tmin,
-        args.tmax,
-        args.segmentsLength,
-        args.overlap,
-        args.psdMethod,
-        args.psd_n_overlap,
-        args.psd_n_fft)
+        fooofModels, psds, freqs = fooof(data = data,
+                                        freqRangeLow = args.freqRangeLow,
+                                        freqRangeHigh = args.freqRangeHigh,
+                                        min_peak_height = args.min_peak_height,
+                                        peak_threshold = args.peak_threshold,
+                                        fs = args.fs,
+                                        tmin = args.tmin,
+                                        tmax = args.tmax,
+                                        segmentsLength = args.segmentsLength,
+                                        overlap = args.overlap,
+                                        psdMethod = args.psdMethod,
+                                        psd_n_overlap = args.psd_n_overlap,
+                                        psd_n_fft = args.psd_n_fft)
         
 
+            # save the results
+        storeFooofModels(args.savePath, 
+                        subjId, 
+                        fooofModels,
+                        psds,
+                        freqs)
 
      
-        
+
 
 
 

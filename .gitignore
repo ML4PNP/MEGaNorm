@@ -5,3 +5,10 @@ log.txt
 slurm-9429.out
 slurm-9439.out
 test.py
+.vscode
+logs
+pictures
+slurm-9591.out
+__pycache__
+config
+src/__pycache__
