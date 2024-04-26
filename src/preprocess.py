@@ -1,11 +1,8 @@
-import ast
+
 import mne
-import json
 import tqdm
 import argparse
-import numpy as np
 from glob import glob
-import matplotlib.pyplot as plt
 from preprocessUtils import AutoICA
 
 import config

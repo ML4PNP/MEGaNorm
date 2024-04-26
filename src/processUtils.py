@@ -1,11 +1,10 @@
 from fooof.plts.annotate import plot_annotated_model
-from sklearn import preprocessing
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import fooof as f
 import json
-import mne
+
 
 
 

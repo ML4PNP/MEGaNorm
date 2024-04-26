@@ -1,17 +1,14 @@
 import mne
-import h5py
 import glob
 import tqdm
-import fooof
 import json
 import pickle
 import argparse
-import itertools
 import numpy as np
-import matplotlib.pyplot as plt
 
-from dataManagementUtils import readFooofres, subjectList, saveFeatures
-from processUtils import Features, isNan
+
+from dataManagementUtils import saveFeatures
+from processUtils import Features
 import config
 
 

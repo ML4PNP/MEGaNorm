@@ -1,7 +1,6 @@
-import fooof as f
+
 import pickle
 import tqdm
-import numpy as np
 import matplotlib.pyplot as plt
 
 dir = "data/fooofResults/fooofModels.pkl"

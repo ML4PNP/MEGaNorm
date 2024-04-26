@@ -1,16 +1,14 @@
-import ast
+
 import mne
-import h5py
 import argparse
-import fooof as f
 import numpy as np
 from tqdm import tqdm
 from glob import glob
-import matplotlib.pyplot as plt
+
 
 import config
-from processUtils import neuralParameterize, isNan
-from dataManagementUtils import storeFooofModels, logFunc
+from processUtils import neuralParameterize
+from dataManagementUtils import storeFooofModels
 
 
 import warnings

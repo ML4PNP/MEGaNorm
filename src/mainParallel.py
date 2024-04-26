@@ -1,6 +1,5 @@
 
 import numpy as np
-import pandas as pd
 import argparse
 import config
 import json
@@ -16,10 +15,10 @@ from dataManagementUtils import saveFeatures
 
 
 parser = argparse.ArgumentParser()
-# positional Arguments (remove --)
-parser.add_argument("--dir", 
+# positional Arguments 
+parser.add_argument("dir", 
         help="Address to your data")
-parser.add_argument("--saveDir", type=str,
+parser.add_argument("saveDir", type=str,
         help="where to save extracted features")
 
 
@@ -109,8 +108,8 @@ if not args.leastR2 : args.leastR2 = config.leastR2
 
 
 # args.dir = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/*/*.fif"
-args.dir = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC410226/mf2pt2_sub-CC410226_ses-rest_task-rest_megtransdef.fif"
-args.saveDir = "data/parallelData"
+# args.dir = "/home/smkia/Data/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC410226/mf2pt2_sub-CC410226_ses-rest_task-rest_megtransdef.fif"
+# args.saveDir = "data/parallelData"
 
 # subject ID
 subID = args.dir.split("/")[-2]
