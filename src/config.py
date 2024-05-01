@@ -1,23 +1,23 @@
 
 # preprocess configurations =================================================
 # downsample data
-targetFS = 500
+targetFS = 1000
 
 # ICA configuration
 n_component = 30
 maxIter = 800
 IcaMethod = "fastica"
-cutoffFreqLow, cutoffFreqHigh = [1, 40]
+cutoffFreqLow, cutoffFreqHigh = [1, 45]
 
 
 # fooof analysis configurations ==============================================
 # Desired frequency range to run FOOOF
 freqRangeLow, freqRangeHigh = [3, 40]
 # sampling rate
-fs = 500
-#start time of the raw data to use in seconds
+fs = targetFS
+#start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
 tmin = 20
-# end time of the raw data to use in seconds
+# end time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
 tmax = -20
 # length of MEG segments in seconds
 segmentsLength = 10
@@ -47,8 +47,8 @@ freqBands = {
 # Define individualized frequency range over main peaks in each freq band
 bandSubRanges = {
     'Theta': (-1, 1),
-    'Alpha': (-4, 2), # change to (-4,2)
-    'Beta': (-5, 5),
+    'Alpha': (-2, 3), # change to (-4,2)
+    'Beta': (-7, 7),
     'Gamma': (-5, 5),
 }
 
