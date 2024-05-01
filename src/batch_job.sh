@@ -9,8 +9,7 @@
 
 source=$1
 target=$2
-subject=$3
 
 source activate mne 
 
-srun --job-name=$subject python ./src/mainParallel.py $source $target
+srun python ./src/mainParallel.py $source $target

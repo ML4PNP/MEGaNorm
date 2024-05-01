@@ -45,3 +45,4 @@ def check_user_jobs(username, start_time):
     except Exception as e:
         print("An error occurred while checking the job status:", str(e))
         return
+    
