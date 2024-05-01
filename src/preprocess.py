@@ -56,8 +56,13 @@ def preprocess(subjectPath:str, targetFS:int, n_component:int,
     data = mne.io.read_raw_fif(subjectPath,
                                verbose=False,
                                preload=True)
+    
+    # downsample & band pass filter
+    data.resample(targetFS, verbose=False, n_jobs=-1)
+    data.filter(cutoffFreqLow, cutoffFreqHigh, n_jobs=-1, verbose=False)
 
     # apply automated ICA
+    ## TODO: Separate the early preprocessing (Resampling, filtering from Auto-ICA) for more clarity and better control
     ica = AutoICA.autoICA(data, 
                           n_components=n_component, # FLUX default
                           max_iter=maxIter, # FLUX default,
@@ -65,9 +70,6 @@ def preprocess(subjectPath:str, targetFS:int, n_component:int,
                           cutoffFreq=[cutoffFreqLow, cutoffFreqHigh],
                           plot=True)
     ica.apply(data, verbose=False)
-
-    # downsample & band pass filter
-    data.resample(targetFS, verbose=False, n_jobs=-1) ; data.filter(1, 100, n_jobs=-1, verbose=False)
 
     return data
 

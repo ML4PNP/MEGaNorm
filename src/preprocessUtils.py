@@ -82,15 +82,15 @@ class AutoICA:
 
         # downsampling data ==> fewer computation
         megResFil = data.copy().pick(picks=["meg"])
-        megResFil.resample(200, verbose=False, n_jobs=-1)
-        megResFil.filter(cutoffFreq[0], cutoffFreq[1], verbose=False, n_jobs=-1) 
+        #megResFil.resample(200, verbose=False, n_jobs=-1) # Better to not resample!
+        megResFil.filter(cutoffFreq[0], cutoffFreq[1], verbose=False, n_jobs=-1) # Not sure if it is necessary
 
 
         # Extracting EOGs and ECG channels
         phisNoise = data.copy().pick(picks=["eog", "ecg"])
-        phisNoise.resample(200, verbose=False, n_jobs=-1)
+        #phisNoise.resample(200, verbose=False, n_jobs=-1) # Better to not resample!
         phisNoise.filter(cutoffFreq[0], cutoffFreq[1], picks=["eog", "ecg"], 
-                        verbose=False, n_jobs=-1) 
+                        verbose=False, n_jobs=-1) # Not sure if it is necessary
         ecg, eogV, eogH = phisNoise.get_data()
 
         # ICA
