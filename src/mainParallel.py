@@ -49,8 +49,8 @@ def mainParallel(*args):
                                 cutoffFreqHigh = configs['cutoffFreqHigh'])
 
         # fooof analysis ====================================================================
-        filteredData = filteredData.pick(picks=["mag"]) ### TODO: This should be decided in the config file
-        fmGroup, psds, freqs = fooof(data = filteredData.pick(picks=["mag"]),
+        filteredData = filteredData.pick(picks=[configs['meg_sensors']]) # TODO: this should go to the preprocessing
+        fmGroup, psds, freqs = fooof(data = filteredData.pick(picks=[configs['meg_sensors']]),
                                         freqRangeLow = configs['freqRangeLow'],
                                         freqRangeHigh = configs['freqRangeHigh'],
                                         min_peak_height = configs['min_peak_height'],

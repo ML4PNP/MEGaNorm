@@ -7,6 +7,7 @@ def make_config(path=None):
     # downsample data
     config = dict()
     
+    config['meg_sensors'] = 'mag' # 'all' 'mag' 'grad'
     config['targetFS'] = 1000
 
     # ICA configuration
