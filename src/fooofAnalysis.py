@@ -16,10 +16,10 @@ warnings.filterwarnings('ignore')
 
 
 
-## TODO: Separate functions for epoching anf fooof
-def fooof(data, freqRangeLow, freqRangeHigh, min_peak_height,
-        peak_threshold, fs, tmin, tmax, segmentsLength, overlap, psdMethod,
-        psd_n_overlap, psd_n_fft) -> None: 
+## TODO: Separate functions for epoching and fooof
+def fooof(data, freqRangeLow=3, freqRangeHigh=40, min_peak_height=0,
+        peak_threshold=2, fs=1000, tmin=20, tmax=-20, segmentsLength=10, overlap=2,
+        psdMethod="welch", psd_n_overlap=1, psd_n_fft=2) -> None: 
     """
     following steps are included in this function
     1. data segmentation

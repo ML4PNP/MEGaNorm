@@ -12,8 +12,9 @@ warnings.filterwarnings('ignore')
 
 
 
-def preprocess(subjectPath:str, targetFS:int, n_component:int,
-        maxIter:int, IcaMethod:str, cutoffFreqLow:float, cutoffFreqHigh:float) -> None:
+def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
+        maxIter:int=800, IcaMethod:str="fastica", cutoffFreqLow:float=1, 
+        cutoffFreqHigh:float=45) -> None:
     """
     Apply preprocessing pipeline (ICA and downsampling) on MEG signals.
 

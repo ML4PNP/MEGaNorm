@@ -83,9 +83,9 @@ def mainParallel(*args):
                                         psds = psds,
                                         freqs = freqs,
                                         freqBands = configs['freqBands'],
-                                        leastR2 = configs['leastR2'],
                                         channelNames = channelNames,
-                                        bandSubRanges = configs['bandSubRanges'])
+                                        bandSubRanges = configs['bandSubRanges'],
+                                        leastR2 = configs['leastR2'])
 
 
         if len(FeaturesName) == 4998:

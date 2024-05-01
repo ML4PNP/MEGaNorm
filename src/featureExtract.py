@@ -15,7 +15,7 @@ import config
 
 
 
-def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNames, bandSubRanges):
+def featureEx(subjectId, fmGroup, psds, freqs, freqBands, channelNames, bandSubRanges, leastR2=0.9):
     """
     extract features from fooof results
 
