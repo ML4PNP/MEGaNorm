@@ -58,7 +58,7 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, leastR2, channelNames,
         # getting the fooof model of ith channel
         fm = fmGroup.get_fooof(ind=i)
 
-        # if fooof model is overfitted => exclude the channel
+        # if fooof model is underfitted => exclude the channel
         if fm.r_squared_ < leastR2: 
             empty = np.empty(49)
             empty[:] = np.nan

@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore')
 
 
 
-
+## TODO: Separate functions for epoching anf fooof
 def fooof(data, freqRangeLow, freqRangeHigh, min_peak_height,
         peak_threshold, fs, tmin, tmax, segmentsLength, overlap, psdMethod,
         psd_n_overlap, psd_n_fft) -> None: 

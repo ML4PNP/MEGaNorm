@@ -17,7 +17,7 @@ class neuralParameterize():
     modeling both periodic and aperiodic parts of M/EEG signals
     """
 
-
+    ## TODO: Separate functions for computing PSDs and Fooof
     @staticmethod
     def fooofModeling(segments, freqRangeLow, freqRangeHigh, min_peak_height,
                      peak_threshold, fs, psdMethod, psd_n_overlap, psd_n_fft):
@@ -73,7 +73,7 @@ class neuralParameterize():
 
 
 
-
+## TODO: Remove?
     @staticmethod
     def fooofModeling2(segments, spectrumMethod, fs, freqRange=[1, 60]):
 
