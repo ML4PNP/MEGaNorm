@@ -93,7 +93,7 @@ def make_config(path=None):
                     }
 
 
-
+    ## TODO: Add _ to the feature names
     config['featuresCategories'] = ["offset", # 1
                         "exponent", # 1
                         "frequency of dominant peak", # 5,
