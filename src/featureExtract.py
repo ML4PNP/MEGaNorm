@@ -5,6 +5,7 @@ import json
 import pickle
 import argparse
 import numpy as np
+import pandas as pd
 
 
 from dataManagementUtils import saveFeatures
@@ -58,12 +59,13 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, channelNames, bandSubR
         # getting the fooof model of ith channel
         fm = fmGroup.get_fooof(ind=i)
 
+        #TODO: This should be domne in QC, not in the feature extraction
         # if fooof model is underfitted => exclude the channel
-        if fm.r_squared_ < leastR2: 
-            empty = np.empty(49)
-            empty[:] = np.nan
-            featuresRow.extend(empty.tolist())
-            continue
+        #if fm.r_squared_ < leastR2: 
+        #    empty = np.empty(49)
+        #    empty[:] = np.nan
+        #    featuresRow.extend(empty.tolist())
+        #    continue
 
         # # ################################# exponent and offset ##############################
         featRow, featName = Features.apperiodicFeatures(fm=fm, channelNames=channelNames[i])
@@ -143,8 +145,13 @@ def featureEx(subjectId, fmGroup, psds, freqs, freqBands, channelNames, bandSubR
 
 
     
-    featuresRow.insert(0, subjectId)
-    return featuresRow, FeaturesName
+    #featuresRow.insert(0, subjectId)
+    # TODO: Why the number of features is different from the length of gfeature names?!
+    features = pd.DataFrame(data = [featuresRow], 
+                      index = [subjectId]) 
+                      #TODO: this must be added once the above problem is solved #columns = FeaturesName)
+    
+    return features
 
 
 

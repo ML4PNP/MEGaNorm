@@ -74,11 +74,12 @@ def mainParallel(*args):
         # feature extraction ==================================================================
         channelNames = filteredData.info['ch_names']
 
-        if np.quantile(fmGroup.get_params(name="r_squared"), 0.25) < 0.9 : 
-                print(f"The fooof model for the subject: {subID} is overfitted")
-                raise Exception
+        # TODO: Save the r-squeres and compute the features anyway, we will remove them from features later
+        #if np.quantile(fmGroup.get_params(name="r_squared"), 0.25) < 0.9 : 
+        #        print(f"The fooof model for the subject: {subID} is overfitted")
+        #        raise Exception
 
-        featureSet, FeaturesName = featureEx(subjectId = subID,
+        features = featureEx(subjectId = subID,
                                         fmGroup = fmGroup,
                                         psds = psds,
                                         freqs = freqs,
@@ -88,13 +89,14 @@ def mainParallel(*args):
                                         leastR2 = configs['leastR2'])
 
 
-        if len(FeaturesName) == 4998:
-                with open(os.path.join(args.saveDir, "featuresNames.json"), "w") as file:
-                        FeaturesName.insert(0, "participant_id")
-                        json.dump(FeaturesName, file)
+        #if len(FeaturesName) == 4998: # TODO: What is 4998?! Why 4998? 
+        #        with open(os.path.join(args.saveDir, "featuresNames.json"), "w") as file:
+        #                FeaturesName.insert(0, "participant_id")
+        #                json.dump(FeaturesName, file)
 
-        saveFeatures(os.path.join(args.saveDir, f"{subID}.csv"), featureSet)
-   
+        #saveFeatures(os.path.join(args.saveDir, f"{subID}.csv"), featureSet)
+        
+        features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 
 if __name__ == "__main__":
              
