@@ -26,11 +26,12 @@ def progress_bar(current, total, bar_length=20):
         print()  # Move to the next line when progress is complete.
 
 
-def submit_jobs(data_path, subjects, temp_path, progress=False):
+def submit_jobs(batch_file, data_path, subjects, temp_path, progress=False):
  
     """ Submits jobs for each subject to the Slurm cluster.
 
     Args:
+        batch_file (string): address tot he batch bash fike to execute.
         data_path (string): Path to the data folder containing subjects.
         subjects (string): subject name.
         temp_path (string): Path for saving temporary files.
@@ -40,12 +41,15 @@ def submit_jobs(data_path, subjects, temp_path, progress=False):
         string: The start time for the batch job submission.
     """
     
+    if not os.path.isdir(temp_path):
+        os.makedirs(temp_path)
+    
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects):
         fname = os.path.join(data_path, subject, 'mf2pt2_' + subject + '_ses-rest_task-rest_megtransdef.fif')
         if os.path.isfile(fname):
-            subprocess.check_call("sbatch --job-name=%s ./src/batch_job.sh %s %s" % (subject, fname, temp_path), 
+            subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
                                   shell=True)
         else:
             print('File does not exist!')
@@ -154,6 +158,9 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
         file_name (str, optional): The file name for the collected results. Defaults to 'features'.
         clean (bool, optional): Whether to clean the temporary files or not. Defaults to True.
     """
+    
+    if not os.path.isdir(target_dir):
+        os.makedirs(target_dir)
     
     all_features = []
     for subject in subjects:
