@@ -1,18 +1,20 @@
 import os
 import time
+import shutil
 import subprocess
 from datetime import datetime
 import pandas as pd
 
 def progress_bar(current, total, bar_length=20):
-    """
-    Displays or updates a console progress bar.
+    
+    """Displays or updates a console progress bar.
 
     Args:
-    current (int): Current progress (must be between 0 and total).
-    total (int): Total steps for complete progress.
-    bar_length (int): Character length of the bar.
-    """
+        current (int): Current progress (must be between 0 and total).
+        total (int): Total steps for complete progress.
+        bar_length (int, optional): Character length of the bar. Defaults to 20.
+    """    
+    
     fraction = current / total
     arrow = int(fraction * bar_length - 1) * '>' + '>'
     padding = (bar_length - len(arrow)) * ' '
@@ -24,7 +26,19 @@ def progress_bar(current, total, bar_length=20):
         print()  # Move to the next line when progress is complete.
 
 
-def submit_jobs(data_path, subjects, temp_path):
+def submit_jobs(data_path, subjects, temp_path, progress=False):
+ 
+    """ Submits jobs for each subject to the Slurm cluster.
+
+    Args:
+        data_path (string): Path to the data folder containing subjects.
+        subjects (string): subject name.
+        temp_path (string): Path for saving temporary files.
+        progress (bool, optional): Show the progress bar or not. Defaults to False.
+
+    Returns:
+        string: The start time for the batch job submission.
+    """
     
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -35,13 +49,25 @@ def submit_jobs(data_path, subjects, temp_path):
                                   shell=True)
         else:
             print('File does not exist!')
-    
-        progress_bar(s, len(subjects))
+        
+        if progress:
+            progress_bar(s, len(subjects))
     
     return start_time
 
 
-def check_jobs_status(username, start_time, delay = 20):
+def check_jobs_status(username, start_time, delay=20):
+    
+    """ Checks the status of submitted jobs.
+
+    Args:
+        username (string): Slurm username.
+        start_time (string): The start time for the batch job submission (see submit_jobs).
+        delay (int, optional): The delay in seconds for checks. Defaults to 20.
+
+    Returns:
+        list: List of failed job names.
+    """
     
     n = 1
     while n > 0: 
@@ -60,6 +86,18 @@ def check_jobs_status(username, start_time, delay = 20):
 
 
 def check_user_jobs(username, start_time):
+    
+    """_ Utility function for counting the jobs with different stata.
+
+    Args:
+        username (string): Slurm username.
+        start_time (string): The start time for the batch job submission (see submit_jobs).
+
+    Returns:
+        status_counts (dict): Dictionary of different job stata counts
+        failed_jobs (list): list of failed jobs.
+    """
+    
     try:
         # Format the current datetime to match Slurm's expected format
         end_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -105,11 +143,23 @@ def check_user_jobs(username, start_time):
         return
     
     
-def collect_results(target_dir, subjects, temp_path, file_name='features'):
+def collect_results(target_dir, subjects, temp_path, file_name='features', clean=True):
+    
+    """Collects and merges the resulst of all jobs.
+
+    Args:
+        target_dir (str): Target directory path to save the collected results.
+        subjects (list): List of subject names.
+        temp_path (str): Path to the temp directory.
+        file_name (str, optional): The file name for the collected results. Defaults to 'features'.
+        clean (bool, optional): Whether to clean the temporary files or not. Defaults to True.
+    """
     
     all_features = []
     for subject in subjects:
         all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
     features = pd.concat(all_features)
     features.to_csv(os.path.join(target_dir, file_name + '.csv'))
+    if clean:  
+        shutil.rmtree(temp_path)
     
