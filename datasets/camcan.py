@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
     
 
@@ -17,6 +18,7 @@ def load_covariates(path):
     df = df.rename(columns={'gender_code':'gender'})
     df.gender = df.gender - 1
     df.index.name = None
+    df['site'] = np.zeros([df.shape[0],1], dtype=int)
     
     return df
 
