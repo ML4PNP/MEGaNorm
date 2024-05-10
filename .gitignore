@@ -10,4 +10,4 @@ __pycache__
 config
 src/__pycache__
 utils/__pycache__
-tests.py
+test.py
