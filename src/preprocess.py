@@ -24,7 +24,7 @@ warnings.filterwarnings('ignore')
 
 def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
         maxIter:int=800, IcaMethod:str="fastica", cutoffFreqLow:float=1, 
-        cutoffFreqHigh:float=45, sensorType="meg") -> None:
+        cutoffFreqHigh:float=45, sensorType="meg"):
     """
     Apply preprocessing pipeline (ICA and downsampling) on MEG signals.
 
@@ -57,7 +57,7 @@ def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
 
     returns
     --------------
-    None
+    datamne raw data
 
     """
     
@@ -68,18 +68,20 @@ def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
                                verbose=False,
                                preload=True)
     
-    # downsample & band pass filter
+    # resample & band pass filter
     data.resample(targetFS, verbose=False, n_jobs=-1)
-    data.filter(cutoffFreqLow, cutoffFreqHigh, n_jobs=-1, verbose=False)
+    data.filter(l_freq=cutoffFreqLow, 
+				h_freq=cutoffFreqHigh, 
+                n_jobs=-1, 
+				verbose=False)
 
     # apply automated ICA
-    ica = autoICA(data, 
+    ica = autoICA(data=data, 
                 n_components=n_component, # FLUX default
                 max_iter=maxIter, # FLUX default,
                 IcaMethod = IcaMethod,
                 cutoffFreq=[cutoffFreqLow, cutoffFreqHigh],
-                plot=True)
-    ica.apply(data, verbose=False)
+                sensorType=sensorType)
 
     return data
 
@@ -114,14 +116,14 @@ if __name__ == "__main__":
 
 		subID = subjectPath.split("/")[-1] 
 
-		filteredData = preprocess(subjectPath,
-								configs["targetFS"],
-								configs["n_component"],
-								configs["maxIter"],
-								configs["IcaMethod"],
-								configs["cutoffFreqLow"],
-								configs["cutoffFreqHigh"],
-								config["sensorType"])
+		filteredData = preprocess(subjectPath=subjectPath,
+								targetFS=configs["targetFS"],
+								n_component=configs["n_component"],
+								maxIter=configs["maxIter"],
+								IcaMethod=configs["IcaMethod"],
+								cutoffFreqLow=configs["cutoffFreqLow"],
+								cutoffFreqHigh=configs["cutoffFreqHigh"],
+								sensorType=configs["sensorType"])
 		
 		filteredData.save(f'{args.saveDir}/{subID}.fif', overwrite=True)
 		

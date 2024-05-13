@@ -1,4 +1,6 @@
 
+import os
+import sys
 import json
 import mne
 import argparse
@@ -6,6 +8,10 @@ import numpy as np
 from tqdm import tqdm
 from glob import glob
 
+# Add utils folder to the system path
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+config_path = os.path.join(parent_dir, 'utils')
+sys.path.append(config_path)
 
 from IO import make_config, storeFooofModels
 from psdParameterizeUtils import parameterizePsd, computePsd
@@ -17,7 +23,7 @@ warnings.filterwarnings('ignore')
 
 
 
-def psdParameterize(data, freqRangeLow=3, freqRangeHigh=40, min_peak_height=0,
+def psdParameterize(segments, freqRangeLow=3, freqRangeHigh=40, min_peak_height=0,
         peak_threshold=2, fs=1000, psdMethod="welch", psd_n_overlap=1, 
         psd_n_fft=2, n_per_seg=2, peak_width_limits=[1, 12.0]) -> None: 
     """
@@ -51,7 +57,7 @@ def psdParameterize(data, freqRangeLow=3, freqRangeHigh=40, min_peak_height=0,
     if freqRangeLow > 45:
         raise Exception("You Need to implement a notch filter for power line noise")
 
-    psds, freqs = computePsd(data=data, 
+    psds, freqs = computePsd(segments=segments, 
                             freqRangeLow=freqRangeLow, 
                             freqRangeHigh=freqRangeHigh, 
                             fs=fs, 

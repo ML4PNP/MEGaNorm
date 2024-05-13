@@ -35,6 +35,8 @@ def findComponent(ica, data, phisNoise):
 
 
 
+
+
 def autoICA(data, n_components=30, max_iter=1000, IcaMethod="fastica", cutoffFreq=[1,40], sensorType="meg"):
 
     """
@@ -69,14 +71,11 @@ def autoICA(data, n_components=30, max_iter=1000, IcaMethod="fastica", cutoffFre
     final ica model
 
     """
-
-    # downsampling data ==> fewer computation
+    
     megResFil = data.copy().pick(picks=[sensorType])
 
-    # Extracting EOGs and ECG channels
+    # Extracting EOGs (both vertical and horizontal sensors) and ECG channels
     phisNoise = data.copy().pick(picks=["eog", "ecg"])
-    #phisNoise.resample(200, verbose=False, n_jobs=-1) # Better to not resample!
-
     ecg, eogV, eogH = phisNoise.get_data()
 
     # ICA
@@ -90,15 +89,20 @@ def autoICA(data, n_components=30, max_iter=1000, IcaMethod="fastica", cutoffFre
 
     # calculating bad ica components using automatic method
     badComponents = []
-    badComponents.append(findComponent(ica, megResFil, ecg))
-    badComponents.append(findComponent(ica, megResFil, eogV))
-    badComponents.append(findComponent(ica, megResFil, eogH))
+    badComponents.append(findComponent(ica=ica, data=megResFil, phisNoise=ecg))
+    badComponents.append(findComponent(ica=ica, data=megResFil, phisNoise=eogV))
+    badComponents.append(findComponent(ica=ica, data=megResFil, phisNoise=eogH))
 
     ica.exclude = badComponents.copy()
+    # ica.apply() changes the Raw object in-place
     ica.apply(megResFil, verbose=False)
 
-
     return megResFil
+
+
+
+
+
 
 
 

@@ -11,3 +11,6 @@ config
 src/__pycache__
 utils/__pycache__
 test.py
+dataTest
+src/test.py
+featureData.csv

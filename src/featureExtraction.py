@@ -67,7 +67,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
         # fooof fitness
         r_squared = fm.r_squared_ 
-        featuresRow.append(r_squared), FeaturesNames.append("r_squared")
+        featuresRow.append(r_squared); FeaturesNames.append("r_squared")
 
 
         #################################### exponent and offset ##############################
@@ -75,37 +75,35 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                             channelNames=channelNames[i], 
                                                             featureCategories=featureCategories)
         featuresRow.extend(featRow); FeaturesNames.extend(featName)
-        #===================================================================================== 
+        #====================================================================================== 
 
 
         # isolate periodic parts of signals
-        flattenedPsd = featureExtractionUtils.flatPeriodic(fm, psds[i, :])
+        flattenedPsd = featureExtractionUtils.isolatePeriodic(fm, psds[i, :])
         
-        totalPowerFlattened = np.trapz(flattenedPsd, freqs)
 
         #Loop through each frequency band
         for bandName, (fmin, fmax) in freqBands.items():
 
 
-        #   ################################# Peak Features ################################
+        #   ################################# Peak Features ###################################
             (featRow, 
             featName, 
             dominant_peak,
             nanFlag) = featureExtractionUtils.peakParameters(fm=fm, 
-                                                        freqs=freqs, 
                                                         fmin=fmin, 
                                                         fmax=fmax, 
                                                         channelNames=channelNames[i], 
                                                         bandName=bandName,
                                                         featureCategories=featureCategories)
             featuresRow.extend(featRow); FeaturesNames.extend(featName)
-        #   #================================================================================
+        #   #===================================================================================
 
             if bandName != "Broadband": 
 
                 ################################# Power Features  #######################################
                 # adjusted
-                featRow, featName = featureExtractionUtils.canonicalPower(flattenedPsd=flattenedPsd, 
+                featRow, featName = featureExtractionUtils.canonicalPower(psd=flattenedPsd, 
                                                                         freqs=freqs, 
                                                                         fmin=fmin, 
                                                                         fmax=fmax, 
@@ -115,7 +113,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                         featureCategories=featureCategories)
                 featuresRow.extend(featRow); FeaturesNames.extend(featName)
                 # original psd
-                featRow, featName = featureExtractionUtils.canonicalPower(psds[i, :], 
+                featRow, featName = featureExtractionUtils.canonicalPower(psd=psds[i, :], 
                                                                         freqs=freqs, 
                                                                         fmin=fmin, 
                                                                         fmax=fmax, 
@@ -130,7 +128,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
                 ################################# Individualized band power ################################
                 # adjusted
-                featRow, featName = featureExtractionUtils.individulizedPower(flattenedPsd, 
+                featRow, featName = featureExtractionUtils.individulizedPower(psd=flattenedPsd, 
                                                                     dominant_peak=dominant_peak, 
                                                                     freqs=freqs, 
                                                                     bandSubRanges=bandSubRanges, 
@@ -141,7 +139,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     featureCategories=featureCategories)
                 featuresRow.extend(featRow); FeaturesNames.extend(featName)
                 # original psd
-                featRow, featName = featureExtractionUtils.individulizedPower(psds[i, :], 
+                featRow, featName = featureExtractionUtils.individulizedPower(psd=psds[i, :], 
                                                                     dominant_peak=dominant_peak, 
                                                                     freqs=freqs, 
                                                                     bandSubRanges=bandSubRanges, 

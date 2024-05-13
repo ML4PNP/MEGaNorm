@@ -50,7 +50,7 @@ def submit_jobs(batch_file, data_path, subjects, temp_path, progress=False):
         fname = os.path.join(data_path, subject, 'mf2pt2_' + subject + '_ses-rest_task-rest_megtransdef.fif')
         if os.path.isfile(fname):
             subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
-                                  shell=True)
+                                shell=True)
         else:
             print('File does not exist!')
         

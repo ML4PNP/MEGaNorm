@@ -15,11 +15,11 @@ def apperiodicFeatures(fm, channelNames, featureCategories):
     
     if "offset" in featureCategories:
         featRow.append(fm.get_params("aperiodic_params")[0])
-        featName.append(f"offset - {channelNames}")
+        featName.append(f"offset_{channelNames}")
 
     if "exponent" in featureCategories:
         featRow.append(fm.get_params("aperiodic_params")[1])
-        featName.append(f"exponent - {channelNames}")
+        featName.append(f"exponent_{channelNames}")
 
     return featRow, featName
 
@@ -29,7 +29,7 @@ def apperiodicFeatures(fm, channelNames, featureCategories):
 
 
 
-def peakParameters(fm, freqs, fmin, fmax, channelNames, bandName, featureCategories):
+def peakParameters(fm, fmin, fmax, channelNames, bandName, featureCategories):
     """
     This function returns peak parmaters:
     1. Dominant peak frequency
@@ -96,7 +96,7 @@ def peakParameters(fm, freqs, fmin, fmax, channelNames, bandName, featureCategor
 
 
 
-def flatPeriodic(fm, psd):
+def isolatePeriodic(fm, psd):
     """
     this function isolate periodic parts of signal
     through subtracting aperiodic fit from original psds
@@ -127,12 +127,12 @@ def canonicalPower(psd, freqs, fmin, fmax, channelNames, bandName, psdType, feat
     # Compute the average relative power for the band on the flattened spectrum
     if "Canonical_Relative_Power" in featureCategories:
         featVal.append(bandPowerFlattened / totalPower)
-        featName.append("Canonical_Relative_Power_{bandName}_{channelNames}_{psdType}")
+        featName.append(f"Canonical_Relative_Power_{bandName}_{psdType}_{channelNames}")
 
     # Compute the average relative power for the band on the flattened spectrum
     if "Canonical_Absolute_Power" in featureCategories:
         featVal.append(np.log10(np.abs(bandPowerFlattened)))
-        featName.append("Canonical_Absolute_Power_{bandName}_{channelNames}_{psdType}")
+        featName.append(f"Canonical_Absolute_Power_{bandName}_{psdType}_{channelNames}")
 
 
     return featVal, featName
@@ -166,25 +166,25 @@ def individulizedPower(psd, dominant_peak, freqs, bandSubRanges, nanFlag, bandNa
         # Compute the average relative power for the band on the flattened spectrum
         if "Individualized_Relative_Power" in featureCategories:
             featRow.append(avg_power / total_power)
-            featName.append(f"Individualized_Relative_Power_{bandName}_{channelNames}_{psdType}")
+            featName.append(f"Individualized_Relative_Power_{bandName}_{psdType}_{channelNames}")
 
 
         # Compute the average absolute power for the band on the flattened spectrum
         if "Individualized_Absolute_Power" in featureCategories:
             featRow.append(np.log10(abs(avg_power)))
-            featName.append(f"Individualized_Absolute_Power{bandName}_{channelNames}_{psdType}")
+            featName.append(f"Individualized_Absolute_Power_{bandName}_{psdType}_{channelNames}")
         
 
     else:
         # Compute the average relative power for the band on the flattened spectrum
         if "Individualized_Relative_Power" in featureCategories:
             featRow.append(np.nan)
-            featName.append(f"Individualized_Relative_Power_{bandName}_{channelNames}_{psdType}")
+            featName.append(f"Individualized_Relative_Power_{bandName}_{psdType}_{channelNames}")
 
 
         # Compute the average absolute power for the band on the flattened spectrum
         if "Individualized_Absolute_Power" in featureCategories:
             featRow.append(np.nan)
-            featName.append(f"Individualized_Absolute_Power{bandName}_{channelNames}_{psdType}")
+            featName.append(f"Individualized_Absolute_Power_{bandName}_{psdType}_{channelNames}")
 
     return featRow, featName
