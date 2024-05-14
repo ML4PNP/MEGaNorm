@@ -103,9 +103,13 @@ def make_config(path=None):
                     'GRAD2_occipital_left':['MEG1643', 'MEG1723','MEG1713','MEG1913','MEG1943','MEG1733','MEG2043','MEG1923','MEG1933','MEG1743','MEG2113','MEG2143'],
                     'GRAD2_occipital_right':['MEG2433', 'MEG2523','MEG2533','MEG2313','MEG2323','MEG2513','MEG2033','MEG2343','MEG2333','MEG2543','MEG2123','MEG2133']
                     }
+    
+    # TODO check if vertical and horizontal IDs are correct!
+    config["sensorsID"] = {"vgrad": "3",
+                            "hgrad": "2", 
+                            "magne": "1"}
 
 
-    ## TODO: Add _ to the feature names
     config['featuresCategories'] = ["offset", # 1
                                     "exponent", # 1
                                     "frequency_dominant_peak", # 5,
@@ -179,7 +183,7 @@ def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
 
 
 
-def mergeDataframe(path):
+def mergeDataframes(path):
     """
     this function merges all extracted feature dataframes (.CSV) into
     a single .csv file"""

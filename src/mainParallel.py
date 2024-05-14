@@ -41,16 +41,16 @@ def mainParallel(*args):
 
 	args = parser.parse_args()
 
-	args.dir = "/project/meganorm/Data/camcan/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC510321/mf2pt2_sub-CC510321_ses-rest_task-rest_megtransdef.fif"
+	args.dir = "/project/meganorm/Data/camcan/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC620090/mf2pt2_sub-CC620090_ses-rest_task-rest_megtransdef.fif"
 	args.saveDir = "/home/meganorm-mznasrabadi/MEGaNorm/dataTest"
 
 
 	# Loading configs
 	if args.configs is not None:
-			with open(args.configs, 'r') as f:
-					configs = json.load(f)
+		with open(args.configs, 'r') as f:
+			configs = json.load(f)
 	else:
-			configs = make_config()
+		configs = make_config()
 
 	# subject ID
 	subID = args.dir.split("/")[-2]

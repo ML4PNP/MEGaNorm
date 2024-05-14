@@ -57,7 +57,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
 
     # in order to save features and their name
-    featuresRow, FeaturesNames = [], []
+    featuresRow, featuresNames = [], []
 
     for i in range(psds.shape[0]):
         
@@ -67,14 +67,14 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
         # fooof fitness
         r_squared = fm.r_squared_ 
-        featuresRow.append(r_squared); FeaturesNames.append("r_squared")
+        featuresRow.append(r_squared); featuresNames.append(f"r_squared_{channelNames[i]}")
 
 
         #################################### exponent and offset ##############################
         featRow, featName = featureExtractionUtils.apperiodicFeatures(fm=fm, 
                                                             channelNames=channelNames[i], 
                                                             featureCategories=featureCategories)
-        featuresRow.extend(featRow); FeaturesNames.extend(featName)
+        featuresRow.extend(featRow); featuresNames.extend(featName)
         #====================================================================================== 
 
 
@@ -96,7 +96,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                         channelNames=channelNames[i], 
                                                         bandName=bandName,
                                                         featureCategories=featureCategories)
-            featuresRow.extend(featRow); FeaturesNames.extend(featName)
+            featuresRow.extend(featRow); featuresNames.extend(featName)
         #   #===================================================================================
 
             if bandName != "Broadband": 
@@ -111,7 +111,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                         bandName=bandName,
                                                                         psdType="adjusted",
                                                                         featureCategories=featureCategories)
-                featuresRow.extend(featRow); FeaturesNames.extend(featName)
+                featuresRow.extend(featRow); featuresNames.extend(featName)
                 # original psd
                 featRow, featName = featureExtractionUtils.canonicalPower(psd=psds[i, :], 
                                                                         freqs=freqs, 
@@ -121,7 +121,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                         bandName=bandName,
                                                                         psdType="originalPsd",
                                                                         featureCategories=featureCategories)
-                featuresRow.extend(featRow); FeaturesNames.extend(featName)
+                featuresRow.extend(featRow); featuresNames.extend(featName)
                 #=========================================================================================== 
 
 
@@ -137,7 +137,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     channelNames=channelNames[i],
                                                                     psdType="adjusted",
                                                                     featureCategories=featureCategories)
-                featuresRow.extend(featRow); FeaturesNames.extend(featName)
+                featuresRow.extend(featRow); featuresNames.extend(featName)
                 # original psd
                 featRow, featName = featureExtractionUtils.individulizedPower(psd=psds[i, :], 
                                                                     dominant_peak=dominant_peak, 
@@ -148,23 +148,18 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     channelNames=channelNames[i],
                                                                     psdType="originalPsd",
                                                                     featureCategories=featureCategories)
-                featuresRow.extend(featRow); FeaturesNames.extend(featName)
+                featuresRow.extend(featRow); featuresNames.extend(featName)
                 #============================================================================================
 
 
-    
+    featuresRow.insert(0, subjectId); featuresNames.insert(0, "participant_ID")
     features = pd.DataFrame(data = [featuresRow], 
-                      columns=FeaturesNames,
-                      index = [subjectId]) 
+                      columns=featuresNames,
+                    #   index = [subjectqId]
+                      ) 
     
     return features
     
-    
-
-
-
-
-
 
 
 if __name__ == "__main__":
@@ -176,6 +171,9 @@ if __name__ == "__main__":
             help="data directory (pickle format)")
     parser.add_argument("--savePath", type=str,
             help="where to save data")
+	# optional arguments
+	parser.add_argument("--configs", type=str, default=None,
+		help="Address of configs json file")
     
     args = parser.parse_args()
 
