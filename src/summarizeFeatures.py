@@ -58,9 +58,9 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser()
 
     # positional arguments
-    parser.add_argument("--dir",
+    parser.add_argument("dir",
                         help="address to a .csv dataframe")
-    parser.add_argument("--saveDir",
+    parser.add_argument("saveDir",
                         help="where to save results")
 	# optional arguments
     parser.add_argument("--configs", type=str, default=None,
@@ -68,8 +68,8 @@ if __name__=="__main__":
 
     args = parser.parse_args()
 
-    args.dir = "featureData.csv"
-    args.saveDir = "dataTest"
+    # args.dir = "featureData.csv"
+    # args.saveDir = "dataTest"
 
 	# Loading configs
     if args.configs is not None:

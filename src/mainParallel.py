@@ -28,9 +28,9 @@ def mainParallel(*args):
         
 	parser = argparse.ArgumentParser()
 	# positional Arguments 
-	parser.add_argument("--dir", 
+	parser.add_argument("dir", 
 			help="Address to your data")
-	parser.add_argument("--saveDir", type=str,
+	parser.add_argument("saveDir", type=str,
 			help="where to save extracted features")
 	parser.add_argument("--configs", type=str, default=None,
 			help="Address of configs json file")
