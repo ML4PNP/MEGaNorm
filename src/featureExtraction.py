@@ -167,13 +167,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--dir", type=str,
+    parser.add_argument("dir", type=str,
             help="data directory (pickle format)")
-    parser.add_argument("--savePath", type=str,
+    parser.add_argument("savePath", type=str,
             help="where to save data")
 	# optional arguments
-	parser.add_argument("--configs", type=str, default=None,
-		help="Address of configs json file")
+    parser.add_argument("--configs", type=str, default=None,
+        help="Address of configs json file")
     
     args = parser.parse_args()
 

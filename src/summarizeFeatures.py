@@ -48,6 +48,8 @@ def summarizeFeatures(df, sensorsInf):
     sensorsAverageds["participant_ID"] = df["participant_ID"]
 
     return sensorsAverageds
+
+
     
     
 

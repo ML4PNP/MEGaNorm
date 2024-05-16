@@ -105,8 +105,8 @@ def make_config(path=None):
                     }
     
     # TODO check if vertical and horizontal IDs are correct!
-    config["sensorsID"] = {"vgrad": "3",
-                            "hgrad": "2", 
+    config["sensorsID"] = {"pgrad": "3",
+                            "agrad": "2", 
                             "magne": "1"}
 
 
