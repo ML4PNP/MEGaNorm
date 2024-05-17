@@ -35,7 +35,7 @@ def summarizeFeatures(df, sensorsInf):
             elif "r_squared" not in name and "participant_ID" not in name:
                 categories.add("_".join(name.split("_")[:-1]) + f"_{sensorType}")
 
-        dfs = [dfSenssor.loc[:, dfSenssor.columns.str.startswith(uniqueName[:6])].mean(axis=1) for uniqueName in categories]
+        dfs = [dfSenssor.loc[:, dfSenssor.columns.str.startswith(uniqueName[:-6])].mean(axis=1) for uniqueName in categories]
         dfNames = list(categories)
 
         averaged = pd.concat(dfs, axis=1)
@@ -48,6 +48,9 @@ def summarizeFeatures(df, sensorsInf):
     sensorsAverageds["participant_ID"] = df["participant_ID"]
 
     return sensorsAverageds
+
+
+
 
 
     
