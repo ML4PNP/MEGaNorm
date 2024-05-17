@@ -26,15 +26,96 @@ def progress_bar(current, total, bar_length=20):
         print()  # Move to the next line when progress is complete.
 
 
-def submit_jobs(batch_file, data_path, subjects, temp_path, progress=False):
- 
-    """ Submits jobs for each subject to the Slurm cluster.
+def sbatchfile(mainParallel_path,
+                bash_file_path,
+               log_path=None,
+               module='mne',
+                time='1:00:00',
+                memory='20GB',
+                partition='normal',
+                core=1,
+                node=1,
+                batch_file_name='batch_job',
+                with_config=True):
+    """_summary_
 
     Args:
-        batch_file (string): address tot he batch bash fike to execute.
+        mainParallel_path (_type_): _description_
+        bash_file_path (_type_): _description_
+        log_path (_type_, optional): _description_. Defaults to None.
+        module (str, optional): _description_. Defaults to 'mne'.
+        time (str, optional): _description_. Defaults to '1:00:00'.
+        memory (str, optional): _description_. Defaults to '20GB'.
+        partition (str, optional): _description_. Defaults to 'normal'.
+        core (int, optional): _description_. Defaults to 1.
+        node (int, optional): _description_. Defaults to 1.
+        batch_file_name (str, optional): _description_. Defaults to 'batch_job'.
+        with_config (boolean, optional): _description_. Defaults to True.
+
+    Returns:
+        _type_: _description_
+    """
+    
+    sbatch_init = '#!/bin/bash\n'
+    sbatch_nodes = '#SBATCH -N ' + str(node) + '\n'
+    sbatch_tasks = '#SBATCH -c ' + str(core) + '\n'
+    sbatch_partition = '#SBATCH -p ' + partition + '\n'
+    sbatch_time = '#SBATCH --time=' + time + '\n'
+    sbatch_memory = '#SBATCH --mem=' + memory + '\n'
+    sbatch_module = 'source activate ' + module +'\n'
+    if log_path is not None:
+        sbatch_log_out = '#SBATCH -o ' + log_path + "%x_%j.out" + '\n'
+        sbatch_log_error =  '#SBATCH -e ' + log_path + "%x_%j.err" + '\n'
+    
+    sbatch_input_1 = 'source=$1\n'
+    sbatch_input_2 = 'target=$2\n'
+    sbatch_input_3 = 'config=$3\n'
+    
+    command = 'srun python ' + mainParallel_path + ' $source $target $config'
+
+
+    bash_environment = [sbatch_init +
+                        sbatch_nodes +
+                        sbatch_tasks +
+                        sbatch_partition +
+                        sbatch_time +
+                        sbatch_memory 
+                        ]
+    
+    if log_path is not None:
+        bash_environment[0] += sbatch_log_out
+        bash_environment[0] += sbatch_log_error
+    
+    bash_environment[0] += sbatch_module
+    bash_environment[0] += sbatch_input_1 
+    bash_environment[0] += sbatch_input_2 
+    if with_config:
+        bash_environment[0] += sbatch_input_3
+    bash_environment[0] += command
+
+    job_path = os.path.join(bash_file_path, batch_file_name + '.sh')
+    # writes bash file into processing dir
+    with open(job_path, 'w') as bash_file:
+        bash_file.writelines(bash_environment)
+
+    # changes permissoins for bash.sh file
+    os.chmod(job_path, 0o770)
+    
+    return job_path
+
+def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects, 
+                temp_path, config_file=None, job_configs=None, progress=False):
+    
+    """Submits jobs for each subject to the Slurm cluster.
+
+    Args:
+        mainParallel_path (string): Path to the mainParallel.py.
+        bash_file_path (string): Path to save the batch bash file.
         data_path (string): Path to the data folder containing subjects.
         subjects (string): subject name.
         temp_path (string): Path for saving temporary files.
+        config_file (string): Path to the json config file. Defaults to None.
+        job_configs (dictionary, optional): Dictionary of job configurations. Defaults to None.
         progress (bool, optional): Show the progress bar or not. Defaults to False.
 
     Returns:
@@ -43,13 +124,28 @@ def submit_jobs(batch_file, data_path, subjects, temp_path, progress=False):
     
     if not os.path.isdir(temp_path):
         os.makedirs(temp_path)
+        
+    if job_configs is None:
+        job_configs = {'log_path':None, 'module':'mne', 'time':'1:00:00', 'memory':'20GB', 
+                       'partition':'normal', 'core':1, 'node':1, 'batch_file_name':'batch_job'}
+        
+    
+    batch_file = sbatchfile(mainParallel_path, bash_file_path, log_path=job_configs['log_path'], 
+                            module=job_configs['module'], time=job_configs['time'], 
+                            memory=job_configs['memory'], partition=job_configs['partition'], 
+                            core=job_configs['core'], node=job_configs['node'],
+                            batch_file_name=job_configs['batch_file_name'], with_config=config_file is not None)
     
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects):
         fname = os.path.join(data_path, subject, 'mf2pt2_' + subject + '_ses-rest_task-rest_megtransdef.fif')
         if os.path.isfile(fname):
-            subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
+            if config_file is None:
+                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
+                                  shell=True)
+            else:
+                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {config_file}", 
                                   shell=True)
         else:
             print('File does not exist!')
@@ -169,4 +265,5 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
     features.to_csv(os.path.join(target_dir, file_name + '.csv'))
     if clean:  
         shutil.rmtree(temp_path)
+    
     
