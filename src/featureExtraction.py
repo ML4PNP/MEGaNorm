@@ -15,6 +15,7 @@ config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
 
 
+from summarizeFeatures import summarizeFeatures
 import featureExtractionUtils
 from IO import make_config
 
@@ -22,7 +23,7 @@ from IO import make_config
 
 
 
-def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, channelNames, bandSubRanges):
+def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, channelNames, bandSubRanges, sensorsInf, whichSensor):
     """
     extract features from fooof results
 
@@ -60,7 +61,6 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
     featuresRow, featuresNames = [], []
 
     for i in range(psds.shape[0]):
-        
 
         # getting the fooof model of ith channel
         fm = fmGroup.get_fooof(ind=i)
@@ -152,14 +152,23 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                 #============================================================================================
 
 
-    featuresRow.insert(0, subjectId); featuresNames.insert(0, "participant_ID")
     features = pd.DataFrame(data = [featuresRow], 
                       columns=featuresNames,
                     #   index = [subjectqId]
                       ) 
     
+    # feature summarization ================================================================ 
+    features = summarizeFeatures(df=features, 
+                                sensorsInf=sensorsInf,
+                                whichSensor=whichSensor)
+    features.index = [subjectId]
+    
     return features
     
+
+
+
+
 
 
 if __name__ == "__main__":

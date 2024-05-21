@@ -15,7 +15,7 @@ from IO import make_config
 
 
 
-def summarizeFeatures(df, sensorsInf):
+def summarizeFeatures(df, sensorsInf, whichSensor):
 
     """
     average features across the whole brain. 
@@ -24,18 +24,20 @@ def summarizeFeatures(df, sensorsInf):
     sensorsAverageds = []
 
     for sensorType, sensorsID in sensorsInf.items():
-    
+        
+        if sensorType != whichSensor: continue
+
         dfSenssor = df.loc[:,df.columns.str.endswith(sensorsID)]
         categories = set()
-            
-        for name in dfSenssor.columns[2:]:
+    
+        for name in dfSenssor.columns[:]:
             
             if "offset" in name or "exponent" in name:
                 categories.add(name.split("_")[:-1][0] + f"{sensorType}")
             elif "r_squared" not in name and "participant_ID" not in name:
                 categories.add("_".join(name.split("_")[:-1]) + f"_{sensorType}")
 
-        dfs = [dfSenssor.loc[:, dfSenssor.columns.str.startswith(uniqueName[:-6])].mean(axis=1) for uniqueName in categories]
+        dfs = [dfSenssor.loc[:, dfSenssor.columns.str.startswith(uniqueName[:-4])].mean(axis=1) for uniqueName in categories]
         dfNames = list(categories)
 
         averaged = pd.concat(dfs, axis=1)
@@ -43,9 +45,8 @@ def summarizeFeatures(df, sensorsInf):
         
         sensorsAverageds.append(averaged)
 
-
     sensorsAverageds = pd.concat(sensorsAverageds, axis=1)
-    sensorsAverageds["participant_ID"] = df["participant_ID"]
+
 
     return sensorsAverageds
 

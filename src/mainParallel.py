@@ -6,9 +6,7 @@ import os
 import sys
 
 
-from psdParameterize import psdParameterize
-from preprocess import preprocess
-from featureExtraction import featureExtract
+
 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,7 +17,9 @@ sys.path.append(config_path)
 
 from IO import make_config, storeFooofModels
 from preprocessUtils import segmentEpoch
-
+from psdParameterize import psdParameterize
+from preprocess import preprocess
+from featureExtraction import featureExtract
 
 
 
@@ -100,8 +100,10 @@ def mainParallel(*args):
 							freqBands = configs['freqBands'],
 							channelNames = configs['ch_names'],
 							bandSubRanges = configs['bandSubRanges'],
-							featureCategories=configs["featuresCategories"])
-
+							featureCategories=configs["featuresCategories"],
+							sensorsInf=configs["sensorsID"],
+							whichSensor=configs["sensorType"])
+	
 	features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 
 

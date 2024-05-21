@@ -13,7 +13,7 @@ def make_config(path=None):
     
     # which sensor type should be used
     # choices: 1. meg: all, 2.mag, 3.grad
-    config["sensorType"] = "meg"
+    config["sensorType"] = "mag"
 
     config['targetFS'] = 1000
 
@@ -105,9 +105,9 @@ def make_config(path=None):
                     }
     
     # TODO check if vertical and horizontal IDs are correct!
-    config["sensorsID"] = {"pgrad": "3",
-                            "agrad": "2", 
-                            "magne": "1"}
+    config["sensorsID"] = {"grad": "3",
+                            "grad": "2", 
+                            "mag": "1"}
 
 
     config['featuresCategories'] = ["offset", # 1
@@ -180,19 +180,6 @@ def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
 
     with open(path, "ab") as file:
         pickle.dump({subjId: [fooofModels, psds, freqs]}, file)
-
-
-
-def mergeDataframes(path):
-    """
-    this function merges all extracted feature dataframes (.CSV) into
-    a single .csv file"""
-    
-    paths = glob.glob(f"{path}/*.csv")
-    dfs = [pd.read_csv(path) for path in paths]
-    return pd.concat(dfs)
-
-
 
 
 

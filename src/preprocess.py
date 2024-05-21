@@ -76,7 +76,7 @@ def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
 				verbose=False)
 
     # apply automated ICA
-    ica = autoICA(data=data, 
+    data = autoICA(data=data, 
                 n_components=n_component, # FLUX default
                 max_iter=maxIter, # FLUX default,
                 IcaMethod = IcaMethod,
