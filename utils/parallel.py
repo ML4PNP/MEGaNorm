@@ -1,5 +1,6 @@
 import os
 import time
+import glob
 import shutil
 import subprocess
 from datetime import datetime
@@ -107,8 +108,95 @@ def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects,
                 temp_path, config_file=None, job_configs=None, progress=False):
     
     """Submits jobs for each subject to the Slurm cluster.
+def sbatchfile(mainParallel_path,
+                bash_file_path,
+               log_path=None,
+               module='mne',
+                time='1:00:00',
+                memory='20GB',
+                partition='normal',
+                core=1,
+                node=1,
+                batch_file_name='batch_job',
+                with_config=True):
+    """_summary_
 
     Args:
+        mainParallel_path (_type_): _description_
+        bash_file_path (_type_): _description_
+        log_path (_type_, optional): _description_. Defaults to None.
+        module (str, optional): _description_. Defaults to 'mne'.
+        time (str, optional): _description_. Defaults to '1:00:00'.
+        memory (str, optional): _description_. Defaults to '20GB'.
+        partition (str, optional): _description_. Defaults to 'normal'.
+        core (int, optional): _description_. Defaults to 1.
+        node (int, optional): _description_. Defaults to 1.
+        batch_file_name (str, optional): _description_. Defaults to 'batch_job'.
+        with_config (boolean, optional): _description_. Defaults to True.
+
+    Returns:
+        _type_: _description_
+    """
+    
+    sbatch_init = '#!/bin/bash\n'
+    sbatch_nodes = '#SBATCH -N ' + str(node) + '\n'
+    sbatch_tasks = '#SBATCH -c ' + str(core) + '\n'
+    sbatch_partition = '#SBATCH -p ' + partition + '\n'
+    sbatch_time = '#SBATCH --time=' + time + '\n'
+    sbatch_memory = '#SBATCH --mem=' + memory + '\n'
+    sbatch_module = 'source activate ' + module +'\n'
+    if log_path is not None:
+        sbatch_log_out = '#SBATCH -o ' + log_path + "%x_%j.out" + '\n'
+        sbatch_log_error =  '#SBATCH -e ' + log_path + "%x_%j.err" + '\n'
+    
+    sbatch_input_1 = 'source=$1\n'
+    sbatch_input_2 = 'target=$2\n'
+    sbatch_input_3 = 'config=$3\n'
+    
+    command = 'srun python ' + mainParallel_path + ' $source $target $config'
+
+
+    bash_environment = [sbatch_init +
+                        sbatch_nodes +
+                        sbatch_tasks +
+                        sbatch_partition +
+                        sbatch_time +
+                        sbatch_memory 
+                        ]
+    
+    if log_path is not None:
+        bash_environment[0] += sbatch_log_out
+        bash_environment[0] += sbatch_log_error
+    
+    bash_environment[0] += sbatch_module
+    bash_environment[0] += sbatch_input_1 
+    bash_environment[0] += sbatch_input_2 
+    if with_config:
+        bash_environment[0] += sbatch_input_3
+    bash_environment[0] += command
+
+    job_path = os.path.join(bash_file_path, batch_file_name + '.sh')
+    # writes bash file into processing dir
+    with open(job_path, 'w') as bash_file:
+        bash_file.writelines(bash_environment)
+
+    # changes permissoins for bash.sh file
+    os.chmod(job_path, 0o770)
+    
+    return job_path
+
+
+
+
+
+def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects, 
+                temp_path, config_file=None, job_configs=None, progress=False):
+    
+    """Submits jobs for each subject to the Slurm cluster.
+
+    Args:
+        mainParallel_path (string): Path to the mainParallel.py.
+        bash_file_path (string): Path to save the batch bash file.
         mainParallel_path (string): Path to the mainParallel.py.
         bash_file_path (string): Path to save the batch bash file.
         data_path (string): Path to the data folder containing subjects.
@@ -135,6 +223,17 @@ def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects,
                             memory=job_configs['memory'], partition=job_configs['partition'], 
                             core=job_configs['core'], node=job_configs['node'],
                             batch_file_name=job_configs['batch_file_name'], with_config=config_file is not None)
+        
+    if job_configs is None:
+        job_configs = {'log_path':None, 'module':'mne', 'time':'1:00:00', 'memory':'20GB', 
+                       'partition':'normal', 'core':1, 'node':1, 'batch_file_name':'batch_job'}
+        
+    
+    batch_file = sbatchfile(mainParallel_path, bash_file_path, log_path=job_configs['log_path'], 
+                            module=job_configs['module'], time=job_configs['time'], 
+                            memory=job_configs['memory'], partition=job_configs['partition'], 
+                            core=job_configs['core'], node=job_configs['node'],
+                            batch_file_name=job_configs['batch_file_name'], with_config=config_file is not None)
     
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -143,6 +242,11 @@ def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects,
         if os.path.isfile(fname):
             if config_file is None:
                 subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
+            if config_file is None:
+                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
+                                  shell=True)
+            else:
+                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {config_file}", 
                                   shell=True)
             else:
                 subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {config_file}", 
@@ -154,6 +258,8 @@ def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects,
             progress_bar(s, len(subjects))
     
     return start_time
+
+
 
 
 def check_jobs_status(username, start_time, delay=20):
@@ -243,7 +349,9 @@ def check_user_jobs(username, start_time):
         return
     
     
-def collect_results(target_dir, subjects, temp_path, file_name='features', clean=True):
+
+    
+def collect_results(target_dir, temp_path, file_name='features', clean=True):
     
     """Collects and merges the resulst of all jobs.
 
@@ -257,12 +365,13 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
     
     if not os.path.isdir(target_dir):
         os.makedirs(target_dir)
-    
-    all_features = []
-    for subject in subjects:
-        all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
-    features = pd.concat(all_features)
+
+    paths = glob.glob(f"{temp_path}/*.csv")
+    print(paths)
+    dfs = [pd.read_csv(path, index_col=0) for path in paths]
+    features = pd.concat(dfs)
     features.to_csv(os.path.join(target_dir, file_name + '.csv'))
+
     if clean:  
         shutil.rmtree(temp_path)
     

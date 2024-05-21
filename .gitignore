@@ -1,10 +1,7 @@
 data
-tests
 job.sh
-log.txt
-slurm-9429.out
-slurm-9439.out
-test.py
+
+
 .vscode
 logs
 pictures
@@ -12,3 +9,8 @@ slurm-9591.out
 __pycache__
 config
 src/__pycache__
+utils/__pycache__
+test.py
+dataTest
+src/test.py
+featureData.csv

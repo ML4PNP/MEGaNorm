@@ -1,3 +1,7 @@
+from itertools import chain
+import pandas as pd
+import pickle
+import glob
 import json
 import os
 
@@ -7,13 +11,17 @@ def make_config(path=None):
     # downsample data
     config = dict()
     
-    config['meg_sensors'] = 'mag' # 'all' 'mag' 'grad'
+    # which sensor type should be used
+    # choices: 1. meg: all, 2.mag, 3.grad
+    config["sensorType"] = "mag"
+
     config['targetFS'] = 1000
 
     # ICA configuration
     config['n_component'] = 30
     config['maxIter'] = 800
     config['IcaMethod'] = "fastica"
+    # lower and upper cutoff frequencies in a bandpass filter
     config['cutoffFreqLow'] = 1
     config['cutoffFreqHigh'] = 45
 
@@ -41,6 +49,10 @@ def make_config(path=None):
     # amount of overlap between windows in Welch's method
     config['psd_n_overlap'] = 1
     config['psd_n_fft'] = 2
+    # number of samples in psd
+    config["n_per_seg"] = 2
+    # minimum acceptable peak width in fooof analysis
+    config["peak_width_limits"] = [1.0, 12.0]
 
 
     # feature extraction ==========================================================
@@ -91,25 +103,34 @@ def make_config(path=None):
                     'GRAD2_occipital_left':['MEG1643', 'MEG1723','MEG1713','MEG1913','MEG1943','MEG1733','MEG2043','MEG1923','MEG1933','MEG1743','MEG2113','MEG2143'],
                     'GRAD2_occipital_right':['MEG2433', 'MEG2523','MEG2533','MEG2313','MEG2323','MEG2513','MEG2033','MEG2343','MEG2333','MEG2543','MEG2123','MEG2133']
                     }
-
-
-    ## TODO: Add _ to the feature names
-    config['featuresCategories'] = ["offset", # 1
-                        "exponent", # 1
-                        "frequency of dominant peak", # 5,
-                        "power of dominant peak", # 5,
-                        "width of dominant peak", # 5,
-                        "Canonical Relative Power",
-                        "Canonical Absolute Power",
-                        "Individualized Relative Power ",
-                        "Individualized Absolute Power",
-
-                                    # "Individualized power",   # 4
-
-                                    # "integrated power", # 4
-                                    # "frequency of dominant peak", # 5
-                        ]
     
+    # TODO check if vertical and horizontal IDs are correct!
+    config["sensorsID"] = {"grad": "3",
+                            "grad": "2", 
+                            "mag": "1"}
+
+
+    config['featuresCategories'] = ["offset", # 1
+                                    "exponent", # 1
+                                    "frequency_dominant_peak", # 5,
+                                    "power_dominant_peak",# 5,
+                                    "width_dominant_peak", # 5,
+                                    "Canonical_Relative_Power", 
+                                    "Canonical_Absolute_Power",
+                                    "Individualized_Relative_Power ",
+                                    "Individualized_Absolute_Power",
+                                    ]
+    
+
+
+    config["features_names"], ch_names = make_features_Names(sensor_type = config["sensorType"],
+                                                   ch_names = list(chain.from_iterable(config['channels_spatial_layouts'].values())),
+                                                   feature_categories = config['featuresCategories'])
+    
+    config["ch_names"] = ch_names
+    
+
+
     if path is not None:
         out_file = open(os.path.join(path, "configs.json"), "w") 
         json.dump(config, out_file, indent = 6) 
@@ -117,6 +138,48 @@ def make_config(path=None):
 
     return config 
 
+
+
+
+
+
+def make_features_Names(sensor_type, ch_names, feature_categories):
+    
+    if sensor_type == "mag":
+        ch_names = [channel for channel in ch_names if channel.endswith("1")]
+    if sensor_type == "grad1":
+        ch_names = [channel for channel in ch_names if channel.endswith("2")]
+    if sensor_type == "grad2":
+        ch_names = [channel for channel in ch_names if channel.endswith("3")]
+    
+    return sum([list(map(lambda feat: feat + ch, feature_categories)) for ch  in ch_names ], []), ch_names
+    
+
+
+
+def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
+    """
+    This function stores the periodic and aperiodic 
+    results in a h5py file
+
+    parameters
+    ------------
+    path: str
+    where to save
+
+    subjid: str
+    subject ID
+
+    fooofModels: object
+
+    returns
+    -------------
+    None
+
+    """
+
+    with open(path, "ab") as file:
+        pickle.dump({subjId: [fooofModels, psds, freqs]}, file)
 
 
 
