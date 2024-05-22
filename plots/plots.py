@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import scipy.stats as st
 
 
-def plot_nm_range(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
+def plot_nm_range1(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                   ind=0, parallel=True, save_plot=True, outputsuffix='estimate'):
     
     """Function to plot notmative ranges.
@@ -80,6 +80,84 @@ def plot_nm_range(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
         ax[int(be1)].set_xlabel('Age', fontsize=16)
         
     ax[0].legend()
+    plt.tight_layout()
+    
+    
+    if save_plot:
+        save_path = os.path.join(processing_dir, 'Figures')
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path)
+        plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
+    
+    
+def plot_nm_range2(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
+                  ind=0, parallel=True, save_plot=True, outputsuffix='estimate'):
+    
+    """Function to plot notmative ranges.
+
+    Args:
+        processing_dir (str): Path to normative modeling processing directory.
+        quantiles (list, optional): Plotted centiles. Defaults to [0.05, 0.25, 0.5, 0.75, 0.95].
+        ind (int, optional): Index of target biomarker to plot. Defaults to 0.
+        parallel (bool, optional): Is parallel NM used to estimate the model?. Defaults to True.
+        save_plot (bool, optional): Save the plot?. Defaults to True.
+        outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
+    """
+    
+    z_scores = st.norm.ppf(quantiles)
+    testrespfile_path = os.path.join(processing_dir, 'y_test.pkl')
+    testcovfile_path = os.path.join(processing_dir, 'x_test.pkl')
+    tsbefile = os.path.join(processing_dir, 'b_test.pkl')
+        
+    if parallel:
+        nm = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1),
+                                       'Models/NM_0_0_'+ outputsuffix + '.pkl'), 'rb'))
+        meta_data = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1), 
+                                                  'Models/meta_data.md'), 'rb'))
+        in_scaler = meta_data['scaler_cov'][0]
+        out_scaler = meta_data['scaler_resp'][0]
+    else:
+        nm = pickle.load(open(os.path.join(processing_dir,
+                                       'Models/NM_0_' + str(ind) + '_'+ outputsuffix + '.pkl'), 'rb'))
+        meta_data = pickle.load(open(os.path.join(processing_dir, 
+                                                  'Models/meta_data.md'), 'rb'))
+        in_scaler = meta_data['scaler_cov'][ind][0]
+        out_scaler = meta_data['scaler_resp'][ind][0]
+
+    synthetic_X = np.linspace(0.05, 0.95, 200)[:,np.newaxis] # Truncated
+    
+    X_test = pickle.load(open(testcovfile_path, 'rb')).to_numpy(float)
+    be_test = pickle.load(open(tsbefile, 'rb')).to_numpy(float)
+    Y_test = pickle.load(open(testrespfile_path, 'rb'))
+    bio_name = Y_test.columns[ind]
+    Y_test = Y_test.to_numpy(float)[:,ind:ind+1]
+
+    fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
+    
+    colors = ['#FF69B4','#00BFFF']
+    labels = ['Females', 'Males']
+    
+    for be1 in list(np.unique(be_test[:,0])):
+        model_be = np.repeat(np.array([[be1]]), synthetic_X.shape[0], axis=0)
+        q = nm.get_mcmc_quantiles(synthetic_X, model_be, z_scores=z_scores) 
+        ts_idx = be_test[:,0]==be1
+        ax.scatter(X_test[ts_idx], Y_test[ts_idx], s = 10, alpha = 0.5, 
+                    label=labels[int(be1)], color=colors[int(be1)])
+        for i, v in enumerate(z_scores):
+            if v == 0:
+                thickness = 3
+                linestyle = "-"
+            else:
+                linestyle = "--"
+                thickness = 1
+
+            ax.plot(in_scaler.inverse_transform(synthetic_X), out_scaler.inverse_transform(q[i,:]).T, 
+                        linewidth = thickness, linestyle = linestyle,  alpha = 0.9, color=colors[int(be1)]) 
+        ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
+        ax.set_ylabel(bio_name, fontsize=10)
+        ax.set_xlabel('Age', fontsize=16)
+        
+    ax.legend()
     plt.tight_layout()
     
     
