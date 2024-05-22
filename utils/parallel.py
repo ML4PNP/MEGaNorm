@@ -28,8 +28,8 @@ def progress_bar(current, total, bar_length=20):
 
 def sbatchfile(mainParallel_path,
                 bash_file_path,
-               log_path=None,
-               module='mne',
+                log_path=None,
+                module='mne',
                 time='1:00:00',
                 memory='20GB',
                 partition='normal',
@@ -40,9 +40,9 @@ def sbatchfile(mainParallel_path,
     """_summary_
 
     Args:
-        mainParallel_path (_type_): _description_
-        bash_file_path (_type_): _description_
-        log_path (_type_, optional): _description_. Defaults to None.
+        mainParallel_path (str): Path to the mainParallel.py file.
+        bash_file_path (str): Path to save the create batch job file.
+        log_path (str, optional): _description_. Defaults to None.
         module (str, optional): _description_. Defaults to 'mne'.
         time (str, optional): _description_. Defaults to '1:00:00'.
         memory (str, optional): _description_. Defaults to '20GB'.

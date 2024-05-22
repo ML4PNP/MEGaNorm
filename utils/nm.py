@@ -21,6 +21,9 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
         split ratio. Defaults to None.
         drop_nans (boolean, optional): If True, drops columns with missing values. Defaults to False.
         random_seed (int, optional): Random seed in the splitting data. Defaults to 42.
+        
+    Returns: 
+        The number of biomarkers.    
     """
 
     os.makedirs(save_path, exist_ok=True)
@@ -68,4 +71,4 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
     y_test.to_pickle(os.path.join(save_path, 'y_test.pkl'))
     b_test.to_pickle(os.path.join(save_path, 'b_test.pkl'))
     
-    return
+    return y_test.shape[1]
