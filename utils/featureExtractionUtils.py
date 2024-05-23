@@ -131,7 +131,7 @@ def canonicalPower(psd, freqs, fmin, fmax, channelNames, bandName, psdType, feat
 
     # Compute the average relative power for the band on the flattened spectrum
     if "Canonical_Absolute_Power" in featureCategories:
-        featVal.append(np.log10(np.abs(bandPowerFlattened)))
+        featVal.append(np.log10(bandPowerFlattened))
         featName.append(f"Canonical_Absolute_Power_{bandName}_{psdType}_{channelNames}")
 
 
@@ -171,7 +171,7 @@ def individulizedPower(psd, dominant_peak, freqs, bandSubRanges, nanFlag, bandNa
 
         # Compute the average absolute power for the band on the flattened spectrum
         if "Individualized_Absolute_Power" in featureCategories:
-            featRow.append(np.log10(abs(avg_power)))
+            featRow.append(np.log10(avg_power))
             featName.append(f"Individualized_Absolute_Power_{bandName}_{psdType}_{channelNames}")
         
 
