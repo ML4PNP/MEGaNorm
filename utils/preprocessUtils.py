@@ -37,7 +37,7 @@ def findComponent(ica, data, phisNoise):
 
 
 
-def autoICA(data, n_components=30, max_iter=1000, IcaMethod="fastica", cutoffFreq=[1,40], sensorType="meg"):
+def autoICA(data, n_components=30, max_iter=1000, IcaMethod="fastica", cutoffFreq=[1,40], whichSensor="meg"):
 
     """
     This function serves as an automated noise detection tool
@@ -72,7 +72,7 @@ def autoICA(data, n_components=30, max_iter=1000, IcaMethod="fastica", cutoffFre
 
     """
     
-    megResFil = data.copy().pick(picks=[sensorType])
+    megResFil = data.copy().pick(picks=[whichSensor])
 
     # Extracting EOGs (both vertical and horizontal sensors) and ECG channels
     phisNoise = data.copy().pick(picks=["eog", "ecg"])

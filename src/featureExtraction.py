@@ -153,9 +153,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
 
     features = pd.DataFrame(data = [featuresRow], 
-                      columns=featuresNames,
-                    #   index = [subjectqId]
-                      ) 
+                      columns=featuresNames) 
     
     # feature summarization ================================================================ 
     features = summarizeFeatures(df=features, 

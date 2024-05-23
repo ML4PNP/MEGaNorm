@@ -30,7 +30,7 @@ def summarizeFeatures(df, sensorsInf, whichSensor):
         dfSenssor = df.loc[:,df.columns.str.endswith(sensorsID)]
         categories = set()
     
-        for name in dfSenssor.columns[:]:
+        for name in dfSenssor.columns:
             
             if "offset" in name or "exponent" in name:
                 categories.add(name.split("_")[:-1][0] + f"{sensorType}")

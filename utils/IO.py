@@ -13,14 +13,13 @@ def make_config(path=None):
     
     # which sensor type should be used
     # choices: 1. meg: all, 2.mag, 3.grad
-    config["sensorType"] = "mag"
-
-    config['targetFS'] = 1000
+    config["whichSensor"] = "mag"
+    config['fs'] = 1000
 
     # ICA configuration
-    config['n_component'] = 30
-    config['maxIter'] = 800
-    config['IcaMethod'] = "fastica"
+    config['ica_n_component'] = 30
+    config['ica_maxIter'] = 800
+    config['ica_method'] = "fastica"
     # lower and upper cutoff frequencies in a bandpass filter
     config['cutoffFreqLow'] = 1
     config['cutoffFreqHigh'] = 45
@@ -28,50 +27,45 @@ def make_config(path=None):
 
     # fooof analysis configurations ==============================================
     # Desired frequency range to run FOOOF
-    config['freqRangeLow'] = 3
-    config['freqRangeHigh'] = 40
-    # sampling rate
-    config['fs'] = config['targetFS'] # TODO: Should be removed
+    config['fooof_freqRangeLow'] = 3
+    config['fooof_freqRangeHigh'] = 40
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
-    config['tmin'] = 20
+    config['segments_tmin'] = 20
     # end time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
-    config['tmax'] = -20
+    config['segments_tmax'] = -20
     # length of MEG segments in seconds
-    config['segmentsLength'] = 10
+    config['segments_length'] = 10
     # amount of overlap between MEG sigals in seconds
-    config['overlap'] = 2
+    config['segments_overlap'] = 2
+
     #Absolute threshold for detecting peaks
-    config['min_peak_height'] = 0
+    config['fooof_min_peak_height'] = 0
     #Relative threshold for detecting peaks
-    config['peak_threshold'] = 2
+    config['fooof_peak_threshold'] = 2
     # Spectral estimation method
-    config['psdMethod'] = "welch"
+    config['psd_method'] = "welch"
     # amount of overlap between windows in Welch's method
     config['psd_n_overlap'] = 1
     config['psd_n_fft'] = 2
     # number of samples in psd
     config["n_per_seg"] = 2
     # minimum acceptable peak width in fooof analysis
-    config["peak_width_limits"] = [1.0, 12.0]
+    config["fooof_peak_width_limits"] = [1.0, 12.0]
 
 
     # feature extraction ==========================================================
     # Define frequency bands
-    config['freqBands'] = {
-                                'Theta': (4, 8),
-                                'Alpha': (8, 13),
-                                'Beta': (13, 30),
-                                'Gamma': (30, 40),
-                                'Broadband': (3, 40)
-                            }
+    config['freqBands'] = {'Theta': (4, 8),
+                            'Alpha': (8, 13),
+                            'Beta': (13, 30),
+                            'Gamma': (30, 40),
+                            'Broadband': (3, 40)}
 
     # Define individualized frequency range over main peaks in each freq band
-    config['bandSubRanges'] = {
-                                'Theta': (-1, 1),
+    config['bandSubRanges'] = { 'Theta': (-1, 1),
                                 'Alpha': (-2, 3), # change to (-4,2)
                                 'Beta': (-7, 7),
-                                'Gamma': (-5, 5),
-                            }
+                                'Gamma': (-5, 5)}
 
     # least acceptable R squred of fitted models
     config['leastR2'] = 0.9 
@@ -123,14 +117,6 @@ def make_config(path=None):
     
 
 
-    config["features_names"], ch_names = make_features_Names(sensor_type = config["sensorType"],
-                                                   ch_names = list(chain.from_iterable(config['channels_spatial_layouts'].values())),
-                                                   feature_categories = config['featuresCategories'])
-    
-    config["ch_names"] = ch_names
-    
-
-
     if path is not None:
         out_file = open(os.path.join(path, "configs.json"), "w") 
         json.dump(config, out_file, indent = 6) 
@@ -143,7 +129,7 @@ def make_config(path=None):
 
 
 
-def make_features_Names(sensor_type, ch_names, feature_categories):
+def make_ch_Names(sensor_type, ch_names, feature_categories):
     
     if sensor_type == "mag":
         ch_names = [channel for channel in ch_names if channel.endswith("1")]
@@ -152,7 +138,7 @@ def make_features_Names(sensor_type, ch_names, feature_categories):
     if sensor_type == "grad2":
         ch_names = [channel for channel in ch_names if channel.endswith("3")]
     
-    return sum([list(map(lambda feat: feat + ch, feature_categories)) for ch  in ch_names ], []), ch_names
+    return ch_names
     
 
 

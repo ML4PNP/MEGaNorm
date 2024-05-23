@@ -56,35 +56,37 @@ def mainParallel(*args):
 	subID = args.dir.split("/")[-2]
 
 	# preproces ========================================================================
-	filteredData = preprocess(subjectPath = args.dir,
-							targetFS = configs['targetFS'],
-							n_component = configs['n_component'],
-							maxIter = configs['maxIter'],
-							IcaMethod = configs['IcaMethod'],
+	filteredData, channelNames = preprocess(subjectPath = args.dir,
+							fs = configs['fs'],
+							n_component = configs['ica_n_component'],
+							maxIter = configs['ica_maxIter'],
+							IcaMethod = configs['ica_method'],
 							cutoffFreqLow = configs['cutoffFreqLow'],
 							cutoffFreqHigh = configs['cutoffFreqHigh'],
-							sensorType=configs["sensorType"])
+							whichSensor=configs["whichSensor"])
 	
 	# segmentation =====================================================================
 	segments = segmentEpoch(data=filteredData, 
-				fs = configs['targetFS'],
-				tmin = configs['tmin'],
-				tmax = configs['tmax'],
-				segmentsLength = configs['segmentsLength'],
-				overlap = configs['overlap'])
+				fs = configs['fs'],
+				tmin = configs['segments_tmin'],
+				tmax = configs['segments_tmax'],
+				segmentsLength = configs['segments_length'],
+				overlap = configs['segments_overlap'])
 
 	# fooof analysis ====================================================================
 	fmGroup, psds, freqs = psdParameterize(segments = segments,
-									freqRangeLow = configs['freqRangeLow'],
-									freqRangeHigh = configs['freqRangeHigh'],
-									min_peak_height = configs['min_peak_height'],
-									peak_threshold = configs['peak_threshold'],
-									fs = configs['targetFS'],
-									psdMethod = configs['psdMethod'],
+									fs = configs['fs'],
+									# psd parameters
+									psdMethod = configs['psd_method'],
 									psd_n_overlap = configs['psd_n_overlap'],
 									psd_n_fft = configs['psd_n_fft'],
 									n_per_seg = configs["n_per_seg"],
-									peak_width_limits = configs["peak_width_limits"])
+									# fooof parameters
+									freqRangeLow = configs['fooof_freqRangeLow'],
+									freqRangeHigh = configs['fooof_freqRangeHigh'],
+									min_peak_height = configs['fooof_min_peak_height'],
+									peak_threshold = configs['fooof_peak_threshold'],
+									peak_width_limits = configs["fooof_peak_width_limits"])
 	if args.fooofResSave: 
 		storeFooofModels(args.fooofResSave, 
 						subID, 
@@ -98,11 +100,11 @@ def mainParallel(*args):
 							psds = psds,
 							freqs = freqs,
 							freqBands = configs['freqBands'],
-							channelNames = configs['ch_names'],
+							channelNames = channelNames,
 							bandSubRanges = configs['bandSubRanges'],
 							featureCategories=configs["featuresCategories"],
 							sensorsInf=configs["sensorsID"],
-							whichSensor=configs["sensorType"])
+							whichSensor=configs["whichSensor"])
 	
 	features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 

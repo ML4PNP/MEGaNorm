@@ -22,9 +22,9 @@ warnings.filterwarnings('ignore')
 
 
 
-def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
+def preprocess(subjectPath:str, fs:int=1000, n_component:int=30,
         maxIter:int=800, IcaMethod:str="fastica", cutoffFreqLow:float=1, 
-        cutoffFreqHigh:float=45, sensorType="meg"):
+        cutoffFreqHigh:float=45, whichSensor="meg"):
     """
     Apply preprocessing pipeline (ICA and downsampling) on MEG signals.
 
@@ -69,7 +69,7 @@ def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
                                preload=True)
     
     # resample & band pass filter
-    data.resample(targetFS, verbose=False, n_jobs=-1)
+    data.resample(fs, verbose=False, n_jobs=-1)
     data.filter(l_freq=cutoffFreqLow, 
 				h_freq=cutoffFreqHigh, 
                 n_jobs=-1, 
@@ -81,9 +81,9 @@ def preprocess(subjectPath:str, targetFS:int=1000, n_component:int=30,
                 max_iter=maxIter, # FLUX default,
                 IcaMethod = IcaMethod,
                 cutoffFreq=[cutoffFreqLow, cutoffFreqHigh],
-                sensorType=sensorType)
+                whichSensor=whichSensor)
 
-    return data
+    return data, data.info["ch_names"]
 
     
 
@@ -117,7 +117,7 @@ if __name__ == "__main__":
 		subID = subjectPath.split("/")[-1] 
 
 		filteredData = preprocess(subjectPath=subjectPath,
-								targetFS=configs["targetFS"],
+								fs=configs["fs"],
 								n_component=configs["n_component"],
 								maxIter=configs["maxIter"],
 								IcaMethod=configs["IcaMethod"],
