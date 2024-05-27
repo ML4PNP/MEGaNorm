@@ -111,11 +111,10 @@ def make_config(path=None):
                                     "width_dominant_peak", # 5,
                                     "Canonical_Relative_Power", 
                                     "Canonical_Absolute_Power",
-                                    "Individualized_Relative_Power ",
+                                    "Individualized_Relative_Power",
                                     "Individualized_Absolute_Power",
                                     ]
     
-
 
     if path is not None:
         out_file = open(os.path.join(path, "configs.json"), "w") 
