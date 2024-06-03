@@ -23,7 +23,7 @@ from IO import make_config
 
 
 
-def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, channelNames, bandSubRanges, sensorsInf, whichSensor):
+def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, channelNames, bandSubRanges, layoutPath):
     """
     extract features from fooof results
 
@@ -157,8 +157,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
     
     # feature summarization ================================================================ 
     features = summarizeFeatures(df=features, 
-                                sensorsInf=sensorsInf,
-                                whichSensor=whichSensor)
+                                layoutPath=layoutPath)
     features.index = [subjectId]
     
     return features

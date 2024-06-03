@@ -15,40 +15,70 @@ from IO import make_config
 
 
 
-def summarizeFeatures(df, sensorsInf, whichSensor):
+def summarizeFeatures(df, layoutPath):
 
     """
     average features across the whole brain. 
     """
     
-    sensorsAverageds = []
+    with open(layoutPath, "r") as file:
+        layout = json.load(file)
 
-    for sensorType, sensorsID in sensorsInf.items():
-        
-        if sensorType != whichSensor: continue
+    summarized = []
 
-        dfSenssor = df.loc[:,df.columns.str.endswith(sensorsID)]
-        categories = set()
-    
-        for name in dfSenssor.columns:
-            
+    for layoutName, layoutRow in layout.items():
+
+        sensorType = layoutName.sep("_")[1]
+
+        parcell = df.loc[:, [col for col in df.columns if col.sep("_")[-1] in layoutRow]]
+        categories = []
+
+        for name in parcell.columns:
             if "offset" in name or "exponent" in name:
                 categories.add(name.split("_")[:-1][0] + f"{sensorType}")
             elif "r_squared" not in name and "participant_ID" not in name:
                 categories.add("_".join(name.split("_")[:-1]) + f"_{sensorType}")
-
-        dfs = [dfSenssor.loc[:, dfSenssor.columns.str.startswith(uniqueName[:-4])].mean(axis=1) for uniqueName in categories]
-        dfNames = list(categories)
-
-        averaged = pd.concat(dfs, axis=1)
-        averaged.columns = dfNames
         
-        sensorsAverageds.append(averaged)
+        dfs = [parcell.loc[:, parcell.columns.str.startswith(uniqueName[:-4])].mean(axis=1) for uniqueName in categories]
 
-    sensorsAverageds = pd.concat(sensorsAverageds, axis=1)
+        averaged = pd.concat(dfs, axis=1); averaged.columns = list(categories)
+        
+
+        summarized.append(averaged)
+    summarized = pd.concat(summarized, axis=1)
+
+    return summarized
 
 
-    return sensorsAverageds
+
+
+
+    # for sensorType, sensorsID in sensorsInf.items():
+        
+    #     if sensorType != whichSensor: continue
+
+    #     dfSenssor = df.loc[:,df.columns.str.endswith(sensorsID)]
+    #     categories = set()
+    
+    #     for name in dfSenssor.columns:
+            
+    #         if "offset" in name or "exponent" in name:
+    #             categories.add(name.split("_")[:-1][0] + f"{sensorType}")
+    #         elif "r_squared" not in name and "participant_ID" not in name:
+    #             categories.add("_".join(name.split("_")[:-1]) + f"_{sensorType}")
+
+    #     dfs = [dfSenssor.loc[:, dfSenssor.columns.str.startswith(uniqueName[:-4])].mean(axis=1) for uniqueName in categories]
+    #     dfNames = list(categories)
+
+    #     averaged = pd.concat(dfs, axis=1)
+    #     averaged.columns = dfNames
+        
+    #     summarized.append(averaged)
+
+    # summarized = pd.concat(summarized, axis=1)
+
+
+    # return summarized
 
 
 

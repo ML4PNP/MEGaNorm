@@ -29,12 +29,17 @@ def mainParallel(*args):
 	parser = argparse.ArgumentParser()
 	# positional Arguments 
 	parser.add_argument("dir", 
-			help="Address to your data")
-	parser.add_argument("saveDir", type=str,
-			help="where to save extracted features")
+				type=str,
+				help="Address to your data")
+	parser.add_argument("saveDir", 
+				type=str,
+				help="where to save extracted features")
+	parser.add_argument("layout_path", 
+				type=str,
+				help="Address to the layout file")
 	parser.add_argument("--configs", type=str, default=None,
 			help="Address of configs json file")
-
+	
 	# saving options
 	parser.add_argument("--fooofResSave", type=str,
 					help="if available, fooof results will be saved")
@@ -43,6 +48,7 @@ def mainParallel(*args):
 
 	# args.dir = "/project/meganorm/Data/camcan/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC620090/mf2pt2_sub-CC620090_ses-rest_task-rest_megtransdef.fif"
 	# args.saveDir = "/home/meganorm-mznasrabadi/MEGaNorm/dataTest"
+	# args.layout_path = "/home/meganorm-mznasrabadi/MEGaNorm/layouts/Megin_MAG_All.json"
 
 
 	# Loading configs
@@ -102,9 +108,8 @@ def mainParallel(*args):
 							freqBands = configs['freqBands'],
 							channelNames = channelNames,
 							bandSubRanges = configs['bandSubRanges'],
-							featureCategories=configs["featuresCategories"],
-							sensorsInf=configs["sensorsID"],
-							whichSensor=configs["whichSensor"])
+							featureCategories= configs["featuresCategories"],
+							layoutPath = args.layout_path)
 	
 	features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 
