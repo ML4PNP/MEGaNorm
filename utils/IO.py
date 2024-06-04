@@ -70,8 +70,6 @@ def make_config(path=None):
     # least acceptable R squred of fitted models
     config['leastR2'] = 0.9 
 
-    
-
 
     config['featuresCategories'] = ["offset", # 1
                                     "exponent", # 1
@@ -84,6 +82,7 @@ def make_config(path=None):
                                     "Individualized_Absolute_Power",
                                     ]
     
+    config["layout_path"] = "layouts/Megin_MAG_All.json"
 
     if path is not None:
         out_file = open(os.path.join(path, "configs.json"), "w") 
