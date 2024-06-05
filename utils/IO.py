@@ -1,7 +1,4 @@
-from itertools import chain
-import pandas as pd
 import pickle
-import glob
 import json
 import os
 
@@ -165,7 +162,4 @@ def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
 
     with open(path, "ab") as file:
         pickle.dump({subjId: [fooofModels, psds, freqs]}, file)
-
-
-
 
