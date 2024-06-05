@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import argparse
 import json
 import sys
@@ -9,21 +8,22 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
+layout_path = os.path.join(parent_dir, 'layouts')
+sys.path.append(layout_path)
 
 from IO import make_config
+from layouts import load_specific_layout
 
 
 
-
-def summarizeFeatures(df, layoutPath):
+def summarizeFeatures(df, device, layout_name):
 
     """
     average features across the whole brain. 
     """
     
-    with open(layoutPath, "r") as file:
-        layout = json.load(file)
-
+    layout = load_specific_layout(device, layout_name)
+    
     summarized = []
 
     for layoutName, layoutRow in layout.items():

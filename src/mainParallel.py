@@ -1,12 +1,8 @@
 
-import numpy as np
 import argparse
 import json
 import os
 import sys
-
-
-
 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -14,14 +10,11 @@ config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
 # sys.path.insert(0, "../utils")
 
-
 from IO import make_config, storeFooofModels
 from preprocessUtils import segmentEpoch
 from psdParameterize import psdParameterize
 from preprocess import preprocess
 from featureExtraction import featureExtract
-
-
 
 
 def mainParallel(*args):
@@ -34,9 +27,6 @@ def mainParallel(*args):
 	parser.add_argument("saveDir", 
 				type=str,
 				help="where to save extracted features")
-	parser.add_argument("layout_path", 
-				type=str,
-				help="Address to the layout file")
 	parser.add_argument("--configs", type=str, default=None,
 			help="Address of configs json file")
 	
@@ -109,7 +99,8 @@ def mainParallel(*args):
 							channelNames = channelNames,
 							bandSubRanges = configs['bandSubRanges'],
 							featureCategories= configs["featuresCategories"],
-							layoutPath = args.layout_path)
+							device = configs["device"],
+       						layout = configs["layout"])
 	
 	features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 
