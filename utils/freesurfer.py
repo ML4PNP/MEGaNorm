@@ -48,8 +48,8 @@ def create_slurm_script(subjects_directory, subject_id, results_dir, processing_
         #SBATCH --cpus-per-task={cpus_per_task}  # Number of CPU cores per process
         #SBATCH --mem={mem}                # Total memory limit
         #SBATCH --time={time}              # Time limit hrs:min:sec
-        #SBATCH --output={os.path.join(log_path, "%x_%j.log")}          # Standard output log
-        #SBATCH --error={os.path.join(log_path, "%x_%j.err")}            # Standard error log
+        #SBATCH --output={log_path}/%x_%j.log          # Standard output log
+        #SBATCH --error={log_path}/%x_%j.err            # Standard error log
 
         # Source the FreeSurfer setup script
         export FREESURFER_HOME={freesurfer_path}
