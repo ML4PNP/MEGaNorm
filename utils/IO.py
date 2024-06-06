@@ -67,8 +67,6 @@ def make_config(path=None):
     # least acceptable R squred of fitted models
     config['leastR2'] = 0.9 
 
-    
-
 
     config['featuresCategories'] = ["Offset", # 1
                                     "Exponent", # 1
@@ -81,6 +79,7 @@ def make_config(path=None):
                                     "Individualized_Absolute_Power",
                                     ]
     
+    config["layout_path"] = "layouts/Megin_MAG_All.json"
 
     config["device"] = "MEGIN"
     config["layout"] = "Megin_MAG_All"
