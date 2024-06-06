@@ -11,7 +11,6 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
 
-from summarizeFeatures import summarizeFeatures
 import featureExtractionUtils
 from IO import make_config
 
@@ -80,7 +79,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
         for bandName, (fmin, fmax) in freqBands.items():
 
 
-        #   ################################# Peak Features ###################################
+            ################################# Peak Features ###################################
             (featRow, 
             featName, 
             dominant_peak,
@@ -91,35 +90,35 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                         bandName=bandName,
                                                         featureCategories=featureCategories)
             featuresRow.extend(featRow); featuresNames.extend(featName)
-        #   #===================================================================================
+            #===================================================================================
+
+            
+
+            ################################# Power Features  #######################################
+            # adjusted
+            featRow, featName = featureExtractionUtils.canonicalPower(psd=flattenedPsd, 
+                                                                    freqs=freqs, 
+                                                                    fmin=fmin, 
+                                                                    fmax=fmax, 
+                                                                    channelNames=channelNames[i], 
+                                                                    bandName=bandName,
+                                                                    psdType="Adjusted",
+                                                                    featureCategories=featureCategories)
+            featuresRow.extend(featRow); featuresNames.extend(featName)
+            # original psd
+            featRow, featName = featureExtractionUtils.canonicalPower(psd=psds[i, :], 
+                                                                    freqs=freqs, 
+                                                                    fmin=fmin, 
+                                                                    fmax=fmax, 
+                                                                    channelNames=channelNames[i], 
+                                                                    bandName=bandName,
+                                                                    psdType="OriginalPsd",
+                                                                    featureCategories=featureCategories)
+            featuresRow.extend(featRow); featuresNames.extend(featName)
+            #=========================================================================================== 
+
 
             if bandName != "Broadband": 
-
-                ################################# Power Features  #######################################
-                # adjusted
-                featRow, featName = featureExtractionUtils.canonicalPower(psd=flattenedPsd, 
-                                                                        freqs=freqs, 
-                                                                        fmin=fmin, 
-                                                                        fmax=fmax, 
-                                                                        channelNames=channelNames[i], 
-                                                                        bandName=bandName,
-                                                                        psdType="adjusted",
-                                                                        featureCategories=featureCategories)
-                featuresRow.extend(featRow); featuresNames.extend(featName)
-                # original psd
-                featRow, featName = featureExtractionUtils.canonicalPower(psd=psds[i, :], 
-                                                                        freqs=freqs, 
-                                                                        fmin=fmin, 
-                                                                        fmax=fmax, 
-                                                                        channelNames=channelNames[i], 
-                                                                        bandName=bandName,
-                                                                        psdType="originalPsd",
-                                                                        featureCategories=featureCategories)
-                featuresRow.extend(featRow); featuresNames.extend(featName)
-                #=========================================================================================== 
-
-
-
                 ################################# Individualized band power ################################
                 # adjusted
                 featRow, featName = featureExtractionUtils.individulizedPower(psd=flattenedPsd, 
@@ -129,7 +128,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     nanFlag=nanFlag, 
                                                                     bandName=bandName, 
                                                                     channelNames=channelNames[i],
-                                                                    psdType="adjusted",
+                                                                    psdType="Adjusted",
                                                                     featureCategories=featureCategories)
                 featuresRow.extend(featRow); featuresNames.extend(featName)
                 # original psd
@@ -140,18 +139,19 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     nanFlag=nanFlag, 
                                                                     bandName=bandName, 
                                                                     channelNames=channelNames[i],
-                                                                    psdType="originalPsd",
+                                                                    psdType="OriginalPsd",
                                                                     featureCategories=featureCategories)
                 featuresRow.extend(featRow); featuresNames.extend(featName)
                 #============================================================================================
 
 
-    features = pd.DataFrame(data = [featuresRow], 
-                      columns=featuresNames) 
+    features = pd.DataFrame(data=[featuresRow], 
+                            columns=featuresNames) 
     
     # feature summarization ================================================================ 
-    features = summarizeFeatures(df=features, device=device, 
-                                layout_name=layout)
+    features = featureExtractionUtils.summarizeFeatures(df=features, 
+                                                        device=device, 
+                                                        layout_name=layout)
     features.index = [subjectId]
     
     return features
