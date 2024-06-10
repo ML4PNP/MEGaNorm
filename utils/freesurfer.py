@@ -89,10 +89,14 @@ def run_parallel_reconall(subjects_directory, results_directory,
         results_directory (str): Path to save the results.
         processing_directory (str): Path to save the bash script.
         freesurfer_path (str): Path to freesurfer.
+    
+    Returns:
+        A list of subject IDs.
+
     """
     
     subject_ids = list_subject_ids(subjects_directory)
-    
+        
     for subject_id in subject_ids:
         
         script_file_path = create_slurm_script(subjects_directory, subject_id, results_directory, 
@@ -103,6 +107,32 @@ def run_parallel_reconall(subjects_directory, results_directory,
         print(f"Submitting job for subject: {subject_id}")
         
         subprocess.run(command, capture_output=True, text=True)
+        
+    return subject_ids
+
+
+def check_log_for_success(results_directory, subject_ids):    
+    """Check the log file for the success message.
+
+    Args:
+        results_directory (str): Path for the freesurfer results.
+        subject_ids (list): List of subject IDs.
+
+    Returns:
+        List: List of failed subject Ids.
+    """
+    failed_subjects = []
+    
+    for subject_id in subject_ids:
+        log_path = os.path.join(results_directory, subject_id, 'scripts', 'recon-all.log')
+        if not os.path.exists(log_path):
+            failed_subjects.append(subject_id)
+        else:
+            with open(log_path, 'r') as f:
+                log_content = f.read()
+            if 'finished without error' not in log_content:
+                failed_subjects.append(subject_id)
+    return failed_subjects
 
 
 if __name__ == "__main__":
