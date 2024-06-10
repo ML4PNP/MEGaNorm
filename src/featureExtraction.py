@@ -1,12 +1,9 @@
 import os
 import sys
-import mne
-import glob
 import tqdm
 import json
 import pickle
 import argparse
-import numpy as np
 import pandas as pd
 
 # Add utils folder to the system path
@@ -14,16 +11,13 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
 
-
 from summarizeFeatures import summarizeFeatures
 import featureExtractionUtils
 from IO import make_config
 
 
-
-
-
-def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, channelNames, bandSubRanges, sensorsInf, whichSensor):
+def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, 
+                   channelNames, bandSubRanges, device, layout):
     """
     extract features from fooof results
 
@@ -156,9 +150,8 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                       columns=featuresNames) 
     
     # feature summarization ================================================================ 
-    features = summarizeFeatures(df=features, 
-                                sensorsInf=sensorsInf,
-                                whichSensor=whichSensor)
+    features = summarizeFeatures(df=features, device=device, 
+                                layout_name=layout)
     features.index = [subjectId]
     
     return features
