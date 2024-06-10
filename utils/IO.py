@@ -67,19 +67,20 @@ def make_config(path=None):
     # least acceptable R squred of fitted models
     config['leastR2'] = 0.9 
 
-    
 
-
-    config['featuresCategories'] = ["offset", # 1
-                                    "exponent", # 1
-                                    "frequency_dominant_peak", # 5,
-                                    "power_dominant_peak",# 5,
-                                    "width_dominant_peak", # 5,
+    config['featuresCategories'] = ["Offset", # 1
+                                    "Exponent", # 1
+                                    "Peak_Center", # 5,
+                                    "Peak_Power",# 5,
+                                    "Peak_Width", # 5,
                                     "Canonical_Relative_Power", 
                                     "Canonical_Absolute_Power",
                                     "Individualized_Relative_Power",
                                     "Individualized_Absolute_Power",
                                     ]
+    
+    config["device"] = "MEGIN"
+    config["layout"] = "Megin_MAG_All"
     
 
     if path is not None:

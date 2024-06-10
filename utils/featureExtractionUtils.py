@@ -1,7 +1,15 @@
+import pandas as pd
 import numpy as np
 import fooof as f
+import sys
+import os
 
+# Add utils folder to the system path
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+layout_path = os.path.join(parent_dir, 'layouts')
+sys.path.append(layout_path)
 
+from layouts import load_specific_layout
 
 
 
@@ -15,11 +23,11 @@ def apperiodicFeatures(fm, channelNames, featureCategories):
     
     if "offset" in featureCategories:
         featRow.append(fm.get_params("aperiodic_params")[0])
-        featName.append(f"offset_{channelNames}")
+        featName.append(f"Offset_{channelNames}")
 
     if "exponent" in featureCategories:
         featRow.append(fm.get_params("aperiodic_params")[1])
-        featName.append(f"exponent_{channelNames}")
+        featName.append(f"Exponent_{channelNames}")
 
     return featRow, featName
 
@@ -52,32 +60,32 @@ def peakParameters(fm, fmin, fmax, channelNames, bandName, featureCategories):
         # Sort the peaks by amplitude (peak[1]) and get the frequency of the highest amplitude peak
         dominant_peak = max(band_peaks, key=lambda x: x[1])
 
-        if "frequency_dominant_peak" in featureCategories:
+        if "Peak_Center" in featureCategories:
             featRow.append(dominant_peak[0])
-            featName.append(f"frequency_dominant_peak_{bandName}_{channelNames}")
+            featName.append(f"Peak_Center_{bandName}_{channelNames}")
 
-        if "power_dominant_peak" in featureCategories:
+        if "Peak_Power" in featureCategories:
             featRow.append(dominant_peak[1])
-            featName.append(f"power_dominant_peak_{bandName}_{channelNames}")
+            featName.append(f"Peak_Power_{bandName}_{channelNames}")
 
-        if "width_dominant_peak" in featureCategories:
+        if "Peak_Width" in featureCategories:
             featRow.append(dominant_peak[2])
-            featName.append(f"width_dominant_peak_{bandName}_{channelNames}")
+            featName.append(f"Peak_Width_{bandName}_{channelNames}")
 
     # in case there is no peak for a certain frequency band
     else:
 
-        if "frequency_dominant_peak" in featureCategories:
+        if "Peak_Center" in featureCategories:
             featRow.append(np.nan)
-            featName.append(f"frequency_dominant_peak_{bandName}_{channelNames}")
+            featName.append(f"Peak_Center_{bandName}_{channelNames}")
 
-        if "power_dominant_peak" in featureCategories:
+        if "Peak_Power" in featureCategories:
             featRow.append(np.nan)
-            featName.append(f"power_dominant_peak_{bandName}_{channelNames}")
+            featName.append(f"Peak_Power_{bandName}_{channelNames}")
 
-        if "width_dominant_peak" in featureCategories:
+        if "Peak_Width" in featureCategories:
             featRow.append(np.nan)
-            featName.append(f"width_dominant_peak_{bandName}_{channelNames}")
+            featName.append(f"Peak_Width_{bandName}_{channelNames}")
 
         dominant_peak = np.nan                 
             
@@ -127,12 +135,12 @@ def canonicalPower(psd, freqs, fmin, fmax, channelNames, bandName, psdType, feat
     # Compute the average relative power for the band on the flattened spectrum
     if "Canonical_Relative_Power" in featureCategories:
         featVal.append(bandPowerFlattened / totalPower)
-        featName.append(f"Canonical_Relative_Power_{bandName}_{psdType}_{channelNames}")
+        featName.append(f"{psdType}_Canonical_Relative_Power_{bandName}_{channelNames}")
 
     # Compute the average relative power for the band on the flattened spectrum
     if "Canonical_Absolute_Power" in featureCategories:
         featVal.append(np.log10(bandPowerFlattened))
-        featName.append(f"Canonical_Absolute_Power_{bandName}_{psdType}_{channelNames}")
+        featName.append(f"{psdType}_Canonical_Absolute_Power_{bandName}_{channelNames}")
 
 
     return featVal, featName
@@ -166,25 +174,68 @@ def individulizedPower(psd, dominant_peak, freqs, bandSubRanges, nanFlag, bandNa
         # Compute the average relative power for the band on the flattened spectrum
         if "Individualized_Relative_Power" in featureCategories:
             featRow.append(avg_power / total_power)
-            featName.append(f"Individualized_Relative_Power_{bandName}_{psdType}_{channelNames}")
+            featName.append(f"{psdType}_Individualized_Relative_Power_{bandName}_{channelNames}")
 
 
         # Compute the average absolute power for the band on the flattened spectrum
         if "Individualized_Absolute_Power" in featureCategories:
             featRow.append(np.log10(avg_power))
-            featName.append(f"Individualized_Absolute_Power_{bandName}_{psdType}_{channelNames}")
+            featName.append(f"{psdType}_Individualized_Absolute_Power_{bandName}_{channelNames}")
         
 
     else:
         # Compute the average relative power for the band on the flattened spectrum
         if "Individualized_Relative_Power" in featureCategories:
             featRow.append(np.nan)
-            featName.append(f"Individualized_Relative_Power_{bandName}_{psdType}_{channelNames}")
+            featName.append(f"{psdType}_Individualized_Relative_Power_{bandName}_{channelNames}")
 
 
         # Compute the average absolute power for the band on the flattened spectrum
         if "Individualized_Absolute_Power" in featureCategories:
             featRow.append(np.nan)
-            featName.append(f"Individualized_Absolute_Power_{bandName}_{psdType}_{channelNames}")
+            featName.append(f"{psdType}_Individualized_Absolute_Power_{bandName}_{channelNames}")
 
     return featRow, featName
+
+
+
+
+
+def summarizeFeatures(df, device, layout_name):
+
+    """
+    average features across the whole brain. 
+    """
+    
+    layout = load_specific_layout(device, layout_name)
+    
+    summarized = []
+
+    for layoutName, layoutRow in layout.items():
+
+        sensorType = layoutName.split("_")[0]
+        if sensorType in ["MAG", "GRAD"]: sensorType = ""
+
+        parcell = df.loc[:, [col for col in df.columns if col.split("_")[-1] in layoutRow]]
+        categories = set()
+
+        for name in parcell.columns:
+            if "Offset" in name or "Exponent" in name:
+                categories.add(name.split("_")[:-1][0] + f"{sensorType}")
+            elif "r_squared" not in name and "participant_ID" not in name:
+                categories.add("_".join(name.split("_")[:-1]) + f"_{sensorType}")
+        
+        if sensorType in ["MAG", "GRAD"]:
+            dfs = [parcell.loc[:, parcell.columns.str.startswith(uniqueName[:-5])].mean(axis=1) for uniqueName in categories]
+        else:
+            dfs = [parcell.loc[:, parcell.columns.str.startswith(uniqueName)].mean(axis=1) for uniqueName in categories]
+
+        averaged = pd.concat(dfs, axis=1); averaged.columns = list(categories)
+        
+
+        summarized.append(averaged)
+    summarized = pd.concat(summarized, axis=1)
+
+    summarized.sort_index(axis=1, inplace=True)
+
+    return summarized
