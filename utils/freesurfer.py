@@ -27,7 +27,7 @@ def list_subject_ids(directory, save_path=None):
 
 def create_slurm_script(subjects_directory, subject_id, results_dir, processing_directory, 
                         freesurfer_path, nodes=1, ntasks=1, cpus_per_task=1, 
-                        mem='16G', time='48:00:00'):
+                        mem='16G', time='48:00:00', i_option=True):
     """
     Create a Slurm batch script for running recon-all with given parameters.
     """
@@ -40,7 +40,12 @@ def create_slurm_script(subjects_directory, subject_id, results_dir, processing_
     log_path = os.path.join(processing_directory, 'log') 
     if not os.path.isdir(log_path):
         os.makedirs(log_path)
-    
+        
+    if i_option:
+        recon_all_command = f"recon-all -subject ${{SUBJECT_ID}} -i ${{VOLUME}} -all"
+    else:
+        recon_all_command = f"recon-all -subject ${{SUBJECT_ID}} -all"
+        
     script_content = f"""#!/bin/bash
         #SBATCH --job-name={subject_id}      # Job name
         #SBATCH --nodes={nodes}            # Run all processes on a single node
@@ -67,7 +72,7 @@ def create_slurm_script(subjects_directory, subject_id, results_dir, processing_
         SUBJECT_ID=$1
 
         # Run the recon-all command
-        recon-all -subject ${{SUBJECT_ID}} -i ${{VOLUME}} -all
+        {recon_all_command}
         """
         
     with open(os.path.join(processing_directory, script_filename), 'w') as file:
@@ -133,6 +138,34 @@ def check_log_for_success(results_directory, subject_ids):
             if 'finished without error' not in log_content:
                 failed_subjects.append(subject_id)
     return failed_subjects
+
+
+def rerun_failed_subs(failed_subjetcs, subjects_directory, results_directory, 
+                          processing_directory, freesurfer_path):
+    
+    """Re-runs Freesurfer recon-all for failed subjects. 
+
+    Args:
+        failed_subjetcs (list): List of failed subjects IDs.
+        subjects_directory (str): Path to data.
+        results_directory (str): Path to save the results.
+        processing_directory (str): Path to save the bash script.
+        freesurfer_path (str): Path to freesurfer.
+    
+    """
+            
+    for subject_id in failed_subjetcs:
+        
+        script_file_path = create_slurm_script(subjects_directory, subject_id, results_directory, 
+                                               processing_directory, freesurfer_path, i_option=False)
+        
+        command = ['sbatch', script_file_path, subject_id]
+        
+        print(f"Submitting job for subject: {subject_id}")
+        
+        subprocess.run(command, capture_output=True, text=True)
+        
+
 
 
 if __name__ == "__main__":
