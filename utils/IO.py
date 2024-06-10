@@ -79,8 +79,6 @@ def make_config(path=None):
                                     "Individualized_Absolute_Power",
                                     ]
     
-    config["layout_path"] = "layouts/Megin_MAG_All.json"
-
     config["device"] = "MEGIN"
     config["layout"] = "Megin_MAG_All"
     
