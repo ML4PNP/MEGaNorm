@@ -1,7 +1,8 @@
 import os
 import subprocess
 import argparse
-
+import numpy as np
+from pcntoolkit.util.utils import retrieve_freesurfer_eulernum
 
 def list_subject_ids(directory, save_path=None):
     """Retrieves all folders in the given directory as subject IDs, and
@@ -44,7 +45,7 @@ def create_slurm_script(subjects_directory, subject_id, results_dir, processing_
     if i_option:
         recon_all_command = f"recon-all -subject ${{SUBJECT_ID}} -i ${{VOLUME}} -all"
     else:
-        recon_all_command = f"recon-all -subject ${{SUBJECT_ID}} -all"
+        recon_all_command = f"recon-all -subject ${{SUBJECT_ID}} -all -no-isrunning"
         
     script_content = f"""#!/bin/bash
         #SBATCH --job-name={subject_id}      # Job name
@@ -164,8 +165,30 @@ def rerun_failed_subs(failed_subjetcs, subjects_directory, results_directory,
         print(f"Submitting job for subject: {subject_id}")
         
         subprocess.run(command, capture_output=True, text=True)
-        
 
+   
+def freesurfer_QC(results_directory):
+    """Performs Euler number based quality control on the results of Freesurfer.
+
+    Args:
+        results_directory (str): The path to the Freesurfer results directory.
+
+    Returns:
+        qc_passed_samples (list): List of passed QC subjects.
+        qc_failed_samples (list): List of failed QC subjects.
+        missing_samples (list): List of missing subjects.
+    """
+    
+    euler_numbers, missing_samples = retrieve_freesurfer_eulernum(results_directory)
+    
+    euler_nums = euler_numbers['avg_en'].to_numpy(dtype=np.float32)
+   
+    qc_measure = np.sqrt(-(euler_nums)) - np.median(np.sqrt(-(euler_nums)))
+    
+    qc_passed_samples = list(euler_numbers.loc[qc_measure<=5].index)
+    qc_failed_samples = list(euler_numbers.loc[qc_measure>5].index)
+    
+    return qc_passed_samples, qc_failed_samples, missing_samples
 
 
 if __name__ == "__main__":
