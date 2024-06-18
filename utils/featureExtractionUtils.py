@@ -133,15 +133,15 @@ def canonicalPower(psd, freqs, fmin, fmax, channelNames, bandName, psdType, feat
     featVal, featName = [], []
 
     # Compute the average relative power for the band on the flattened spectrum
-    if "Canonical_Relative_Power" in featureCategories:
-        featVal.append(bandPowerFlattened / totalPower)
-        featName.append(f"{psdType}_Canonical_Relative_Power_{bandName}_{channelNames}")
-
-    # Compute the average relative power for the band on the flattened spectrum
     if "Canonical_Absolute_Power" in featureCategories:
         featVal.append(np.log10(bandPowerFlattened))
         featName.append(f"{psdType}_Canonical_Absolute_Power_{bandName}_{channelNames}")
-
+    # Compute the average relative power for the band on the flattened spectrum
+    if "Canonical_Relative_Power" in featureCategories:
+        if bandName=="Broadband":
+            return featVal, featName
+        featVal.append(bandPowerFlattened / totalPower)
+        featName.append(f"{psdType}_Canonical_Relative_Power_{bandName}_{channelNames}")
 
     return featVal, featName
 
