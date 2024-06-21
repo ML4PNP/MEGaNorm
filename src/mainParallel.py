@@ -45,7 +45,7 @@ def mainParallel(*args):
 		with open(args.configs, 'r') as f:
 			configs = json.load(f)
 	else:
-		configs = make_config()
+		configs = make_config('configs')
 
 	# subject ID
 	subID = args.dir.split("/")[-2]
