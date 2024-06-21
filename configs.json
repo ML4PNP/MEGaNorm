@@ -1,0 +1,79 @@
+{
+      "whichSensor": "mag",
+      "fs": 1000,
+      "ica_n_component": 30,
+      "ica_maxIter": 800,
+      "ica_method": "fastica",
+      "cutoffFreqLow": 1,
+      "cutoffFreqHigh": 45,
+      "fooof_freqRangeLow": 3,
+      "fooof_freqRangeHigh": 40,
+      "segments_tmin": 20,
+      "segments_tmax": -20,
+      "segments_length": 10,
+      "segments_overlap": 2,
+      "fooof_min_peak_height": 0,
+      "fooof_peak_threshold": 2,
+      "psd_method": "welch",
+      "psd_n_overlap": 1,
+      "psd_n_fft": 2,
+      "n_per_seg": 2,
+      "fooof_peak_width_limits": [
+            1.0,
+            12.0
+      ],
+      "freqBands": {
+            "Theta": [
+                  4,
+                  8
+            ],
+            "Alpha": [
+                  8,
+                  13
+            ],
+            "Beta": [
+                  13,
+                  30
+            ],
+            "Gamma": [
+                  30,
+                  40
+            ],
+            "Broadband": [
+                  3,
+                  40
+            ]
+      },
+      "bandSubRanges": {
+            "Theta": [
+                  -1,
+                  1
+            ],
+            "Alpha": [
+                  -2,
+                  3
+            ],
+            "Beta": [
+                  -7,
+                  7
+            ],
+            "Gamma": [
+                  -5,
+                  5
+            ]
+      },
+      "leastR2": 0.9,
+      "featuresCategories": [
+            "Offset",
+            "Exponent",
+            "Peak_Center",
+            "Peak_Power",
+            "Peak_Width",
+            "Canonical_Relative_Power",
+            "Canonical_Absolute_Power",
+            "Individualized_Relative_Power",
+            "Individualized_Absolute_Power"
+      ],
+      "device": "MEGIN",
+      "layout": "Megin_MAG_All"
+}
