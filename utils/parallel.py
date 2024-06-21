@@ -64,8 +64,8 @@ def sbatchfile(mainParallel_path,
     sbatch_memory = '#SBATCH --mem=' + memory + '\n'
     sbatch_module = 'source activate ' + module +'\n'
     if log_path is not None:
-        sbatch_log_out = '#SBATCH -o ' + log_path + "%x_%j.out" + '\n'
-        sbatch_log_error =  '#SBATCH -e ' + log_path + "%x_%j.err" + '\n'
+        sbatch_log_out = '#SBATCH -o ' + log_path + "/%x_%j.out" + '\n'
+        sbatch_log_error =  '#SBATCH -e ' + log_path + "/%x_%j.err" + '\n'
     
     sbatch_input_1 = 'source=$1\n'
     sbatch_input_2 = 'target=$2\n'
@@ -90,7 +90,7 @@ def sbatchfile(mainParallel_path,
     bash_environment[0] += sbatch_input_1 
     bash_environment[0] += sbatch_input_2 
     if with_config:
-        bash_environment[0] += sbatch_input_3
+        bash_environment[0] += "--configs " + sbatch_input_3
     bash_environment[0] += command
 
     job_path = os.path.join(bash_file_path, batch_file_name + '.sh')

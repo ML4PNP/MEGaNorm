@@ -2,11 +2,14 @@ import pickle
 import json
 import os
 
-def make_config(path=None):
+def make_config(project, path=None):
 
     # preprocess configurations =================================================
     # downsample data
     config = dict()
+    
+    config["device"] = "MEGIN"
+    config["layout"] = "Megin_MAG_All"
     
     # which sensor type should be used
     # choices: 1. meg: all, 2.mag, 3.grad
@@ -79,12 +82,9 @@ def make_config(path=None):
                                     "Individualized_Absolute_Power",
                                     ]
     
-    config["device"] = "MEGIN"
-    config["layout"] = "Megin_MAG_All"
-    
 
     if path is not None:
-        out_file = open(os.path.join(path, "configs.json"), "w") 
+        out_file = open(os.path.join(path, project + ".json"), "w") 
         json.dump(config, out_file, indent = 6) 
         out_file.close()
 
