@@ -21,11 +21,11 @@ def apperiodicFeatures(fm, channelNames, featureCategories):
     """
     featRow, featName = [], []
     
-    if "offset" in featureCategories:
+    if "Offset" in featureCategories:
         featRow.append(fm.get_params("aperiodic_params")[0])
         featName.append(f"Offset_{channelNames}")
 
-    if "exponent" in featureCategories:
+    if "Exponent" in featureCategories:
         featRow.append(fm.get_params("aperiodic_params")[1])
         featName.append(f"Exponent_{channelNames}")
 
