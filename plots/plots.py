@@ -3,7 +3,55 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.stats as st
+import seaborn as sns
+import pandas as pd
 
+
+
+def KDE_plot(data, experiments, metric, xlim = 'auto', fontsize=24):
+    # Create the data
+    sns.set_theme(style="white", rc={"axes.facecolor": (0, 0, 0, 0)})
+    g = []
+    x = data
+    x_min = np.min(x)
+    x_max = np.max(x)
+    for i in range(len(experiments)):   
+        for j in range(data.shape[1]):
+            g.append(experiments[i])       
+    df = pd.DataFrame(dict(x=x.ravel(), g=g))
+    
+    # Initialize the FacetGrid object
+    pal = sns.cubehelix_palette(10, rot=-.25, light=.7)
+    g = sns.FacetGrid(df, row="g", hue="g", aspect=15, height=.5, palette=pal)
+    
+    # Draw the densities in a few steps
+    g.map(sns.kdeplot, "x", clip_on=False, shade=True, alpha=1, lw=1.5, bw=.2)
+    g.map(sns.kdeplot, "x", clip_on=False, color="w", lw=2, bw=.2)
+    g.map(plt.axhline, y=0, lw=2, clip_on=False)
+    
+    # Define and use a simple function to label the plot in axes coordinates
+    def label_KDE(x, color, label):
+        ax = plt.gca()
+        ax.text(0, .2, label, fontweight="bold", color=color,
+                ha="left", va="center", transform=ax.transAxes, fontsize=fontsize)
+        ax.plot([x.median(), x.median()], [0,10], c='w')
+        if xlim == 'auto':
+            ax.set_xlim([x_min - 0.05, x_max])  
+        else:
+            ax.set_xlim([xlim[0],xlim[1]])
+        plt.xticks(fontsize=fontsize)    
+    plt.yticks(fontsize=fontsize) 
+    g.map(label_KDE, "x")
+    
+    # Set the subplots to overlap
+    g.figure.subplots_adjust(hspace=-.25)
+    
+    # Remove axes details that don't play well with overlap
+    g.set_titles("")
+    g.set(yticks=[])
+    g.set_xlabels(metric.upper(), fontsize=fontsize)
+    g.set_ylabels("")
+    g.despine(bottom=True, left=True)
 
 def plot_nm_range1(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                   ind=0, parallel=True, save_plot=True, outputsuffix='estimate'):
@@ -90,10 +138,11 @@ def plot_nm_range1(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
         plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
     
     
-def plot_nm_range2(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
+def plot_nm_range2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                   ind=0, parallel=True, save_plot=True, outputsuffix='estimate'):
     
-    """Function to plot notmative ranges.
+    """Function to plot notmative ranges. This function assumes only gender as batch effect
+    stored in the first column of batch effect array.
 
     Args:
         processing_dir (str): Path to normative modeling processing directory.
@@ -105,9 +154,9 @@ def plot_nm_range2(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
     """
     
     z_scores = st.norm.ppf(quantiles)
-    testrespfile_path = os.path.join(processing_dir, 'y_test.pkl')
-    testcovfile_path = os.path.join(processing_dir, 'x_test.pkl')
-    tsbefile = os.path.join(processing_dir, 'b_test.pkl')
+    testrespfile_path = os.path.join(data_dir, 'y_test.pkl')
+    testcovfile_path = os.path.join(data_dir, 'x_test.pkl')
+    tsbefile = os.path.join(data_dir, 'b_test.pkl')
         
     if parallel:
         nm = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1),
@@ -134,8 +183,8 @@ def plot_nm_range2(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
 
     fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
     
-    colors = ['#FF69B4','#00BFFF']
-    labels = ['Females', 'Males']
+    colors = ['#00BFFF', '#FF69B4']
+    labels = ['Males', 'Females'] # assumes 0 for males and 1 for females
     
     for be1 in list(np.unique(be_test[:,0])):
         model_be = np.repeat(np.array([[be1]]), synthetic_X.shape[0], axis=0)
@@ -166,4 +215,66 @@ def plot_nm_range2(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
         if not os.path.isdir(save_path):
             os.makedirs(save_path)
         plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
+        
+        
+        
+def plot_comparison(path, hbr_configs, biomarker_num, metrics = ['Rho','SMSE','MSLL','MACE'], plot_type='boxplot'):
+    
+    
+    results = {metric:np.zeros([biomarker_num, len(hbr_configs.keys())]) for metric in metrics}
+
+    for m, method in enumerate(hbr_configs.keys()):
+        for metric in metrics:
+            with open(os.path.join(path, method, metric + '_estimate.pkl'), 'rb') as file:
+                temp = pickle.load(file)
+            results[metric][:,m] = temp.squeeze()
+
+    methods = hbr_configs.keys()
+    fig, axs = plt.subplots(2, 2, figsize=(15, 10))  
+    axs = axs.flatten()  
+
+    index = np.arange(len(methods))
+
+    for ax, (metric_name, values) in zip(axs, results.items()):
+        
+        if plot_type == 'boxplot':
+            ax.boxplot(values, positions=index, notch=True, showfliers=False)
+        elif plot_type == 'violin':
+            ax.violinplot(values, index, showmedians=True, showextrema=False)    
+        ax.set_title(f'{metric_name} Comparison')
+        ax.set_xticks(index)
+        ax.set_xticklabels(methods, rotation=45, ha="right")  
+        ax.grid(True, linestyle='--', alpha=0.5)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(path, plot_type + '_metric_comparison.png'), dpi=300)
+    
+    
+
+def plot_age_dist(data, save_path=None):
+    
+    ## This function custumized for camcan data and needs adaptation for other datasets
+    
+    data_copy = data.copy()
+    data_copy['Gender'] = data_copy['gender'].map({0: 'Males', 1: 'Females'})
+
+    fig, axes = plt.subplots(1, 1, figsize=(8, 5))
+
+    # KDE plot of age
+    sns.kdeplot(data=data_copy, x='age', ax=axes, fill=True,
+                common_norm=False, palette="crest", hue='Gender',
+                alpha=.5, linewidth=0)
+    axes.set_xlabel('Age', fontsize=16)
+    axes.set_ylabel('Density', fontsize=16)
+    axes.set_title('KDE Plot of Age', fontsize=18)
+    axes.grid(True, axis='y', linestyle='--', alpha=0.7)
+    axes.set_xticks(range(0, 101, 10))  
+
+    for spine in axes.spines.values():
+        spine.set_visible(False)
+
+    plt.tight_layout()
+        
+    if save_path is not None:
+        plt.savefig(os.path.join(save_path, 'age_dist.png'), dpi=600)
     

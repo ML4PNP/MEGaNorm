@@ -16,7 +16,7 @@ def load_covariates(path):
     df = pd.read_csv(path, sep='\t', index_col=0)
     df = df[['age', 'gender_code']]
     df = df.rename(columns={'gender_code':'gender'})
-    df.gender = df.gender - 1
+    df.gender = df.gender - 1 # 0 for males and 1 for females
     df.index.name = None
     df['site'] = np.zeros([df.shape[0],1], dtype=int)
     
