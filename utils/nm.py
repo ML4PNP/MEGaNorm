@@ -1,6 +1,12 @@
 import os
 import numpy as np
 import pandas as pd
+import pickle
+import matplotlib.pyplot as plt
+import seaborn as sns
+import scipy.stats as st
+from plots.plots import KDE_plot
+
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
                   validation_split=None, drop_nans=False, random_seed=42):
@@ -72,3 +78,127 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
     b_test.to_pickle(os.path.join(save_path, 'b_test.pkl'))
     
     return y_test.shape[1]
+
+
+
+def mace(nm, x_test, y_test, be_test, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], plot=False):
+    
+    z_scores = st.norm.ppf(quantiles)
+    batch_ids = np.unique(be_test)    
+    batch_mace = np.zeros([len(batch_ids),])
+    empirical_quantiles = []
+    
+    for b, batch_id in enumerate(batch_ids):
+        model_be = np.repeat(np.array([[batch_id]]), x_test[be_test==batch_id,:].shape[0])
+        mcmc_quantiles = nm.get_mcmc_quantiles(x_test[be_test==batch_id,:], model_be, z_scores=z_scores).T
+        empirical_quantiles.append((mcmc_quantiles >= y_test[be_test==batch_id,0:1]).mean(axis=0))
+        batch_mace[b] = np.abs((np.array(quantiles) - empirical_quantiles[b])).mean()
+        
+    if plot:
+        plt.figure(figsize=(10, 6))
+        sns.set_context("notebook", font_scale=2)
+        sns.lineplot(x = quantiles, y = quantiles, color = "magenta", linestyle='--', linewidth=3, label = "ideal")
+        for b, batch_id in enumerate(batch_ids): 
+            sns.lineplot(x = quantiles, y = empirical_quantiles[b], color = "black", linestyle = "dashdot", 
+                         linewidth=3, label = f"observed {b}")
+            sns.scatterplot(x = quantiles, y = empirical_quantiles[b], marker="o", s = 150, alpha=0.5)
+        plt.legend()
+        plt.xlabel("True Quantile")
+        plt.ylabel("Empirical Quantile")
+        _ = plt.title("Reliability diagram")
+    
+    return batch_mace.mean()
+
+
+
+def evaluate_mace(model_path, X_path, y_path, be_path, save_path=None, model_id=0,
+                       quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], plot=False, outputsuffix='ms'):
+    
+    nm = pickle.load(open(os.path.join(model_path, 'NM_0_' + str(model_id) + '_' + outputsuffix + '.pkl'), 'rb'))
+    x_test = pickle.load(open(X_path, 'rb')).to_numpy()
+    be_test = pickle.load(open(be_path, 'rb')).to_numpy().squeeze()
+    y_test = pickle.load(open(y_path, 'rb')).to_numpy()[:,model_id:model_id+1]
+
+    meta_data = pickle.load(open(os.path.join(model_path, 'meta_data.md'), 'rb'))
+    
+    cov_scaler =  meta_data['scaler_cov']
+    res_scaler =  meta_data['scaler_resp']
+    
+    x_test = cov_scaler[model_id][0].transform(x_test)
+    y_test = res_scaler[model_id][0].transform(y_test)
+
+    z_scores = st.norm.ppf(quantiles)
+    batch_num = be_test.shape[1]
+    
+    batch_mace = []
+    empirical_quantiles = []
+    
+    b = 0
+    for i in range(batch_num):
+        batch_ids = list(np.unique(be_test[:,i]))   
+        if len(batch_ids)>1:
+            for batch_id in batch_ids:
+                model_be = be_test[be_test[:,i]==batch_id,:]            
+                mcmc_quantiles = nm.get_mcmc_quantiles(x_test[be_test[:,i]==batch_id,:], model_be, z_scores=z_scores).T
+                empirical_quantiles.append((mcmc_quantiles >= y_test[be_test[:,i]==batch_id,:]).mean(axis=0))
+                batch_mace.append(np.abs(np.array(quantiles) - empirical_quantiles[b]).mean())  
+                b += 1              
+    
+    batch_mace = np.array(batch_mace)
+        
+    if plot:
+        plt.figure(figsize=(10, 6))
+        sns.set_context("notebook", font_scale=2)
+        sns.lineplot(x = quantiles, y = quantiles, color = "magenta", linestyle='--', linewidth=3, label = "ideal")
+        b = 0
+        for i in range(batch_num):
+            batch_ids = list(np.unique(be_test[:,i]))
+            for batch_id in batch_ids:
+                sns.lineplot(x = quantiles, y = empirical_quantiles[b], color = "black", linestyle = "dashdot", 
+                         linewidth=3, label = f"observed {b}")
+                sns.scatterplot(x = quantiles, y = empirical_quantiles[b], marker="o", s = 150, alpha=0.5)
+                b += 1
+        plt.legend()
+        plt.xlabel("True Quantile")
+        plt.ylabel("Empirical Quantile")
+        _ = plt.title("Reliability diagram")
+        plt.savefig(os.path.join(save_path, 'MACE_' + str(model_id) + '.png'), dpi=300)
+    
+    return batch_mace.mean()
+
+
+
+def model_quantile_evaluation(configs, save_path, valcovfile_path, 
+                              valrespfile_path, valbefile, bio_num, plot=True, outputsuffix='ms'):
+    
+    mace = np.zeros([len(configs.keys()), bio_num])
+    best_models = []
+
+    for c, config in enumerate(configs.keys()):
+        for ind in range(bio_num):
+            mace[c,ind] = evaluate_mace(os.path.join(save_path, config, 'Models'), valcovfile_path, 
+                                                    valrespfile_path, valbefile, model_id=ind,
+                                                    quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
+                                                    outputsuffix=outputsuffix)
+            print(f'Config:{config}, id:{ind}')
+        
+        with open(os.path.join(save_path, config, 'MACE_' + outputsuffix + '.pkl'), 'wb') as file:
+             pickle.dump(mace[c,:].T, file)
+       
+
+    for ind in range(bio_num):
+        best_models.append(list(configs.keys())[np.argmin(mace[:,ind])])
+    
+    bio_ids = dict()
+    for model in np.unique(best_models):
+        bio_ids[model] = np.where(np.array(best_models)==model)[0]
+    
+    with open(os.path.join(save_path, 'model_selection_results.pkl'), 'wb') as file:
+        pickle.dump({'best_models':best_models, 'bio_ids':bio_ids, 'mace':mace}, file)
+
+
+    if plot:
+        KDE_plot(mace, list(configs.keys()), 'MACE')
+        plt.savefig(os.path.join(save_path, 'model_comparison_mace.png'), dpi=600)
+    
+    return mace, best_models, bio_ids
