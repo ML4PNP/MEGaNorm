@@ -139,7 +139,7 @@ def plot_nm_range1(processing_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
     
     
 def plot_nm_range2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
-                  ind=0, parallel=True, save_plot=True, outputsuffix='estimate'):
+                   age_range=[15, 90], ind=0, parallel=True, save_plot=True, outputsuffix='estimate'):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -173,7 +173,7 @@ def plot_nm_range2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0
         in_scaler = meta_data['scaler_cov'][ind][0]
         out_scaler = meta_data['scaler_resp'][ind][0]
 
-    synthetic_X = np.linspace(0.05, 0.95, 200)[:,np.newaxis] # Truncated
+    synthetic_X = np.linspace(age_range[0], age_range[1], 200)[:,np.newaxis] # Truncated
     
     X_test = pickle.load(open(testcovfile_path, 'rb')).to_numpy(float)
     be_test = pickle.load(open(tsbefile, 'rb')).to_numpy(float)
@@ -188,9 +188,9 @@ def plot_nm_range2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0
     
     for be1 in list(np.unique(be_test[:,0])):
         model_be = np.repeat(np.array([[be1]]), synthetic_X.shape[0], axis=0)
-        q = nm.get_mcmc_quantiles(synthetic_X, model_be, z_scores=z_scores) 
+        q = nm.get_mcmc_quantiles(in_scaler.transform(synthetic_X), model_be, z_scores=z_scores) 
         ts_idx = be_test[:,0]==be1
-        ax.scatter(X_test[ts_idx], Y_test[ts_idx], s = 10, alpha = 0.5, 
+        ax.scatter(X_test[ts_idx], Y_test[ts_idx], s = 15, alpha = 0.6, 
                     label=labels[int(be1)], color=colors[int(be1)])
         for i, v in enumerate(z_scores):
             if v == 0:
@@ -200,11 +200,15 @@ def plot_nm_range2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0
                 linestyle = "--"
                 thickness = 1
 
-            ax.plot(in_scaler.inverse_transform(synthetic_X), out_scaler.inverse_transform(q[i,:]).T, 
+            ax.plot(synthetic_X, out_scaler.inverse_transform(q[i,:]).T, 
                         linewidth = thickness, linestyle = linestyle,  alpha = 0.9, color=colors[int(be1)]) 
         ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
         ax.set_ylabel(bio_name, fontsize=10)
         ax.set_xlabel('Age', fontsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=14)
+    
+    for spine in ax.spines.values():
+        spine.set_visible(False)  
         
     ax.legend()
     plt.tight_layout()
@@ -253,28 +257,88 @@ def plot_comparison(path, hbr_configs, biomarker_num, metrics = ['Rho','SMSE','M
 
 def plot_age_dist(data, save_path=None):
     
-    ## This function custumized for camcan data and needs adaptation for other datasets
+    ## This function customized for camcan data and needs adaptation for other datasets
     
     data_copy = data.copy()
     data_copy['Gender'] = data_copy['gender'].map({0: 'Males', 1: 'Females'})
 
-    fig, axes = plt.subplots(1, 1, figsize=(8, 5))
+    fig, ax1 = plt.subplots(1, 1, figsize=(8, 5))
 
     # KDE plot of age
-    sns.kdeplot(data=data_copy, x='age', ax=axes, fill=True,
+    sns.kdeplot(data=data_copy, x='age', ax=ax1, fill=True,
                 common_norm=False, palette="crest", hue='Gender',
-                alpha=.5, linewidth=0)
-    axes.set_xlabel('Age', fontsize=16)
-    axes.set_ylabel('Density', fontsize=16)
-    axes.set_title('KDE Plot of Age', fontsize=18)
-    axes.grid(True, axis='y', linestyle='--', alpha=0.7)
-    axes.set_xticks(range(0, 101, 10))  
+                alpha=.3, linewidth=0)
+    ax1.set_xlabel('Age', fontsize=16)
+    ax1.set_ylabel('Density', fontsize=16)
+    ax1.set_title('Age Distribution', fontsize=18)
+    ax1.grid(True, axis='y', linestyle='--', alpha=0.7)
+    ax1.set_xticks(range(0, 101, 10))  
 
-    for spine in axes.spines.values():
+    for spine in ax1.spines.values():
         spine.set_visible(False)
+
+    # Secondary y-axis for histogram
+    ax2 = ax1.twinx()
+    sns.histplot(data=data_copy, x='age', hue='Gender', bins=10, palette="crest",
+                 alpha=0.8, ax=ax2, element='step', linewidth=1.5)
+    ax2.set_ylabel('Count', fontsize=16)
+    ax2.set_ylim(0, ax2.get_ylim()[1] * 1.1)  # Adjust y-axis to ensure visibility
+    
 
     plt.tight_layout()
         
     if save_path is not None:
         plt.savefig(os.path.join(save_path, 'age_dist.png'), dpi=600)
+
+    plt.show()
     
+
+def plot_neurooscillogram(data, save_path=None):
+    # Age ranges
+    ages = [f"{i*10}-{(i+1)*10}" for i in range(1, 9)]
+    
+    sns.set_theme(style="whitegrid")
+    
+    fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+    
+    def plot_gender_data(ax, gender_data, title, legend=True):
+        
+        means = {k: [item[0] * 100 for item in v] for k, v in gender_data.items()}  
+        stds = {k: [item[1] * 100 * 1.96 for item in v] for k, v in gender_data.items()}  
+        
+        df_means = pd.DataFrame(means, index=ages)
+        df_stds = pd.DataFrame(stds, index=ages)
+        
+        bar_plot = df_means.plot(kind='bar', yerr=df_stds, capsize=4, stacked=True, ax=ax, alpha=0.7, colormap='Set2')
+        for p in bar_plot.patches:
+            width, height = p.get_width(), p.get_height()
+            x, y = p.get_xy()
+            bar_plot.text(x + width / 2, 
+                          y + height / 2, 
+                          f'{height:.0f}%', 
+                          ha='center', 
+                          va='center')
+        ax.set_title(title)
+        ax.set_xlabel('Age Ranges', fontsize=16)
+        if legend:
+            ax.legend(loc='upper right', bbox_to_anchor=(1.1, 1))  
+            ax.get_legend().remove()
+            
+        ax.grid(True, axis='y', linestyle='--', linewidth=0.5)
+        ax.grid(False, axis='x')  
+        ax.tick_params(axis='x', labelsize=14)
+        ax.set_yticklabels([])  
+    
+    plot_gender_data(axes[0], data['Male'], "Males' Neuro-Oscillogram")
+    
+    plot_gender_data(axes[1], data['Female'], "Females' Neuro-Oscillogram", legend=False)
+    
+    axes[1].set_xlabel('Age Ranges', fontsize=14)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    
+    if save_path is not None:
+        plt.savefig(os.path.join(save_path, 'Oscilogram.png'), dpi=600)
+    else:
+        plt.show()
+

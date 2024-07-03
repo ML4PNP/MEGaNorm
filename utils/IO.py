@@ -55,16 +55,16 @@ def make_config(project, path=None):
 
     # feature extraction ==========================================================
     # Define frequency bands
-    config['freqBands'] = {'Theta': (4, 8),
+    config['freqBands'] = {'Theta': (3, 8),
                             'Alpha': (8, 13),
                             'Beta': (13, 30),
                             'Gamma': (30, 40),
                             'Broadband': (3, 40)}
 
     # Define individualized frequency range over main peaks in each freq band
-    config['bandSubRanges'] = { 'Theta': (-1, 1),
+    config['bandSubRanges'] = { 'Theta': (-2, 3),
                                 'Alpha': (-2, 3), # change to (-4,2)
-                                'Beta': (-7, 7),
+                                'Beta': (-8, 9),
                                 'Gamma': (-5, 5)}
 
     # least acceptable R squred of fitted models

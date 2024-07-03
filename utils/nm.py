@@ -202,3 +202,39 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
         plt.savefig(os.path.join(save_path, 'model_comparison_mace.png'), dpi=600)
     
     return mace, best_models, bio_ids
+
+
+def calculate_oscilogram(model_path, gender_ids, frequency_band_model_ids, age_range = [10,90], 
+                         outputsuffix='_estimate'):
+    
+    quantile = [0.5]
+    samples = (age_range[1] - age_range[0]) * 2
+
+    mcmc_quantiles = {gender:dict.fromkeys(frequency_band_model_ids.keys()) for gender in gender_ids.keys()}
+    oscilogram = {gender:dict.fromkeys(frequency_band_model_ids.keys()) for gender in gender_ids.keys()}
+
+    for fb in frequency_band_model_ids.keys():
+        model_id = frequency_band_model_ids[fb]
+        nm = pickle.load(open(os.path.join(model_path, 'NM_0_' + str(model_id) + outputsuffix + '.pkl'), 'rb'))
+
+        meta_data = pickle.load(open(os.path.join(model_path, 'meta_data.md'), 'rb'))
+
+        cov_scaler =  meta_data['scaler_cov'][model_id][0]
+        res_scaler =  meta_data['scaler_resp'][model_id][0]
+
+        synthetic_X = np.linspace(age_range[0], age_range[1], samples)[:,np.newaxis] # Truncated
+        
+        z_scores = st.norm.ppf(quantile)
+
+        for gender in gender_ids.keys():
+            batch_id = gender_ids[gender]
+            model_be = np.repeat(np.array([[batch_id]]), synthetic_X.shape[0], axis=0)   
+            q = res_scaler.inverse_transform(nm.get_mcmc_quantiles(cov_scaler.transform(synthetic_X), model_be, z_scores=z_scores))   
+            mcmc_quantiles[gender][fb] = q.T
+            oscilogram[gender][fb] = []
+            for i in range(int((age_range[1] - age_range[0])/10)):
+                m = np.mean(mcmc_quantiles[gender][fb][i*20:(i+1)*20])
+                s = np.std(mcmc_quantiles[gender][fb][i*20:(i+1)*20])
+                oscilogram[gender][fb].append([m,s])
+    
+    return oscilogram
