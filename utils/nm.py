@@ -204,7 +204,7 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
     return mace, best_models, bio_ids
 
 
-def calculate_oscilogram(model_path, gender_ids, frequency_band_model_ids, age_range = [10,90], 
+def calculate_oscilochart(model_path, gender_ids, frequency_band_model_ids, age_range = [10,90], 
                          outputsuffix='_estimate'):
     
     quantile = [0.5]
