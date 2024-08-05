@@ -1,5 +1,7 @@
+import numpy as np
 import os
 import sys
+import math
 import tqdm
 import json
 import pickle
@@ -16,7 +18,8 @@ from IO import make_config
 
 
 def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, 
-                   channelNames, bandSubRanges, device, layout):
+                   channelNames, bandSubRanges, device, layout, aperiodic_mode,
+                   min_thr_inf=10):
     """
     extract features from fooof results
 
@@ -49,31 +52,62 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
     featuresRow: list
     """
 
+    features, names = [], []
 
-    # in order to save features and their name
-    featuresRow, featuresNames = [], []
 
     for i in range(psds.shape[0]):
+        flage = True
+
+        # in order to save features and their name
+        featuresRow, featuresNames = [], []
 
         # getting the fooof model of ith channel
         fm = fmGroup.get_fooof(ind=i)
 
         # fooof fitness
         r_squared = fm.r_squared_ 
+        if r_squared < 0.9: continue
         featuresRow.append(r_squared); featuresNames.append(f"r_squared_{channelNames[i]}")
 
 
         #################################### exponent and offset ##############################
         featRow, featName = featureExtractionUtils.apperiodicFeatures(fm=fm, 
                                                             channelNames=channelNames[i], 
-                                                            featureCategories=featureCategories)
+                                                            featureCategories=featureCategories,
+                                                            aperiodic_mode=aperiodic_mode)
         featuresRow.extend(featRow); featuresNames.extend(featName)
         #====================================================================================== 
 
 
         # isolate periodic parts of signals
-        flattenedPsd = featureExtractionUtils.isolatePeriodic(fm, psds[i, :])
-        
+        flattenedPsd = np.asarray(featureExtractionUtils.isolatePeriodic(fm, psds[i, :]))
+
+        # whenever aperidic activity is higher than periodic activity
+        # => set the preiodic acitivity to zero
+        # Find indices of frequencies within gamma freq
+        flattenedPsd = np.array(list(map(lambda x: max(0, x), flattenedPsd)))
+
+
+        #################################### Theta-Beta ratio ###################################
+        featRow, featName = featureExtractionUtils.psd_ratio(psd=flattenedPsd,
+                                                            freqs=freqs,
+                                                            freqRangeNumerator=freqBands["Theta"],
+                                                            freqRangeDenominator=freqBands["Beta"],
+                                                            channelNames=channelNames[i],
+                                                            name="Theta_Beta",
+                                                            psdType="Adjusted")
+        featuresRow.extend(featRow); featuresNames.extend(featName)
+
+        featRow, featName = featureExtractionUtils.psd_ratio(psd=psds[i, :],
+                                                            freqs=freqs,
+                                                            freqRangeNumerator=freqBands["Theta"],
+                                                            freqRangeDenominator=freqBands["Beta"],
+                                                            channelNames=channelNames[i],
+                                                            name="Theta_Beta",
+                                                            psdType="originalPSD")
+        featuresRow.extend(featRow); featuresNames.extend(featName)
+        # =======================================================================================
+
 
         #Loop through each frequency band
         for bandName, (fmin, fmax) in freqBands.items():
@@ -91,7 +125,6 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                         featureCategories=featureCategories)
             featuresRow.extend(featRow); featuresNames.extend(featName)
             #===================================================================================
-
             
 
             ################################# Power Features  #######################################
@@ -104,6 +137,11 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     bandName=bandName,
                                                                     psdType="Adjusted",
                                                                     featureCategories=featureCategories)
+            
+            if math.isinf(featRow[0]): 
+                flage = False
+                break
+
             featuresRow.extend(featRow); featuresNames.extend(featName)
             # original psd
             featRow, featName = featureExtractionUtils.canonicalPower(psd=psds[i, :], 
@@ -144,14 +182,16 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                 featuresRow.extend(featRow); featuresNames.extend(featName)
                 #============================================================================================
 
+        if flage == True: features.extend(featuresRow), names.extend(featuresNames)
 
-    features = pd.DataFrame(data=[featuresRow], 
-                            columns=featuresNames) 
+    features = pd.DataFrame(data=[features], 
+                            columns=names) 
     
     # feature summarization ================================================================ 
     features = featureExtractionUtils.summarizeFeatures(df=features, 
                                                         device=device, 
-                                                        layout_name=layout)
+                                                        layout_name=layout,
+                                                        min_thr_inf=min_thr_inf)
     features.index = [subjectId]
     
     return features
@@ -163,6 +203,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
 
 if __name__ == "__main__":
+
 
 
     parser = argparse.ArgumentParser()
