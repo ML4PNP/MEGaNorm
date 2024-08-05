@@ -15,7 +15,7 @@ from layouts import load_specific_layout
 
 
 
-def apperiodicFeatures(fm, channelNames, featureCategories):
+def apperiodicFeatures(fm, channelNames, featureCategories, aperiodic_mode):
     """
     returns aperiodic features (exponent and offset) and their names
     """
@@ -25,8 +25,10 @@ def apperiodicFeatures(fm, channelNames, featureCategories):
         featRow.append(fm.get_params("aperiodic_params")[0])
         featName.append(f"Offset_{channelNames}")
 
+    if aperiodic_mode == "knee" : exponent_index = 2 
+    if aperiodic_mode == "fixed" : exponent_index = 1
     if "Exponent" in featureCategories:
-        featRow.append(fm.get_params("aperiodic_params")[1])
+        featRow.append(fm.get_params("aperiodic_params")[exponent_index])
         featName.append(f"Exponent_{channelNames}")
 
     return featRow, featName
@@ -239,3 +241,27 @@ def summarizeFeatures(df, device, layout_name):
     summarized.sort_index(axis=1, inplace=True)
 
     return summarized
+
+
+
+
+def psd_ratio(psd, freqs, freqRangeNumerator:float, freqRangeDenominator:float, channelNames:str, name:str, psdType:str):
+    """
+    this function calculates ratios of canonical frequency bands
+    """
+
+    # Numerator
+    bandIndices = np.logical_and(freqs >= freqRangeNumerator[0] ,
+                                freqs <= freqRangeNumerator[1])
+    powerNumerator = np.trapz(psd[bandIndices], freqs[bandIndices])
+
+    # Denominator
+    bandIndices = np.logical_and(freqs >= freqRangeDenominator[0] ,
+                                freqs <= freqRangeDenominator[1])
+    powerDenominator = np.trapz(psd[bandIndices], freqs[bandIndices])
+
+    # ratio
+    featRow = np.log10(powerNumerator) / np.log10(powerDenominator)
+    featName = f"{psdType}_Canonical_Absolute_Power_{name}_{channelNames}"
+
+    return [featRow], [featName]
