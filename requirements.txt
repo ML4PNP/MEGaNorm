@@ -38,6 +38,7 @@ docutils==0.21.2
 edfio @ file:///home/conda/feedstock_root/build_artifacts/edfio_1703248364454/work
 eeglabio @ file:///home/conda/feedstock_root/build_artifacts/eeglabio_1687839374565/work
 entrypoints @ file:///home/conda/feedstock_root/build_artifacts/entrypoints_1643888246732/work
+et-xmlfile==1.1.0
 etuples==0.3.9
 exceptiongroup @ file:///home/conda/feedstock_root/build_artifacts/exceptiongroup_1704921103267/work
 executing @ file:///home/conda/feedstock_root/build_artifacts/executing_1698579936712/work
@@ -102,6 +103,7 @@ mffpy @ file:///home/conda/feedstock_root/build_artifacts/mffpy_1667614645932/wo
 miniKanren==1.0.3
 mistune @ file:///home/conda/feedstock_root/build_artifacts/mistune_1698947099619/work
 mne @ file:///D:/bld/mne-python_1713556916056/work
+mne-bids==0.15.0
 mne-qt-browser @ file:///home/conda/feedstock_root/build_artifacts/mne-qt-browser_1710862048485/work
 more-itertools @ file:///home/conda/feedstock_root/build_artifacts/more-itertools_1704738417589/work
 mpmath==1.3.0
@@ -135,6 +137,7 @@ nvidia-nccl-cu12==2.20.5
 nvidia-nvjitlink-cu12==12.4.127
 nvidia-nvtx-cu12==12.1.105
 openmeeg==2.5.8
+openpyxl==3.1.5
 ordered-set @ file:///home/conda/feedstock_root/build_artifacts/ordered-set_1643221357603/work
 orjson @ file:///home/conda/feedstock_root/build_artifacts/orjson_1713445702282/work/target/wheels/orjson-3.10.1-cp312-cp312-linux_x86_64.whl#sha256=af5912a30ef7bbf9951eb77c3572de298a916c543d3b3f69aef4f3a3e65b7c67
 overrides @ file:///home/conda/feedstock_root/build_artifacts/overrides_1706394519472/work
@@ -143,7 +146,7 @@ pandas @ file:///home/conda/feedstock_root/build_artifacts/pandas_1712782030175/
 pandocfilters @ file:///home/conda/feedstock_root/build_artifacts/pandocfilters_1631603243851/work
 parso @ file:///home/conda/feedstock_root/build_artifacts/parso_1712320355065/work
 patsy @ file:///home/conda/feedstock_root/build_artifacts/patsy_1704469236901/work
-pcntoolkit==0.29.post1
+pcntoolkit==0.30.post2
 pexpect @ file:///home/conda/feedstock_root/build_artifacts/pexpect_1706113125309/work
 pickleshare @ file:///home/conda/feedstock_root/build_artifacts/pickleshare_1602536217715/work
 pillow @ file:///home/conda/feedstock_root/build_artifacts/pillow_1712154464349/work

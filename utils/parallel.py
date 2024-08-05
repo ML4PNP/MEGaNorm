@@ -139,7 +139,7 @@ def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects,
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects):
-        fname = os.path.join(data_path, subject, 'mf2pt2_' + subject + '_ses-rest_task-rest_megtransdef.fif')
+        fname = os.path.join(data_path, subject, 'meg', subject + '_task-rest_meg.fif')
         if os.path.isfile(fname):
             if config_file is None:
                 subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
@@ -260,7 +260,9 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
     
     all_features = []
     for subject in subjects:
-        all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
+        try:
+            all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
+        except: continue
     features = pd.concat(all_features)
     features.to_csv(os.path.join(target_dir, file_name + '.csv'))
     if clean:  

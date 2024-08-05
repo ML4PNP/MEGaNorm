@@ -8,6 +8,7 @@ import scipy.stats as st
 from plots.plots import KDE_plot
 
 
+
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
                   validation_split=None, drop_nans=False, random_seed=42):
     
@@ -31,51 +32,67 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
     Returns: 
         The number of biomarkers.    
     """
-
+    np.random.seed(random_seed)
     os.makedirs(save_path, exist_ok=True)
 
-    np.random.seed(random_seed)
-    
     if drop_nans:
         data = data.dropna(axis=1)
 
-    rand_idx = np.random.permutation(data.shape[0])
+    x_train_all, y_train_all, b_train_all = [], [], []
+    x_val_all, y_val_all, b_val_all = [], [], []
+    x_test_all, y_test_all, b_test_all = [], [], []
 
-    train_num = np.round(train_split * data.shape[0]).astype(int)
+    ## Looping through sites to split the data in a stratified way
+    for uniques_site in data.site.unique():
 
-    train_set = data.iloc[rand_idx[0:train_num]]
-    x_train = train_set.loc[:, covariates]
-    b_train = train_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_train.shape[0],1], dtype=int), 
-                                                                                   index=x_train.index, columns=['site'])
-    y_train = train_set.drop(columns=covariates+batch_effects) if batch_effects is not None else train_set.drop(columns=covariates) 
+        data_site = data[data.site == uniques_site]
 
+        rand_idx = np.random.permutation(data_site.shape[0])
+
+        train_num = np.round(train_split * data_site.shape[0]).astype(int)
+
+        train_set = data_site.iloc[rand_idx[0:train_num]]
+        x_train = train_set.loc[:, covariates]
+        b_train = train_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_train.shape[0],1], dtype=int), 
+                                                                                    index=x_train.index, columns=['site'])
+        y_train = train_set.drop(columns=covariates+batch_effects) if batch_effects is not None else train_set.drop(columns=covariates) 
+        x_train_all.append(x_train), y_train_all.append(y_train), b_train_all.append(b_train)
+
+        if validation_split is not None:
+            validation_num = np.round(validation_split * data_site.shape[0]).astype(int)
+            validation_set = data_site.iloc[rand_idx[train_num:train_num + validation_num]]
+            x_val = validation_set.loc[:, covariates]
+            b_val = validation_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_val.shape[0],1], dtype=int), 
+                                                                                            index=x_val.index, columns=['site'])
+            y_val = validation_set.drop(columns=covariates+batch_effects) if batch_effects is not None else validation_set.drop(columns=covariates) 
+            x_val_all.append(x_val), y_val_all.append(y_val), b_val_all.append(b_val)
+
+            test_set = data_site.iloc[rand_idx[train_num + validation_num:]]
+        else:
+            validation_set = None
+            test_set = data_site.iloc[rand_idx[train_num:]]
+
+        x_test = test_set.loc[:, covariates]
+        b_test = test_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_test.shape[0],1], dtype=int), 
+                                                                                    index=x_test.index, columns=['site'])
+        y_test = test_set.drop(columns=covariates+batch_effects) if batch_effects is not None else test_set.drop(columns=covariates) 
+        x_test_all.append(x_test), y_test_all.append(y_test), b_test_all.append(b_test)
+
+
+    # train
+    pd.concat(x_train_all, axis=0).to_pickle(os.path.join(save_path, 'x_train.pkl'))
+    pd.concat(y_train_all, axis=0).to_pickle(os.path.join(save_path, 'y_train.pkl'))
+    pd.concat(b_train_all, axis=0).to_pickle(os.path.join(save_path, 'b_train.pkl'))
+    # validation
     if validation_split is not None:
-        validation_num = np.round(validation_split * data.shape[0]).astype(int)
-        validation_set = data.iloc[rand_idx[train_num:train_num + validation_num]]
-        x_val = validation_set.loc[:, covariates]
-        b_val = validation_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_val.shape[0],1], dtype=int), 
-                                                                                          index=x_val.index, columns=['site'])
-        y_val = validation_set.drop(columns=covariates+batch_effects) if batch_effects is not None else validation_set.drop(columns=covariates) 
-
-        x_val.to_pickle(os.path.join(save_path, 'x_val.pkl'))
-        y_val.to_pickle(os.path.join(save_path, 'y_val.pkl'))
-        b_val.to_pickle(os.path.join(save_path, 'b_val.pkl'))
-        test_set = data.iloc[rand_idx[train_num + validation_num:]]
-    else:
-        validation_set = None
-        test_set = data.iloc[rand_idx[train_num:]]
-
-    x_test = test_set.loc[:, covariates]
-    b_test = test_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_test.shape[0],1], dtype=int), 
-                                                                                 index=x_test.index, columns=['site'])
-    y_test = test_set.drop(columns=covariates+batch_effects) if batch_effects is not None else test_set.drop(columns=covariates) 
-
-    x_train.to_pickle(os.path.join(save_path, 'x_train.pkl'))
-    y_train.to_pickle(os.path.join(save_path, 'y_train.pkl'))
-    b_train.to_pickle(os.path.join(save_path, 'b_train.pkl'))
-    x_test.to_pickle(os.path.join(save_path, 'x_test.pkl'))
-    y_test.to_pickle(os.path.join(save_path, 'y_test.pkl'))
-    b_test.to_pickle(os.path.join(save_path, 'b_test.pkl'))
+        pd.concat(x_val_all, axis=0).to_pickle(os.path.join(save_path, 'x_val.pkl'))
+        pd.concat(y_val_all, axis=0).to_pickle(os.path.join(save_path, 'y_val.pkl'))
+        pd.concat(b_val_all, axis=0).to_pickle(os.path.join(save_path, 'b_val.pkl'))
+    # test
+    pd.concat(x_test_all, axis=0).to_pickle(os.path.join(save_path, 'x_test.pkl'))
+    pd.concat(y_test_all, axis=0).to_pickle(os.path.join(save_path, 'y_test.pkl'))
+    pd.concat(b_test_all, axis=0).to_pickle(os.path.join(save_path, 'b_test.pkl'))
+    
     
     return y_test.shape[1]
 
@@ -204,7 +221,7 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
     return mace, best_models, bio_ids
 
 
-def calculate_oscilochart(model_path, gender_ids, frequency_band_model_ids, age_range = [10,90], 
+def calculate_oscilochart(model_path, gender_ids, frequency_band_model_ids, age_range = [5,90], 
                          outputsuffix='_estimate'):
     
     quantile = [0.5]

@@ -28,7 +28,7 @@ def computePsd(segments, freqRangeLow=3, freqRangeHigh=40, fs=1000, psdMethod="w
 
 
 def parameterizePsd(psds, freqs, freqRangeLow=3, freqRangeHigh=40, min_peak_height=0,
-                    peak_threshold=2, peak_width_limits=[1, 12.0]):
+                    peak_threshold=2, peak_width_limits=[1, 12.0], aperiodic_mode="fixed"):
 
     """
     fooofModeling fit multiple models (group fooof) and returns 
@@ -58,7 +58,7 @@ def parameterizePsd(psds, freqs, freqRangeLow=3, freqRangeHigh=40, min_peak_heig
     fooofModels = f.FOOOFGroup(peak_width_limits=peak_width_limits, 
                                 min_peak_height=min_peak_height, 
                                 peak_threshold=peak_threshold, 
-                                aperiodic_mode='fixed')
+                                aperiodic_mode=aperiodic_mode)
     fooofModels.fit(freqs, psds, [freqRangeLow, freqRangeHigh], n_jobs=-1)
 
     return fooofModels, psds, freqs

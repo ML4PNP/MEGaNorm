@@ -1,4 +1,6 @@
 {
+      "device": "MEGIN",
+      "layout": "Megin_MAG_All",
       "whichSensor": "mag",
       "fs": 1000,
       "ica_n_component": 30,
@@ -6,14 +8,27 @@
       "ica_method": "fastica",
       "cutoffFreqLow": 1,
       "cutoffFreqHigh": 45,
+      "ssp_ngrad": 3,
+      "ssp_nmag": 3,
+      "CAMCAN_preprocess": {
+            "resampling": false,
+            "digital_filter": true,
+            "autoICA": true,
+            "SSP": false
+      },
+      "BTNRH_preprocess": {
+            "resampling": false,
+            "digital_filter": true,
+            "autoICA": false,
+            "SSP": true
+      },
       "fooof_freqRangeLow": 3,
       "fooof_freqRangeHigh": 40,
       "segments_tmin": 20,
       "segments_tmax": -20,
       "segments_length": 10,
       "segments_overlap": 2,
-      "fooof_min_peak_height": 0,
-      "fooof_peak_threshold": 2,
+      "aperiodic_mode": "knee",
       "psd_method": "welch",
       "psd_n_overlap": 1,
       "psd_n_fft": 2,
@@ -76,6 +91,6 @@
             "Individualized_Relative_Power",
             "Individualized_Absolute_Power"
       ],
-      "device": "MEGIN",
-      "layout": "Megin_MAG_All"
+      "fooof_res_save_path": false,
+      "min_thr_inf": 10
 }

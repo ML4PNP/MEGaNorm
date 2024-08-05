@@ -262,3 +262,158 @@ def plot_neurooscillochart(data, save_path=None):
     else:
         plt.show()
 
+
+
+
+def plot_age_dist_util(base_dir, partition, site_id):
+
+    with open(os.path.join(base_dir, "x_" + partition + ".pkl"), "rb") as file:
+        age = pickle.load(file=file).to_numpy()
+    with open(os.path.join(base_dir, "b_" + partition + ".pkl"), "rb") as file:
+        batch_data = pickle.load(file=file)
+    print(batch_data.columns)
+    gender = batch_data[["gender"]].to_numpy()
+    site = batch_data[["site"]].to_numpy()
+
+    idx = np.where(site == site_id)
+
+    return age[idx], gender[idx], site[idx]
+
+    
+
+def plot_age_dist2(base_dir, val=False):
+
+    """
+    plot age distribution for different sites and train/test/validation partitions
+    """
+
+    if val == True: fig, ax = plt.subplots(3,2, figsize=(10, 10)) 
+    else: fig, ax = plt.subplots(1,2, figsize=(15, 10))
+    
+    bins = list(range(5, 90, 5))
+
+    # site1
+    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=0)
+    ax[0].hist(age, bins=bins, color="gray", edgecolor="black")
+    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=0)
+    ax[1].hist(age, bins=bins, color="gray", edgecolor="black")
+    if val == True:
+        # validation
+        age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="val", site_id=0)
+        ax[2].hist(age, bins=bins, color="gray", edgecolor="black")
+
+    # site2
+    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=1)
+    ax[0].hist(age, bins=bins, color="gray", edgecolor="black")
+    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=1)
+    ax[1].hist(age, bins=bins, color="gray", edgecolor="black")
+    if val == True:
+        # validation
+        age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="val", site_id=1)
+        ax[2].hist(age, bins=bins, color="gray", edgecolor="black")
+
+    # ax[0,0].set_title("CAMCAN dataset")
+    # ax[0,1].set_title("BTNRH dataset")
+
+    # ax[0,0].set_ylabel("Train")
+    # ax[1,0].set_ylabel("Test")
+
+    plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
+
+
+
+
+
+def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
+                   age_range=[15, 90], ind=0, parallel=True, save_plot=True, outputsuffix='estimate', experiment_id=0):
+    
+    """Function to plot notmative ranges. This function assumes only gender as batch effect
+    stored in the first column of batch effect array.
+
+    Args:
+        processing_dir (str): Path to normative modeling processing directory.
+        quantiles (list, optional): Plotted centiles. Defaults to [0.05, 0.25, 0.5, 0.75, 0.95].
+        ind (int, optional): Index of target biomarker to plot. Defaults to 0.
+        parallel (bool, optional): Is parallel NM used to estimate the model?. Defaults to True.
+        save_plot (bool, optional): Save the plot?. Defaults to True.
+        outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
+    """
+    
+    z_scores = st.norm.ppf(quantiles)
+    testrespfile_path = os.path.join(data_dir, 'y_test.pkl')
+    testcovfile_path = os.path.join(data_dir, 'x_test.pkl')
+    tsbefile = os.path.join(data_dir, 'b_test.pkl')
+        
+    if parallel:
+        nm = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1),
+                                       'Models/NM_0_0_'+ outputsuffix + '.pkl'), 'rb'))
+        meta_data = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1), 
+                                                  'Models/meta_data.md'), 'rb'))
+        in_scaler = meta_data['scaler_cov'][0]
+        out_scaler = meta_data['scaler_resp'][0]
+    else:
+        nm = pickle.load(open(os.path.join(processing_dir,
+                                       'Models/NM_0_' + str(ind) + '_'+ outputsuffix + '.pkl'), 'rb'))
+        meta_data = pickle.load(open(os.path.join(processing_dir, 
+                                                  'Models/meta_data.md'), 'rb'))
+        in_scaler = meta_data['scaler_cov'][ind][0]
+        out_scaler = meta_data['scaler_resp'][ind][0]
+
+    synthetic_X = np.linspace(age_range[0], age_range[1], 200)[:,np.newaxis] # Truncated
+    
+    X_test = pickle.load(open(testcovfile_path, 'rb')).to_numpy(float)
+    be_test = pickle.load(open(tsbefile, 'rb')).to_numpy(float)
+    Y_test = pickle.load(open(testrespfile_path, 'rb'))
+    bio_name = Y_test.columns[ind]
+    Y_test = Y_test.to_numpy(float)[:,ind:ind+1]
+
+    fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
+    
+    colors = ['#00BFFF', '#FF69B4']
+    labels = ['CAMCAN', 'BTNRH'] # assumes 0 for males and 1 for females
+    Gender = ["Male", "Female"]
+    
+    for be1 in list(np.unique(be_test[:,1])):
+        model_be = np.repeat(np.array([[0,be1]]), synthetic_X.shape[0], axis=0)
+        q = nm.get_mcmc_quantiles(in_scaler.transform(synthetic_X), model_be, z_scores=z_scores) 
+
+        # Male
+        ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==0)
+        ax.scatter(X_test[ts_idx], Y_test[ts_idx], s = 15, alpha = 0.6, 
+                    label=labels[int(be1)]+ " " + Gender[0], color=colors[int(be1)], marker="o")
+        # Female
+        ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==1)
+        ax.scatter(X_test[ts_idx], Y_test[ts_idx], s = 15, alpha = 0.6, 
+                    label=labels[int(be1)]+ " " + Gender[1], color=colors[int(be1)], marker="^")
+
+        for i, v in enumerate(z_scores):
+            if v == 0:
+                thickness = 3
+                linestyle = "-"
+            else:
+                linestyle = "--"
+                thickness = 1
+            y = out_scaler.inverse_transform(q[i,:]).T
+            ax.plot(synthetic_X, y, linewidth = thickness, 
+                    linestyle = linestyle,  alpha = 0.9, color=colors[int(be1)]) 
+            if be1 ==0:
+                plt.annotate(str(int(quantiles[i]*100))+'%', xy=(synthetic_X[-1], y[-1]),
+                         xytext=(synthetic_X[-1] + 0.6, y[-1]), 
+                            ha='left', va='center', fontsize=14)
+        ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
+        ax.set_ylabel(bio_name.replace('_', ' '), fontsize=10)
+        ax.set_xlabel('Age', fontsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=14)
+    
+    for spine in ax.spines.values():
+        spine.set_visible(False)  
+        
+    ax.legend()
+    plt.tight_layout()
+    
+    
+    if save_plot:
+        save_path = os.path.join(processing_dir, f'Figures_experiment{experiment_id}')
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path)
+        plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)

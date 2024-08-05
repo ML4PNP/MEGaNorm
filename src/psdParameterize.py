@@ -25,7 +25,7 @@ warnings.filterwarnings('ignore')
 
 def psdParameterize(segments, freqRangeLow=3, freqRangeHigh=40, min_peak_height=0,
         peak_threshold=2, fs=1000, psdMethod="welch", psd_n_overlap=1, 
-        psd_n_fft=2, n_per_seg=2, peak_width_limits=[1, 12.0]) -> None: 
+        psd_n_fft=2, n_per_seg=2, peak_width_limits=[1, 12.0], aperiodic_mode="fixed") -> None: 
     """
     following steps are included in this function
     1. data segmentation
@@ -73,13 +73,18 @@ def psdParameterize(segments, freqRangeLow=3, freqRangeHigh=40, min_peak_height=
                                             freqRangeHigh=freqRangeHigh, 
                                             min_peak_height=min_peak_height,
                                             peak_threshold=peak_threshold,
-                                            peak_width_limits=peak_width_limits)
+                                            peak_width_limits=peak_width_limits,
+                                            aperiodic_mode=aperiodic_mode)
 
 
     return fooofModels, psds, freqs
 
 
             
+
+        
+
+
 
         
 
@@ -134,7 +139,7 @@ if __name__ == "__main__":
         
 
         # save the results
-        storeFooofModels(args.savePath, 
+        storeFooofModels(configs["savePath"], 
                         subjId, 
                         fooofModels,
                         psds,

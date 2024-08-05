@@ -1,4 +1,4 @@
-
+from pathlib import Path
 import argparse
 import json
 import os
@@ -36,9 +36,6 @@ def mainParallel(*args):
 
 	args = parser.parse_args()
 
-	# args.dir = "/project/meganorm/Data/camcan/CamCAN/cc700/meg/pipeline/release005/BIDSsep/derivatives_rest/aa/AA_movecomp_transdef/aamod_meg_maxfilt_00003/sub-CC620090/mf2pt2_sub-CC620090_ses-rest_task-rest_megtransdef.fif"
-	# args.saveDir = "/home/meganorm-mznasrabadi/MEGaNorm/dataTest"
-
 
 	# Loading configs
 	if args.configs is not None:
@@ -48,7 +45,9 @@ def mainParallel(*args):
 		configs = make_config('configs')
 
 	# subject ID
-	subID = args.dir.split("/")[-2]
+	subID = args.dir.split("/")[-3]
+
+	dataset_name = Path(args.dir).parts[-5]
 
 	# preproces ========================================================================
 	filteredData, channelNames = preprocess(subjectPath = args.dir,
@@ -58,7 +57,10 @@ def mainParallel(*args):
 							IcaMethod = configs['ica_method'],
 							cutoffFreqLow = configs['cutoffFreqLow'],
 							cutoffFreqHigh = configs['cutoffFreqHigh'],
-							whichSensor=configs["whichSensor"])
+							whichSensor=configs["whichSensor"],
+							preprocessings_pipeline=configs[f"{dataset_name}_preprocess"],
+							ssp_ngrad = configs["ssp_ngrad"],
+							ssp_nmag = configs["ssp_nmag"])
 	
 	# segmentation =====================================================================
 	segments = segmentEpoch(data=filteredData, 
@@ -81,9 +83,11 @@ def mainParallel(*args):
 									freqRangeHigh = configs['fooof_freqRangeHigh'],
 									min_peak_height = configs['fooof_min_peak_height'],
 									peak_threshold = configs['fooof_peak_threshold'],
-									peak_width_limits = configs["fooof_peak_width_limits"])
-	if args.fooofResSave: 
-		storeFooofModels(args.fooofResSave, 
+									peak_width_limits = configs["fooof_peak_width_limits"],
+									aperiodic_mode = configs["aperiodic_mode"])
+	
+	if configs["fooof_res_save_path"]: 
+		storeFooofModels(configs["fooof_res_save_path"], 
 						subID, 
 						fmGroup,
 						psds,
@@ -99,7 +103,9 @@ def mainParallel(*args):
 							bandSubRanges = configs['bandSubRanges'],
 							featureCategories= configs["featuresCategories"],
 							device = configs["device"],
-       						layout = configs["layout"])
+       						layout = configs["layout"],
+							aperiodic_mode = configs["aperiodic_mode"],
+							min_thr_inf=configs["min_thr_inf"])
 	
 	features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 

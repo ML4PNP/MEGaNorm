@@ -24,6 +24,18 @@ def make_config(project, path=None):
     config['cutoffFreqLow'] = 1
     config['cutoffFreqHigh'] = 45
 
+    # Signal space projection
+    config["ssp_ngrad"] = 3
+    config["ssp_nmag"] = 3
+
+    config["CAMCAN_preprocess"] = {"resampling": False,
+                                    "digital_filter": True,
+                                    "autoICA": True,
+                                    "SSP": False}
+    config["BTNRH_preprocess"] = {"resampling": False,
+                                    "digital_filter": True,
+                                    "autoICA": False,
+                                    "SSP":True}
 
     # fooof analysis configurations ==============================================
     # Desired frequency range to run FOOOF
@@ -37,11 +49,10 @@ def make_config(project, path=None):
     config['segments_length'] = 10
     # amount of overlap between MEG sigals in seconds
     config['segments_overlap'] = 2
+    # which mode should be used for fitting; choices (knee, fixed)
+    config["aperiodic_mode"] = "knee"
 
-    #Absolute threshold for detecting peaks
-    config['fooof_min_peak_height'] = 0
-    #Relative threshold for detecting peaks
-    config['fooof_peak_threshold'] = 2
+
     # Spectral estimation method
     config['psd_method'] = "welch"
     # amount of overlap between windows in Welch's method
@@ -49,9 +60,13 @@ def make_config(project, path=None):
     config['psd_n_fft'] = 2
     # number of samples in psd
     config["n_per_seg"] = 2
+    
     # minimum acceptable peak width in fooof analysis
     config["fooof_peak_width_limits"] = [1.0, 12.0]
-
+    #Absolute threshold for detecting peaks
+    config['fooof_min_peak_height'] = 0
+    #Relative threshold for detecting peaks
+    config['fooof_peak_threshold'] = 2
 
     # feature extraction ==========================================================
     # Define frequency bands
@@ -81,7 +96,12 @@ def make_config(project, path=None):
                                     "Individualized_Relative_Power",
                                     "Individualized_Absolute_Power",
                                     ]
-    
+    config["fooof_res_save_path"] = False
+
+    # feature summarize
+    # minimum acceptable number of INFs for each subject
+    # if number of INFs < min_thr_inf => skip INFs 
+    config["min_thr_inf"] = 10
 
     if path is not None:
         out_file = open(os.path.join(path, project + ".json"), "w") 
@@ -130,6 +150,6 @@ def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
 
     """
 
-    with open(path, "ab") as file:
-        pickle.dump({subjId: [fooofModels, psds, freqs]}, file)
+    with open(os.path.join(path, subjId + ".pickle"), "ab") as file:
+        pickle.dump([fooofModels, psds, freqs], file)
 

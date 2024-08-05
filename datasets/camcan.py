@@ -20,7 +20,7 @@ def load_covariates(path):
     df.index.name = None
     df['site'] = np.zeros([df.shape[0],1], dtype=int)
     
-    return df
+    return df   
 
 
 def load_camcan_data(feature_path, covariates_path):
@@ -40,5 +40,8 @@ def load_camcan_data(feature_path, covariates_path):
     camcan_data = camcan_covariates.join(camcan_features, how='inner')
     
     return camcan_data
+
+
+
     
     

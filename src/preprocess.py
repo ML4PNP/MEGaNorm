@@ -22,9 +22,9 @@ warnings.filterwarnings('ignore')
 
 
 
-def preprocess(subjectPath:str, fs:int=1000, n_component:int=30,
+def preprocess(subjectPath:str, preprocessings_pipeline, fs:int=1000, n_component:int=30,
         maxIter:int=800, IcaMethod:str="fastica", cutoffFreqLow:float=1, 
-        cutoffFreqHigh:float=45, whichSensor="meg"):
+        cutoffFreqHigh:float=45, whichSensor:str="meg", ssp_ngrad:int=3, ssp_nmag:int=3):
     """
     Apply preprocessing pipeline (ICA and downsampling) on MEG signals.
 
@@ -69,19 +69,30 @@ def preprocess(subjectPath:str, fs:int=1000, n_component:int=30,
                                preload=True)
     
     # resample & band pass filter
-    data.resample(fs, verbose=False, n_jobs=-1)
-    data.filter(l_freq=cutoffFreqLow, 
-				h_freq=cutoffFreqHigh, 
-                n_jobs=-1, 
-				verbose=False)
+    if preprocessings_pipeline["resampling"] == True:
+        data.resample(fs, verbose=False, n_jobs=-1)
+
+    if preprocessings_pipeline["digital_filter"] == True:
+        data.filter(l_freq=cutoffFreqLow, 
+                    h_freq=cutoffFreqHigh, 
+                    n_jobs=-1, 
+                    verbose=False)
+        
+    if preprocessings_pipeline["SSP"] == True:
+    # Note: If no ECG recording is provided, the ECG vector will
+    # be automatically calculated using the magnetometer sensors.
+        projs, event = mne.preprocessing.compute_proj_ecg(data, n_grad=ssp_ngrad, n_mag=ssp_nmag)
+        data.add_proj(projs)
+        data.apply_proj()
 
     # apply automated ICA
-    data = autoICA(data=data, 
-                n_components=n_component, # FLUX default
-                max_iter=maxIter, # FLUX default,
-                IcaMethod = IcaMethod,
-                cutoffFreq=[cutoffFreqLow, cutoffFreqHigh],
-                whichSensor=whichSensor)
+    if preprocessings_pipeline["autoICA"] == True:
+        data = autoICA(data=data, 
+                    n_components=n_component, # FLUX default
+                    max_iter=maxIter, # FLUX default,
+                    IcaMethod = IcaMethod,
+                    cutoffFreq=[cutoffFreqLow, cutoffFreqHigh],
+                    whichSensor=whichSensor)
 
     return data, data.info["ch_names"]
 
