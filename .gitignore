@@ -1,18 +1,8 @@
-data
-job.sh
-
-
-.vscode
-logs
-pictures
-slurm-9591.out
+pics
+tests
+PCNtoolkit
 __pycache__
-config
 src/__pycache__
 utils/__pycache__
-test.py
-dataTest
-src/test.py
-featureData.csv
-main_script copy.ipynb
-utils/tser.py
+/datasets/mne_bids_job.sh
+src/sourceEstimation.py
