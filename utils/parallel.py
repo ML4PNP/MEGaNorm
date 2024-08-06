@@ -103,7 +103,7 @@ def sbatchfile(mainParallel_path,
     
     return job_path
 
-def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects, 
+def submit_jobs(mainParallel_path, bash_file_path, subjects, 
                 temp_path, config_file=None, job_configs=None, progress=False):
     
     """Submits jobs for each subject to the Slurm cluster.
@@ -111,8 +111,7 @@ def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects,
     Args:
         mainParallel_path (string): Path to the mainParallel.py.
         bash_file_path (string): Path to save the batch bash file.
-        data_path (string): Path to the data folder containing subjects.
-        subjects (string): subject name.
+        subjects (dict): A dictionary of subject names (key) and paths (values).
         temp_path (string): Path for saving temporary files.
         config_file (string): Path to the json config file. Defaults to None.
         job_configs (dictionary, optional): Dictionary of job configurations. Defaults to None.
@@ -138,8 +137,8 @@ def submit_jobs(mainParallel_path, bash_file_path, data_path, subjects,
     
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    for s, subject in enumerate(subjects):
-        fname = os.path.join(data_path, subject, 'meg', subject + '_task-rest_meg.fif')
+    for s, subject in enumerate(subjects.keys()):
+        fname = os.path.join(subjects[subject], 'meg', subject + '_task-rest_meg.fif')
         if os.path.isfile(fname):
             if config_file is None:
                 subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
@@ -249,7 +248,7 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
 
     Args:
         target_dir (str): Target directory path to save the collected results.
-        subjects (list): List of subject names.
+        subjects (dict): dict of subject names and paths.
         temp_path (str): Path to the temp directory.
         file_name (str, optional): The file name for the collected results. Defaults to 'features'.
         clean (bool, optional): Whether to clean the temporary files or not. Defaults to True.
@@ -259,7 +258,7 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
         os.makedirs(target_dir)
     
     all_features = []
-    for subject in subjects:
+    for subject in subjects.keys():
         try:
             all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
         except: continue
