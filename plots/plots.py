@@ -349,15 +349,31 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
                                        'Models/NM_0_0_'+ outputsuffix + '.pkl'), 'rb'))
         meta_data = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1), 
                                                   'Models/meta_data.md'), 'rb'))
-        in_scaler = meta_data['scaler_cov'][0]
-        out_scaler = meta_data['scaler_resp'][0]
+        
+        if len(meta_data['scaler_cov'])>0:
+            in_scaler = meta_data['scaler_cov'][0]
+        else:
+            in_scaler = None
+        if len(meta_data['scaler_resp'])>0:    
+            out_scaler = meta_data['scaler_resp'][0]
+        else:
+            out_scaler = None
+        
     else:
         nm = pickle.load(open(os.path.join(processing_dir,
                                        'Models/NM_0_' + str(ind) + '_'+ outputsuffix + '.pkl'), 'rb'))
         meta_data = pickle.load(open(os.path.join(processing_dir, 
                                                   'Models/meta_data.md'), 'rb'))
-        in_scaler = meta_data['scaler_cov'][ind][0]
-        out_scaler = meta_data['scaler_resp'][ind][0]
+        
+        if len(meta_data['scaler_cov'])>0:
+            in_scaler = meta_data['scaler_cov'][ind][0]
+        else:
+            in_scaler = None
+        if len(meta_data['scaler_resp'])>0:    
+            out_scaler = meta_data['scaler_resp'][ind][0]
+        else:
+            out_scaler = None
+
 
     synthetic_X = np.linspace(age_range[0], age_range[1], 200)[:,np.newaxis] # Truncated
     
@@ -373,9 +389,17 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
     labels = ['CAMCAN', 'BTNRH'] # assumes 0 for males and 1 for females
     Gender = ["Male", "Female"]
     
+    if in_scaler is not None:
+        scaled_synthetic_X = in_scaler.transform(synthetic_X)
+    else:
+        scaled_synthetic_X = synthetic_X/100
+        X_test = X_test * 100
+            
     for be1 in list(np.unique(be_test[:,1])):
+        
         model_be = np.repeat(np.array([[0,be1]]), synthetic_X.shape[0], axis=0)
-        q = nm.get_mcmc_quantiles(in_scaler.transform(synthetic_X), model_be, z_scores=z_scores) 
+            
+        q = nm.get_mcmc_quantiles(scaled_synthetic_X, model_be, z_scores=z_scores) 
 
         # Male
         ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==0)
@@ -393,7 +417,10 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
             else:
                 linestyle = "--"
                 thickness = 1
-            y = out_scaler.inverse_transform(q[i,:]).T
+            if out_scaler is not None:    
+                y = out_scaler.inverse_transform(q[i,:]).T
+            else:
+                y = q[i,:].T
             ax.plot(synthetic_X, y, linewidth = thickness, 
                     linestyle = linestyle,  alpha = 0.9, color=colors[int(be1)]) 
             if be1 ==0:
