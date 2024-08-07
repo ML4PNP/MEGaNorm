@@ -141,8 +141,10 @@ def evaluate_mace(model_path, X_path, y_path, be_path, save_path=None, model_id=
     cov_scaler =  meta_data['scaler_cov']
     res_scaler =  meta_data['scaler_resp']
     
-    x_test = cov_scaler[model_id][0].transform(x_test)
-    y_test = res_scaler[model_id][0].transform(y_test)
+    if len(cov_scaler)>0:
+        x_test = cov_scaler[model_id][0].transform(x_test)
+    if len(res_scaler)>0:    
+        y_test = res_scaler[model_id][0].transform(y_test)
 
     z_scores = st.norm.ppf(quantiles)
     batch_num = be_test.shape[1]
