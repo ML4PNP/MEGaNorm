@@ -153,13 +153,14 @@ def evaluate_mace(model_path, X_path, y_path, be_path, save_path=None, model_id=
     empirical_quantiles = []
     
     b = 0
+    
+    mcmc_quantiles = nm.get_mcmc_quantiles(x_test, be_test, z_scores=z_scores).T
+
     for i in range(batch_num):
         batch_ids = list(np.unique(be_test[:,i]))   
         if len(batch_ids)>1:
             for batch_id in batch_ids:
-                model_be = be_test[be_test[:,i]==batch_id,:]            
-                mcmc_quantiles = nm.get_mcmc_quantiles(x_test[be_test[:,i]==batch_id,:], model_be, z_scores=z_scores).T
-                empirical_quantiles.append((mcmc_quantiles >= y_test[be_test[:,i]==batch_id,:]).mean(axis=0))
+                empirical_quantiles.append((mcmc_quantiles[be_test[:,i]==batch_id,:] >= y_test[be_test[:,i]==batch_id,:]).mean(axis=0))
                 batch_mace.append(np.abs(np.array(quantiles) - empirical_quantiles[b]).mean())  
                 b += 1              
     
@@ -188,7 +189,8 @@ def evaluate_mace(model_path, X_path, y_path, be_path, save_path=None, model_id=
 
 
 def model_quantile_evaluation(configs, save_path, valcovfile_path, 
-                              valrespfile_path, valbefile, bio_num, plot=True, outputsuffix='ms'):
+                              valrespfile_path, valbefile, bio_num, plot=True, outputsuffix='ms',
+                              quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]):
     
     mace = np.zeros([len(configs.keys()), bio_num])
     best_models = []
@@ -197,7 +199,7 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
         for ind in range(bio_num):
             mace[c,ind] = evaluate_mace(os.path.join(save_path, config, 'Models'), valcovfile_path, 
                                                     valrespfile_path, valbefile, model_id=ind,
-                                                    quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
+                                                    quantiles=quantiles,
                                                     outputsuffix=outputsuffix)
             print(f'Config:{config}, id:{ind}')
         
