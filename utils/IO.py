@@ -98,11 +98,6 @@ def make_config(project, path=None):
                                     ]
     config["fooof_res_save_path"] = False
 
-    # feature summarize
-    # minimum acceptable number of INFs for each subject
-    # if number of INFs < min_thr_inf => skip INFs 
-    config["min_thr_inf"] = 10
-
     if path is not None:
         out_file = open(os.path.join(path, project + ".json"), "w") 
         json.dump(config, out_file, indent = 6) 
