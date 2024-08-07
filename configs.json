@@ -91,6 +91,5 @@
             "Individualized_Relative_Power",
             "Individualized_Absolute_Power"
       ],
-      "fooof_res_save_path": false,
-      "min_thr_inf": 10
+      "fooof_res_save_path": false
 }

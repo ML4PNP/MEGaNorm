@@ -6,3 +6,5 @@ src/__pycache__
 utils/__pycache__
 /datasets/mne_bids_job.sh
 src/sourceEstimation.py
+BIOMAG2024 copy.ipynb
+utils/qc.py

@@ -148,3 +148,17 @@ def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
     with open(os.path.join(path, subjId + ".pickle"), "ab") as file:
         pickle.dump([fooofModels, psds, freqs], file)
 
+
+def merge_datasets(datasets):
+
+    subjects = {}
+    
+    for dataset_name in datasets.keys(): 
+        path = datasets[dataset_name]
+        dirs = os.listdir(path)
+        for dir in dirs:
+            full_path = os.path.join(path, dir)
+            if os.path.isdir(full_path):
+                subjects[dir] = full_path
+                
+    return subjects

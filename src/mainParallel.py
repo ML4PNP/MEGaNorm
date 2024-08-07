@@ -104,8 +104,7 @@ def mainParallel(*args):
 							featureCategories= configs["featuresCategories"],
 							device = configs["device"],
        						layout = configs["layout"],
-							aperiodic_mode = configs["aperiodic_mode"],
-							min_thr_inf=configs["min_thr_inf"])
+							aperiodic_mode = configs["aperiodic_mode"])
 	
 	features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 

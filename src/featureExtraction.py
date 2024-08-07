@@ -18,8 +18,7 @@ from IO import make_config
 
 
 def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands, 
-                   channelNames, bandSubRanges, device, layout, aperiodic_mode,
-                   min_thr_inf=10):
+                   channelNames, bandSubRanges, device, layout, aperiodic_mode):
     """
     extract features from fooof results
 
@@ -84,7 +83,6 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
         # whenever aperidic activity is higher than periodic activity
         # => set the preiodic acitivity to zero
-        # Find indices of frequencies within gamma freq
         flattenedPsd = np.array(list(map(lambda x: max(0, x), flattenedPsd)))
 
 
@@ -190,8 +188,7 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
     # feature summarization ================================================================ 
     features = featureExtractionUtils.summarizeFeatures(df=features, 
                                                         device=device, 
-                                                        layout_name=layout,
-                                                        min_thr_inf=min_thr_inf)
+                                                        layout_name=layout)
     features.index = [subjectId]
     
     return features
