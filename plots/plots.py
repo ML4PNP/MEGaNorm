@@ -264,7 +264,6 @@ def plot_neurooscillochart(data, save_path=None):
 
 
 
-
 def plot_age_dist_util(base_dir, partition, site_id):
 
     with open(os.path.join(base_dir, "x_" + partition + ".pkl"), "rb") as file:
@@ -279,45 +278,44 @@ def plot_age_dist_util(base_dir, partition, site_id):
 
     return age[idx], gender[idx], site[idx]
 
-    
-
-def plot_age_dist2(base_dir, val=False):
+def plot_age_dist2(base_dir):
 
     """
     plot age distribution for different sites and train/test/validation partitions
     """
 
-    if val == True: fig, ax = plt.subplots(3,2, figsize=(10, 10)) 
-    else: fig, ax = plt.subplots(1,2, figsize=(15, 10))
+
     
     bins = list(range(5, 90, 5))
+    fig, ax = plt.subplots(1,2, figsize=(25, 10))
 
-    # site1
-    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=0)
-    ax[0].hist(age, bins=bins, color="gray", edgecolor="black")
-    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=0)
-    ax[1].hist(age, bins=bins, color="gray", edgecolor="black")
-    if val == True:
-        # validation
-        age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="val", site_id=0)
-        ax[2].hist(age, bins=bins, color="gray", edgecolor="black")
+    # Train ----
+    age_site0, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=0)
+    age_site1, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=1)
+    ax[0].hist([age_site0, age_site1], bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
+    ax[0].grid(axis="y", color = 'black', linestyle = '--')
 
-    # site2
-    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=1)
-    ax[0].hist(age, bins=bins, color="gray", edgecolor="black")
-    age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=1)
-    ax[1].hist(age, bins=bins, color="gray", edgecolor="black")
-    if val == True:
-        # validation
-        age, _, _ = plot_age_dist_util(base_dir=base_dir, partition="val", site_id=1)
-        ax[2].hist(age, bins=bins, color="gray", edgecolor="black")
 
-    # ax[0,0].set_title("CAMCAN dataset")
-    # ax[0,1].set_title("BTNRH dataset")
 
-    # ax[0,0].set_ylabel("Train")
-    # ax[1,0].set_ylabel("Test")
+    # test ----
+    age_site0, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=0)
+    age_site1, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=1)
+    ax[1].hist([age_site0, age_site1], bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
+    ax[1].grid(axis="y", color = 'black', linestyle = '--')
 
+    ax[0].set_title("Train", fontsize=25)
+    ax[1].set_title("Test",  fontsize=25)
+    ax[0].set_ylabel("Count",  fontsize=25)
+
+    ax[0].set_xticks(bins)
+    ax[1].set_xticks(bins)
+
+    ax[0].set_xlabel("Age", fontsize=25)
+    ax[1].set_xlabel("Age", fontsize=25)
+    
+    plt.legend(["CamCAN", "BTNRH"], prop={'size': 20})
+
+    
     plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
 
 
