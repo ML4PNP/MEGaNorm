@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.stats as st
 from plots.plots import KDE_plot
+from scipy.stats import shapiro
 
 
 
@@ -239,9 +240,15 @@ def calculate_oscilochart(model_path, gender_ids, frequency_band_model_ids, age_
         nm = pickle.load(open(os.path.join(model_path, 'NM_0_' + str(model_id) + outputsuffix + '.pkl'), 'rb'))
 
         meta_data = pickle.load(open(os.path.join(model_path, 'meta_data.md'), 'rb'))
-
-        cov_scaler =  meta_data['scaler_cov'][model_id][0]
-        res_scaler =  meta_data['scaler_resp'][model_id][0]
+        
+        if len(meta_data['scaler_cov'])>0:
+            cov_scaler = meta_data['scaler_cov'][model_id][0]
+        else:
+            cov_scaler = None
+        if len(meta_data['scaler_resp'])>0:    
+            res_scaler = meta_data['scaler_resp'][model_id][0]
+        else:
+            res_scaler = None
 
         synthetic_X = np.linspace(age_range[0], age_range[1], samples)[:,np.newaxis] # Truncated
         
@@ -250,7 +257,13 @@ def calculate_oscilochart(model_path, gender_ids, frequency_band_model_ids, age_
         for gender in gender_ids.keys():
             batch_id = gender_ids[gender]
             model_be = np.repeat(np.array([[batch_id]]), synthetic_X.shape[0], axis=0)   
-            q = res_scaler.inverse_transform(nm.get_mcmc_quantiles(cov_scaler.transform(synthetic_X), model_be, z_scores=z_scores))   
+            if cov_scaler is not None:
+                scaled_synthetic_X = cov_scaler.transform(synthetic_X)
+            else:
+                scaled_synthetic_X = synthetic_X / 100
+            q = nm.get_mcmc_quantiles(scaled_synthetic_X, model_be, z_scores=z_scores)
+            if res_scaler is not None:
+                q = res_scaler.inverse_transform(q)
             mcmc_quantiles[gender][fb] = q.T
             oscilogram[gender][fb] = []
             for i in range(int((age_range[1] - age_range[0])/10)):
@@ -259,3 +272,40 @@ def calculate_oscilochart(model_path, gender_ids, frequency_band_model_ids, age_
                 oscilogram[gender][fb].append([m,s])
     
     return oscilogram
+
+
+
+def shapiro_stat(z_scores, covariates, n_bins=10):
+    
+    """Perform Shapiro-Wilk test for normality on z-scores in bins of covariates.
+    
+    Args:
+        z_scores (numpy.ndarray): n by p matrix of z-scores (n subjects, p measures)
+        covariates (numpy.ndarray): n by 1 matrix of covariates (n subjects)
+        n_bins (int, optional): Number of bins to slice the covariates into (default is 10)
+        
+    Returns:
+        numpy.ndarray: a p vector of Shapiro-Wilk test statistics for eaxh measure
+    """
+        
+    z_scores = np.asarray(z_scores)
+    covariates = np.asarray(covariates).flatten()
+    
+    test_statistics = np.zeros((n_bins, z_scores.shape[1]))
+    
+    # Get the bin edges and digitize the covariates into bins
+    bin_edges = np.linspace(np.min(covariates), np.max(covariates), n_bins + 1)
+    bin_indices = np.digitize(covariates, bins=bin_edges) - 1
+        
+    # Perform the Shapiro-Wilk test for each bin and for each measure
+    for bin_idx in range(n_bins):
+        for measure_idx in range(z_scores.shape[1]):
+            
+            z_in_bin = z_scores[bin_indices == bin_idx, measure_idx]
+            
+            if len(z_in_bin) > 2:  ## Check if there are enough data points for the test
+                test_statistics[bin_idx, measure_idx], _ = shapiro(z_in_bin)
+            else: # If not set the statistic to NaN
+                test_statistics[bin_idx, measure_idx] = np.nan
+
+    return test_statistics.mean(axis=0)
