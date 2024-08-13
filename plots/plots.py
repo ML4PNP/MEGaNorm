@@ -319,11 +319,8 @@ def plot_age_dist2(base_dir):
     plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
 
 
-
-
-
 def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
-                   age_range=[15, 90], ind=0, parallel=True, save_plot=True, outputsuffix='estimate', experiment_id=0):
+                        save_plot=True, outputsuffix='estimate', experiment_id=0):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -341,104 +338,73 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
     testrespfile_path = os.path.join(data_dir, 'y_test.pkl')
     testcovfile_path = os.path.join(data_dir, 'x_test.pkl')
     tsbefile = os.path.join(data_dir, 'b_test.pkl')
+    quantiles_path = os.path.join(processing_dir, 'Quantiles_' + outputsuffix + '.pkl')
         
-    if parallel:
-        nm = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1),
-                                       'Models/NM_0_0_'+ outputsuffix + '.pkl'), 'rb'))
-        meta_data = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(ind+1), 
-                                                  'Models/meta_data.md'), 'rb'))
-        
-        if len(meta_data['scaler_cov'])>0:
-            in_scaler = meta_data['scaler_cov'][0]
-        else:
-            in_scaler = None
-        if len(meta_data['scaler_resp'])>0:    
-            out_scaler = meta_data['scaler_resp'][0]
-        else:
-            out_scaler = None
-        
-    else:
-        nm = pickle.load(open(os.path.join(processing_dir,
-                                       'Models/NM_0_' + str(ind) + '_'+ outputsuffix + '.pkl'), 'rb'))
-        meta_data = pickle.load(open(os.path.join(processing_dir, 
-                                                  'Models/meta_data.md'), 'rb'))
-        
-        if len(meta_data['scaler_cov'])>0:
-            in_scaler = meta_data['scaler_cov'][ind][0]
-        else:
-            in_scaler = None
-        if len(meta_data['scaler_resp'])>0:    
-            out_scaler = meta_data['scaler_resp'][ind][0]
-        else:
-            out_scaler = None
-
-
-    synthetic_X = np.linspace(age_range[0], age_range[1], 200)[:,np.newaxis] # Truncated
-    
     X_test = pickle.load(open(testcovfile_path, 'rb')).to_numpy(float)
     be_test = pickle.load(open(tsbefile, 'rb')).to_numpy(float)
     Y_test = pickle.load(open(testrespfile_path, 'rb'))
-    bio_name = Y_test.columns[ind]
-    Y_test = Y_test.to_numpy(float)[:,ind:ind+1]
-
-    fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
+    temp = pickle.load(open(quantiles_path, 'rb'))
+    q = temp['quantiles']
+    synthetic_X = temp['synthetic_X']
+    quantiles_be = temp['batch_effects']
+    
+    X_test = X_test * 100
     
     colors = ['#00BFFF', '#FF69B4']
     labels = ['CAMCAN', 'BTNRH'] # assumes 0 for males and 1 for females
     Gender = ["Male", "Female"]
     
-    if in_scaler is not None:
-        scaled_synthetic_X = in_scaler.transform(synthetic_X)
-    else:
-        scaled_synthetic_X = synthetic_X/100
-        X_test = X_test * 100
-            
-    for be1 in list(np.unique(be_test[:,1])):
+    for ind in range(q.shape[2]):
         
-        model_be = np.repeat(np.array([[0,be1]]), synthetic_X.shape[0], axis=0)
-            
-        q = nm.get_mcmc_quantiles(scaled_synthetic_X, model_be, z_scores=z_scores) 
+        bio_name = Y_test.columns[ind]
+        y_test = Y_test.to_numpy(float)[:,ind:ind+1]
 
-        # Male
-        ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==0)
-        ax.scatter(X_test[ts_idx], Y_test[ts_idx], s = 15, alpha = 0.6, 
-                    label=labels[int(be1)]+ " " + Gender[0], color=colors[int(be1)], marker="o")
-        # Female
-        ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==1)
-        ax.scatter(X_test[ts_idx], Y_test[ts_idx], s = 15, alpha = 0.6, 
-                    label=labels[int(be1)]+ " " + Gender[1], color=colors[int(be1)], marker="^")
-
-        for i, v in enumerate(z_scores):
-            if v == 0:
-                thickness = 3
-                linestyle = "-"
-            else:
-                linestyle = "--"
-                thickness = 1
-            if out_scaler is not None:    
-                y = out_scaler.inverse_transform(q[i,:]).T
-            else:
-                y = q[i,:].T
-            ax.plot(synthetic_X, y, linewidth = thickness, 
-                    linestyle = linestyle,  alpha = 0.9, color=colors[int(be1)]) 
-            if be1 ==0:
-                plt.annotate(str(int(quantiles[i]*100))+'%', xy=(synthetic_X[-1], y[-1]),
-                         xytext=(synthetic_X[-1] + 0.6, y[-1]), 
-                            ha='left', va='center', fontsize=14)
-        ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
-        ax.set_ylabel(bio_name.replace('_', ' '), fontsize=10)
-        ax.set_xlabel('Age', fontsize=16)
-        ax.tick_params(axis='both', which='major', labelsize=14)
-    
-    for spine in ax.spines.values():
-        spine.set_visible(False)  
+        fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
         
-    ax.legend()
-    plt.tight_layout()
-    
-    
-    if save_plot:
-        save_path = os.path.join(processing_dir, f'Figures_experiment{experiment_id}')
-        if not os.path.isdir(save_path):
-            os.makedirs(save_path)
-        plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
+        for be1 in list(np.unique(be_test[:,1])):
+                            
+            # Male
+            ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==0)
+            ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 15, alpha = 0.6, 
+                        label=labels[int(be1)]+ " " + Gender[0], color=colors[int(be1)], marker="o")
+            # Female
+            ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==1)
+            ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 15, alpha = 0.6, 
+                        label=labels[int(be1)]+ " " + Gender[1], color=colors[int(be1)], marker="^")
+
+            q_idx = np.logical_and(quantiles_be[:,1]==be1, quantiles_be[:,0]==0) # only for males
+            for i, v in enumerate(z_scores):
+                if v == 0:
+                    thickness = 3
+                    linestyle = "-"
+                else:
+                    linestyle = "--"
+                    thickness = 1
+                
+                y = q[q_idx,i:i+1,ind]
+                
+                ax.plot(synthetic_X[q_idx], y, linewidth = thickness, 
+                        linestyle = linestyle,  alpha = 0.9, color=colors[int(be1)]) 
+                if be1 ==0:
+                    plt.annotate(str(int(quantiles[i]*100))+'%', xy=(synthetic_X[-1], y[-1]),
+                            xytext=(synthetic_X[-1] + 0.6, y[-1]), 
+                                ha='left', va='center', fontsize=14)
+            ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
+            ax.set_ylabel(bio_name.replace('_', ' '), fontsize=10)
+            ax.set_xlabel('Age', fontsize=16)
+            ax.tick_params(axis='both', which='major', labelsize=14)
+        
+        for spine in ax.spines.values():
+            spine.set_visible(False)  
+            
+        ax.legend()
+        plt.tight_layout()
+        
+        
+        if save_plot:
+            save_path = os.path.join(processing_dir, f'Figures_experiment{experiment_id}')
+            if not os.path.isdir(save_path):
+                os.makedirs(save_path)
+            plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
+            
+            

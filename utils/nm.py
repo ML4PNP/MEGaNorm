@@ -7,7 +7,7 @@ import seaborn as sns
 import scipy.stats as st
 from plots.plots import KDE_plot
 from scipy.stats import shapiro
-
+import itertools
 
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
@@ -309,3 +309,51 @@ def shapiro_stat(z_scores, covariates, n_bins=10):
                 test_statistics[bin_idx, measure_idx] = np.nan
 
     return test_statistics.mean(axis=0)
+
+
+def estimate_centiles(processing_dir, bio_num, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
+                      batch_map={0:{'Male':0, 'Female':1}, 1:{'CAMCAN':0,'BTNRH':1}}, 
+                      age_range=[0, 100], point_num=100, outputsuffix='estimate', save=True):
+
+    z_scores = st.norm.ppf(quantiles)
+    
+    group_sizes = [len(batch_map[key].items()) for key in batch_map.keys()]
+    ranges = [range(size) for size in group_sizes]
+    combinations = list(itertools.product(*ranges))
+    batch_effects = np.array([combination for combination in combinations for _ in range(point_num)])
+    synthetic_X = np.vstack([np.linspace(age_range[0], age_range[1], point_num)[:,np.newaxis] for i in range(np.product(group_sizes))])
+    
+    meta_data = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(1), 
+                                                'Models/meta_data.md'), 'rb'))
+    
+    if len(meta_data['scaler_cov'])>0:
+        in_scaler = meta_data['scaler_cov'][0]
+        scaled_synthetic_X = in_scaler.transform(synthetic_X)
+    else:
+        in_scaler = None
+        scaled_synthetic_X = synthetic_X/100
+        
+        
+    q = np.zeros([scaled_synthetic_X.shape[0], len(quantiles), bio_num])
+
+    for model_id in range(bio_num):
+        
+        meta_data = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(model_id+1), 
+                                                'Models/meta_data.md'), 'rb'))
+        nm = pickle.load(open(os.path.join(processing_dir, 'batch_' + str(model_id+1),
+                                       'Models/NM_0_0_'+ outputsuffix + '.pkl'), 'rb'))
+        q[:,:,model_id] = nm.get_mcmc_quantiles(scaled_synthetic_X, batch_effects, z_scores=z_scores).T
+        
+        if len(meta_data['scaler_resp'])>0:    
+            out_scaler = meta_data['scaler_resp'][0]        
+            for i in range(len(z_scores)):
+                q[:,i,model_id] = out_scaler.inverse_transform(q[:,i,model_id])
+                
+        print(f"Quantiles for model {model_id} are estimated.")
+        
+    if save:
+        with open(os.path.join(processing_dir, 'Quantiles_' + outputsuffix + '.pkl'), 'wb') as file:
+             pickle.dump({'quantiles':q, 'synthetic_X':synthetic_X, 'batch_effects':batch_effects}, file)
+    
+    return q
+
