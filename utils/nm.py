@@ -11,7 +11,7 @@ import itertools
 
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
-                  validation_split=None, drop_nans=False, random_seed=42):
+                  validation_split=None, drop_nans=False, random_seed=42, prefix=''):
     
     """Utility function for splitting data into training, validation and test sets
     before HBR normative modeling. The sets are save as picke file in the specified 
@@ -81,18 +81,18 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
 
 
     # train
-    pd.concat(x_train_all, axis=0).to_pickle(os.path.join(save_path, 'x_train.pkl'))
-    pd.concat(y_train_all, axis=0).to_pickle(os.path.join(save_path, 'y_train.pkl'))
-    pd.concat(b_train_all, axis=0).to_pickle(os.path.join(save_path, 'b_train.pkl'))
+    pd.concat(x_train_all, axis=0).to_pickle(os.path.join(save_path, prefix + 'x_train.pkl'))
+    pd.concat(y_train_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'y_train.pkl'))
+    pd.concat(b_train_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'b_train.pkl'))
     # validation
     if validation_split is not None:
-        pd.concat(x_val_all, axis=0).to_pickle(os.path.join(save_path, 'x_val.pkl'))
-        pd.concat(y_val_all, axis=0).to_pickle(os.path.join(save_path, 'y_val.pkl'))
-        pd.concat(b_val_all, axis=0).to_pickle(os.path.join(save_path, 'b_val.pkl'))
+        pd.concat(x_val_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'x_val.pkl'))
+        pd.concat(y_val_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'y_val.pkl'))
+        pd.concat(b_val_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'b_val.pkl'))
     # test
-    pd.concat(x_test_all, axis=0).to_pickle(os.path.join(save_path, 'x_test.pkl'))
-    pd.concat(y_test_all, axis=0).to_pickle(os.path.join(save_path, 'y_test.pkl'))
-    pd.concat(b_test_all, axis=0).to_pickle(os.path.join(save_path, 'b_test.pkl'))
+    pd.concat(x_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'x_test.pkl'))
+    pd.concat(y_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'y_test.pkl'))
+    pd.concat(b_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'b_test.pkl'))
     
     
     return y_test.shape[1]
