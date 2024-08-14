@@ -287,7 +287,7 @@ def plot_age_dist2(base_dir):
 
     
     bins = list(range(5, 90, 5))
-    fig, ax = plt.subplots(1,2, figsize=(25, 10))
+    fig, ax = plt.subplots(1,2, figsize=(20, 8))
 
     # Train ----
     age_site0, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=0)
@@ -300,6 +300,7 @@ def plot_age_dist2(base_dir):
     # test ----
     age_site0, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=0)
     age_site1, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=1)
+    print(age_site0)
     ax[1].hist([age_site0, age_site1], bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
     ax[1].grid(axis="y", color = 'black', linestyle = '--')
 
@@ -313,6 +314,8 @@ def plot_age_dist2(base_dir):
     ax[0].set_xlabel("Age", fontsize=25)
     ax[1].set_xlabel("Age", fontsize=25)
     
+    ax[0].tick_params(axis="both", labelsize=15); ax[1].tick_params(axis="both", labelsize=17)
+                      
     plt.legend(["CamCAN", "BTNRH"], prop={'size': 20})
 
     
