@@ -413,16 +413,16 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
             plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
             
 
-def plot_growthcharts(age_vector, centiles_matrix, cut=18, idp='', save_path=None):
+def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None):
     
-    """Plots growth charts for two sexes.
+    """Plots growth chart for two sexes.
 
     Args:
         age_vector (numpy.ndarray): A 1D array representing the age values.
         centiles_matrix (numpy.ndarray): A 3D array of shape (age_vector.shape[0], 5, 2) where
                                     the second dimension represents the 5 centiles and 
                                     the third dimension represents the 2 sexes (0 for male, 1 for female).
-        cut (int, optional): The cutting age for the younger population. Defaults to 18.
+        cut (int, optional): The cutting age for the younger population. Defaults to 0.
         idp (str, optional): IDP name. Defaults to ''.
         save_path (str, optional): If not None saves the plot to the path. Defaults to None.
     """
@@ -443,7 +443,7 @@ def plot_growthcharts(age_vector, centiles_matrix, cut=18, idp='', save_path=Non
 
     transformed_age = np.array([age_transform(age) for age in age_vector])
 
-    fig, axes = plt.subplots(1, 2, figsize=(24, 10))
+    fig, axes = plt.subplots(1, 2, figsize=(24, 10), sharey=True)
 
     genders = ['male', 'female']
 
@@ -459,17 +459,17 @@ def plot_growthcharts(age_vector, centiles_matrix, cut=18, idp='', save_path=Non
         axes[j].fill_between(transformed_age, centiles_matrix[:, 1, j], centiles_matrix[:, 3, j], 
                              color=colors[gender][2], alpha=0.1)
         
-        transformed_ticks = [age_transform(age) for age in np.concatenate((np.arange(min_age, cut, 2, dtype=int), 
-                                                                           np.arange(cut+2, max_age+1, 10, dtype=int)))]
+        transformed_ticks = [age_transform(age) for age in np.concatenate((np.arange(min_age, cut+1, 2, dtype=int), 
+                                                                           np.arange(np.ceil((cut+1)/10)*10, max_age+1, 10, dtype=int)))]
         axes[j].set_xticks(transformed_ticks)
-        axes[j].set_xticklabels(np.concatenate((np.arange(min_age, cut, 2, dtype=int), 
-                                                np.arange(cut+2, max_age+1, 10, dtype=int))), fontsize=22)
+        axes[j].set_xticklabels(np.concatenate((np.arange(min_age, cut+1, 2, dtype=int), 
+                                                np.arange(np.ceil((cut+1)/10)*10, max_age+1, 10, dtype=int))), fontsize=22)
         axes[j].tick_params(axis='y', labelsize=22)
         axes[j].grid(True, which='both', linestyle='--', linewidth=2, alpha=0.85)
         axes[j].spines['top'].set_visible(False)
         axes[j].spines['right'].set_visible(False)
         axes[j].set_xlabel('Age (years)', fontsize=28)
-        axes[j].set_ylabel(idp, fontsize=28)
+        
         #axes[j].legend(loc='upper left', fontsize=20)
 
         for i, label in enumerate(['5th', '25th', '50th', '75th', '95th']):
@@ -478,11 +478,35 @@ def plot_growthcharts(age_vector, centiles_matrix, cut=18, idp='', save_path=Non
 
         #axes[j].axvline(x=age_transform(cut), color='k', linestyle='--', linewidth=2, alpha=0.5)
 
-    axes[0].set_title("Males' Growth Chart", fontsize=28)
-    axes[1].set_title("Females' Growth Chart", fontsize=28)
+    axes[0].set_ylabel(idp, fontsize=28)
+    axes[0].set_title("Males", fontsize=28)
+    axes[1].set_title("Females", fontsize=28)
 
     plt.tight_layout(pad=2)
     
     if save_path is not None:
-        plt.savefig(os.path.join(save_path, idp + '_growthchart.png'), dpi=600)
+        plt.savefig(os.path.join(save_path, idp.replace(" ", "_") + '_growthchart.png'), dpi=600)
 
+
+def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
+    """Plotting growth charts for multiple idps.
+
+    Args:
+        path (string): Path to processing directory in which the quantiles are saved.
+        idp_indices (list): A list of IDP indices.
+        idp_names (list): A list of IDP names corresponding to IDP indices.
+        site (int, optional): The site id to plot. Defaults to 0.
+        point_num (int, optional): Number of points used in creating the synthetic X. Defaults to 100.
+    """
+
+    temp = pickle.load(open(os.path.join(path, 'Quantiles_estimate.pkl'),'rb'))
+
+    q = temp['quantiles']
+    x = temp['synthetic_X']
+    b = temp['batch_effects']
+
+    for i, idp in enumerate(idp_indices):
+        data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site),:,idp:idp+1], 
+                            q[np.logical_and(b[:,0]== 1, b[:,1]== site),:,idp:idp+1]], axis=2)
+        data[data<0]=0
+        plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
