@@ -137,6 +137,8 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     featureCategories=featureCategories)
             
             if math.isinf(featRow[0]): 
+                with open("file.pkl", "ab") as file:
+                    pickle.dump(f"{subjectId}__{i}", file=file)
                 flage = False
                 break
 

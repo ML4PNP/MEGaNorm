@@ -320,7 +320,8 @@ def plot_age_dist2(base_dir):
 
 
 def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
-                        save_plot=True, outputsuffix='estimate', experiment_id=0):
+                        save_plot=True, outputsuffix='estimate', experiment_id=0,
+                        batch_curve={0:["Male", "Female"]}, batch_marker={1:['CAMCAN', 'BTNRH']}):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -351,8 +352,9 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
     X_test = X_test * 100
     
     colors = ['#00BFFF', '#FF69B4']
-    labels = ['CAMCAN', 'BTNRH'] # assumes 0 for males and 1 for females
-    Gender = ["Male", "Female"]
+
+    curve_indx = list(batch_curve.keys())[0]
+    hue_indx = list(batch_marker.keys())[0]
     
     for ind in range(q.shape[2]):
         
@@ -361,18 +363,18 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
 
         fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
         
-        for be1 in list(np.unique(be_test[:,1])):
+        for be1 in list(np.unique(be_test[:,curve_indx])):
                             
             # Male
-            ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==0)
+            ts_idx = np.logical_and(be_test[:,curve_indx]==be1, be_test[:,hue_indx]==0)
             ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 15, alpha = 0.6, 
-                        label=labels[int(be1)]+ " " + Gender[0], color=colors[int(be1)], marker="o")
+                        label=[*batch_curve.values()][0][int(be1)]+ " " + [*batch_marker.values()][0][0], color=colors[int(be1)], marker="o")
             # Female
-            ts_idx = np.logical_and(be_test[:,1]==be1, be_test[:,0]==1)
+            ts_idx = np.logical_and(be_test[:,curve_indx]==be1, be_test[:,hue_indx]==1)
             ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 15, alpha = 0.6, 
-                        label=labels[int(be1)]+ " " + Gender[1], color=colors[int(be1)], marker="^")
+                        label=[*batch_curve.values()][0][int(be1)]+ " " + [*batch_marker.values()][0][1], color=colors[int(be1)], marker="^")
 
-            q_idx = np.logical_and(quantiles_be[:,1]==be1, quantiles_be[:,0]==0) # only for males
+            q_idx = np.logical_and(quantiles_be[:,curve_indx]==be1, quantiles_be[:,hue_indx]==0) # only for males
             for i, v in enumerate(z_scores):
                 if v == 0:
                     thickness = 3
