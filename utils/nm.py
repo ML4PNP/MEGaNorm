@@ -226,52 +226,36 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
     return mace, best_models, bio_ids
 
 
-def calculate_oscilochart(model_path, gender_ids, frequency_band_model_ids, age_range = [5,90], 
-                         outputsuffix='_estimate'):
+def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids, 
+                          quantile_id=2, site_id=0, point_num=100, age_slices=None):
     
-    quantile = [0.5]
-    samples = (age_range[1] - age_range[0]) * 2
 
-    mcmc_quantiles = {gender:dict.fromkeys(frequency_band_model_ids.keys()) for gender in gender_ids.keys()}
+    if age_slices is None:
+        age_slices = np.arange(5, 80, 5)
+    
     oscilogram = {gender:dict.fromkeys(frequency_band_model_ids.keys()) for gender in gender_ids.keys()}
+
+    temp = pickle.load(open(os.path.join(quantiles_path), 'rb'))
+    q = temp['quantiles']
+    x = temp['synthetic_X'][0:point_num].squeeze()
+    b = temp['batch_effects']
 
     for fb in frequency_band_model_ids.keys():
         model_id = frequency_band_model_ids[fb]
-        nm = pickle.load(open(os.path.join(model_path, 'NM_0_' + str(model_id) + outputsuffix + '.pkl'), 'rb'))
-
-        meta_data = pickle.load(open(os.path.join(model_path, 'meta_data.md'), 'rb'))
         
-        if len(meta_data['scaler_cov'])>0:
-            cov_scaler = meta_data['scaler_cov'][model_id][0]
-        else:
-            cov_scaler = None
-        if len(meta_data['scaler_resp'])>0:    
-            res_scaler = meta_data['scaler_resp'][model_id][0]
-        else:
-            res_scaler = None
-
-        synthetic_X = np.linspace(age_range[0], age_range[1], samples)[:,np.newaxis] # Truncated
-        
-        z_scores = st.norm.ppf(quantile)
-
+        data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
+                            q[np.logical_and(b[:,0]== 1, b[:,1]== site_id), quantile_id ,model_id:model_id+1]], axis=1)
+                
         for gender in gender_ids.keys():
             batch_id = gender_ids[gender]
-            model_be = np.repeat(np.array([[batch_id]]), synthetic_X.shape[0], axis=0)   
-            if cov_scaler is not None:
-                scaled_synthetic_X = cov_scaler.transform(synthetic_X)
-            else:
-                scaled_synthetic_X = synthetic_X / 100
-            q = nm.get_mcmc_quantiles(scaled_synthetic_X, model_be, z_scores=z_scores)
-            if res_scaler is not None:
-                q = res_scaler.inverse_transform(q)
-            mcmc_quantiles[gender][fb] = q.T
             oscilogram[gender][fb] = []
-            for i in range(int((age_range[1] - age_range[0])/10)):
-                m = np.mean(mcmc_quantiles[gender][fb][i*20:(i+1)*20])
-                s = np.std(mcmc_quantiles[gender][fb][i*20:(i+1)*20])
+            for slice in age_slices:
+                d = data[np.logical_and(x>=slice, x<slice+5),batch_id]
+                m = np.mean(d)
+                s = np.std(d)
                 oscilogram[gender][fb].append([m,s])
     
-    return oscilogram
+    return oscilogram, age_slices
 
 
 

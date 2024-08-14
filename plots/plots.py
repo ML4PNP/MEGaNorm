@@ -213,9 +213,10 @@ def plot_age_dist(data, save_path=None):
     plt.show()
     
 
-def plot_neurooscillochart(data, save_path=None):
+def plot_neurooscillochart(data, age_slices, save_path=None):
+    
     # Age ranges
-    ages = [f"{i*10}-{(i+1)*10}" for i in range(1, 9)]
+    ages = [f"{i}-{i+5}" for i in age_slices]
     
     sns.set_theme(style="whitegrid")
     
@@ -229,19 +230,21 @@ def plot_neurooscillochart(data, save_path=None):
         df_means = pd.DataFrame(means, index=ages)
         df_stds = pd.DataFrame(stds, index=ages)
         
-        bar_plot = df_means.plot(kind='bar', yerr=df_stds, capsize=4, stacked=True, ax=ax, alpha=0.7, colormap='Set2')
+        bar_plot = df_means.plot(kind='bar', yerr=df_stds, capsize=4, stacked=True, ax=ax, alpha=0.7, 
+                                 colormap=sns.color_palette("Set2", 8, as_cmap=True))
         for p in bar_plot.patches:
             width, height = p.get_width(), p.get_height()
             x, y = p.get_xy()
             bar_plot.text(x + width / 2, 
-                          y + height / 2, 
+                          y + height / 2 + 2, 
                           f'{height:.0f}%', 
                           ha='center', 
-                          va='center')
+                          va='center', fontsize=10)
         ax.set_title(title)
         ax.set_xlabel('Age Ranges', fontsize=16)
         if legend:
-            ax.legend(loc='upper right', bbox_to_anchor=(1.1, 1))  
+            ax.legend(loc='upper right', bbox_to_anchor=(1.1,1))  
+        else:    
             ax.get_legend().remove()
             
         ax.grid(True, axis='y', linestyle='--', linewidth=0.5)
@@ -507,3 +510,4 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site),:,idp:idp+1]], axis=2)
         data[data<0]=0
         plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
+        
