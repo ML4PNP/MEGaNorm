@@ -267,63 +267,24 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
 
 
 
-def plot_age_dist_util(base_dir, partition, site_id):
-
-    with open(os.path.join(base_dir, "x_" + partition + ".pkl"), "rb") as file:
-        age = pickle.load(file=file).to_numpy()
-    with open(os.path.join(base_dir, "b_" + partition + ".pkl"), "rb") as file:
-        batch_data = pickle.load(file=file)
-    print(batch_data.columns)
-    gender = batch_data[["gender"]].to_numpy()
-    site = batch_data[["site"]].to_numpy()
-
-    idx = np.where(site == site_id)
-
-    return age[idx], gender[idx], site[idx]
-
-def plot_age_dist2(base_dir):
-
-    """
-    plot age distribution for different sites and train/test/validation partitions
-    """
-
-
+def plot_age_dist2(df, site_ids, site_names):
     
     bins = list(range(5, 90, 5))
-    fig, ax = plt.subplots(1,2, figsize=(20, 8))
+    ages = []
 
-    # Train ----
-    age_site0, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=0)
-    age_site1, _, _ = plot_age_dist_util(base_dir=base_dir, partition="train", site_id=1)
-    ax[0].hist([age_site0, age_site1], bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
-    ax[0].grid(axis="y", color = 'black', linestyle = '--')
-
-
-
-    # test ----
-    age_site0, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=0)
-    age_site1, _, _ = plot_age_dist_util(base_dir=base_dir, partition="test", site_id=1)
-    print(age_site0)
-    ax[1].hist([age_site0, age_site1], bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
-    ax[1].grid(axis="y", color = 'black', linestyle = '--')
-
-    ax[0].set_title("Train", fontsize=25)
-    ax[1].set_title("Test",  fontsize=25)
-    ax[0].set_ylabel("Count",  fontsize=25)
-
-    ax[0].set_xticks(bins)
-    ax[1].set_xticks(bins)
-
-    ax[0].set_xlabel("Age", fontsize=25)
-    ax[1].set_xlabel("Age", fontsize=25)
+    for counter in range(len(site_ids)):
+        ages.append(df[df["site"]==site_ids[counter]]["age"].to_numpy()*100)
     
-    ax[0].tick_params(axis="both", labelsize=15); ax[1].tick_params(axis="both", labelsize=17)
-                      
-    plt.legend(["CamCAN", "BTNRH"], prop={'size': 20})
-
-    
+    plt.figure(figsize=(14, 8))
+    plt.hist(ages, bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
+    plt.grid(axis="y", color = 'black', linestyle = '--')
+    plt.xlabel("Age", fontsize=25)
+    plt.legend(site_names, prop={'size': 20})
+    plt.tick_params(axis="both", labelsize=17)
+    plt.ylabel("Count",  fontsize=25)
     plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
 
+    
 
 def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                         save_plot=True, outputsuffix='estimate', experiment_id=0,
@@ -373,11 +334,11 @@ def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.7
                             
             # Male
             ts_idx = np.logical_and(be_test[:,curve_indx]==be1, be_test[:,hue_indx]==0)
-            ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 15, alpha = 0.6, 
+            ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 35, alpha = 0.6, 
                         label=[*batch_curve.values()][0][int(be1)]+ " " + [*batch_marker.values()][0][0], color=colors[int(be1)], marker="o")
             # Female
             ts_idx = np.logical_and(be_test[:,curve_indx]==be1, be_test[:,hue_indx]==1)
-            ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 15, alpha = 0.6, 
+            ax.scatter(X_test[ts_idx], y_test[ts_idx], s = 35, alpha = 0.6, 
                         label=[*batch_curve.values()][0][int(be1)]+ " " + [*batch_marker.values()][0][1], color=colors[int(be1)], marker="^")
 
             q_idx = np.logical_and(quantiles_be[:,curve_indx]==be1, quantiles_be[:,hue_indx]==0) # only for males
