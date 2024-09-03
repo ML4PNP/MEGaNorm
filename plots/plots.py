@@ -472,6 +472,5 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
     for i, idp in enumerate(idp_indices):
         data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site),:,idp:idp+1], 
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site),:,idp:idp+1]], axis=2)
-        data[data<0]=0
         plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
         
