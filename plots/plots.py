@@ -164,14 +164,26 @@ def plot_comparison(path, hbr_configs, biomarker_num, metrics = ['Rho','SMSE','M
         if plot_type == 'boxplot':
             ax.boxplot(values, positions=index, notch=True, showfliers=False)
         elif plot_type == 'violin':
-            ax.violinplot(values, index, showmedians=True, showextrema=False)    
-        ax.set_title(f'{metric_name} Comparison')
+            violin_parts = ax.violinplot(values, index, showmedians=True, showextrema=False)    
+
+            for partname in ['cmedians']:
+                vp = violin_parts[partname]
+                vp.set_edgecolor("black")
+                vp.set_linewidth(1)
+                
+            # Make the violin body blue with a red border:
+            for vp in violin_parts['bodies']:
+                vp.set_facecolor("#929591")
+                vp.set_edgecolor("#000000")
+                vp.set_alpha(1)
+                
+        ax.set_title(f'{metric_name} Comparison', fontsize=14)
         ax.set_xticks(index)
-        ax.set_xticklabels(methods, rotation=45, ha="right")  
+        ax.set_xticklabels(methods, rotation=45, ha="right", fontsize=12)  
         ax.grid(True, linestyle='--', alpha=0.5)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(path, plot_type + '_metric_comparison.png'), dpi=300)
+    plt.savefig(os.path.join(plot_type + '_metric_comparison.png'), dpi=300)
     
     
 
