@@ -20,7 +20,6 @@ def prepare_mri_data(mri_directory):
         shutil.move(os.path.join(mri_directory, subject + '.nii'), 
                     os.path.join(mri_directory, subject, 'anat', subject + '.nii'))
 
-
 def list_subject_ids(directory, save_path=None):
     """Retrieves all folders in the given directory as subject IDs, and
     store them in a text file.
