@@ -183,7 +183,7 @@ def plot_comparison(path, hbr_configs, biomarker_num, metrics = ['Rho','SMSE','M
         ax.grid(True, linestyle='--', alpha=0.5)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(plot_type + '_metric_comparison.png'), dpi=300)
+    plt.savefig(os.path.join(path, plot_type + '_metric_comparison.png'), dpi=300)
     
     
 

@@ -94,7 +94,9 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
     pd.concat(y_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'y_test.pkl'))
     pd.concat(b_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'b_test.pkl'))
     
-    
+    with open(os.path.join(save_path,  prefix + 'random_seed.pkl'), 'wb') as file:
+        pickle.dump({'random_seed':random_seed}, file)
+        
     return y_test.shape[1]
 
 
@@ -227,7 +229,7 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
 
 
 def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids, 
-                          quantile_id=2, site_id=0, point_num=100, age_slices=None):
+                          quantile_id=2, site_id=None, point_num=100, age_slices=None):
     
 
     if age_slices is None:
@@ -243,7 +245,11 @@ def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids,
     for fb in frequency_band_model_ids.keys():
         model_id = frequency_band_model_ids[fb]
         
-        data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
+        if site_id is None:
+            data = np.concatenate([q[b[:,0]== 0, quantile_id, model_id:model_id+1], 
+                            q[b[:,0]== 1, quantile_id ,model_id:model_id+1]], axis=1)
+        else:
+            data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site_id), quantile_id ,model_id:model_id+1]], axis=1)
                 
         for gender in gender_ids.keys():
