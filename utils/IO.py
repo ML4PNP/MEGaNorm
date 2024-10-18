@@ -1,6 +1,7 @@
 import pickle
 import json
 import os
+import re
 
 def make_config(project, path=None):
 
@@ -160,5 +161,24 @@ def merge_datasets(datasets):
             full_path = os.path.join(path, dir)
             if os.path.isdir(full_path):
                 subjects[dir] = full_path
+                
+    return subjects
+
+
+def merge_datasets_with_regex(datasets):
+    
+    subjects = {}
+
+    for dataset_name, dataset_info in datasets.items():
+        base_dir = dataset_info['base_dir']
+        regex_pattern = dataset_info['regex']
+        
+        dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+
+        # Walk through the base directory to find subject directories
+        for subject_dir in dirs:
+            formatted_regex = regex_pattern.format(subject_name=subject_dir, base_dir=base_dir)
+            if os.path.exists(formatted_regex):
+                subjects[subject_dir] = formatted_regex
                 
     return subjects
