@@ -138,7 +138,8 @@ def submit_jobs(mainParallel_path, bash_file_path, subjects,
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects.keys()):
-        fname = os.path.join(subjects[subject], 'meg', subject + '_task-rest_meg.fif')
+        #fname = os.path.join(subjects[subject], 'meg', subject + '_task-rest_meg.fif')
+        fname = subjects[subject]
         if os.path.isfile(fname):
             if config_file is None:
                 subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
