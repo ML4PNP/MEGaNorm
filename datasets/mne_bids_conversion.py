@@ -76,7 +76,7 @@ def mne_bids_CAMCAN(input_base_path,
         
     return None
 
-def mne_BIDS_CMI(input_base_path, output_base_path, montage_path):
+def mne_bids_CMI(input_base_path, output_base_path, montage_path):
     # Ensure output directory exists
     if not os.path.exists(output_base_path):
         os.makedirs(output_base_path)
@@ -144,7 +144,7 @@ def mne_BIDS_CMI(input_base_path, output_base_path, montage_path):
                      root=output_base_path)
         mne_bids.write_raw_bids(raw, bids_path=bids_path, allow_preload=True, format='EEGLAB', overwrite=True,)   
 
-    print("Processing completed.")
+    return None
 
 
 
@@ -167,6 +167,6 @@ if __name__ == "__main__":
     input_base_path = "/project/meganorm/Data/EEG_CMI/EEG/"
     output_base_path = "/project/meganorm/Data/EEG_CMI/EEG_BIDS"
     montage_path = "/project/meganorm/Data/EEG_CMI/info/GSN_HydroCel_129.sfp"
-    mne_BIDS_CMI(input_base_path, output_base_path, montage_path)
+    mne_bids_CMI(input_base_path, output_base_path, montage_path)
 
 
