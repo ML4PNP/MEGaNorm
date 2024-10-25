@@ -87,23 +87,23 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
 
 
         #################################### Theta-Beta ratio ###################################
-        featRow, featName = featureExtractionUtils.psd_ratio(psd=flattenedPsd,
-                                                            freqs=freqs,
-                                                            freqRangeNumerator=freqBands["Theta"],
-                                                            freqRangeDenominator=freqBands["Beta"],
-                                                            channelNames=channelNames[i],
-                                                            name="Theta_Beta",
-                                                            psdType="Adjusted")
-        featuresRow.extend(featRow); featuresNames.extend(featName)
+        # featRow, featName = featureExtractionUtils.psd_ratio(psd=flattenedPsd,
+        #                                                     freqs=freqs,
+        #                                                     freqRangeNumerator=freqBands["Theta"],
+        #                                                     freqRangeDenominator=freqBands["Beta"],
+        #                                                     channelNames=channelNames[i],
+        #                                                     name="Theta_Beta",
+        #                                                     psdType="Adjusted")
+        # featuresRow.extend(featRow); featuresNames.extend(featName)
 
-        featRow, featName = featureExtractionUtils.psd_ratio(psd=psds[i, :],
-                                                            freqs=freqs,
-                                                            freqRangeNumerator=freqBands["Theta"],
-                                                            freqRangeDenominator=freqBands["Beta"],
-                                                            channelNames=channelNames[i],
-                                                            name="Theta_Beta",
-                                                            psdType="originalPSD")
-        featuresRow.extend(featRow); featuresNames.extend(featName)
+        # featRow, featName = featureExtractionUtils.psd_ratio(psd=psds[i, :],
+        #                                                     freqs=freqs,
+        #                                                     freqRangeNumerator=freqBands["Theta"],
+        #                                                     freqRangeDenominator=freqBands["Beta"],
+        #                                                     channelNames=channelNames[i],
+        #                                                     name="Theta_Beta",
+        #                                                     psdType="originalPSD")
+        # featuresRow.extend(featRow); featuresNames.extend(featName)
         # =======================================================================================
 
 
@@ -136,11 +136,6 @@ def featureExtract(subjectId, fmGroup, psds, featureCategories, freqs, freqBands
                                                                     psdType="Adjusted",
                                                                     featureCategories=featureCategories)
             
-            if math.isinf(featRow[0]): 
-                with open("file.pkl", "ab") as file:
-                    pickle.dump(f"{subjectId}__{i}", file=file)
-                flage = False
-                break
 
             featuresRow.extend(featRow); featuresNames.extend(featName)
             # original psd

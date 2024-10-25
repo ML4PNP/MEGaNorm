@@ -74,7 +74,8 @@ def make_config(project, path=None):
                             'Alpha': (8, 13),
                             'Beta': (13, 30),
                             'Gamma': (30, 40),
-                            'Broadband': (3, 40)}
+                            # 'Broadband': (3, 40)
+                            }
 
     # Define individualized frequency range over main peaks in each freq band
     config['bandSubRanges'] = { 'Theta': (-2, 3),
@@ -86,17 +87,18 @@ def make_config(project, path=None):
     config['leastR2'] = 0.9 
 
 
-    config['featuresCategories'] = ["Offset", # 1
-                                    "Exponent", # 1
-                                    "Peak_Center", # 5,
-                                    "Peak_Power",# 5,
-                                    "Peak_Width", # 5,
+    config['featuresCategories'] = [
+                                    # "Offset", # 1
+                                    # "Exponent", # 1
+                                    # "Peak_Center", # 5,
+                                    # "Peak_Power",# 5,
+                                    # "Peak_Width", # 5,
                                     "Canonical_Relative_Power", 
-                                    "Canonical_Absolute_Power",
-                                    "Individualized_Relative_Power",
-                                    "Individualized_Absolute_Power",
+                                    # "Canonical_Absolute_Power",
+                                    # "Individualized_Relative_Power",
+                                    # "Individualized_Absolute_Power",
                                     ]
-    config["fooof_res_save_path"] = False
+    config["fooof_res_save_path"] = None
 
     if path is not None:
         out_file = open(os.path.join(path, project + ".json"), "w") 

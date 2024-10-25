@@ -288,11 +288,12 @@ def plot_age_dist2(df, site_ids, site_names):
         ages.append(df[df["site"]==site_ids[counter]]["age"].to_numpy()*100)
     
     plt.figure(figsize=(14, 8))
-    plt.hist(ages, bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
+    plt.hist(ages, bins=bins, color=["teal", "#3e525f"], edgecolor="black", alpha=0.5, histtype="barstacked", rwidth=0.9,)
     plt.grid(axis="y", color = 'black', linestyle = '--')
     plt.xlabel("Age", fontsize=25)
     plt.legend(site_names, prop={'size': 20})
     plt.tick_params(axis="both", labelsize=17)
+    plt.xticks(bins)
     plt.ylabel("Count",  fontsize=25)
     plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
 
@@ -300,7 +301,7 @@ def plot_age_dist2(df, site_ids, site_names):
 
 def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                         save_plot=True, outputsuffix='estimate', experiment_id=0,
-                        batch_curve={0:["Male", "Female"]}, batch_marker={1:['CAMCAN', 'BTNRH']}):
+                        batch_curve={1:["Male", "Female"]}, batch_marker={0:['CAMCAN', 'BTNRH']}):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
