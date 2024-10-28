@@ -1,6 +1,11 @@
 import pickle
 import json
 import os
+import re
+import glob
+from pathlib import Path
+import mne 
+import numpy as np 
 
 def make_config(project, path=None):
 
@@ -164,3 +169,85 @@ def merge_datasets(datasets):
                 subjects[dir] = full_path
                 
     return subjects
+
+
+def merge_datasets_with_regex(datasets):
+    
+    subjects = {}
+
+    for dataset_name, dataset_info in datasets.items():
+        base_dir = dataset_info['base_dir']
+        regex_pattern = dataset_info['regex']
+        
+        dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+
+        # Walk through the base directory to find subject directories
+        for subject_dir in dirs:
+            formatted_regex = regex_pattern.format(subject_name=subject_dir, base_dir=base_dir)
+            if os.path.exists(formatted_regex):
+                subjects[subject_dir] = formatted_regex
+                
+    return subjects
+
+
+def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotation_description_open, annotation_description_close, trim_before=5, trim_after=5):
+    # Ensure output directory exists
+    if not os.path.exists(output_base_path):
+        os.makedirs(output_base_path)
+
+    search_pattern = os.path.join(input_base_path, "*/eeg/*.set")
+    raw_set_paths = glob.glob(search_pattern, recursive=True) # Use glob to find all .set files in the input directory
+
+    # Loop through all found .set files
+    for set_path in raw_set_paths:
+        subject_id = Path(set_path).parts[-3]  # Extract subject number from the file path
+        subject_output_path = os.path.join(output_base_path, subject_id, 'eeg') # Create the subject-specific output path
+
+        # Ensure output directory for the subject exists
+        if not os.path.exists(subject_output_path):
+            os.makedirs(subject_output_path)
+
+        # Load the raw .set file (EEGLAB format)
+        raw = mne.io.read_raw_eeglab(set_path, preload=True)
+
+        # Extract annotations
+        annotations = raw.annotations
+
+        # Separate eyes open and eyes closed events
+        eyes_open_events = annotations[annotations.description == annotation_description_open]
+        eyes_closed_events = annotations[annotations.description == annotation_description_close]
+
+        # Extract and concatenate eyes open segments
+        eyes_open_data = []
+        for onset, duration in zip(eyes_open_events.onset, eyes_open_events.duration):
+            # Trim the first 5s and last 5s from each event
+            trimmed_onset = onset + trim_before
+            trimmed_duration = duration - trim_before - trim_after
+            start_sample = int(trimmed_onset * raw.info['sfreq'])
+            stop_sample = int((trimmed_onset + trimmed_duration) * raw.info['sfreq'])
+        eyes_open_data.append(raw[:, start_sample:stop_sample][0])
+
+        if eyes_open_data:
+            eyes_open_data_concat = np.concatenate(eyes_open_data, axis=1)
+            raw_eyes_open = mne.io.RawArray(eyes_open_data_concat, raw.info)
+
+            # Save eyes open data as a new .set file
+            eyes_open_file_path = os.path.join(subject_output_path, f'{subject_id}_task-eyesopen_eeg.set')
+            mne.export.export_raw(eyes_open_file_path, raw_eyes_open, fmt='eeglab')
+
+        # Extract and concatenate eyes closed segments
+        eyes_closed_data = []
+        for onset, duration in zip(eyes_closed_events.onset, eyes_closed_events.duration):
+            trimmed_onset = onset + trim_before
+            trimmed_duration = duration - trim_before - trim_after
+            start_sample = int(trimmed_onset * raw.info['sfreq'])
+            stop_sample = int((trimmed_onset + trimmed_duration) * raw.info['sfreq'])
+            eyes_closed_data.append(raw[:, start_sample:stop_sample][0])
+
+        if eyes_closed_data:
+            eyes_closed_data_concat = np.concatenate(eyes_closed_data, axis=1)
+            raw_eyes_closed = mne.io.RawArray(eyes_closed_data_concat, raw.info)
+
+            # Save eyes closed data as a new .set file
+            eyes_closed_file_path = os.path.join(subject_output_path,f'{subject_id}_task-eyesclosed_eeg.set')
+            mne.export.export_raw(eyes_closed_file_path, raw_eyes_closed, fmt='eeglab')
