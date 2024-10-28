@@ -490,7 +490,7 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
 
 
 def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
-                        title="Quantile-Based Gauge", min_value=0, max_value=1):
+                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False):
     """
     Plots a gauge chart based on quantile ranges with a threshold marker for the 0.5 percentile.
     
@@ -504,6 +504,7 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
     - title (str): The title of the gauge chart.
     - min_value (float): The minimum value for the gauge range (default is 0).
     - max_value (float): The maximum value for the gauge range (default is 1).
+    - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
     """
     
     if min_value >= percentile_5:
@@ -522,11 +523,18 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
     else:
         value_color = "rgba(128, 0, 128, 1)"  # Purple
 
+    if show_legend:
+        number_font_size = 75
+        delta_font_size = 30
+    else:
+        number_font_size = 150
+        delta_font_size = 50
+        
     fig = go.Figure(go.Indicator(
         mode="gauge+number+delta",
         value=current_value,
-        number={'font': {'size': 125, 'family': 'Arial', 'color': value_color}},  
-        delta={'reference': percentile_50, 'position': "top", 'font': {'size': 50}},
+        number={'font': {'size': number_font_size, 'family': 'Arial', 'color': value_color}},  
+        delta={'reference': percentile_50, 'position': "top", 'font': {'size': delta_font_size}},
         gauge={
             'axis': {
                 'range': [min_value, max_value],
@@ -542,7 +550,7 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
                 {'range': [percentile_5, q1], 'color': "rgba(255, 215, 0, 0.6)"},  # Warm gold 
                 {'range': [q1, q3], 'color': "rgba(34, 139, 34, 0.7)"},  # Forest green 
                 {'range': [q3, percentile_95], 'color': "rgba(255, 99, 71, 0.6)"},  # Soft tomato red
-                {'range': [percentile_95, max_value], 'color': "rgba(128, 0, 128, 0.4)"},  # Purple
+                {'range': [percentile_95, max_value], 'color': "rgba(128, 0, 128, 0.9)"},  # dark Purple
             ],
             'threshold': {
                 'line': {'color': "black", 'width': 6},  # Black line for the 0.5th percentile marker
@@ -556,11 +564,45 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         }
     ))
 
+    if show_legend:
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.4)"),
+                                 name="0-5th Percentile (Extremely Low)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(255, 215, 0, 0.6)"),
+                                 name="5th-25th Percentile (Below Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(34, 139, 34, 0.7)"),
+                                 name="25th-75th Percentile (Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(255, 99, 71, 0.6)"),
+                                 name="75th-95th Percentile (Above Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.9)"),
+                                 name="95th-100th Percentile (Extremely High)"))
+        
+        
+    
     # Update layout for better aesthetics
     fig.update_layout(
         paper_bgcolor='white',
         plot_bgcolor='white',
-        margin=dict(t=80, b=30, l=30, r=30)
+        margin=dict(t=50, b=100 if show_legend else 30, l=30, r=30),  # Adjust bottom margin for legend
+        showlegend=show_legend,
+        legend=dict(
+            orientation="h",      # Horizontal orientation for legend
+            yanchor="top",        # Align legend to top
+            y=-0.2,               # Place below the chart
+            xanchor="center",     # Center legend horizontally
+            x=0.5,                # Centered under the chart
+            font=dict(size=14)    # Set font size for readability
+        ),
+        xaxis=dict(visible=False),  # Hide x-axis
+        yaxis=dict(visible=False)   # Hide y-axis   
     )
 
     # Display the adapted gauge chart
