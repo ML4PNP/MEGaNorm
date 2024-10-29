@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
 import pandas as pd
-
+import plotly.graph_objects as go
 
 
 def KDE_plot(data, experiments, metric, xlim = 'auto', fontsize=24):
@@ -487,3 +487,123 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site),:,idp:idp+1]], axis=2)
         plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
         
+
+
+def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
+                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False):
+    """
+    Plots a gauge chart based on quantile ranges with a threshold marker for the 0.5 percentile.
+    
+    Parameters:
+    - current_value (float): The current decimal value to display.
+    - q1 (float): The 25th percentile value as a decimal.
+    - q3 (float): The 75th percentile value as a decimal.
+    - percentile_5 (float): The 5th percentile value as a decimal.
+    - percentile_95 (float): The 95th percentile value as a decimal.
+    - percentile_50 (float): The 0.5 percentile value as a decimal, marked by a threshold line.
+    - title (str): The title of the gauge chart.
+    - min_value (float): The minimum value for the gauge range (default is 0).
+    - max_value (float): The maximum value for the gauge range (default is 1).
+    - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
+    """
+    
+    if min_value >= percentile_5:
+        min_value = 0
+    if max_value <= percentile_95:
+        max_value = 1
+
+    if current_value < percentile_5:
+        value_color = "rgba(128, 0, 128, 1)"  # Purple 
+    elif current_value < q1:
+        value_color = "rgba(255, 215, 0, 1)"  # Gold 
+    elif current_value <= q3:
+        value_color = "rgba(34, 139, 34, 1)"  # Green 
+    elif current_value <= percentile_95:
+        value_color = "rgba(255, 99, 71, 1)"  # Tomato red
+    else:
+        value_color = "rgba(128, 0, 128, 1)"  # Purple
+
+    if show_legend:
+        number_font_size = 75
+        delta_font_size = 30
+    else:
+        number_font_size = 150
+        delta_font_size = 50
+        
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=current_value,
+        number={'font': {'size': number_font_size, 'family': 'Arial', 'color': value_color}},  
+        delta={'reference': percentile_50, 'position': "top", 'font': {'size': delta_font_size}},
+        gauge={
+            'axis': {
+                'range': [min_value, max_value],
+                'tickfont': {'size': 30, 'family': 'Arial', 'color': 'black'},
+                'showticklabels': True,
+                'tickwidth': 2,
+                'tickcolor': "lightgrey",
+                'tickvals': [round(min_value + i * (max_value - min_value) / 10, 2) for i in range(11)],  
+            },
+            'bar': {'color': "rgb(255, 69, 58)"},  
+            'steps': [
+                {'range': [min_value, percentile_5], 'color': "rgba(128, 0, 128, 0.4)"},  # Purple 
+                {'range': [percentile_5, q1], 'color': "rgba(255, 215, 0, 0.6)"},  # Warm gold 
+                {'range': [q1, q3], 'color': "rgba(34, 139, 34, 0.7)"},  # Forest green 
+                {'range': [q3, percentile_95], 'color': "rgba(255, 99, 71, 0.6)"},  # Soft tomato red
+                {'range': [percentile_95, max_value], 'color': "rgba(128, 0, 128, 0.9)"},  # dark Purple
+            ],
+            'threshold': {
+                'line': {'color': "black", 'width': 6},  # Black line for the 0.5th percentile marker
+                'thickness': 0.75,
+                'value': percentile_50, 
+            },
+        },
+        title={
+            'text': title,
+            'font': {'size': 30, 'family': 'Arial', 'color': 'black'}
+        }
+    ))
+
+    if show_legend:
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.4)"),
+                                 name="0-5th Percentile (Extremely Low)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(255, 215, 0, 0.6)"),
+                                 name="5th-25th Percentile (Below Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(34, 139, 34, 0.7)"),
+                                 name="25th-75th Percentile (Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(255, 99, 71, 0.6)"),
+                                 name="75th-95th Percentile (Above Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.9)"),
+                                 name="95th-100th Percentile (Extremely High)"))
+        
+        
+    
+    # Update layout for better aesthetics
+    fig.update_layout(
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        margin=dict(t=50, b=100 if show_legend else 30, l=30, r=30),  # Adjust bottom margin for legend
+        showlegend=show_legend,
+        legend=dict(
+            orientation="h",      # Horizontal orientation for legend
+            yanchor="top",        # Align legend to top
+            y=-0.2,               # Place below the chart
+            xanchor="center",     # Center legend horizontally
+            x=0.5,                # Centered under the chart
+            font=dict(size=14)    # Set font size for readability
+        ),
+        xaxis=dict(visible=False),  # Hide x-axis
+        yaxis=dict(visible=False)   # Hide y-axis   
+    )
+
+    # Display the adapted gauge chart
+    fig.show()
