@@ -71,8 +71,10 @@ def sbatchfile(mainParallel_path,
     sbatch_input_2 = 'target=$2\n'
     sbatch_input_3 = 'config=$3\n'
     
-    command = 'srun python ' + mainParallel_path + ' $source $target $config'
-
+    if with_config:
+        command = 'srun python ' + mainParallel_path + ' $source $target --configs $config'
+    else:
+        command = 'srun python ' + mainParallel_path + ' $source $target'
 
     bash_environment = [sbatch_init +
                         sbatch_nodes +
@@ -90,7 +92,7 @@ def sbatchfile(mainParallel_path,
     bash_environment[0] += sbatch_input_1 
     bash_environment[0] += sbatch_input_2 
     if with_config:
-        bash_environment[0] += "--configs " + sbatch_input_3
+        bash_environment[0] += sbatch_input_3
     bash_environment[0] += command
 
     job_path = os.path.join(bash_file_path, batch_file_name + '.sh')
