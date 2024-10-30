@@ -33,11 +33,11 @@ def make_config(project, path=None):
     config["ssp_ngrad"] = 3
     config["ssp_nmag"] = 3
 
-    config["CAMCAN_preprocess"] = {"resampling": False,
+    config["auto_ica_preprocess"] = {"resampling": False,
                                     "digital_filter": True,
                                     "autoICA": True,
                                     "SSP": False}
-    config["BTNRH_preprocess"] = {"resampling": False,
+    config["ssp_preprocess"] = {"resampling": False,
                                     "digital_filter": True,
                                     "autoICA": False,
                                     "SSP":True}
