@@ -1,2 +1,0 @@
-srun: error: wn-la-05: task 0: Exited with exit code 2
-/project/meganorm/Software/Miniconda3/envs/mne/bin/python3: can't open file '/home/meganorm-yverduyn/Code/MEGaNorm/DataConversion.py': [Errno 2] No such file or directory
