@@ -166,9 +166,9 @@ def create_layouts(modality='MEG', device='MEGIN'):
         
         save_sensor_layouts(MEGIN_layouts, 'MEGIN')
     
-    elif modality=='EEG' and device=='GES': #128-channel EEG geodesic hydrocel system by Electrical Geodesics Inc. (EGI)
-        GES_layouts = {
-            "GES_EEG_All":{ 
+    elif modality=='EEG' and device=='GSN': #128-channel EEG geodesic hydrocel system by Electrical Geodesics Inc. (EGI)
+        GSN_layouts = {
+            "GSN_EEG_All":{ 
                 'EEG_All': ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E12', 'E13', 'E14', 'E15', 
                             'E16', 'E17', 'E18', 'E19', 'E20', 'E21', 'E22', 'E23', 'E24', 'E25', 'E26', 'E27', 'E28', 'E29', 'E30', 'E31', 'E32', 'E33', 
                             'E34', 'E35', 'E36', 'E37', 'E38', 'E39', 'E40', 'E41', 'E42', 'E43', 'E44', 'E45', 'E46', 'E47', 'E48', 'E49', 'E50', 'E51', 
@@ -179,7 +179,7 @@ def create_layouts(modality='MEG', device='MEGIN'):
                             'E121', 'E122', 'E123', 'E124', 'E125', 'E126', 'E127', 'E128']
             }
         }
-        save_sensor_layouts(GES_layouts, 'EEG_GES')
+        save_sensor_layouts(GSN_layouts, 'EEG_GSN')
 
 
 if __name__ == "__main__":
