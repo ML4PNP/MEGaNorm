@@ -90,13 +90,13 @@ def load_specific_layout(device, layout):
         return None
 
 
-def create_layouts(modality='MEG', device='MEGIN'):
+def create_layouts(modality='MEG', device='FIF'):
     
-    if modality=='MEG' and device=='MEGIN':
-        MEGIN_layouts = {
+    if modality=='MEG' and device=='FIF':
+        FIF_layouts = {
             
-            "Megin_MAG_All":{ 
-                'MAG_All': [
+            "FIF_MAG_ALL":{ 
+                'MAG_ALL': [
                     "MEG0121", "MEG0341", "MEG0311", "MEG0321", "MEG0511", "MEG0541", "MEG0331", "MEG0521", "MEG0531", 
                     "MEG0611", "MEG0641", "MEG0621", "MEG0821", "MEG1411", "MEG1221", "MEG1211", "MEG1231", "MEG0921", 
                     "MEG0931", "MEG1241", "MEG0911", "MEG0941", "MEG1021", "MEG1031", "MEG0811", "MEG1011", "MEG0111", 
@@ -111,7 +111,7 @@ def create_layouts(modality='MEG', device='MEGIN'):
                     "MEG2541", "MEG2121", "MEG2131"],
             },
             
-            "Megin_All_Lobe":{
+            "FIF_MEG_LOBE":{
                 "MAG_frontal_left": ["MEG0121", "MEG0341", "MEG0311", "MEG0321", "MEG0511", "MEG0541", "MEG0331", "MEG0521", "MEG0531", "MEG0611", "MEG0641", "MEG0621", "MEG0821"], 
                 "MAG_frontal_right": ["MEG1411", "MEG1221", "MEG1211", "MEG1231", "MEG0921", "MEG0931", "MEG1241", "MEG0911", "MEG0941", "MEG1021", "MEG1031", "MEG0811", "MEG1011"], 
                 "MAG_temporal_left": ["MEG0111", "MEG0131", "MEG0211", "MEG0221", "MEG0141", "MEG1511", "MEG0241", "MEG0231", "MEG1541", "MEG1521", "MEG1611", "MEG1621", "MEG1531"], 
@@ -137,8 +137,8 @@ def create_layouts(modality='MEG', device='MEGIN'):
                 "GRAD2_occipital_left": ["MEG1643", "MEG1723", "MEG1713", "MEG1913", "MEG1943", "MEG1733", "MEG2043", "MEG1923", "MEG1933", "MEG1743", "MEG2113", "MEG2143"], 
                 "GRAD2_occipital_right": ["MEG2433", "MEG2523", "MEG2533", "MEG2313", "MEG2323", "MEG2513", "MEG2033", "MEG2343", "MEG2333", "MEG2543", "MEG2123", "MEG2133"]
             },
-            "Megin_GRAD_All":{ 
-                'GRAD_All': ['MEG0122', 'MEG0342', 'MEG0312', 'MEG0322', 'MEG0512', 'MEG0542', 'MEG0332', 'MEG0522', 'MEG0532',
+            "FIF_GRAD_ALL":{ 
+                'GRAD_ALL': ['MEG0122', 'MEG0342', 'MEG0312', 'MEG0322', 'MEG0512', 'MEG0542', 'MEG0332', 'MEG0522', 'MEG0532',
                             'MEG0612', 'MEG0642', 'MEG0622', 'MEG0822', 'MEG1412', 'MEG1222', 'MEG1212', 'MEG1232', 'MEG0922', 
                             'MEG0932', 'MEG1242', 'MEG0912', 'MEG0942', 'MEG1022', 'MEG1032', 'MEG0812', 'MEG1012', 'MEG0112', 
                             'MEG0132', 'MEG0212', 'MEG0222', 'MEG0142', 'MEG1512', 'MEG0242', 'MEG0232', 'MEG1542', 'MEG1522', 
@@ -163,13 +163,54 @@ def create_layouts(modality='MEG', device='MEGIN'):
                             'MEG2033', 'MEG2343', 'MEG2333', 'MEG2543', 'MEG2123', 'MEG2133']
             }       
         }
-        
-        save_sensor_layouts(MEGIN_layouts, 'MEGIN')
+        save_sensor_layouts(FIF_layouts, 'FIF')
     
+    elif modality=='MEG' and device=='DS':
+        DS_layouts = {
+            "DS_MAG_ALL":{ 
+            'GRAD_ALL': [
+                'MLC11-1609', 'MLC12-1609', 'MLC13-1609', 'MLC14-1609', 'MLC15-1609', 'MLC16-1609', 'MLC17-1609', 'MLC21-1609', 
+                'MLC22-1609', 'MLC23-1609', 'MLC24-1609', 'MLC25-1609', 'MLC31-1609', 'MLC32-1609', 'MLC41-1609', 'MLC42-1609', 
+                'MLC51-1609', 'MLC52-1609', 'MLC53-1609', 'MLC54-1609', 'MLC55-1609', 'MLC61-1609', 'MLC62-1609', 'MLC63-1609', 
+                'MLF11-1609', 'MLF12-1609', 'MLF13-1609', 'MLF14-1609', 'MLF21-1609', 'MLF22-1609', 'MLF23-1609', 'MLF24-1609', 
+                'MLF31-1609', 'MLF32-1609', 'MLF33-1609', 'MLF34-1609', 'MLF35-1609', 'MLF41-1609', 'MLF42-1609', 'MLF43-1609', 
+                'MLF44-1609', 'MLF45-1609', 'MLF46-1609', 'MLF51-1609', 'MLF52-1609', 'MLF53-1609', 'MLF54-1609', 'MLF55-1609', 
+                'MLF56-1609', 'MLF61-1609', 'MLF62-1609', 'MLF63-1609', 'MLF64-1609', 'MLF65-1609', 'MLF66-1609', 'MLF67-1609', 
+                'MLO11-1609', 'MLO12-1609', 'MLO13-1609', 'MLO14-1609', 'MLO21-1609', 'MLO22-1609', 'MLO23-1609', 'MLO24-1609', 
+                'MLO31-1609', 'MLO32-1609', 'MLO33-1609', 'MLO34-1609', 'MLO41-1609', 'MLO42-1609', 'MLO43-1609', 'MLO44-1609', 
+                'MLO51-1609', 'MLO52-1609', 'MLO53-1609', 'MLP11-1609', 'MLP12-1609', 'MLP21-1609', 'MLP22-1609', 'MLP23-1609', 
+                'MLP31-1609', 'MLP32-1609', 'MLP33-1609', 'MLP34-1609', 'MLP35-1609', 'MLP41-1609', 'MLP42-1609', 'MLP43-1609', 
+                'MLP44-1609', 'MLP45-1609', 'MLP51-1609', 'MLP52-1609', 'MLP53-1609', 'MLP54-1609', 'MLP55-1609', 'MLP56-1609', 
+                'MLP57-1609', 'MLT11-1609', 'MLT12-1609', 'MLT13-1609', 'MLT14-1609', 'MLT15-1609', 'MLT16-1609', 'MLT21-1609', 
+                'MLT22-1609', 'MLT23-1609', 'MLT24-1609', 'MLT25-1609', 'MLT26-1609', 'MLT27-1609', 'MLT31-1609', 'MLT32-1609', 
+                'MLT33-1609', 'MLT34-1609', 'MLT35-1609', 'MLT36-1609', 'MLT37-1609', 'MLT41-1609', 'MLT42-1609', 'MLT43-1609', 
+                'MLT44-1609', 'MLT45-1609', 'MLT46-1609', 'MLT47-1609', 'MLT51-1609', 'MLT52-1609', 'MLT53-1609', 'MLT54-1609', 
+                'MLT55-1609', 'MLT56-1609', 'MLT57-1609', 'MRC11-1609', 'MRC12-1609', 'MRC13-1609', 'MRC14-1609', 'MRC15-1609', 
+                'MRC16-1609', 'MRC17-1609', 'MRC21-1609', 'MRC22-1609', 'MRC23-1609', 'MRC24-1609', 'MRC25-1609', 'MRC31-1609', 
+                'MRC32-1609', 'MRC41-1609', 'MRC42-1609', 'MRC51-1609', 'MRC52-1609', 'MRC53-1609', 'MRC54-1609', 'MRC55-1609', 
+                'MRC61-1609', 'MRC62-1609', 'MRC63-1609', 'MRF11-1609', 'MRF12-1609', 'MRF13-1609', 'MRF14-1609', 'MRF21-1609', 
+                'MRF22-1609', 'MRF23-1609', 'MRF24-1609', 'MRF25-1609', 'MRF31-1609', 'MRF32-1609', 'MRF33-1609', 'MRF34-1609', 
+                'MRF35-1609', 'MRF41-1609', 'MRF42-1609', 'MRF44-1609', 'MRF45-1609', 'MRF46-1609', 'MRF51-1609', 'MRF52-1609', 
+                'MRF53-1609', 'MRF54-1609', 'MRF55-1609', 'MRF56-1609', 'MRF61-1609', 'MRF62-1609', 'MRF63-1609', 'MRF64-1609', 
+                'MRF65-1609', 'MRF66-1609', 'MRF67-1609', 'MRO11-1609', 'MRO12-1609', 'MRO14-1609', 'MRO21-1609', 'MRO22-1609', 
+                'MRO23-1609', 'MRO24-1609', 'MRO31-1609', 'MRO32-1609', 'MRO33-1609', 'MRO34-1609', 'MRO41-1609', 'MRO42-1609', 
+                'MRO43-1609', 'MRO44-1609', 'MRO51-1609', 'MRO52-1609', 'MRO53-1609', 'MRP11-1609', 'MRP12-1609', 'MRP21-1609', 
+                'MRP22-1609', 'MRP23-1609', 'MRP31-1609', 'MRP32-1609', 'MRP33-1609', 'MRP34-1609', 'MRP35-1609', 'MRP41-1609', 
+                'MRP42-1609', 'MRP43-1609', 'MRP44-1609', 'MRP45-1609', 'MRP51-1609', 'MRP52-1609', 'MRP53-1609', 'MRP54-1609', 
+                'MRP55-1609', 'MRP56-1609', 'MRP57-1609', 'MRT11-1609', 'MRT12-1609', 'MRT13-1609', 'MRT14-1609', 'MRT15-1609', 
+                'MRT16-1609', 'MRT21-1609', 'MRT22-1609', 'MRT23-1609', 'MRT24-1609', 'MRT25-1609', 'MRT26-1609', 'MRT27-1609', 
+                'MRT31-1609', 'MRT32-1609', 'MRT33-1609', 'MRT34-1609', 'MRT35-1609', 'MRT36-1609', 'MRT37-1609', 'MRT41-1609', 
+                'MRT42-1609', 'MRT43-1609', 'MRT44-1609', 'MRT45-1609', 'MRT46-1609', 'MRT47-1609', 'MRT51-1609', 'MRT52-1609', 
+                'MRT53-1609', 'MRT54-1609', 'MRT55-1609', 'MRT56-1609', 'MRT57-1609', 'MZC01-1609', 'MZC02-1609', 'MZC03-1609', 
+                'MZC04-1609', 'MZF01-1609', 'MZF02-1609', 'MZF03-1609', 'MZO01-1609', 'MZO02-1609', 'MZO03-1609', 'MZP01-1609']}}
+        save_sensor_layouts(DS_layouts, 'DS')
+
+
+
     elif modality=='EEG' and device=='GES': #128-channel EEG geodesic hydrocel system by Electrical Geodesics Inc. (EGI)
         GES_layouts = {
-            "GES_EEG_All":{ 
-                'EEG_All': ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E12', 'E13', 'E14', 'E15', 
+            "GES_EEG_ALL":{ 
+                'EEG_ALL': ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E12', 'E13', 'E14', 'E15', 
                             'E16', 'E17', 'E18', 'E19', 'E20', 'E21', 'E22', 'E23', 'E24', 'E25', 'E26', 'E27', 'E28', 'E29', 'E30', 'E31', 'E32', 'E33', 
                             'E34', 'E35', 'E36', 'E37', 'E38', 'E39', 'E40', 'E41', 'E42', 'E43', 'E44', 'E45', 'E46', 'E47', 'E48', 'E49', 'E50', 'E51', 
                             'E52', 'E53', 'E54', 'E55', 'E56', 'E57', 'E58', 'E59', 'E60', 'E61', 'E62', 'E63', 'E64', 'E65', 'E66', 'E67', 'E68', 'E69', 
@@ -179,9 +220,11 @@ def create_layouts(modality='MEG', device='MEGIN'):
                             'E121', 'E122', 'E123', 'E124', 'E125', 'E126', 'E127', 'E128']
             }
         }
-        save_sensor_layouts(GES_layouts, 'EEG_GES')
+        save_sensor_layouts(GES_layouts, 'GES')
 
 
 if __name__ == "__main__":
         
-	create_layouts()
+    create_layouts(modality='MEG', device='FIF')
+    create_layouts(modality='MEG', device='DS')
+    create_layouts(modality='EEG', device='GES')

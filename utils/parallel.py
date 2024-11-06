@@ -69,12 +69,13 @@ def sbatchfile(mainParallel_path,
     
     sbatch_input_1 = 'source=$1\n'
     sbatch_input_2 = 'target=$2\n'
-    sbatch_input_3 = 'config=$3\n'
+    sbatch_input_3 = 'subject=$3\n'
+    sbatch_input_4 = 'config=$4\n'
     
     if with_config:
-        command = 'srun python ' + mainParallel_path + ' $source $target --configs $config'
+        command = 'srun python ' + mainParallel_path + ' $source $target $subject --configs $config'
     else:
-        command = 'srun python ' + mainParallel_path + ' $source $target'
+        command = 'srun python ' + mainParallel_path + ' $source $target $subject' 
 
     bash_environment = [sbatch_init +
                         sbatch_nodes +
@@ -91,8 +92,9 @@ def sbatchfile(mainParallel_path,
     bash_environment[0] += sbatch_module
     bash_environment[0] += sbatch_input_1 
     bash_environment[0] += sbatch_input_2 
+    bash_environment[0] += sbatch_input_3 
     if with_config:
-        bash_environment[0] += sbatch_input_3
+        bash_environment[0] += sbatch_input_4
     bash_environment[0] += command
 
     job_path = os.path.join(bash_file_path, batch_file_name + '.sh')
@@ -130,7 +132,6 @@ def submit_jobs(mainParallel_path, bash_file_path, subjects,
         job_configs = {'log_path':None, 'module':'mne', 'time':'1:00:00', 'memory':'20GB', 
                        'partition':'normal', 'core':1, 'node':1, 'batch_file_name':'batch_job'}
         
-    
     batch_file = sbatchfile(mainParallel_path, bash_file_path, log_path=job_configs['log_path'], 
                             module=job_configs['module'], time=job_configs['time'], 
                             memory=job_configs['memory'], partition=job_configs['partition'], 
@@ -144,10 +145,10 @@ def submit_jobs(mainParallel_path, bash_file_path, subjects,
         fname = subjects[subject]
         if os.path.exists(fname):
             if config_file is None:
-                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path}", 
+                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {subject}", 
                                   shell=True)
             else:
-                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {config_file}", 
+                subprocess.check_call(f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {subject} {config_file}", 
                                   shell=True)
         else:
             print('File does not exist!')
@@ -262,9 +263,9 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
     
     all_features = []
     for subject in subjects.keys():
-        try:
-            all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
-        except: continue
+        # try:
+        all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
+        # except: continue
     features = pd.concat(all_features)
     features.to_csv(os.path.join(target_dir, file_name + '.csv'))
     if clean:  

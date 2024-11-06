@@ -3,18 +3,18 @@ import argparse
 import json
 import os
 import sys
+import mne
+import numpy as np
 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
-# sys.path.insert(0, "../utils")
 
 from IO import make_config, storeFooofModels
-from preprocessUtils import segmentEpoch
 from psdParameterize import psdParameterize
-from preprocess import preprocess
-from featureExtraction import featureExtract
+from preprocess import preprocess, segment_epoch
+from featureExtraction import feature_extract
 
 
 def mainParallel(*args):
@@ -27,15 +27,13 @@ def mainParallel(*args):
 	parser.add_argument("saveDir", 
 				type=str,
 				help="where to save extracted features")
+	parser.add_argument("subject",
+				type=str,
+				help="participant ID")
 	parser.add_argument("--configs", type=str, default=None,
 			help="Address of configs json file")
 	
-	# saving options
-	parser.add_argument("--fooofResSave", type=str,
-					help="if available, fooof results will be saved")
-
 	args = parser.parse_args()
-
 
 	# Loading configs
 	if args.configs is not None:
@@ -45,39 +43,45 @@ def mainParallel(*args):
 		configs = make_config('configs')
 
 	# subject ID
-	subID = args.dir.split("/")[-3]
-
-	dataset_name = Path(args.dir).parts[-5]
+	subID = args.subject
+	
+	# read the data ====================================================================
+	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
+	power_line_freq = data.info.get("line_freq") # TODO
+	# In order to determine the loayout
+	extention = args.dir.split(".")[-1]
 
 	# preproces ========================================================================
-	filteredData, channelNames = preprocess(subjectPath = args.dir,
-							fs = configs['fs'],
-							n_component = configs['ica_n_component'],
-							maxIter = configs['ica_maxIter'],
-							IcaMethod = configs['ica_method'],
-							cutoffFreqLow = configs['cutoffFreqLow'],
-							cutoffFreqHigh = configs['cutoffFreqHigh'],
-							whichSensor=configs["whichSensor"],
-							preprocessings_pipeline=configs[f"{dataset_name}_preprocess"],
-							ssp_ngrad = configs["ssp_ngrad"],
-							ssp_nmag = configs["ssp_nmag"])
+	filtered_data, channel_names, sampling_rate = preprocess(data=data,
+												n_component = configs['ica_n_component'],
+												ica_max_iter = configs['ica_max_iter'],
+												IcaMethod = configs['ica_method'],
+												cutoffFreqLow = configs['cutoffFreqLow'],
+												cutoffFreqHigh = configs['cutoffFreqHigh'],
+												which_sensor = configs["which_sensor"],
+												resampling_rate = configs["resampling_rate"],
+												digital_filter = configs["digital_filter"],
+												ssp_ngrad = configs["ssp_ngrad"],
+												ssp_nmag = configs["ssp_nmag"],
+												apply_ica = configs["apply_ica"],
+												apply_ssp = configs["apply_ssp"])
 	
 	# segmentation =====================================================================
-	segments = segmentEpoch(data=filteredData, 
-				fs = configs['fs'],
-				tmin = configs['segments_tmin'],
-				tmax = configs['segments_tmax'],
-				segmentsLength = configs['segments_length'],
-				overlap = configs['segments_overlap'])
+	segments = segment_epoch(data=filtered_data, 
+							sampling_rate = sampling_rate,
+							tmin = configs['segments_tmin'],
+							tmax = configs['segments_tmax'],
+							segmentsLength = configs['segments_length'],
+							overlap = configs['segments_overlap'])
 
-	# fooof analysis ====================================================================
+	# # fooof analysis ====================================================================
 	fmGroup, psds, freqs = psdParameterize(segments = segments,
-									fs = configs['fs'],
+									sampling_rate = sampling_rate,
 									# psd parameters
 									psdMethod = configs['psd_method'],
 									psd_n_overlap = configs['psd_n_overlap'],
 									psd_n_fft = configs['psd_n_fft'],
-									n_per_seg = configs["n_per_seg"],
+									n_per_seg = configs["psd_n_per_seg"],
 									# fooof parameters
 									freqRangeLow = configs['fooof_freqRangeLow'],
 									freqRangeHigh = configs['fooof_freqRangeHigh'],
@@ -93,23 +97,26 @@ def mainParallel(*args):
 						psds,
 						freqs)
 
-	# feature extraction ==================================================================
-	features = featureExtract(subjectId = subID,
+	# # feature extraction ==================================================================
+	features = feature_extract(subjectId = subID,
 							fmGroup = fmGroup,
 							psds = psds,
 							freqs = freqs,
-							freqBands = configs['freqBands'],
-							channelNames = channelNames,
-							bandSubRanges = configs['bandSubRanges'],
-							featureCategories= configs["featuresCategories"],
-							device = configs["device"],
-       						layout = configs["layout"],
-							aperiodic_mode = configs["aperiodic_mode"])
+							freq_bands = configs['freq_bands'],
+							channel_names = channel_names,
+							individualized_band_ranges = configs['individualized_band_ranges'],
+							feature_categories= configs["feature_categories"],
+							extention = extention,
+       						which_layout = configs["layout"],
+							which_sensor = configs["which_sensor"],
+							aperiodic_mode = configs["aperiodic_mode"],
+							min_r_squared = configs["min_r_squared"])
 	
 	features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
 
-
-
 if __name__ == "__main__":
-        
+
+	# command = python src/mainParallel.py /project/meganorm/Data/BTNRH/BTNRH/BIDS_data/sub-049/meg/sub-049_task-rest_meg.fif /home/meganorm-mznasrabadi/MEGaNorm/tests
+	# command = python src/mainParallel.py /project/meganorm/Data/BTNRH/CAMCAN/BIDS_data/sub-CC221828/meg/sub-CC221828_task-rest_meg.fif /home/meganorm-mznasrabadi/MEGaNorm/tests
+
 	mainParallel(sys.argv[1:])

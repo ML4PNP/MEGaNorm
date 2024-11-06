@@ -8,6 +8,8 @@ import scipy.stats as st
 from plots.plots import KDE_plot
 from scipy.stats import shapiro
 import itertools
+from sklearn.model_selection import StratifiedKFold
+import shutil
 
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
@@ -347,3 +349,53 @@ def estimate_centiles(processing_dir, bio_num, quantiles=[0.05, 0.25, 0.5, 0.75,
     
     return q
 
+
+
+
+
+def saving(data, path, counter, tag, split):
+    fold_path = os.path.join(path, f"{tag}_fold_{counter}_{split}.pkl")
+    data.to_pickle(fold_path)
+def kfold_split(data_path:str, save_dir:str, n_folds:int, sub_file="folds", prefix="", random_state=42):
+    """
+    This function creates stratified k-fold cross-validation splits and saves them as separate batch, x, and y files.
+    Both 'sex' and 'site' are used to stratify the data, preserving their distribution across the folds.
+
+    Parameters:
+        data_path (str): The path to the directory containing the input data files (e.g., x_train.pkl, b_train.pkl, y_train.pkl).
+        save_dir (str): The directory where the generated fold data will be saved.
+        n_folds (int): The number of folds to split the data into for cross-validation.
+        sub_file (str): The subdirectory name within `save_dir` where fold data will be saved (default is "folds").
+        prefix (str): Prefix to add to the file names when loading data files (default is an empty string).
+        random_state (int): Random seed for reproducibility (default is 42).
+    
+    returns:
+        folds_path (str): where the folds are saved
+        """
+
+    folds_path = os.path.join(save_dir, sub_file)
+
+    if os.path.exists(folds_path):
+        shutil.rmtree(folds_path)
+    os.makedirs(folds_path)   
+
+    x_all = pickle.load(open(os.path.join(data_path, prefix + 'x_train.pkl'), "rb"))
+    b_all = pickle.load(open(os.path.join(data_path,  prefix + 'b_train.pkl'), "rb"))
+    y_all = pickle.load(open(os.path.join(data_path,  prefix + 'y_train.pkl'), "rb"))
+
+    numpy_batch = b_all.apply(lambda row: row["site"]*2 + row["sex"], axis=1).to_numpy()
+
+    skf = StratifiedKFold(n_splits=n_folds)
+    skf.get_n_splits(x_all, numpy_batch)
+
+
+    for counter, (train_ind, test_ind) in enumerate(skf.split(x_all, numpy_batch)):
+        saving(data=x_all.iloc[train_ind,:], path= folds_path, counter=counter, tag='x', split='tr')
+        saving(data=b_all.iloc[train_ind,:], path= folds_path, counter=counter, tag='b', split='tr')
+        saving(data=y_all.iloc[train_ind,:], path= folds_path, counter=counter, tag='y', split='tr')
+
+        saving(data=x_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='x', split='te')
+        saving(data=b_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='b', split='te')
+        saving(data=y_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='y', split='te')
+        
+    return folds_path
