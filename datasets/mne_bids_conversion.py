@@ -81,7 +81,7 @@ import pandas as pd
 
 
 
-def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, sex_col:int, site_col:int,
+def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, sex_col:int,
                         male_indicator, female_indicator) -> None:
 
     """
