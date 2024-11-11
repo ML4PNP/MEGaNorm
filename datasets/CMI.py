@@ -7,6 +7,8 @@ from pathlib import Path
 import scipy
 import numpy as np
 import pandas as pd
+import numpy as np
+import pandas as pd
 from utils.EEGlab import read_raw_eeglab
 
 def mne_bids_CMI(input_base_path, output_base_path, montage_path):
