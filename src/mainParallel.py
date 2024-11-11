@@ -51,6 +51,15 @@ def mainParallel(*args):
 	# In order to determine the loayout
 	extention = args.dir.split(".")[-1]
 
+	which_sensor = {"meg":False,
+				"mag":False,
+				"grad":False,
+				"eeg":False,
+				"opm":False}
+	for key, values in which_sensor.items():
+		if key == configs["which_sensor"]:
+			which_sensor[key] = True
+
 	# preproces ========================================================================
 	filtered_data, channel_names, sampling_rate = preprocess(data=data,
 												n_component = configs['ica_n_component'],
@@ -58,7 +67,7 @@ def mainParallel(*args):
 												IcaMethod = configs['ica_method'],
 												cutoffFreqLow = configs['cutoffFreqLow'],
 												cutoffFreqHigh = configs['cutoffFreqHigh'],
-												which_sensor = configs["which_sensor"],
+												which_sensor = which_sensor,
 												resampling_rate = configs["resampling_rate"],
 												digital_filter = configs["digital_filter"],
 												ssp_ngrad = configs["ssp_ngrad"],
@@ -107,8 +116,8 @@ def mainParallel(*args):
 							individualized_band_ranges = configs['individualized_band_ranges'],
 							feature_categories= configs["feature_categories"],
 							extention = extention,
-       						which_layout = configs["layout"],
-							which_sensor = configs["which_sensor"],
+       						which_layout = configs["which_layout"],
+							which_sensor = which_sensor,
 							aperiodic_mode = configs["aperiodic_mode"],
 							min_r_squared = configs["min_r_squared"])
 	
