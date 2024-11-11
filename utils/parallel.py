@@ -248,7 +248,7 @@ def check_user_jobs(username, start_time):
     
 def collect_results(target_dir, subjects, temp_path, file_name='features', clean=True):
     
-    """Collects and merges the resulst of all jobs.
+    """Collects and merges the results of all jobs.
 
     Args:
         target_dir (str): Target directory path to save the collected results.

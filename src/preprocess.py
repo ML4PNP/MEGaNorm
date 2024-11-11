@@ -41,7 +41,7 @@ def findComponent(ica, data, physiological_signal):
     return componentIndx
 
 
-def autoICA(data, channle_types, n_components=30, ica_max_iter=1000, IcaMethod="fastica", which_sensor=["meg", "eeg"]):
+def autoICA(data, channel_types, n_components=30, ica_max_iter=1000, IcaMethod="fastica", which_sensor=["meg", "eeg"]):
 
     """
     This function serves as an automated noise detection tool
@@ -75,7 +75,7 @@ def autoICA(data, channle_types, n_components=30, ica_max_iter=1000, IcaMethod="
     final ica model
     """
     
-    physiological_sensors = [x for x in channle_types if x in ["eog" or "ecg"]]
+    physiological_sensors = [x for x in channel_types if x in ["eog" or "ecg"]]
     physiological_signal = data.copy().pick(picks=physiological_sensors).get_data()
 
     data = data.pick_types(meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
@@ -161,7 +161,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
 
     ssp_flage = True
 
-    channle_types = set(data.get_channel_types())
+    channel_types = set(data.get_channel_types())
 
     sampling_rate = data.info["sfreq"]
 
@@ -179,13 +179,13 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                     verbose=False)
 
     # apply automated ICA
-    if apply_ica and ("ecg" in channle_types or "eog" in channle_types):
+    if apply_ica and ("ecg" in channel_types or "eog" in channel_types):
         data = autoICA(data=data, 
                     n_components=n_component, # FLUX default
                     ica_max_iter=ica_max_iter, # FLUX default,
                     IcaMethod = IcaMethod,
                     which_sensor=which_sensor,
-                    channle_types=channle_types)
+                    channel_types=channel_types)
         ssp_flage = False
 
     if apply_ssp and ssp_flage:
@@ -201,7 +201,6 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                                       ref_meg=False)
         # For discarding mag or meg
         data = data.pick(picks=[sensor for sensor, if_calculate in which_sensor.items() if if_calculate])
-
     return data, data.info["ch_names"], int(sampling_rate)
 
     
