@@ -15,20 +15,12 @@ def make_config(project, path=None):
     config = dict()
 
     # You could also set layout to None to have high 
-    config["layout"] = {
-                        "all":True,
-                        "lobe":False,
-                        "None":False
-                        }
+    # choices: all, lobe, None
+    config["which_layout"] = "all"
 
     # which sensor type should be used
-    config["which_sensor"] = {
-                            "meg":True,
-                            "mag":False,
-                            "grad":False,
-                            "eeg":False,
-                            "opm":False
-                            }
+    # choices: meg, mag, grad, eeg, opm
+    config["which_sensor"] = "meg"
     # config['fs'] = 1000
 
     # ICA configuration
@@ -85,7 +77,8 @@ def make_config(project, path=None):
 
     # feature extraction ==========================================================
     # Define frequency bands
-    config['freq_bands'] = {'Theta': (3, 8),
+    config['freq_bands'] = {
+                            'Theta': (3, 8),
                             'Alpha': (8, 13),
                             'Beta': (13, 30),
                             'Gamma': (30, 40),
@@ -270,7 +263,6 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
 
     demographic_df = pd.DataFrame({})
     for counter,dataset_path in enumerate(datasets_paths):
-        
         demo = pd.read_csv(os.path.join(dataset_path, "participants.tsv"), 
                                                 sep="\t", index_col=0)
         demo["site"] = counter
