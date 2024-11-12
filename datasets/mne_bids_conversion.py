@@ -10,7 +10,7 @@ import sys
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
-from utils.EEGlab import read_raw_eeglab
+# from utils.EEGlab import read_raw_eeglab
 import pandas as pd
 
 
@@ -144,7 +144,7 @@ if __name__ == "__main__":
     # Preparing demographic data according to mne_bids format
     # BTH
     file_dir = "/project/meganorm/Data/BTNRH/Rempe_Ott_PNAS_2022_Data.xlsx"
-    save_dir = "/project/meganorm/Data/BTNRH/BTNRH/BIDS_data/participants.tsv"
+    save_dir = "/project/meganorm/Data/BTNRH/BIDS/participants.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, id_col=0, 
                         age_col=1, 
@@ -154,7 +154,7 @@ if __name__ == "__main__":
 
     # CAMCAN
     file_dir = "/project/meganorm/Data/camcan/CamCAN/cc700/participants.tsv"
-    save_dir = "/project/meganorm/Data/BTNRH/CAMCAN/BIDS_data/participants.tsv"
+    save_dir = "/project/meganorm/Data/BTNRH/CAMCAN_BIDS/participants.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, 
                         id_col=0, 
@@ -164,8 +164,8 @@ if __name__ == "__main__":
                         female_indicator="FEMALE")
     
     # NIMH 
-    file_dir = "/project/meganorm/Data/NIMH/participants.tsv"
-    save_dir = "/project/meganorm/Data/NIMH/participants2.tsv"
+    file_dir = "/project/meganorm/Data/NIMH/participants_original.tsv"
+    save_dir = "/project/meganorm/Data/NIMH/participants.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, 
                         id_col=0, 

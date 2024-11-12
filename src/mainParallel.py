@@ -5,7 +5,8 @@ import os
 import sys
 import mne
 import numpy as np
-
+import pathlib
+import mne_bids
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
@@ -46,7 +47,15 @@ def mainParallel(*args):
 	subID = args.subject
 	
 	# read the data ====================================================================
-	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
+	if pathlib.Path(args.dir).is_symlink():
+		bids_path = os.path.join(os.sep, *args.dir.split(os.sep)[:-3])
+		bids_path = mne_bids.BIDSPath(task="rest",
+									 subject=subID.split("-")[1],
+									 root=bids_path)
+		data = mne_bids.read_raw_bids(bids_path, extra_params={"preload":True})
+	else:
+		data = mne.io.read_raw(args.dir, verbose=False, preload=True)
+
 	power_line_freq = data.info.get("line_freq") # TODO
 	# In order to determine the loayout
 	extention = args.dir.split(".")[-1]
