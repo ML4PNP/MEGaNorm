@@ -142,8 +142,7 @@ def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold
         flat_criteria = dict(eeg=eeg_flat_threshold)
 
     segments.drop_bad(reject=reject_criteria, flat=flat_criteria)
-    print("########################### : ", np.shape(segments))
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@ : ", np.shape(segments.get_data()))
+    
     if zscore_std_thresh:
         z_scores = stats.zscore(np.std(segments.get_data(), axis=0), axis=0)
         bad_epochs = np.where(z_scores>zscore_std_thresh)[0]
