@@ -32,33 +32,33 @@ def make_config(project, path=None):
     config['cutoffFreqLow'] = 1
     config['cutoffFreqHigh'] = 45
 
-    config["resampling_rate"] = 500 
+    config["resampling_rate"] = 1000
     config["digital_filter"] = True
     config["notch_filter"] = False
 
     config["apply_ica"] = True
-    config["apply_ssp"] = False #Check later if this should be done or not 
+    config["apply_ssp"] = True
 
     # Signal space projection
     config["ssp_ngrad"] = 3
     config["ssp_nmag"] = 3
     
-    # flat threshold
+    # variance threshold across time
     config["mag_var_threshold"] = 5000e-15
     config["grad_var_threshold"] = 5000e-13
     config["eeg_var_threshold"] = 40e-6
-
+    # flatness threshold across time
     config["mag_flat_threshold"] = 10e-15
     config["grad_flat_threshold"] = 10e-15
     config["eeg_flat_threshold"] = None
-
+    # variance thershold across channels
     config["zscore_std_thresh"] = 15 # change this
 
     # segmentation ==============================================
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
-    config['segments_tmin'] = 0 #because it is taken into account when splitting the files
+    config['segments_tmin'] = 20
     # end time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
-    config['segments_tmax'] = None #because it is taken into account when splitting the files
+    config['segments_tmax'] = -20
     # length of MEG segments in seconds
     config['segments_length'] = 10
     # amount of overlap between MEG sigals in seconds
