@@ -43,6 +43,17 @@ def make_config(project, path=None):
     config["ssp_ngrad"] = 3
     config["ssp_nmag"] = 3
     
+    # flat threshold
+    config["mag_var_threshold"] = 5000e-15
+    config["grad_var_threshold"] = 5000e-13
+    config["eeg_var_threshold"] = 40e-6
+
+    config["mag_flat_threshold"] = 10e-15
+    config["grad_flat_threshold"] = 10e-15
+    config["eeg_flat_threshold"] = None
+
+    config["zscore_std_thresh"] = 15 # change this
+
     # segmentation ==============================================
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
     config['segments_tmin'] = 20

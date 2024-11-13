@@ -14,7 +14,7 @@ sys.path.append(config_path)
 
 from IO import make_config, storeFooofModels
 from psdParameterize import psdParameterize
-from preprocess import preprocess, segment_epoch
+from preprocess import preprocess, segment_epoch, drop_bads
 from featureExtraction import feature_extract
 
 
@@ -91,8 +91,19 @@ def mainParallel(*args):
 							tmax = configs['segments_tmax'],
 							segmentsLength = configs['segments_length'],
 							overlap = configs['segments_overlap'])
+	
+	# drop bad channels ================================================================
+	segments = drop_bads(segments = segments,
+						mag_var_threshold = configs["mag_var_threshold"],
+						grad_var_threshold = configs["grad_var_threshold"],
+						eeg_var_threshold = configs["eeg_var_threshold"],
+						mag_flat_threshold = configs["mag_flat_threshold"],
+						grad_flat_threshold = configs["grad_flat_threshold"],
+						eeg_flat_threshold = configs["eeg_flat_threshold"],
+						zscore_std_thresh = configs["zscore_std_thresh"],
+						which_sensor = which_sensor)
 
-	# # fooof analysis ====================================================================
+	# fooof analysis ====================================================================
 	fmGroup, psds, freqs = psdParameterize(segments = segments,
 									sampling_rate = sampling_rate,
 									# psd parameters

@@ -10,7 +10,7 @@ import sys
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
-# from utils.EEGlab import read_raw_eeglab
+from utils.EEGlab import read_raw_eeglab
 import pandas as pd
 
 
