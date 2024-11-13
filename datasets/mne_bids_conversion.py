@@ -173,3 +173,14 @@ if __name__ == "__main__":
                         sex_col=2, 
                         male_indicator="male", 
                         female_indicator="female")
+    
+    # CMI
+    file_dir = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" #For R1
+    save_dir = "/project/meganorm/Data/EEG_CMI/EEG_BIDS/participants.tsv"
+    make_demo_file_bids(file_dir, 
+                        save_dir, 
+                        id_col=0, 
+                        age_col=2, 
+                        sex_col=1, 
+                        male_indicator="0", 
+                        female_indicator="1")

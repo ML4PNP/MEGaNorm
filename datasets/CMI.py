@@ -5,6 +5,10 @@ import os
 import mne
 from pathlib import Path
 import scipy
+import numpy as np
+import pandas as pd
+import numpy as np
+import pandas as pd
 from utils.EEGlab import read_raw_eeglab
 
 def mne_bids_CMI(input_base_path, output_base_path, montage_path):
@@ -77,9 +81,53 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
 
     return None
 
+def load_covariates_CMI(CMI_demo_path, CMI_site_path): 
+
+    """Load age and gender for CMI dataset.
+
+    Args:
+        path (str): path to covariates.
+
+    Returns:
+        DataFrame: Pandas dataframe containing age and gender for CMI dataset.
+    """
+    
+    df_demo = pd.read_csv(CMI_demo_path, sep=',')
+    df_demo = df_demo[['EID', 'Age', 'Sex']]
+    df_demo = df_demo.rename(columns={'EID':'Subject_ID',"Age" : "age", 'Sex':'gender'}) # 0 for males and 1 for females
+    df_demo.index.name = None
+
+    df_site = pd.read_excel(CMI_site_path,)
+    df_site =  df_site[['EID','Study_Site']]
+    df_site = df_site.rename(columns={'EID':'Subject_ID', 'Study_Site':'site'})
+
+    df = pd.merge(df_demo, df_site, on='Subject_ID', how='inner')
+    
+    return df   
+
+def load_CMI_data(feature_path, covariates_path):
+    """Load CMI dataset
+
+    Args:
+        feature_path (str): Path to the the feature csv file.
+        covariates_path (str): path to the covariates tsv file.
+
+    Returns:
+        DataFrame: Pandas dataframe with CMI covariates and features.
+    """
+      
+    CMI_covariates = pd.read_csv(covariates_path, sep='\t', index_col=0)    
+    CMI_features = pd.read_csv(feature_path, index_col=0)
+    CMI_features.index = CMI_features.index.str.replace('^sub-', '', regex=True)
+    CMI_data = CMI_covariates.join(CMI_features, how='inner')
+    return CMI_data
 
 if __name__ == "__main__":
     input_base_path = "/project/meganorm/Data/EEG_CMI/EEG/"
     output_base_path = "/project/meganorm/Data/EEG_CMI/EEG_BIDS"
     montage_path = "/project/meganorm/Data/EEG_CMI/info/GSN_HydroCel_129.sfp"
     mne_bids_CMI(input_base_path, output_base_path, montage_path)
+
+    CMI_demo_path = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" ##for R1
+    CMI_site_path = "/project/meganorm/Data/EEG_CMI/info/Subject-Site_R1_1.xlsx" ##for R1
+    load_covariates_CMI(CMI_demo_path, CMI_site_path)

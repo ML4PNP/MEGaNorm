@@ -207,9 +207,9 @@ def create_layouts(modality='MEG', device='FIF'):
 
 
 
-    elif modality=='EEG' and device=='GES': #128-channel EEG geodesic hydrocel system by Electrical Geodesics Inc. (EGI)
-        GES_layouts = {
-            "GES_EEG_ALL":{ 
+    elif modality=='EEG' and device=='SET': #device is 128-channel EEG geodesic hydrocel system by Electrical Geodesics Inc. (EGI), file is .set
+        SET_layouts = {
+            "SET_EEG_ALL":{ 
                 'EEG_ALL': ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E12', 'E13', 'E14', 'E15', 
                             'E16', 'E17', 'E18', 'E19', 'E20', 'E21', 'E22', 'E23', 'E24', 'E25', 'E26', 'E27', 'E28', 'E29', 'E30', 'E31', 'E32', 'E33', 
                             'E34', 'E35', 'E36', 'E37', 'E38', 'E39', 'E40', 'E41', 'E42', 'E43', 'E44', 'E45', 'E46', 'E47', 'E48', 'E49', 'E50', 'E51', 
@@ -217,14 +217,14 @@ def create_layouts(modality='MEG', device='FIF'):
                             'E70', 'E71', 'E72', 'E73', 'E74', 'E75', 'E76', 'E77', 'E78', 'E79', 'E80', 'E81', 'E82', 'E83', 'E84', 'E85', 'E86', 'E87', 
                             'E88', 'E89', 'E90', 'E91', 'E92', 'E93', 'E94', 'E95', 'E96', 'E97', 'E98', 'E99', 'E100', 'E101', 'E102', 'E103', 'E104', 
                             'E105', 'E106', 'E107', 'E108', 'E109', 'E110', 'E111', 'E112', 'E113', 'E114', 'E115', 'E116', 'E117', 'E118', 'E119', 'E120', 
-                            'E121', 'E122', 'E123', 'E124', 'E125', 'E126', 'E127', 'E128']
+                            'E121', 'E122', 'E123', 'E124', 'E125', 'E126', 'E127', 'E128', 'Cz']
             }
         }
-        save_sensor_layouts(GES_layouts, 'GES')
+        save_sensor_layouts(SET_layouts, 'SET')
 
 
 if __name__ == "__main__":
         
     create_layouts(modality='MEG', device='FIF')
     create_layouts(modality='MEG', device='DS')
-    create_layouts(modality='EEG', device='GES')
+    create_layouts(modality='EEG', device='SET')

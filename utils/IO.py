@@ -32,12 +32,12 @@ def make_config(project, path=None):
     config['cutoffFreqLow'] = 1
     config['cutoffFreqHigh'] = 45
 
-    config["resampling_rate"] = 1000
+    config["resampling_rate"] = 500 
     config["digital_filter"] = True
     config["notch_filter"] = False
 
     config["apply_ica"] = True
-    config["apply_ssp"] = True
+    config["apply_ssp"] = False #Check later if this should be done or not 
 
     # Signal space projection
     config["ssp_ngrad"] = 3
@@ -56,9 +56,9 @@ def make_config(project, path=None):
 
     # segmentation ==============================================
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
-    config['segments_tmin'] = 20
+    config['segments_tmin'] = 0 #because it is taken into account when splitting the files
     # end time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
-    config['segments_tmax'] = -20
+    config['segments_tmax'] = None #because it is taken into account when splitting the files
     # length of MEG segments in seconds
     config['segments_length'] = 10
     # amount of overlap between MEG sigals in seconds
@@ -199,7 +199,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
     if not os.path.exists(output_base_path):
         os.makedirs(output_base_path)
 
-    search_pattern = os.path.join(input_base_path, "*/eeg/*.set")
+    search_pattern = os.path.join(input_base_path, "*/eeg/*_task-rest_eeg.set")
     raw_set_paths = glob.glob(search_pattern, recursive=True) # Use glob to find all .set files in the input directory
 
     # Loop through all found .set files
@@ -237,7 +237,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
 
             # Save eyes open data as a new .set file
             eyes_open_file_path = os.path.join(subject_output_path, f'{subject_id}_task-eyesopen_eeg.set')
-            mne.export.export_raw(eyes_open_file_path, raw_eyes_open, fmt='eeglab')
+            mne.export.export_raw(eyes_open_file_path, raw_eyes_open, fmt='eeglab', overwrite = True)
 
         # Extract and concatenate eyes closed segments
         eyes_closed_data = []
@@ -254,7 +254,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
 
             # Save eyes closed data as a new .set file
             eyes_closed_file_path = os.path.join(subject_output_path,f'{subject_id}_task-eyesclosed_eeg.set')
-            mne.export.export_raw(eyes_closed_file_path, raw_eyes_closed, fmt='eeglab')
+            mne.export.export_raw(eyes_closed_file_path, raw_eyes_closed, fmt='eeglab', overwrite = True)
 
 
 
