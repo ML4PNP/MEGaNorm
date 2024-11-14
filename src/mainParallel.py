@@ -47,14 +47,7 @@ def mainParallel(*args):
 	subID = args.subject
 	
 	# read the data ====================================================================
-	if pathlib.Path(args.dir).is_symlink():
-		bids_path = os.path.join(os.sep, *args.dir.split(os.sep)[:-3])
-		bids_path = mne_bids.BIDSPath(task="rest",
-									 subject=subID.split("-")[1],
-									 root=bids_path)
-		data = mne_bids.read_raw_bids(bids_path, extra_params={"preload":True})
-	else:
-		data = mne.io.read_raw(args.dir, verbose=False, preload=True)
+	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
 
 	power_line_freq = data.info.get("line_freq") # TODO
 	# In order to determine the loayout
@@ -100,7 +93,6 @@ def mainParallel(*args):
 						mag_flat_threshold = configs["mag_flat_threshold"],
 						grad_flat_threshold = configs["grad_flat_threshold"],
 						eeg_flat_threshold = configs["eeg_flat_threshold"],
-						zscore_std_thresh = configs["zscore_std_thresh"],
 						which_sensor = which_sensor)
 
 	# fooof analysis ====================================================================
