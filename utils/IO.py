@@ -51,8 +51,6 @@ def make_config(project, path=None):
     config["mag_flat_threshold"] = 10e-15
     config["grad_flat_threshold"] = 10e-15
     config["eeg_flat_threshold"] = None
-    # variance thershold across channels
-    config["zscore_std_thresh"] = 15 # change this
 
     # segmentation ==============================================
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
