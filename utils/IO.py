@@ -44,8 +44,8 @@ def make_config(project, path=None):
     config["ssp_nmag"] = 3
     
     # variance threshold across time
-    config["mag_var_threshold"] = 5000e-15
-    config["grad_var_threshold"] = 5000e-13
+    config["mag_var_threshold"] = 4e-12
+    config["grad_var_threshold"] = 4000e-13
     config["eeg_var_threshold"] = 40e-6
     # flatness threshold across time
     config["mag_flat_threshold"] = 10e-15
