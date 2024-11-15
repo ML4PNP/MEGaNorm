@@ -73,9 +73,9 @@ def sbatchfile(mainParallel_path,
     sbatch_input_4 = 'config=$4\n'
     
     if with_config:
-        command = 'srun /project/meganorm/Software/Miniconda3/envs/mne/bin/python ' + mainParallel_path + ' $source $target $subject --configs $config'
+        command = 'srun python ' + mainParallel_path + ' $source $target $subject --configs $config'
     else:
-        command = 'srun /project/meganorm/Software/Miniconda3/envs/mne/bin/python ' + mainParallel_path + ' $source $target $subject' 
+        command = 'srun python ' + mainParallel_path + ' $source $target $subject' 
 
     bash_environment = [sbatch_init +
                         sbatch_nodes +

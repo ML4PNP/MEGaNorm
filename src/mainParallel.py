@@ -95,15 +95,15 @@ def mainParallel(*args):
 							overlap = configs['segments_overlap'])
 	
 	# drop bad channels ================================================================
-	segments = drop_bads(segments = segments,
-						mag_var_threshold = configs["mag_var_threshold"],
-						grad_var_threshold = configs["grad_var_threshold"],
-						eeg_var_threshold = configs["eeg_var_threshold"],
-						mag_flat_threshold = configs["mag_flat_threshold"],
-						grad_flat_threshold = configs["grad_flat_threshold"],
-						eeg_flat_threshold = configs["eeg_flat_threshold"],
-						zscore_std_thresh = configs["zscore_std_thresh"],
-						which_sensor = which_sensor)
+	#segments = drop_bads(segments = segments,
+	#					mag_var_threshold = configs["mag_var_threshold"],
+	#					grad_var_threshold = configs["grad_var_threshold"],
+	#					eeg_var_threshold = configs["eeg_var_threshold"],
+	#					mag_flat_threshold = configs["mag_flat_threshold"],
+	#					grad_flat_threshold = configs["grad_flat_threshold"],
+	#					eeg_flat_threshold = configs["eeg_flat_threshold"],
+	#					zscore_std_thresh = configs["zscore_std_thresh"],
+	#					which_sensor = which_sensor)
 
 	# fooof analysis ====================================================================
 	fmGroup, psds, freqs = psdParameterize(segments = segments,

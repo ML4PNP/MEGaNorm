@@ -132,7 +132,6 @@ def AutoIca_with_IcaLabel(data, n_components=30, ica_max_iter=1000, IcaMethod="i
     return data
      
 
-
 def segment_epoch(data, tmin, tmax, sampling_rate, segmentsLength, overlap):
 
     # We exclude 20s from both begining and end of signals 
@@ -175,8 +174,7 @@ def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold
         bad_epochs = np.where(z_scores>zscore_std_thresh)[0]
         segments.drop(indices=bad_epochs)
         
-    # interpolate bad segments
-    return segments.load_data().interpolate_bads()
+    return segments
 
 
 def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=True, apply_rereference = False, rereference_method = "average", n_component:int=30, ica_max_iter:int=800, 
@@ -241,14 +239,15 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                     verbose=False)
         
     #rereference
-    if apply_rereference and rereference_method == "average":
+    if which_sensor['eeg'] and apply_rereference and rereference_method == "average":
         data = data.set_eeg_reference("average") 
 
-    if apply_rereference and rereference_method == "REST":
+    if which_sensor['eeg'] and apply_rereference and rereference_method == "REST":
         data = data.set_eeg_reference("REST") 
 
     # apply automated ICA
-    if apply_ica and ("ecg" in channel_types or "eog" in channel_types):
+    #If meg, apply the autoICA 
+    if which_sensor['meg'] and apply_ica and ("ecg" in channel_types or "eog" in channel_types):
         data = autoICA(data=data, 
                     n_components=n_component, # FLUX default
                     ica_max_iter=ica_max_iter, # FLUX default,
@@ -257,12 +256,69 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                     channel_types=channel_types)
         ssp_flage = False
 
-    if apply_ica and not ("ecg" in channel_types or "eog" in channel_types):
-        data = AutoIca_with_IcaLabel(data = data, 
-                                     n_components=n_component, 
-                                     ica_max_iter=ica_max_iter, 
-                                     IcaMethod=IcaMethod,
-                                     artifact_threshold= 0.8) #Make it more general by letting people chose threshold?
+
+    # if eeg, apply automated ICA and ICALabel, based on a determined flag. If eog/ecg channels are both present only autoICA is applied
+    # if only one of them is present, autoICA is applied on that channel and afterwards ICALabel is applied on the outcome
+    # if none of them is present, only ICALabel is applied 
+
+    if which_sensor['eeg'] and apply_ica: 
+
+        autoICA_flag = False
+        if "ecg" in channel_types and "eog" in channel_types:
+            autoICA_flag = "both"
+        elif "ecg" in channel_types and "eog" not in channel_types:
+            autoICA_flag = "ecg_only"
+        elif "eog" in channel_types and "ecg" not in channel_types:
+            autoICA_flag = "eog_only"
+
+        if apply_ica and autoICA_flag == 'both':
+            data = autoICA(data=data, 
+                        n_components=n_component, # FLUX default
+                        ica_max_iter=ica_max_iter, # FLUX default,
+                        IcaMethod = IcaMethod,
+                        which_sensor=which_sensor,
+                        channel_types=channel_types)
+            ssp_flage = False
+
+        elif apply_ica and autoICA_flag == "ecg_only": 
+            data = autoICA(data=data, 
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    channel_types=["ecg"])
+
+            data = AutoIca_with_IcaLabel(data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    artifact_threshold=0.8) #TODO: Make it more general by not hardcoding the threshold           
+        
+            ssp_flage = False
+
+        elif apply_ica and autoICA_flag == "eog_only":
+            data = autoICA(data=data, 
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    channel_types=["eog"])
+
+            data = AutoIca_with_IcaLabel(data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    artifact_threshold=0.8) #TODO: Make it more general by not hardcoding the threshold           
+            ssp_flage = False
+
+    # If neither ECG nor EOG is present only IcaLabel
+        elif apply_ica:
+            data = AutoIca_with_IcaLabel(data = data, 
+                    n_components=n_component, 
+                    ica_max_iter=ica_max_iter, 
+                    IcaMethod=IcaMethod,
+                    artifact_threshold= 0.8) #TODO: Make it more general by not hardcoding the threshold                              
+            ssp_flage = False
 
     if apply_ssp and ssp_flage:
     # Note: If no ECG recording is provided, the ECG vector will
