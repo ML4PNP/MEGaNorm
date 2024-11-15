@@ -76,7 +76,7 @@ def autoICA(data, channel_types, n_components=30, ica_max_iter=1000, IcaMethod="
     final ica model
     """
     
-    physiological_sensors = [x for x in channel_types if x in ["eog" or "ecg"]]
+    physiological_sensors = [x for x in channel_types if x in ["eog" , "ecg"]]
     physiological_signal = data.copy().pick(picks=physiological_sensors).get_data()
 
     data = data.pick_types(meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
@@ -142,8 +142,7 @@ def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold
 
     segments.drop_bad(reject=reject_criteria, flat=flat_criteria)
         
-    # interpolate bad segments
-    return segments.load_data().interpolate_bads()
+    return segments
 
 
 def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=True, n_component:int=30, ica_max_iter:int=800, 
