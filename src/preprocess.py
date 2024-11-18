@@ -168,19 +168,14 @@ def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold
         reject_criteria = dict(eeg=eeg_var_threshold)
         flat_criteria = dict(eeg=eeg_flat_threshold)
 
-    segments.drop_bad(reject=None, flat=flat_criteria) ##CHANGE!!! but figure out var threshold
-
-    if zscore_std_thresh:
-        z_scores = stats.zscore(np.std(segments.get_data(), axis=0), axis=0)
-        bad_epochs = np.where(z_scores>zscore_std_thresh)[0]
-        segments.drop(indices=bad_epochs)
+    segments.drop_bad(reject=reject_criteria, flat=flat_criteria) ##CHANGE!!! but figure out var threshold
         
     return segments
 
 
 def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=True, apply_rereference = False, rereference_method = "average", n_component:int=30, ica_max_iter:int=800, 
                 IcaMethod:str="fastica", cutoffFreqLow:float=1, cutoffFreqHigh:float=45, 
-                ssp_ngrad:int=3, ssp_nmag:int=3, apply_ica=True, apply_ssp=True):
+                ssp_ngrad:int=3, ssp_nmag:int=3, apply_ica=True, apply_ssp=True, power_line_freq:int=60):
 
     """
     Apply preprocessing pipeline (ICA and downsampling) on MEG signals.
@@ -231,7 +226,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
         data.resample(resampling_rate, verbose=False, n_jobs=-1)
         sampling_rate = data.info["sfreq"]
 
-    # TODO: notch filter
+    data.notch_filter(freqs=np.arrange(power_line_freq, 4*power_line_freq+1, power_line_freq))
     
     if digital_filter:
         data.filter(l_freq=cutoffFreqLow, 

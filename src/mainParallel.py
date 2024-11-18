@@ -49,15 +49,18 @@ def mainParallel(*args):
 	# read the data ====================================================================
 	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
 
-	power_line_freq = data.info.get("line_freq") # TODO
+	power_line_freq = data.info.get("line_freq") 
+	if not power_line_freq:
+		power_line_freq = 60
+
 	# In order to determine the loayout
 	extention = args.dir.split(".")[-1]
 
 	which_sensor = {"meg":False,
-				"mag":False,
-				"grad":False,
-				"eeg":False,
-				"opm":False}
+					"mag":False,
+					"grad":False,
+					"eeg":False,
+					"opm":False}
 	for key, values in which_sensor.items():
 		if key == configs["which_sensor"]:
 			which_sensor[key] = True
@@ -77,7 +80,8 @@ def mainParallel(*args):
 												ssp_ngrad = configs["ssp_ngrad"],
 												ssp_nmag = configs["ssp_nmag"],
 												apply_ica = configs["apply_ica"],
-												apply_ssp = configs["apply_ssp"])
+												apply_ssp = configs["apply_ssp"],
+												power_line_freq = power_line_freq)
 	
 	# segmentation =====================================================================
 	segments = segment_epoch(data=filtered_data, 
