@@ -39,7 +39,7 @@ def make_config(project, path=None):
     config["apply_ica"] = True
     config["apply_ssp"] = True
 
-    config["apply_rereference"] = False 
+    # options are "average", "REST", and None 
     config["rereference_method"]= "average"
 
     # Signal space projection

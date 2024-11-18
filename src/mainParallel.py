@@ -75,7 +75,6 @@ def mainParallel(*args):
 												which_sensor = which_sensor,
 												resampling_rate = configs["resampling_rate"],
 												digital_filter = configs["digital_filter"],
-												apply_rereference = configs['apply_rereference'],
 												rereference_method = configs['rereference_method'],
 												ssp_ngrad = configs["ssp_ngrad"],
 												ssp_nmag = configs["ssp_nmag"],

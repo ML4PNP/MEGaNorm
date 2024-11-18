@@ -173,7 +173,8 @@ def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold
     return segments
 
 
-def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=True, apply_rereference = False, rereference_method = "average", n_component:int=30, ica_max_iter:int=800, 
+def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=True, rereference_method = "average", 
+               n_component:int=30, ica_max_iter:int=800, 
                 IcaMethod:str="fastica", cutoffFreqLow:float=1, cutoffFreqHigh:float=45, 
                 ssp_ngrad:int=3, ssp_nmag:int=3, apply_ica=True, apply_ssp=True, power_line_freq:int=60):
 
@@ -233,13 +234,10 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                     h_freq=cutoffFreqHigh, 
                     n_jobs=-1, 
                     verbose=False)
-        
-    #rereference
-    if which_sensor['eeg'] and apply_rereference and rereference_method == "average":
-        data = data.set_eeg_reference("average") 
 
-    if which_sensor['eeg'] and apply_rereference and rereference_method == "REST":
-        data = data.set_eeg_reference("REST") 
+    #rereference
+    if which_sensor['eeg'] and rereference_method:
+        data = data.set_eeg_reference(rereference_method) 
 
     # apply automated ICA
     #If meg, apply the autoICA 
