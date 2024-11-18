@@ -39,6 +39,9 @@ def make_config(project, path=None):
     config["apply_ica"] = True
     config["apply_ssp"] = True
 
+    config["apply_rereference"] = False 
+    config["rereference_method"]= "average"
+
     # Signal space projection
     config["ssp_ngrad"] = 3
     config["ssp_nmag"] = 3
@@ -50,7 +53,9 @@ def make_config(project, path=None):
     # flatness threshold across time
     config["mag_flat_threshold"] = 10e-15
     config["grad_flat_threshold"] = 10e-15
-    config["eeg_flat_threshold"] = None
+    config["eeg_flat_threshold"] = 40e-6
+    # variance thershold across channels
+    config["zscore_std_thresh"] = 15 # change this
 
     # segmentation ==============================================
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
