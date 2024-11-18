@@ -17,7 +17,7 @@ config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
 
 
-def findComponent(ica, data, physiological_signal):
+def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     """
     parameters
     -----------
@@ -38,12 +38,15 @@ def findComponent(ica, data, physiological_signal):
     """
     components = ica.get_sources(data.copy()).get_data()
     corr = np.corrcoef(components, physiological_signal)[:-1, -1]
-    componentIndx = np.argmax(corr)
+    if np.max(corr) >= auto_ica_corr_thr:
+        componentIndx = np.argmax(corr)
+    else:
+        componentIndx = []
 
     return componentIndx
 
 
-def autoICA(data, channel_types, n_components=30, ica_max_iter=1000, IcaMethod="fastica", which_sensor=["meg", "eeg"]):
+def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, IcaMethod="fastica", which_sensor=["meg", "eeg"], auto_ica_corr_thr=0.9):
 
     """
     This function serves as an automated noise detection tool
@@ -77,9 +80,7 @@ def autoICA(data, channel_types, n_components=30, ica_max_iter=1000, IcaMethod="
     final ica model
     """
     
-    physiological_sensors = [x for x in channel_types if x in ["eog" , "ecg"]]
-    physiological_sensors = [x for x in channel_types if x in ["eog" , "ecg"]] 
-    physiological_signal = data.copy().pick(picks=physiological_sensors).get_data()
+    physiological_signal = data.copy().pick(picks=physiological_sensor).get_data()
 
     data = data.pick_types(meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
                                 eeg=which_sensor["eeg"],
@@ -97,7 +98,8 @@ def autoICA(data, channel_types, n_components=30, ica_max_iter=1000, IcaMethod="
     # calculating bad ica components using automatic method
     badComponents = []
     for sensor in physiological_signal:
-        badComponents.append(findComponent(ica=ica, data=data, physiological_signal=sensor))
+        badComponents.append(find_ica_component(ica=ica, data=data, physiological_signal=sensor, 
+                                           auto_ica_corr_thr=auto_ica_corr_thr))
         # TODO test if this happens three times for camcan
 
     ica.exclude = badComponents.copy()
@@ -106,7 +108,37 @@ def autoICA(data, channel_types, n_components=30, ica_max_iter=1000, IcaMethod="
 
     return data
 
-def AutoIca_with_IcaLabel(data, n_components=30, ica_max_iter=1000, IcaMethod="infomax", artifact_threshold=0.8):
+
+def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000, IcaMethod="fastica", which_sensor=["meg", "eeg"], auto_ica_corr_thr=0.9):
+
+    # For excluding ref_meg and eeg
+    data = data.pick_types(meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
+                                eeg=False,
+                                ref_meg=False)
+    # for excluding either mag or grad if neccessary
+    data = data.pick(picks=[sensor for sensor, if_calculate in which_sensor.items() if if_calculate])
+    
+    # ICA
+    ica = mne.preprocessing.ICA(n_components=n_components,
+                                max_iter=ica_max_iter,
+                                method=IcaMethod,
+                                random_state=42,
+                                verbose=False)
+    ica.fit(data, verbose=False)
+    
+    ecg_indices, _ = ica.find_bads_ecg(data, method="correlation", threshold=auto_ica_corr_thr)
+
+    ica.exclude = ecg_indices
+    # ica.apply() changes the Raw object in-place
+    ica.apply(data, verbose=False)
+
+    return data
+
+
+def AutoIca_with_IcaLabel(data, physiological_noise_type, n_components=30, ica_max_iter=1000, IcaMethod="infomax", iclabel_thr=0.8):
+
+    if physiological_noise_type == "ecg": physiological_noise_type = "heart beat"
+    if physiological_noise_type == "eog": physiological_noise_type = "eye blink"
 
     #fit ICA
     ica = mne.preprocessing.ICA(n_components=n_components, 
@@ -123,10 +155,9 @@ def AutoIca_with_IcaLabel(data, n_components=30, ica_max_iter=1000, IcaMethod="i
     #Identify and exclude artifact components based on probability threshold of being an artifact
     bad_components = []
     for idx, label in enumerate(labels['labels']):
-        if label not in ['brain', 'other'] and labels['y_pred_proba'][idx] > artifact_threshold:
+        if label==physiological_noise_type and labels['y_pred_proba'][idx] > iclabel_thr:
             bad_components.append(idx)
-    
-    print("bad components based on iclabel:",bad_components) #DEBUG 
+
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
@@ -145,7 +176,7 @@ def segment_epoch(data, tmin, tmax, sampling_rate, segmentsLength, overlap):
                                             overlap=overlap,
                                             reject_by_annotation=True,
                                             verbose=False)
-    
+
     return segments
 
 
@@ -176,7 +207,7 @@ def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold
 def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=True, rereference_method = "average", 
                n_component:int=30, ica_max_iter:int=800, 
                 IcaMethod:str="fastica", cutoffFreqLow:float=1, cutoffFreqHigh:float=45, 
-                ssp_ngrad:int=3, ssp_nmag:int=3, apply_ica=True, apply_ssp=True, power_line_freq:int=60):
+                apply_ica=True, power_line_freq:int=60, auto_ica_corr_thr:float=0.9):
 
     """
     Apply preprocessing pipeline (ICA and downsampling) on MEG signals.
@@ -215,9 +246,6 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
     --------------
     datamne raw data
     """
-
-    ssp_flage = True
-
     channel_types = set(data.get_channel_types())
 
     sampling_rate = data.info["sfreq"]
@@ -227,7 +255,8 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
         data.resample(resampling_rate, verbose=False, n_jobs=-1)
         sampling_rate = data.info["sfreq"]
 
-    data.notch_filter(freqs=np.arrange(power_line_freq, 4*power_line_freq+1, power_line_freq))
+    data.notch_filter(freqs=np.arange(power_line_freq, 4*power_line_freq+1, power_line_freq),
+                    n_jobs=-1)
     
     if digital_filter:
         data.filter(l_freq=cutoffFreqLow, 
@@ -237,96 +266,49 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
 
     #rereference
     if which_sensor['eeg'] and rereference_method:
-        data = data.set_eeg_reference(rereference_method) 
+        data = data.set_eeg_reference(rereference_method)
 
-    # apply automated ICA
-    #If meg, apply the autoICA 
-    if which_sensor['meg'] and apply_ica and ("ecg" in channel_types or "eog" in channel_types):
-        data = autoICA(data=data, 
-                    n_components=n_component, # FLUX default
-                    ica_max_iter=ica_max_iter, # FLUX default,
-                    IcaMethod = IcaMethod,
-                    which_sensor=which_sensor,
-                    channel_types=channel_types)
-        ssp_flage = False
+    physiological_electrods = {channel: channel in channel_types for channel in ["ecg", "eog"]}
+    for phys_activity_type, if_elec_exist in physiological_electrods.items():
+    
+        if which_sensor['meg']: # ======================================================================
+            # 1
+            if if_elec_exist and apply_ica:
+                data = auto_ica(data=data, 
+                            n_components=n_component, 
+                            ica_max_iter=ica_max_iter,
+                            IcaMethod = IcaMethod,
+                            which_sensor=which_sensor,
+                            physiological_sensor=phys_activity_type,
+                            auto_ica_corr_thr=auto_ica_corr_thr)
+            # 2
+            elif not if_elec_exist and apply_ica and phys_activity_type=="ecg":
+                data = auto_ica_with_mean(data=data, 
+                                    n_components=n_component, 
+                                    ica_max_iter=ica_max_iter,
+                                    IcaMethod = IcaMethod,
+                                    which_sensor=which_sensor,
+                                    auto_ica_corr_thr=auto_ica_corr_thr)
 
+        if which_sensor['eeg']: # ======================================================================
+            # 1
+            if if_elec_exist and apply_ica:
+                data = auto_ica(data=data, 
+                            n_components=n_component, 
+                            ica_max_iter=ica_max_iter,
+                            IcaMethod = IcaMethod,
+                            which_sensor=which_sensor,
+                            physiological_sensor=phys_activity_type,
+                            auto_ica_corr_thr=auto_ica_corr_thr)
+            # 2
+            elif not if_elec_exist and apply_ica:
+                data = AutoIca_with_IcaLabel(data = data, 
+                                        n_components=n_component, 
+                                        ica_max_iter=ica_max_iter, 
+                                        IcaMethod=IcaMethod,
+                                        iclabel_thr=auto_ica_corr_thr,
+                                        physiological_noise_type=phys_activity_type) 
 
-    # if eeg, apply automated ICA and ICALabel, based on a determined flag. If eog/ecg channels are both present only autoICA is applied
-    # if only one of them is present, autoICA is applied on that channel and afterwards ICALabel is applied on the outcome
-    # if none of them is present, only ICALabel is applied 
-
-    if which_sensor['eeg'] and apply_ica: 
-
-        autoICA_flag = False
-        if "ecg" in channel_types and "eog" in channel_types:
-            autoICA_flag = "both"
-        elif "ecg" in channel_types and "eog" not in channel_types:
-            autoICA_flag = "ecg_only"
-        elif "eog" in channel_types and "ecg" not in channel_types:
-            autoICA_flag = "eog_only"
-
-        if apply_ica and autoICA_flag == 'both':
-            data = autoICA(data=data, 
-                        n_components=n_component, # FLUX default
-                        ica_max_iter=ica_max_iter, # FLUX default,
-                        IcaMethod = IcaMethod,
-                        which_sensor=which_sensor,
-                        channel_types=channel_types)
-            ssp_flage = False
-
-        elif apply_ica and autoICA_flag == "ecg_only": 
-            data = autoICA(data=data, 
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    channel_types=["ecg"])
-
-            data = AutoIca_with_IcaLabel(data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    artifact_threshold=0.8) #TODO: Make it more general by not hardcoding the threshold           
-        
-            ssp_flage = False
-
-        elif apply_ica and autoICA_flag == "eog_only":
-            data = autoICA(data=data, 
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    channel_types=["eog"])
-
-            data = AutoIca_with_IcaLabel(data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    artifact_threshold=0.8) #TODO: Make it more general by not hardcoding the threshold           
-            ssp_flage = False
-
-    # If neither ECG nor EOG is present only IcaLabel
-        elif apply_ica:
-            data = AutoIca_with_IcaLabel(data = data, 
-                    n_components=n_component, 
-                    ica_max_iter=ica_max_iter, 
-                    IcaMethod=IcaMethod,
-                    artifact_threshold= 0.8) #TODO: Make it more general by not hardcoding the threshold                              
-            ssp_flage = False
-
-    if apply_ssp and ssp_flage:
-    # Note: If no ECG recording is provided, the ECG vector will
-    # be automatically calculated using the magnetometer sensors.
-        projs, event = mne.preprocessing.compute_proj_ecg(data, n_grad=ssp_ngrad, n_mag=ssp_nmag)
-        data.add_proj(projs)
-        data.apply_proj()
-        # TODO what will happen if we put the following code before SSP, because CTF has ref_meg?
-        # For discarding ref_meg
-        data = data.pick_types(meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
-                                      eeg=which_sensor["eeg"],
-                                      ref_meg=False)
-        # For discarding mag or meg
-        data = data.pick(picks=[sensor for sensor, if_calculate in which_sensor.items() if if_calculate])
     return data, data.info["ch_names"], int(sampling_rate)
 
     

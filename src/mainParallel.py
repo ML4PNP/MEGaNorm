@@ -76,10 +76,8 @@ def mainParallel(*args):
 												resampling_rate = configs["resampling_rate"],
 												digital_filter = configs["digital_filter"],
 												rereference_method = configs['rereference_method'],
-												ssp_ngrad = configs["ssp_ngrad"],
-												ssp_nmag = configs["ssp_nmag"],
 												apply_ica = configs["apply_ica"],
-												apply_ssp = configs["apply_ssp"],
+												auto_ica_corr_thr = configs["auto_ica_corr_thr"],
 												power_line_freq = power_line_freq)
 	
 	# segmentation =====================================================================

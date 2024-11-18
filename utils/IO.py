@@ -37,14 +37,11 @@ def make_config(project, path=None):
     config["notch_filter"] = False
 
     config["apply_ica"] = True
-    config["apply_ssp"] = True
+
+    config["auto_ica_corr_thr"] = 0.9
 
     # options are "average", "REST", and None 
     config["rereference_method"]= "average"
-
-    # Signal space projection
-    config["ssp_ngrad"] = 3
-    config["ssp_nmag"] = 3
     
     # variance threshold across time
     config["mag_var_threshold"] = 4e-12
