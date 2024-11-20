@@ -50,7 +50,13 @@ def make_config(project, path=None):
     # flatness threshold across time
     config["mag_flat_threshold"] = 10e-15
     config["grad_flat_threshold"] = 10e-15
+<<<<<<<<< Temporary merge branch 1
     config["eeg_flat_threshold"] = None
+=========
+    config["eeg_flat_threshold"] = 40e-6
+    # variance thershold across channels
+    config["zscore_std_thresh"] = 15 # change this
+>>>>>>>>> Temporary merge branch 2
 
     # segmentation ==============================================
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
