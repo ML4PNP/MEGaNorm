@@ -7,6 +7,8 @@ import mne
 import numpy as np
 import pathlib
 import mne_bids
+import pandas as pd
+
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
@@ -49,15 +51,25 @@ def mainParallel(*args):
 	# read the data ====================================================================
 	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
 
-	power_line_freq = data.info.get("line_freq") # TODO
+	power_line_freq = data.info.get("line_freq") 
+	if not power_line_freq:
+		power_line_freq = 60
+
 	# In order to determine the loayout
 	extention = args.dir.split(".")[-1]
 
+	if configs["which_sensor"] == "eeg":
+		channel_file = os.path.dirname(args.dir)
+		channel_file = os.path.join(channel_file, subID + "_task-rest_channels.tsv")
+		channels_df = pd.read_csv(channel_file, sep = '\t')
+		channels_types = channels_df.set_index('name')['type'].str.lower().to_dict()
+		data.set_channel_types(channels_types)
+
 	which_sensor = {"meg":False,
-				"mag":False,
-				"grad":False,
-				"eeg":False,
-				"opm":False}
+					"mag":False,
+					"grad":False,
+					"eeg":False,
+					"opm":False}
 	for key, values in which_sensor.items():
 		if key == configs["which_sensor"]:
 			which_sensor[key] = True
@@ -72,10 +84,10 @@ def mainParallel(*args):
 												which_sensor = which_sensor,
 												resampling_rate = configs["resampling_rate"],
 												digital_filter = configs["digital_filter"],
-												ssp_ngrad = configs["ssp_ngrad"],
-												ssp_nmag = configs["ssp_nmag"],
+												rereference_method = configs['rereference_method'],
 												apply_ica = configs["apply_ica"],
-												apply_ssp = configs["apply_ssp"])
+												auto_ica_corr_thr = configs["auto_ica_corr_thr"],
+												power_line_freq = power_line_freq)
 	
 	# segmentation =====================================================================
 	segments = segment_epoch(data=filtered_data, 

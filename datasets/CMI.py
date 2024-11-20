@@ -12,6 +12,11 @@ import pandas as pd
 from utils.EEGlab import read_raw_eeglab
 
 def mne_bids_CMI(input_base_path, output_base_path, montage_path):
+    """
+    This code converges the CMI dataset into BIDS format. 
+    Meanwhile, it defines channels on nek and chin as misc channels and channels around the eyes as eog channels #TODO
+    """
+
     # Ensure output directory exists
     if not os.path.exists(output_base_path):
         os.makedirs(output_base_path)
@@ -40,7 +45,18 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
         raw.info.rename_channels(mapping)
         raw.info.set_montage(montage)
 
-        #set eeg reference 
+        # Define channels on nek and chin as misc and channels close to eyes as eog
+        misc_channels = ['E48', 'E49', 'E56', 'E63', 'E68', 'E73', 'E81', 'E88', 'E94', 'E99', 'E107', 'E113', 'E119']
+        eog_channels = ['E128', 'E127', 'E126', 'E125']
+
+        # Create a dictionary for setting channel types
+        channel_types = {ch: 'misc' for ch in misc_channels}
+        channel_types.update({ch: 'eog' for ch in eog_channels})
+
+        # Apply the channel types to the raw object
+        raw.set_channel_types(channel_types)
+
+        #set eeg reference to match the reference of the recording 
         raw.set_eeg_reference(ref_channels=['Cz'])
 
         ##### Extract event and epoch information to set the annotations
@@ -79,11 +95,15 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
                      root=output_base_path)
         mne_bids.write_raw_bids(raw, bids_path=bids_path, allow_preload=True, format='EEGLAB', overwrite=True,)   
 
+        channel_types = raw.get_channel_types()
+        for ch_name, ch_type in zip(raw.info['ch_names'], channel_types):
+            print(f"Channel: {ch_name}, Type: {ch_type}")
+
     return None
 
-def load_covariates_CMI(CMI_demo_path, CMI_site_path): 
+def load_covariates_CMI(CMI_demo_paths:list, CMI_site_paths:list, save_dir:str): 
 
-    """Load age and gender for CMI dataset.
+    """Load age, gender and site for CMI dataset.
 
     Args:
         path (str): path to covariates.
@@ -92,18 +112,31 @@ def load_covariates_CMI(CMI_demo_path, CMI_site_path):
         DataFrame: Pandas dataframe containing age and gender for CMI dataset.
     """
     
-    df_demo = pd.read_csv(CMI_demo_path, sep=',')
-    df_demo = df_demo[['EID', 'Age', 'Sex']]
-    df_demo = df_demo.rename(columns={'EID':'Subject_ID',"Age" : "age", 'Sex':'gender'}) # 0 for males and 1 for females
-    df_demo.index.name = None
+    # Initialize empty DataFrames
+    combined_demo = pd.DataFrame()
+    combined_site = pd.DataFrame()
 
-    df_site = pd.read_excel(CMI_site_path,)
-    df_site =  df_site[['EID','Study_Site']]
-    df_site = df_site.rename(columns={'EID':'Subject_ID', 'Study_Site':'site'})
+    for path in CMI_demo_paths:
+        df_demo = pd.read_csv(path, sep=',')
+        df_demo = df_demo[['EID', 'Age', 'Sex']]  # Select necessary columns
+        df_demo = df_demo.rename(columns={'EID': 'Subject_ID', 'Age': 'age', 'Sex': 'gender'})  # Rename columns
+        combined_demo = pd.concat([combined_demo, df_demo], ignore_index=True)
 
-    df = pd.merge(df_demo, df_site, on='Subject_ID', how='inner')
-    
-    return df   
+    for path in CMI_site_paths:
+        df_site = pd.read_excel(path)
+        df_site.columns = df_site.columns.str.replace(' ', '_')  # Replace spaces with underscores to deal with study_site vs study site
+        df_site = df_site[['EID', 'Study_Site']]  # Select necessary columns
+        df_site = df_site.rename(columns={'EID': 'Subject_ID', 'Study_Site': 'site'})  # Rename columns
+        combined_site = pd.concat([combined_site, df_site], ignore_index=True)
+
+
+    df = pd.merge(combined_demo, combined_site, on='Subject_ID', how='inner')
+    df.dropna(inplace=True)
+
+    # Prepend 'sub-' to all Subject_IDs so that it can easily be merged with the features 
+    df['Subject_ID'] = 'sub-' + df['Subject_ID'].astype(str)
+
+    df.to_csv(save_dir, sep='\t', index=False) 
 
 def load_CMI_data(feature_path, covariates_path):
     """Load CMI dataset
