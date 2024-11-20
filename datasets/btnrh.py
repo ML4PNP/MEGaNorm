@@ -3,7 +3,6 @@ import glob
 import shutil
 import os
 import mne
-from utils.EEGlab import read_raw_eeglab
 import pandas as pd
 
 
@@ -35,36 +34,31 @@ def mne_bids_BTNRH(input_base_path,
     # make new data directory
     if os.path.exists(output_path): shutil.rmtree(output_path); os.mkdir(output_path)
 
-    # since BTH dataset, does not have a demographic file in .tsv format, we
-    # create one for it so mne_bids can create the tsv file
-    BTNRH_covariates = pd.read_excel("/project/meganorm/Data/BTNRH/Rempe_Ott_PNAS_2022_Data.xlsx", index_col=0)
-    BTNRH_covariates.to_csv("participants.tsv", sep='\t', index=False)
-
     raw_fpath = glob.glob(os.path.join(input_base_path, "*.fif"))
     for counter in range(len(raw_fpath)):
 
         subject_id = os.path.basename(raw_fpath[counter])[:7].split("-")[1]
-        raw = mne.io.read_raw_fif(raw_fpath[counter], verbose=False)
-        raw.info["line_freq"] = 60
+        raw = mne.io.read_raw_fif(raw_fpath[counter], verbose=False, allow_maxshield=False)
+        raw = raw.pick(picks=["meg"], verbose=False)
 
+        raw.info["line_freq"] = 60
         bids_path = mne_bids.BIDSPath(
             task="rest",
             subject=subject_id,
-            root=output_path)
-
-        # As stated in bellow link, apparantly CHPI signal must be droped. We have to investigate more later if we need other recordings
-        # https://mne.discourse.group/t/chpi-channels-not-recognized-by-mne-bids-write-raw-bids/5609
-        raw = raw.pick(picks=["meg"], verbose=False)
+            root=output_path,
+            datatype="meg")
         
         mne_bids.write_raw_bids(raw=raw,
                            bids_path=bids_path,
                            overwrite=True,
-                           verbose=False)      
+                           verbose=False,
+                           symlink=True)
+
     return None
 
 
 if __name__ == "__main__":
 
     input_base_path = "/project/meganorm/Data/BTNRH/ecr_fifs"
-    output_path = "/project/meganorm/Data/BTNRH/BTNRH/BIDS_data"
+    output_path = "/project/meganorm/Data/BTNRH/BIDS"
     mne_bids_BTNRH(input_base_path=input_base_path, output_path=output_path)

@@ -15,20 +15,12 @@ def make_config(project, path=None):
     config = dict()
 
     # You could also set layout to None to have high 
-    config["layout"] = {
-                        "all":True,
-                        "lobe":False,
-                        "None":False
-                        }
+    # choices: all, lobe, None
+    config["which_layout"] = "all"
 
     # which sensor type should be used
-    config["which_sensor"] = {
-                            "meg":True,
-                            "mag":False,
-                            "grad":False,
-                            "eeg":False,
-                            "opm":False
-                            }
+    # choices: meg, mag, grad, eeg, opm
+    config["which_sensor"] = "meg"
     # config['fs'] = 1000
 
     # ICA configuration
@@ -45,12 +37,23 @@ def make_config(project, path=None):
     config["notch_filter"] = False
 
     config["apply_ica"] = True
-    config["apply_ssp"] = True
 
-    # Signal space projection
-    config["ssp_ngrad"] = 3
-    config["ssp_nmag"] = 3
+    config["auto_ica_corr_thr"] = 0.9
+
+    # options are "average", "REST", and None 
+    config["rereference_method"]= "average"
     
+    # variance threshold across time
+    config["mag_var_threshold"] = 4e-12
+    config["grad_var_threshold"] = 4000e-13
+    config["eeg_var_threshold"] = 40e-6
+    # flatness threshold across time
+    config["mag_flat_threshold"] = 10e-15
+    config["grad_flat_threshold"] = 10e-15
+    config["eeg_flat_threshold"] = 40e-6
+    # variance thershold across channels
+    config["zscore_std_thresh"] = 15 # change this
+
     # segmentation ==============================================
     #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
     config['segments_tmin'] = 20
@@ -85,7 +88,8 @@ def make_config(project, path=None):
 
     # feature extraction ==========================================================
     # Define frequency bands
-    config['freq_bands'] = {'Theta': (3, 8),
+    config['freq_bands'] = {
+                            'Theta': (3, 8),
                             'Alpha': (8, 13),
                             'Beta': (13, 30),
                             'Gamma': (30, 40),
@@ -195,7 +199,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
     if not os.path.exists(output_base_path):
         os.makedirs(output_base_path)
 
-    search_pattern = os.path.join(input_base_path, "*/eeg/*.set")
+    search_pattern = os.path.join(input_base_path, "*/eeg/*_task-rest_eeg.set")
     raw_set_paths = glob.glob(search_pattern, recursive=True) # Use glob to find all .set files in the input directory
 
     # Loop through all found .set files
@@ -233,7 +237,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
 
             # Save eyes open data as a new .set file
             eyes_open_file_path = os.path.join(subject_output_path, f'{subject_id}_task-eyesopen_eeg.set')
-            mne.export.export_raw(eyes_open_file_path, raw_eyes_open, fmt='eeglab')
+            mne.export.export_raw(eyes_open_file_path, raw_eyes_open, fmt='eeglab', overwrite = True)
 
         # Extract and concatenate eyes closed segments
         eyes_closed_data = []
@@ -250,7 +254,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
 
             # Save eyes closed data as a new .set file
             eyes_closed_file_path = os.path.join(subject_output_path,f'{subject_id}_task-eyesclosed_eeg.set')
-            mne.export.export_raw(eyes_closed_file_path, raw_eyes_closed, fmt='eeglab')
+            mne.export.export_raw(eyes_closed_file_path, raw_eyes_closed, fmt='eeglab', overwrite = True)
 
 
 
@@ -270,7 +274,6 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
 
     demographic_df = pd.DataFrame({})
     for counter,dataset_path in enumerate(datasets_paths):
-        
         demo = pd.read_csv(os.path.join(dataset_path, "participants.tsv"), 
                                                 sep="\t", index_col=0)
         demo["site"] = counter

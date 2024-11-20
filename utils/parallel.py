@@ -248,7 +248,7 @@ def check_user_jobs(username, start_time):
     
 def collect_results(target_dir, subjects, temp_path, file_name='features', clean=True):
     
-    """Collects and merges the resulst of all jobs.
+    """Collects and merges the results of all jobs.
 
     Args:
         target_dir (str): Target directory path to save the collected results.
@@ -263,9 +263,9 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
     
     all_features = []
     for subject in subjects.keys():
-        # try:
-        all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
-        # except: continue
+        try:
+            all_features.append(pd.read_csv(os.path.join(temp_path, subject + '.csv'), index_col=0))
+        except: continue
     features = pd.concat(all_features)
     features.to_csv(os.path.join(target_dir, file_name + '.csv'))
     if clean:  
