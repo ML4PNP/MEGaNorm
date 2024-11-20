@@ -7,6 +7,8 @@ import mne
 import numpy as np
 import pathlib
 import mne_bids
+import pandas as pd
+
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
@@ -55,6 +57,12 @@ def mainParallel(*args):
 
 	# In order to determine the loayout
 	extention = args.dir.split(".")[-1]
+
+	channel_file = os.path.dirname(args.dir)
+	channel_file = os.path.join(channel_file, subID + "_task-rest_channels.tsv")
+	channels_df = pd.read_csv(channel_file, sep = '\t')
+	channels_types = channels_df.set_index('name')['type'].str.lower().to_dict()
+	data.set_channel_types(channels_types)
 
 	which_sensor = {"meg":False,
 					"mag":False,
