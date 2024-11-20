@@ -138,14 +138,20 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
     df.dropna(axis=0, how="all", inplace=True)
     summrized_df = pd.DataFrame(index=df.index)
 
+    if np.sum(list(which_layout.values())) > 1:
+        raise Exception("You should set only one of the layouts to True") 
+    for key, value in which_layout.items():
+        if value:
+            use_layout = key
     # TODO: If both meg and eeg is True, this won't work!
-    if which_layout == "all":
-        summrized_df[which_layout] = df.mean(axis=1)
+    if use_layout == "all":
+        summrized_df[use_layout] = df.mean(axis=1)
 
     else:
+        # TODO the [0] must be handeled, what if two modalities are True!
         modality = [s_type for s_type, if_alculate in which_sensor.items() if if_alculate][0]
         
-        layout_name = extention.upper() + "_" + modality.upper() + "_" + which_layout.upper()
+        layout_name = extention.upper() + "_" + modality.upper() + "_" + use_layout.upper()
         layout = load_specific_layout(extention.upper(), layout_name)
         
         for parcel_name, channels_list in layout.items():
@@ -332,7 +338,7 @@ def feature_extract(subjectId, fmGroup, psds, feature_categories, freqs, freq_ba
                     feature_container = add_feature(feature_container, feature_arr, "OriginalPSD_Individualized_Relative_Power", channel_name, band_name)
 
     # # feature summarization ================================================================ 
-    if which_layout:
+    if not which_layout["None"]:
         feature_container = summarizeFeatures(df=feature_container, extention=extention,
                                             which_layout=which_layout, which_sensor=which_sensor)
 

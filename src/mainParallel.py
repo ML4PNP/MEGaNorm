@@ -5,8 +5,7 @@ import os
 import sys
 import mne
 import numpy as np
-import pathlib
-import mne_bids
+
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
@@ -14,7 +13,7 @@ sys.path.append(config_path)
 
 from IO import make_config, storeFooofModels
 from psdParameterize import psdParameterize
-from preprocess import preprocess, segment_epoch, drop_bads
+from preprocess import preprocess, segment_epoch
 from featureExtraction import feature_extract
 
 
@@ -47,27 +46,10 @@ def mainParallel(*args):
 	subID = args.subject
 	
 	# read the data ====================================================================
-	if pathlib.Path(args.dir).is_symlink():
-		bids_path = os.path.join(os.sep, *args.dir.split(os.sep)[:-3])
-		bids_path = mne_bids.BIDSPath(task="rest",
-									 subject=subID.split("-")[1],
-									 root=bids_path)
-		data = mne_bids.read_raw_bids(bids_path, extra_params={"preload":True})
-	else:
-		data = mne.io.read_raw(args.dir, verbose=False, preload=True)
-
+	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
 	power_line_freq = data.info.get("line_freq") # TODO
 	# In order to determine the loayout
 	extention = args.dir.split(".")[-1]
-
-	which_sensor = {"meg":False,
-				"mag":False,
-				"grad":False,
-				"eeg":False,
-				"opm":False}
-	for key, values in which_sensor.items():
-		if key == configs["which_sensor"]:
-			which_sensor[key] = True
 
 	# preproces ========================================================================
 	filtered_data, channel_names, sampling_rate = preprocess(data=data,
@@ -76,11 +58,9 @@ def mainParallel(*args):
 												IcaMethod = configs['ica_method'],
 												cutoffFreqLow = configs['cutoffFreqLow'],
 												cutoffFreqHigh = configs['cutoffFreqHigh'],
-												which_sensor = which_sensor,
+												which_sensor = configs["which_sensor"],
 												resampling_rate = configs["resampling_rate"],
 												digital_filter = configs["digital_filter"],
-												apply_rereference = configs['apply_rereference'],
-												rereference_method = configs['rereference_method'],
 												ssp_ngrad = configs["ssp_ngrad"],
 												ssp_nmag = configs["ssp_nmag"],
 												apply_ica = configs["apply_ica"],
@@ -93,19 +73,8 @@ def mainParallel(*args):
 							tmax = configs['segments_tmax'],
 							segmentsLength = configs['segments_length'],
 							overlap = configs['segments_overlap'])
-	
-	# drop bad channels ================================================================
-	#segments = drop_bads(segments = segments,
-	#					mag_var_threshold = configs["mag_var_threshold"],
-	#					grad_var_threshold = configs["grad_var_threshold"],
-	#					eeg_var_threshold = configs["eeg_var_threshold"],
-	#					mag_flat_threshold = configs["mag_flat_threshold"],
-	#					grad_flat_threshold = configs["grad_flat_threshold"],
-	#					eeg_flat_threshold = configs["eeg_flat_threshold"],
-	#					zscore_std_thresh = configs["zscore_std_thresh"],
-	#					which_sensor = which_sensor)
 
-	# fooof analysis ====================================================================
+	# # fooof analysis ====================================================================
 	fmGroup, psds, freqs = psdParameterize(segments = segments,
 									sampling_rate = sampling_rate,
 									# psd parameters
@@ -138,8 +107,8 @@ def mainParallel(*args):
 							individualized_band_ranges = configs['individualized_band_ranges'],
 							feature_categories= configs["feature_categories"],
 							extention = extention,
-       						which_layout = configs["which_layout"],
-							which_sensor = which_sensor,
+       						which_layout = configs["layout"],
+							which_sensor = configs["which_sensor"],
 							aperiodic_mode = configs["aperiodic_mode"],
 							min_r_squared = configs["min_r_squared"])
 	

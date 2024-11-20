@@ -607,22 +607,3 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
 
     # Display the adapted gauge chart
     fig.show()
-
-
-def plot_feature_scatter(df, feature_names, save_fig_path):
-    """
-    pltots the scatter plot of the specified features
-    """
-    import pandas as pd
-    import math
-
-    fig, ax = plt.subplots(math.ceil(len(feature_names)/2), 2, figsize=(15,10))
-    ax = ax.flatten()
-
-    for coutner, name in enumerate(feature_names):
-        sns.scatterplot(data=df, x="age", y=name, hue="site", size=10, ax=ax[coutner], palette=["orange", "teal", "black"], legend=False)
-        ax[coutner].set_title(name)
-        
-        ax[coutner].set_xlabel("Age")
-    # ax[coutner].legend(["BTH", "CAMCAN", "NIMH"])
-    plt.savefig(save_fig_path, dpi=600)
