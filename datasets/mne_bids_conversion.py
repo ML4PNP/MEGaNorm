@@ -87,7 +87,7 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
 
 
 def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, sex_col:int,
-                        male_indicator, female_indicator) -> None:
+                        diagnosis_col:int, site_col:None, male_indicator, female_indicator) -> None:
 
     """
     This function retrieves the address of a demographic file and converts 
@@ -108,7 +108,9 @@ def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, sex
     """
     col_indices = {"participant_id" : id_col,
                     "age" : age_col,
-                    "sex" : sex_col}
+                    "sex" : sex_col, 
+                    "diagnosis": diagnosis_col,
+                    "site": site_col}
     
     if "xlsx" in file_dir[-4:]:
         df = pd.read_excel(file_dir, index_col=None)

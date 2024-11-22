@@ -16,7 +16,7 @@ def make_config(project, path=None):
 
     # You could also set layout to None to have high 
     # choices: all, lobe, None
-    config["which_layout"] = "all"
+    config["which_layout"] = None
 
     # which sensor type should be used
     # choices: meg, mag, grad, eeg, opm
@@ -262,7 +262,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
 def merge_fidp_demo(datasets_paths:str, features_dir:str):
     """
     Loads demographic data and features, then concatenates them. 
-    It assigns a site index for each dataset and normalizes the age range to [0, 1].
+    It assigns a site index for each site across datasets and normalizes the age range to [0, 1].
     Note that the demographic data must be stored according to MNE BIDS standards.
     
     Parameters:
@@ -274,10 +274,16 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
     """
 
     demographic_df = pd.DataFrame({})
-    for counter,dataset_path in enumerate(datasets_paths):
+    max_site_index = 0
+
+    for dataset_path in datasets_paths:
         demo = pd.read_csv(os.path.join(dataset_path, "participants.tsv"), 
                                                 sep="\t", index_col=0)
-        demo["site"] = counter
+        unique_sites = demo["site"].unique()
+        site_mapping = {site: max_site_index + i for i, site in enumerate(unique_sites)}
+        max_site_index += len(unique_sites)
+
+        demo["site"] = demo["site"].map(site_mapping)
         demographic_df = pd.concat([demographic_df, 
                                     demo],
                                     axis=0)
