@@ -288,3 +288,51 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
     # resacle age range to [0,1]
     data["age"] = data["age"]/100
     return data
+
+
+
+def merge_datasets_with_glob(datasets):
+    
+    subjects = {}
+
+    for dataset_name, dataset_info in datasets.items():
+        base_dir = dataset_info['base_dir']
+        
+        dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+        subjects.update({subj:[] for subj in dirs})
+
+        paths = glob.glob(f"{datasets[dataset_name]["base_dir"]}/**/*{datasets[dataset_name]["task"]}*{datasets[dataset_name]["ending"]}", recursive=True)
+
+        # Walk through the base directory to find subject directories
+        for subject_dir in dirs:
+            pattern = os.path.join(datasets[dataset_name]["base_dir"], subject_dir)
+            subjects[subject_dir].extend(list(filter(lambda path: path.startswith(pattern), paths)))
+
+    def join_with_star(lst):
+        if len(lst) == 1:
+            return lst[0] + '*'  
+        return '*'.join(lst) 
+
+    # add this part to main parallel when you want to concatenate 
+    # different run
+    subjects = dict(filter(lambda item:item[1], subjects.items()))
+    subjects = {key: join_with_star(value) for key, value in subjects.items()}
+
+    # 	paths = args.dir.split("*")
+	# paths = list(filter(lambda x: len(x), paths))
+	# # read the data ====================================================================
+	# for path_counter, path in enumerate(paths):
+	# 	if path_counter == 0:
+	# 		data = mne.io.read_raw(path, verbose=False, preload=True)
+	# 		dev_head_t_ref = data.info['dev_head_t']
+	# 	else:
+	# 		new_data = mne.io.read_raw(path, verbose=False, preload=True)
+	# 		new_data = mne.preprocessing.maxwell_filter(
+	# 												new_data,
+	# 												origin=(0,0,0),
+	# 												coord_frame='head',
+	# 												destination=dev_head_t_ref
+	# 												)
+	# 		data = mne.concatenate_raws([data, new_data])
+
+    return subjects

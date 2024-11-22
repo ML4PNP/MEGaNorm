@@ -47,19 +47,23 @@ def mainParallel(*args):
 
 	# subject ID
 	subID = args.subject
-	
+
+	paths = args.dir.split("*")
+	paths = list(filter(lambda x: len(x), paths))
+	path = paths[0]
+
 	# read the data ====================================================================
-	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
+	data = mne.io.read_raw(path, verbose=False, preload=True)
 
 	power_line_freq = data.info.get("line_freq") 
 	if not power_line_freq:
 		power_line_freq = 60
 
 	# In order to determine the loayout
-	extention = args.dir.split(".")[-1]
+	extention = path[0].split(".")[-1]
 
 	if configs["which_sensor"] == "eeg":
-		channel_file = os.path.dirname(args.dir)
+		channel_file = os.path.dirname(path[0])
 		channel_file = os.path.join(channel_file, subID + "_task-rest_channels.tsv")
 		channels_df = pd.read_csv(channel_file, sep = '\t')
 		channels_types = channels_df.set_index('name')['type'].str.lower().to_dict()

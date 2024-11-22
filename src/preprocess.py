@@ -98,7 +98,7 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, Ica
     # calculating bad ica components using automatic method
     badComponents = []
     for sensor in physiological_signal:
-        badComponents.append(find_ica_component(ica=ica, data=data, physiological_signal=sensor, 
+        badComponents.extend(find_ica_component(ica=ica, data=data, physiological_signal=sensor, 
                                            auto_ica_corr_thr=auto_ica_corr_thr))
         # TODO test if this happens three times for camcan
 
