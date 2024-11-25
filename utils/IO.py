@@ -16,7 +16,7 @@ def make_config(project, path=None):
 
     # You could also set layout to None to have high 
     # choices: all, lobe, None
-    config["which_layout"] = None
+    config["which_layout"] = "all"
 
     # which sensor type should be used
     # choices: meg, mag, grad, eeg, opm
@@ -50,7 +50,6 @@ def make_config(project, path=None):
     # flatness threshold across time
     config["mag_flat_threshold"] = 10e-15
     config["grad_flat_threshold"] = 10e-15
-    config["eeg_flat_threshold"] = None
     config["eeg_flat_threshold"] = 40e-6
     # variance thershold across channels
     config["zscore_std_thresh"] = 15 # change this
@@ -262,7 +261,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
 def merge_fidp_demo(datasets_paths:str, features_dir:str):
     """
     Loads demographic data and features, then concatenates them. 
-    It assigns a site index for each site across datasets and normalizes the age range to [0, 1].
+    It assigns a site index for each dataset and normalizes the age range to [0, 1].
     Note that the demographic data must be stored according to MNE BIDS standards.
     
     Parameters:
@@ -274,16 +273,10 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
     """
 
     demographic_df = pd.DataFrame({})
-    max_site_index = 0
-
-    for dataset_path in datasets_paths:
+    for counter,dataset_path in enumerate(datasets_paths):
         demo = pd.read_csv(os.path.join(dataset_path, "participants.tsv"), 
                                                 sep="\t", index_col=0)
-        unique_sites = demo["site"].unique()
-        site_mapping = {site: max_site_index + i for i, site in enumerate(unique_sites)}
-        max_site_index += len(unique_sites)
-
-        demo["site"] = demo["site"].map(site_mapping)
+        demo["site"] = counter
         demographic_df = pd.concat([demographic_df, 
                                     demo],
                                     axis=0)
@@ -295,3 +288,51 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
     # resacle age range to [0,1]
     data["age"] = data["age"]/100
     return data
+
+
+
+def merge_datasets_with_glob(datasets):
+    
+    subjects = {}
+
+    for dataset_name, dataset_info in datasets.items():
+        base_dir = dataset_info['base_dir']
+        
+        dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+        subjects.update({subj:[] for subj in dirs})
+
+        paths = glob.glob(f"{datasets[dataset_name]["base_dir"]}/**/*{datasets[dataset_name]["task"]}*{datasets[dataset_name]["ending"]}", recursive=True)
+
+        # Walk through the base directory to find subject directories
+        for subject_dir in dirs:
+            pattern = os.path.join(datasets[dataset_name]["base_dir"], subject_dir)
+            subjects[subject_dir].extend(list(filter(lambda path: path.startswith(pattern), paths)))
+
+    def join_with_star(lst):
+        if len(lst) == 1:
+            return lst[0] + '*'  
+        return '*'.join(lst) 
+
+    # add this part to main parallel when you want to concatenate 
+    # different run
+    subjects = dict(filter(lambda item:item[1], subjects.items()))
+    subjects = {key: join_with_star(value) for key, value in subjects.items()}
+
+    # 	paths = args.dir.split("*")
+	# paths = list(filter(lambda x: len(x), paths))
+	# # read the data ====================================================================
+	# for path_counter, path in enumerate(paths):
+	# 	if path_counter == 0:
+	# 		data = mne.io.read_raw(path, verbose=False, preload=True)
+	# 		dev_head_t_ref = data.info['dev_head_t']
+	# 	else:
+	# 		new_data = mne.io.read_raw(path, verbose=False, preload=True)
+	# 		new_data = mne.preprocessing.maxwell_filter(
+	# 												new_data,
+	# 												origin=(0,0,0),
+	# 												coord_frame='head',
+	# 												destination=dev_head_t_ref
+	# 												)
+	# 		data = mne.concatenate_raws([data, new_data])
+
+    return subjects
