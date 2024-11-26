@@ -57,14 +57,14 @@ def mainParallel(*args):
 
 	# read the data ====================================================================
 
-	# try:	
-	data = mne.io.read_raw(path, verbose=False, preload=True)
-	# except:
-	# 	data = mne.io.read_raw_bti(                   
-	# 				pdf_fname=os.path.join(path, "c,rfDC"),     
-	# 				config_fname=os.path.join(path, "config"),     
-	# 				head_shape_fname=None,  
-	# 				preload=True)
+	try:	
+		data = mne.io.read_raw(path, verbose=False, preload=True)
+	except:
+		data = mne.io.read_raw_bti(                   
+					pdf_fname=os.path.join(path, "c,rfDC"),     
+					config_fname=os.path.join(path, "config"),     
+					head_shape_fname=None,  
+					preload=True)
 
 	power_line_freq = data.info.get("line_freq") 
 	if not power_line_freq:
