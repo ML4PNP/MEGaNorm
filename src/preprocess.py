@@ -39,10 +39,10 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     components = ica.get_sources(data.copy()).get_data()
     corr = np.corrcoef(components, physiological_signal)[:-1, -1]
     if np.max(corr) >= auto_ica_corr_thr:
-        componentIndx = np.argmax(corr)
+        componentIndx = [np.argmax(corr)]
     else:
         componentIndx = []
-
+        
     return componentIndx
 
 

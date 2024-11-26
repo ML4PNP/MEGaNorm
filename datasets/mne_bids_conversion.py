@@ -89,26 +89,21 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
 def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, *argv) -> None:
 
     """
-    This function retrieves the address of a demographic file and converts 
-    it to a BIDS-compatible format. 
-    Ensure the output is saved in a directory structured according to BIDS specifications.
+    This function read demographic data and convert them to a common
+    template so can be used later in processing.
 
     Parameters:
         file_dir (str): Path to the input demographic file (e.g., CSV).
         save_dir (str): Directory where the BIDS-formatted file should be saved.
         id_col (int): Column index for the participant ID.
         age_col (int): Column index for the age.
-        sex_col (int): Column index for the sex/gender.
-        male_indicator: Value in the sex column that indicates male.
-        female_indicator: Value in the sex column that indicates female.
+        argv (dict):  
 
     Returns:
         None
     """
-
     new_df = pd.DataFrame({})
 
-    
     if "xlsx" in file_dir[-4:]:
         df = pd.read_excel(file_dir, index_col=None)
     if "csv" in file_dir[-4:]:
@@ -116,14 +111,9 @@ def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, *ar
     if "tsv" in file_dir[-4:]:
         df = pd.read_csv(file_dir, sep='\t', index_col=None)
 
-    col_indices = {"participant_id" : id_col,
-                    "age" : age_col,
-                    }
-
     new_df["participant_id"] = df.iloc[:, id_col]
     new_df["age"] = df.iloc[:, age_col]
     
-    # Process additional columns from argv
     for arg in argv:
 
         if not arg.get("col_id"):
@@ -134,14 +124,11 @@ def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, *ar
         col_name = arg.get("col_name")
         mapping = arg.get("mapping", None)
 
-        # Ensure valid keys are provided
-        if col_id is None or col_name is None:
-            raise ValueError("Each additional column must specify 'col_id' and 'col_name'.")
+        if col_id is None and col_name is None:
+            raise ValueError("Both'col_id' and 'col_name' can not be None.")
 
-        # Add column to the new DataFrame
         new_df[col_name] = df.iloc[:, col_id]
 
-        # Apply mapping if provided
         if mapping:
             new_df[col_name] = new_df[col_name].map(mapping)
 
