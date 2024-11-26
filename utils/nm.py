@@ -39,7 +39,7 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
     os.makedirs(save_path, exist_ok=True)
 
     if drop_nans:
-        data = data.dropna(axis=1)
+        data = data.dropna(axis=0)
 
     x_train_all, y_train_all, b_train_all = [], [], []
     x_val_all, y_val_all, b_val_all = [], [], []
