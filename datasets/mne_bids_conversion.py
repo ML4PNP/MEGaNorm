@@ -10,7 +10,7 @@ import sys
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
 sys.path.append(config_path)
-from utils.EEGlab import read_raw_eeglab
+# from utils.EEGlab import read_raw_eeglab
 import pandas as pd
 
 
@@ -86,8 +86,7 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
 
 
 
-def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, sex_col:int,
-                        male_indicator, female_indicator) -> None:
+def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, *argv) -> None:
 
     """
     This function retrieves the address of a demographic file and converts 
@@ -106,9 +105,9 @@ def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, sex
     Returns:
         None
     """
-    col_indices = {"participant_id" : id_col,
-                    "age" : age_col,
-                    "sex" : sex_col}
+
+    new_df = pd.DataFrame({})
+
     
     if "xlsx" in file_dir[-4:]:
         df = pd.read_excel(file_dir, index_col=None)
@@ -116,18 +115,35 @@ def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, sex
         df = pd.read_csv(file_dir, index_col=None)
     if "tsv" in file_dir[-4:]:
         df = pd.read_csv(file_dir, sep='\t', index_col=None)
+
+    col_indices = {"participant_id" : id_col,
+                    "age" : age_col,
+                    }
+
+    new_df["participant_id"] = df.iloc[:, id_col]
+    new_df["age"] = df.iloc[:, age_col]
     
+    # Process additional columns from argv
+    for arg in argv:
 
-    col_names = df.columns.to_list()
-    new_df = pd.DataFrame({})
-    # rearrange
-    for counter, (col_name, col_id) in enumerate(col_indices.items()): 
-        col = df[col_names[col_id]]
-        new_df.insert(counter, col_name, col)
+        if not arg.get("col_id"):
+            new_df[arg.get("col_name")] = arg.get("single_value")
+            continue
 
-    new_df.dropna(inplace=True)
-    new_df.replace({"sex": {male_indicator:0, female_indicator:1}}, inplace=True)
-    new_df['age'] = new_df['age'].astype(int)
+        col_id = arg.get("col_id")
+        col_name = arg.get("col_name")
+        mapping = arg.get("mapping", None)
+
+        # Ensure valid keys are provided
+        if col_id is None or col_name is None:
+            raise ValueError("Each additional column must specify 'col_id' and 'col_name'.")
+
+        # Add column to the new DataFrame
+        new_df[col_name] = df.iloc[:, col_id]
+
+        # Apply mapping if provided
+        if mapping:
+            new_df[col_name] = new_df[col_name].map(mapping)
 
     new_df.to_csv(save_dir, sep='\t', index=False)
 
@@ -144,39 +160,71 @@ if __name__ == "__main__":
     # Preparing demographic data according to mne_bids format
     # BTH
     file_dir = "/project/meganorm/Data/BTNRH/Rempe_Ott_PNAS_2022_Data.xlsx"
-    save_dir = "/project/meganorm/Data/BTNRH/BIDS/participants.tsv"
+    save_dir = "/project/meganorm/Data/BTNRH/BIDS/participants_bids.tsv"
     make_demo_file_bids(file_dir, 
-                        save_dir, id_col=0, 
-                        age_col=1, 
-                        sex_col=2, 
-                        male_indicator="M", 
-                        female_indicator="F")
+                        save_dir, 
+                        0, 
+                        1, 
+                        {"col_name": "sex", "col_id": 2, "mapping": {"M": "Male", "F": "Female"}, "single_value":None},
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_closed"},
+                        {"col_name": "diagnosis", "col_id": None, "mapping": None, "single_value":"control"})
 
     # CAMCAN
     file_dir = "/project/meganorm/Data/camcan/CamCAN/cc700/participants.tsv"
-    save_dir = "/project/meganorm/Data/BTNRH/CAMCAN_BIDS/participants.tsv"
+    save_dir = "/project/meganorm/Data/camcan/BIDS/participants_bids.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, 
-                        id_col=0, 
-                        age_col=1, 
-                        sex_col=3, 
-                        male_indicator="MALE", 
-                        female_indicator="FEMALE")
+                        0, 
+                        1, 
+                        {"col_name": "sex", "col_id": 3, "mapping": {"MALE": "Male", "FEMALE": "Female"}, "single_value":None},
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_closed"},
+                        {"col_name": "diagnosis", "col_id": None, "mapping": None, "single_value":"control"})
+
     
-    # NIMH 
+    
+    # # NIMH 
     file_dir = "/project/meganorm/Data/NIMH/participants_original.tsv"
-    save_dir = "/project/meganorm/Data/NIMH/participants.tsv"
+    save_dir = "/project/meganorm/Data/NIMH/participants_bids.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, 
-                        id_col=0, 
-                        age_col=1, 
-                        sex_col=2, 
-                        male_indicator="male", 
-                        female_indicator="female")
+                        0, 
+                        1, 
+                        {"col_name": "sex", "col_id": 2, "mapping": {"male": "Male", "female": "Female"}, "single_value":None},
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_closed"},
+                        {"col_name": "diagnosis", "col_id": None, "mapping": None, "single_value":"control"})
+
+    
+    # # OMEGA 
+    file_dir = "/project/meganorm/Data/Omega/participants.tsv"
+    save_dir = "/project/meganorm/Data/Omega/participants_bids.tsv"
+    make_demo_file_bids(file_dir, 
+                        save_dir, 
+                        0, 
+                        3, 
+                        {"col_name": "sex", "col_id": 1, "mapping": {"M": "Male", "F": "Female"}, "single_value":None},
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_open"},
+                        {"col_name": "diagnosis", "col_id": 4, "mapping": {"Control": "control", 
+                                                                           "Parkinson": "parkinson", 
+                                                                           "Chronic Pain": "chronic pain", 
+                                                                           "Control	1" : "control",
+                                                                           "ADHD": "adhd"}, "single_value":None})
+
+    
+    # # # HCP 
+    file_dir = "/project/meganorm/Data/HCP/info/RESTRICTED_smkia_11_25_2024_7_16_58_merged.csv"
+    save_dir = "/project/meganorm/Data/HCP/participants_bids.tsv"
+    make_demo_file_bids(file_dir, 
+                        save_dir, 
+                        0, 
+                        1, 
+                        {"col_name": "sex", "col_id": 203, "mapping": {"M": "Male", "F": "Female"}, "single_value":None},
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_open"},
+                        {"col_name": "diagnosis", "col_id": None, "mapping": None, "single_value":"control"})
+
     
     # CMI
     file_dir = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" #For R1
-    save_dir = "/project/meganorm/Data/EEG_CMI/EEG_BIDS/participants.tsv"
+    save_dir = "/project/meganorm/Data/EEG_CMI/EEG_BIDS/participants_bids.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, 
                         id_col=0, 
