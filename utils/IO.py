@@ -258,7 +258,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
 
 
 
-def merge_fidp_demo(datasets_paths:str, features_dir:str):
+def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, include_patients=False):
     """
     Loads demographic data and features, then concatenates them. 
     It assigns a site index for each dataset and normalizes the age range to [0, 1].
@@ -274,20 +274,33 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
 
     demographic_df = pd.DataFrame({})
     for counter,dataset_path in enumerate(datasets_paths):
-        demo = pd.read_csv(os.path.join(dataset_path, "participants.tsv"), 
+        demo = pd.read_csv(os.path.join(dataset_path, "participants_bids.tsv"), 
                                                 sep="\t", index_col=0)
-        demo["site"] = counter
+        demo.index = demo.index.astype(str)
+
+        demo["site"] = data_set_names[counter]
         demographic_df = pd.concat([demographic_df, 
                                     demo],
                                     axis=0)
-        
+    
+    if not include_patients:
+        demographic_df = demographic_df.drop(columns=["diagnosis"])
+    elif include_patients:
+        demographic_df["diagnosis"] = pd.factorize(demographic_df["diagnosis"])[0]
+
+    demographic_df["eyes"] = pd.factorize(demographic_df["eyes"])[0]
+    demographic_df["sex"] = pd.factorize(demographic_df["sex"])[0]
+    demographic_df["site"] = pd.factorize(demographic_df["site"])[0]
+    
     feature_path = os.path.join(features_dir, "all_features.csv")
     data = pd.read_csv(feature_path, index_col=0)
+
     data = demographic_df.join(data, how='inner')
 
     # resacle age range to [0,1]
     data["age"] = data["age"]/100
     return data
+
 
 
 
