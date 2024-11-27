@@ -14,79 +14,7 @@ sys.path.append(config_path)
 import pandas as pd
 
 
-def mne_bids_CMI(input_base_path, output_base_path, montage_path):
-    # Ensure output directory exists
-    if not os.path.exists(output_base_path):
-        os.makedirs(output_base_path)
-    
-    search_pattern = os.path.join(input_base_path, "*/*/EEG/raw/mat_format/RestingState.mat")
-    raw_mat_path = glob.glob(search_pattern) # Use glob to find all RestingState.mat files in raw/mat_format folder
-
-    # Loop through all found .mat files
-    for mat_path in raw_mat_path:
-        subject_id = Path(mat_path).parts[-5]  # Extract subject number from the file path
-
-        # read the math file & save the mat_file to extract needed info later on 
-        raw = read_raw_eeglab(mat_path) 
-        mat_data = scipy.io.loadmat(mat_path)
-
-        #### ADD extra information, that is not in the raw object yet ####
-
-        EEG_data = mat_data['EEG'] # Access the EEG data to extract info within there
-        sfreq = EEG_data['srate'][0][0][0][0]    #Get sampling frequency 
-        # set channel locations
-        montage = mne.channels.read_custom_montage(montage_path)
-
-        # Create a mapping to rename the channels in raw to match the montage
-        mapping = {f'EEG {i:03d}': f'E{i+1}' for i in range(128)}  # EEG 000 -> E1, EEG 001 -> E2, ..., EEG 128 -> E129
-        mapping['EEG 128'] = 'Cz'  
-        raw.info.rename_channels(mapping)
-        raw.info.set_montage(montage)
-
-        #set eeg reference 
-        raw.set_eeg_reference(ref_channels=['Cz'])
-
-        ##### Extract event and epoch information to set the annotations
-        # Access the event info within EEG_data
-        events_data = EEG_data['event']
-
-        # Loop through each event entry to extract type, onset and duration needded for annotations 
-        for event in events_data[0][0]:
-            event_type = event['type']
-            event_types = [item[0] for item in event_type]
-
-            event_sample= event['sample']
-            event_samples = [item[0][0] for item in event_sample]
-            event_onsets = [(sample / sfreq) for sample in event_samples]
-            print(event_onsets)
-
-            event_duration = [event_onsets[i] - event_onsets[i-1] for i in range (1, len(event_onsets))]
-            event_duration.append(0)
-
-        # Create annotations using onset, duration, and description
-        annotations = mne.Annotations(onset=event_onsets, duration=event_duration, description=event_types)
-
-        # Attach annotations to the raw object
-        raw.set_annotations(annotations)
-
-        #extra info that cannot 
-        raw.info["line_freq"] = 60
-        raw.info["device_info"] = {
-            'type': 'EEG',
-            'manufacturer': 'Electrical Geodesics',
-            'model': 'HydroCel GSN 130'
-            }
-        
-        #convert to BIDS
-        bids_path = mne_bids.BIDSPath(subject=subject_id, datatype='eeg', task='rest',
-                     root=output_base_path)
-        mne_bids.write_raw_bids(raw, bids_path=bids_path, allow_preload=True, format='EEGLAB', overwrite=True,)   
-
-    return None
-
-
-
-def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, *argv) -> None:
+def make_demo_file_bids( file_dir:str, save_dir:str, id_col:int, age_col:int, *argv) -> None:
 
     """
     This function read demographic data and convert them to a common
@@ -138,11 +66,6 @@ def make_demo_file_bids(file_dir:str, save_dir:str, id_col:int, age_col:int, *ar
 
 
 if __name__ == "__main__":
-
-    input_base_path = "/project/meganorm/Data/EEG_CMI/EEG/"
-    output_base_path = "/project/meganorm/Data/EEG_CMI/EEG_BIDS"
-    montage_path = "/project/meganorm/Data/EEG_CMI/info/GSN_HydroCel_129.sfp"
-    mne_bids_CMI(input_base_path, output_base_path, montage_path)
 
     # Preparing demographic data according to mne_bids format
     # BTH
@@ -210,12 +133,78 @@ if __name__ == "__main__":
 
     
     # CMI
-    file_dir = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" #For R1
+    file_dir = "/project/meganorm/Data/EEG_CMI/EEG_BIDS/covariates.tsv"
     save_dir = "/project/meganorm/Data/EEG_CMI/EEG_BIDS/participants_bids.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, 
-                        id_col=0, 
-                        age_col=2, 
-                        sex_col=1, 
-                        male_indicator="0", 
-                        female_indicator="1")
+                        0, 
+                        1, 
+                        {"col_name": "sex", "col_id": 2, "mapping":{"0": "Male", "1": "Female"}, "single_value":None}, 
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_closed"},
+                        {"col_name": "diagnosis", "col_id": 5, "mapping": {
+                            "ADHD-Combined Type": "adhd combined type",
+                            "Generalized Anxiety Disorder": "generalized anxiety disorder",
+                            "ADHD-Inattentive Type": "adhd inattentive type",
+                            "Specific Learning Disorder with Impairment in Reading": "specific learning disorder with impairment in reading",
+                            "Disruptive Mood Dysregulation Disorder": "disruptive mood dysregulation disorder",
+                            "Oppositional Defiant Disorder": "oppositional defiant disorder",
+                            "Major Depressive Disorder": "major depressive disorder",
+                            "Tourettes Disorder": "tourettes disorder",
+                            "Other Specified Anxiety Disorder": "other specified anxiety disorder",
+                            "Other Specified Attention-Deficit/Hyperactivity Disorder": "other specified attention deficit hyperactivity disorder",
+                            "No Diagnosis Given": "control",
+                            "Autism Spectrum Disorder": "autism spectrum disorder",
+                            "Language Disorder": "language disorder",
+                            "Specific Learning Disorder with Impairment in Mathematics": "specific learning disorder with impairment in mathematics",
+                            "No Diagnosis Given: Incomplete Eval": "no diagnosis given incomplete eval",
+                            "Separation Anxiety": "separation anxiety",
+                            "Social (Pragmatic) Communication Disorder": "social pragmatic communication disorder",
+                            "Provisional Tic Disorder": "provisional tic disorder",
+                            "Social Anxiety (Social Phobia)": "social anxiety social phobia",
+                            "Specific Phobia": "specific phobia",
+                            "Borderline Intellectual Functioning": "borderline intellectual functioning",
+                            "ADHD-Hyperactive/Impulsive Type": "adhd hyperactive impulsive type",
+                            "Intellectual Disability-Moderate": "intellectual disability moderate",
+                            "Intellectual Disability-Mild": "intellectual disability mild",
+                            "Adjustment Disorders": "adjustment disorders",
+                            "Bipolar I Disorder": "bipolar i disorder",
+                            "Obsessive-Compulsive Disorder": "obsessive compulsive disorder",
+                            "Conduct Disorder-Childhood-onset type": "conduct disorder childhood onset type",
+                            "Selective Mutism": "selective mutism",
+                            "Other Specified Depressive Disorder": "other specified depressive disorder",
+                            "Unspecified Attention-Deficit/Hyperactivity Disorder": "unspecified attention deficit hyperactivity disorder",
+                            "Other Specified Disruptive, Impulse-Control, and Conduct Disorder": "other specified disruptive impulse control and conduct disorder",
+                            "Persistent Depressive Disorder (Dysthymia)": "persistent depressive disorder dysthymia",
+                            "Other Specified Trauma- and Stressor-Related Disorder": "other specified trauma and stressor related disorder",
+                            "Other Specified Tic Disorder": "other specified tic disorder",
+                            "Posttraumatic Stress Disorder": "posttraumatic stress disorder",
+                            "Excoriation (Skin-Picking) Disorder": "excoriation skin picking disorder",
+                            "Substance/Medication-Induced Bipolar and Related Disorder": "substance medication induced bipolar and related disorder",
+                            "Specific Learning Disorder with Impairment in Written Expression": "specific learning disorder with impairment in written expression",
+                            "Enuresis": "enuresis",
+                            "Major Neurocognitive Disorder Due to Epilepsy": "major neurocognitive disorder due to epilepsy",
+                            "Speech Sound Disorder": "speech sound disorder",
+                            "Encopresis": "encopresis",
+                            "Bipolar II Disorder": "bipolar ii disorder",
+                            "Intermittent Explosive Disorder": "intermittent explosive disorder",
+                            "Persistent (Chronic) Motor or Vocal Tic Disorder": "persistent chronic motor or vocal tic disorder",
+                            "Other Specified Neurodevelopmental Disorder": "other specified neurodevelopmental disorder",
+                            "Unspecified Anxiety Disorder": "unspecified anxiety disorder",
+                            "Other Specified Feeding or Eating Disorder": "other specified feeding or eating disorder",
+                            "Cannabis Use Disorder": "cannabis use disorder",
+                            "Bulimia Nervosa": "bulimia nervosa",
+                            "Avoidant/Restrictive Food Intake Disorder": "avoidant restrictive food intake disorder",
+                            " ": "unspecified",
+                            "Reactive Attachment Disorder": "reactive attachment disorder",
+                            "Unspecified Neurodevelopmental Disorder": "unspecified neurodevelopmental disorder",
+                            "Agoraphobia": "agoraphobia",
+                            "Depressive Disorder Due to Another Medical Condition": "depressive disorder due to another medical condition",
+                            "Delirium due to another medical condition": "delirium due to another medical condition",
+                            "Specific Learning Disorder with Impairment in Reading ": "specific learning disorder with impairment in reading",
+                            "Cyclothymic Disorder": "cyclothymic disorder",
+                            "Schizophrenia": "schizophrenia",
+                            "Delirium due to multiple etiologies": "delirium due to multiple etiologies",
+                            "Gender Dysphoria in Adolescents and Adults": "gender dysphoria in adolescents and adults",
+                            "Other Specified Obsessive-Compulsive and Related Disorder": "other specified obsessive compulsive and related disorder",
+                            "Developmental Coordination Disorder": "developmental coordination disorder",
+                            "Acute Stress Disorder": "acute stress disorder"}, "single_value":None})
