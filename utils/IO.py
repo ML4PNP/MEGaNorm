@@ -288,7 +288,7 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
                                     axis=0)
     
     if not include_patients:
-        demographic_df = demographic_df.drop(columns=["diagnosis"])
+        demographic_df = demographic_df[demographic_df["diagnosis"] == "control"]
     elif include_patients:
         demographic_df["diagnosis"] = pd.factorize(demographic_df["diagnosis"])[0]
 
