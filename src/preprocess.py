@@ -8,6 +8,7 @@ import numpy as np
 import argparse
 from glob import glob
 from scipy import stats
+import pickle
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -42,7 +43,6 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
         componentIndx = [np.argmax(corr)]
     else:
         componentIndx = []
-        
     return componentIndx
 
 
