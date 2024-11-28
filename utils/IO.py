@@ -278,7 +278,11 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
                                                 sep="\t", index_col=0)
         demo.index = demo.index.astype(str)
 
-        demo["site"] = data_set_names[counter]
+        if 'site' in demo.columns:
+            demo['site'] = demo['site']
+        else:
+            demo['site'] = data_set_names[counter] #TODO: check if those two don't interfere (eg. if one dataset has site column and other dataset not that those don't overlap)
+
         demographic_df = pd.concat([demographic_df, 
                                     demo],
                                     axis=0)

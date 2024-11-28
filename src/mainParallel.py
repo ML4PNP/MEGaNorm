@@ -8,6 +8,7 @@ import numpy as np
 import pathlib
 import mne_bids
 import pandas as pd
+import glob
 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -71,11 +72,13 @@ def mainParallel(*args):
 		power_line_freq = 60
 
 	if configs["which_sensor"] == "eeg":
-		channel_file = os.path.dirname(path[0])
-		channel_file = os.path.join(channel_file, subID + "_task-rest_channels.tsv")
-		channels_df = pd.read_csv(channel_file, sep = '\t')
+		base_dir = os.path.dirname(path)
+		subID = args.subject
+		channel_files = glob.glob(os.path.join(base_dir, f"{subID}_task-*_channels.tsv"))
+		channel_file = channel_files[0]
+		channels_df = pd.read_csv(channel_file, sep='\t')
 		channels_types = channels_df.set_index('name')['type'].str.lower().to_dict()
-		data.set_channel_types(channels_types)
+		data.set_channel_types(channels_types)	
 
 	which_sensor = {"meg":False,
 					"mag":False,

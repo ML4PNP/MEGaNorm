@@ -103,11 +103,15 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, Ica
                                            auto_ica_corr_thr=auto_ica_corr_thr))
         # TODO test if this happens three times for camcan
 
-    ica.exclude = badComponents.copy()
-    # ica.apply() changes the Raw object in-place
-    ica.apply(data, verbose=False)
+    if any(badComponents):
+        ica.exclude = badComponents.copy()
+        # ica.apply() changes the Raw object in-place
+        ica.apply(data, verbose=False)
+        ICA_flag = False
+    else:
+        ICA_flag = True
 
-    return data
+    return data, ICA_flag
 
 
 def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000, IcaMethod="fastica", which_sensor=["meg", "eeg"], auto_ica_corr_thr=0.9):
@@ -276,6 +280,8 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
     if which_sensor['eeg'] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
 
+    ICA_flag = False #initialize flag
+
     physiological_electrods = {channel: channel in channel_types for channel in ["ecg", "eog"]}
 
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
@@ -283,7 +289,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
         if which_sensor['meg']: # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data = auto_ica(data=data, 
+                data, _ = auto_ica(data=data, 
                             n_components=n_component, 
                             ica_max_iter=ica_max_iter,
                             IcaMethod = IcaMethod,
@@ -302,7 +308,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
         if which_sensor['eeg']: # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data = auto_ica(data=data, 
+                data, ICA_flag = auto_ica(data=data, 
                             n_components=n_component, 
                             ica_max_iter=ica_max_iter,
                             IcaMethod = IcaMethod,
@@ -310,7 +316,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                             physiological_sensor=phys_activity_type,
                             auto_ica_corr_thr=auto_ica_corr_thr)
             # 2
-            elif not if_elec_exist and apply_ica:
+            elif not if_elec_exist and apply_ica and ICA_flag:
                 data = AutoIca_with_IcaLabel(data = data, 
                                         n_components=n_component, 
                                         ica_max_iter=ica_max_iter, 
