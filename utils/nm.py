@@ -13,7 +13,7 @@ import shutil
 
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
-                  validation_split=None, drop_nans=False, random_seed=42, prefix=''):
+                  validation_split=None, drop_nans=False, random_seed="23d", prefix=''):
     
     """Utility function for splitting data into training, validation and test sets
     before HBR normative modeling. The sets are save as picke file in the specified 
@@ -244,20 +244,24 @@ def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids,
     x = temp['synthetic_X'][0:point_num].squeeze()
     b = temp['batch_effects']
 
+
     for fb in frequency_band_model_ids.keys():
         model_id = frequency_band_model_ids[fb]
         
         if site_id is None:
             data = np.concatenate([q[b[:,0]== 0, quantile_id, model_id:model_id+1], 
                             q[b[:,0]== 1, quantile_id ,model_id:model_id+1]], axis=1)
+            data = data.reshape(5, 100, 2)  
+            data = data.mean(axis=0)
         else:
             data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site_id), quantile_id ,model_id:model_id+1]], axis=1)
-                
+        
         for gender in gender_ids.keys():
             batch_id = gender_ids[gender]
             oscilogram[gender][fb] = []
             for slice in age_slices:
+                print(np.logical_and(x>=slice, x<slice+5))
                 d = data[np.logical_and(x>=slice, x<slice+5),batch_id]
                 m = np.mean(d)
                 s = np.std(d)
@@ -399,3 +403,74 @@ def kfold_split(data_path:str, save_dir:str, n_folds:int, sub_file="folds", pref
         saving(data=y_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='y', split='te')
         
     return folds_path
+
+
+def prepare_test_data(data, save_path, covariates=['age'], batch_effects=None, 
+                  validation_split=None, drop_nans=False, random_seed=42, prefix=''):
+    
+
+
+    os.makedirs(save_path, exist_ok=True)
+
+    if drop_nans:
+        data = data.dropna(axis=0)
+
+    x_test_all, y_test_all, b_test_all = [], [], []
+
+    ## Looping through sites to split the data in a stratified way
+    for uniques_site in data.site.unique():
+
+        data_site = data[data.site == uniques_site]
+
+        test_set = data_site.copy()
+
+        x_test = test_set.loc[:, covariates]
+        b_test = test_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_test.shape[0],1], dtype=int), 
+                                                                                    index=x_test.index, columns=['site'])
+        y_test = test_set.drop(columns=covariates+batch_effects) if batch_effects is not None else test_set.drop(columns=covariates) 
+        x_test_all.append(x_test), y_test_all.append(y_test), b_test_all.append(b_test)
+
+
+
+    # test
+    pd.concat(x_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'x_test.pkl'))
+    pd.concat(y_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'y_test.pkl'))
+    pd.concat(b_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'b_test.pkl'))
+    
+    with open(os.path.join(save_path,  prefix + 'random_seed.pkl'), 'wb') as file:
+        pickle.dump({'random_seed':random_seed}, file)
+        
+    return 
+
+
+def cal_stats_for_gauge(q_path, features, features_list, site_id, gender_id, age):
+
+    q = pickle.load(open(q_path, "rb"))
+    quantiles = q["quantiles"]
+    synthetic_X = q["synthetic_X"].reshape(10, 100).mean(axis=0) # since Xs are repeated !
+    b = q["batch_effects"]
+
+    bio_indices = [ind for ind, name in enumerate(features_list) if name in features]
+
+    statistics = {feature: [] for feature in features}
+    for ind in bio_indices:
+        
+        biomarker_stats = []
+        for quantile_id in range(quantiles.shape[1]):
+
+            if not site_id: # if not any specific site, average between all sites (batch effect)
+                data = quantiles[b[:,0]== gender_id, quantile_id, ind:ind+1]
+                data = data.reshape(5, 100, 1)  
+                data = data.mean(axis=0)
+            if site_id:
+                data = quantiles[np.logical_and(b[:,0]== gender_id, b[:,1]== site_id), quantile_id, ind:ind+1]
+            
+            data = data.squeeze()
+
+            closest_x = min(synthetic_X, key=lambda x: abs(x - age))
+            age_bin_ind = np.where(synthetic_X==closest_x)[0][0]
+
+            biomarker_stats.append(data[age_bin_ind])
+            
+        statistics[features_list[ind]].extend(biomarker_stats)
+    return statistics

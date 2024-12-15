@@ -9,6 +9,8 @@ import argparse
 from glob import glob
 import warnings
 warnings.filterwarnings('ignore')
+from mne.preprocessing import find_bad_channels_maxwell
+
 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -327,6 +329,12 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                             ref_meg = False,
                             eog = False,
                             ecg = False)
+    
+    if which_sensor['meg']:
+        bads, picks, data_scores = find_bad_channels_maxwell(
+                data, cross_talk=None, calibration=None,
+                return_scores=True, verbose=True)
+        
     return data, data.info["ch_names"], int(sampling_rate)
 
     

@@ -1,6 +1,7 @@
 import os
 import pickle
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
@@ -241,9 +242,12 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
         
         df_means = pd.DataFrame(means, index=ages)
         df_stds = pd.DataFrame(stds, index=ages)
+  
+        colors = ["paleturquoise", "lightseagreen", "teal", "cadetblue"]
+        my_cmap = ListedColormap(colors, name="my_cmap")
         
         bar_plot = df_means.plot(kind='bar', yerr=df_stds, capsize=4, stacked=True, ax=ax, alpha=0.7, 
-                                 colormap=sns.color_palette("Set2", 8, as_cmap=True))
+                                 colormap=my_cmap)
         for p in bar_plot.patches:
             width, height = p.get_width(), p.get_height()
             x, y = p.get_xy()
@@ -279,23 +283,28 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
 
 
 
-def plot_age_dist2(df, site_ids, site_names):
+def plot_age_dist2(df, site_names, save_path):
     
     bins = list(range(5, 90, 5))
     ages = []
 
-    for counter in range(len(site_ids)):
-        ages.append(df[df["site"]==site_ids[counter]]["age"].to_numpy()*100)
+    for counter in range(len(site_names)):
+        ages.append(df[df["site"]==counter]["age"].to_numpy()*100)
     
     plt.figure(figsize=(14, 8))
-    plt.hist(ages, bins=bins, color=["teal", "#3e525f"], edgecolor="black", alpha=0.5, histtype="barstacked", rwidth=0.9,)
+    plt.hist(ages, bins=bins, color=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213'], 
+             edgecolor="black", 
+             alpha=0.6, 
+             histtype="barstacked", 
+             rwidth=0.9,)
     plt.grid(axis="y", color = 'black', linestyle = '--')
     plt.xlabel("Age", fontsize=25)
     plt.legend(site_names, prop={'size': 20})
     plt.tick_params(axis="both", labelsize=17)
     plt.xticks(bins)
     plt.ylabel("Count",  fontsize=25)
-    plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
+    plt.title("Age Distribution Across Datasets", fontsize=25)
+    plt.savefig(os.path.join(save_path, "age_dis.png"), dpi=600, bbox_inches="tight")
 
     
 
@@ -490,7 +499,7 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
 
 
 def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
-                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False):
+                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False, bio_name=None, save_path=""):
     """
     Plots a gauge chart based on quantile ranges with a threshold marker for the 0.5 percentile.
     
@@ -513,7 +522,7 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         max_value = 1
 
     if current_value < percentile_5:
-        value_color = "rgba(128, 0, 128, 1)"  # Purple 
+        value_color = "rgba(115, 90, 63, 1)"  # Purple 
     elif current_value < q1:
         value_color = "rgba(255, 215, 0, 1)"  # Gold 
     elif current_value <= q3:
@@ -546,7 +555,7 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
             },
             'bar': {'color': "rgb(255, 69, 58)"},  
             'steps': [
-                {'range': [min_value, percentile_5], 'color': "rgba(128, 0, 128, 0.4)"},  # Purple 
+                {'range': [min_value, percentile_5], 'color': "rgba(115, 90, 63, 1)"},  # Purple 
                 {'range': [percentile_5, q1], 'color': "rgba(255, 215, 0, 0.6)"},  # Warm gold 
                 {'range': [q1, q3], 'color': "rgba(34, 139, 34, 0.7)"},  # Forest green 
                 {'range': [q3, percentile_95], 'color': "rgba(255, 99, 71, 0.6)"},  # Soft tomato red
@@ -559,14 +568,14 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
             },
         },
         title={
-            'text': title,
-            'font': {'size': 30, 'family': 'Arial', 'color': 'black'}
+            'text': bio_name,
+            'font': {'size': 50, 'family': 'Arial', 'color': 'black'}
         }
     ))
 
     if show_legend:
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.4)"),
+                                 marker=dict(size=12, color="rgba(115, 90, 63, 1)"),
                                  name="0-5th Percentile (Extremely Low)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
@@ -593,6 +602,8 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         plot_bgcolor='white',
         margin=dict(t=50, b=100 if show_legend else 30, l=30, r=30),  # Adjust bottom margin for legend
         showlegend=show_legend,
+        width=1100,
+        height=700,
         legend=dict(
             orientation="h",      # Horizontal orientation for legend
             yanchor="top",        # Align legend to top
@@ -606,7 +617,10 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
     )
 
     # Display the adapted gauge chart
-    fig.show()
+    # fig.show()
+    # Save the figure as a PNG image with the specified name
+    fig.write_image(os.path.join(save_path, f"{bio_name}.png"))
+
 
 
 def plot_feature_scatter(df, feature_names, save_fig_path):
@@ -647,6 +661,15 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
         save_plot (bool, optional): Save the plot?. Defaults to True.
         outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
     """
+
+    names = ['Theta',
+            'Theta',
+            'Alpha',
+            'Alpha',
+            'Beta',
+            'Beta',
+            'Gamma',
+            'Gamma']
     z_scores = st.norm.ppf(quantiles)
     # paths
     testrespfile_path = os.path.join(data_dir, 'y_test.pkl')
@@ -724,7 +747,7 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
                         linestyle = linestyle,  alpha = 1, color=curves_colors[int(unique_marker)]) 
 
             ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
-            ax.set_ylabel(bio_name.replace('_', ' '), fontsize=10)
+            ax.set_ylabel(names[ind].replace('_', ' '), fontsize=10)
             ax.set_xlabel('Age', fontsize=16)
             ax.tick_params(axis='both', which='major', labelsize=14)
 
@@ -739,3 +762,37 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
             if not os.path.isdir(save_path):
                 os.makedirs(save_path)
             plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
+
+
+
+def box_plot_auc(df, save_path):
+
+    # Melt the DataFrame to long format for Seaborn
+    data_long = pd.melt(df)
+
+
+    plt.figure(figsize=(10, 8))
+    colors = ['#E6B213', 'sandybrown', '#E84653', 'lightseagreen']
+    sns.boxplot(x='variable', y='value', data=data_long, palette=colors)
+
+
+    means = df.mean(axis=0)
+    for i, mean in enumerate(means):
+        plt.text(i, mean, f'{mean:.3f}', color='black', ha='center', va='center', fontsize=12)
+
+    # Customize the plot
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
+    plt.title('AUCs Across 10 Runs', fontsize=16)
+    plt.ylabel('AUC', fontsize=16)
+    plt.grid()
+    plt.xlabel('Aperiodic-Adjusted Canonical Frequency Bands', fontsize=16)
+
+    plt.gca().spines["right"].set_visible(False)
+    plt.gca().spines["top"].set_visible(False)
+    plt.gca().spines["left"].set_visible(False)
+    plt.gca().spines["bottom"].set_visible(False)
+
+    plt.tight_layout()
+    # Show the plot
+    plt.savefig(os.path.join(save_path, "AUCs.png"), dpi=600)
