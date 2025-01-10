@@ -10,7 +10,8 @@ from scipy.stats import shapiro
 import itertools
 from sklearn.model_selection import StratifiedKFold
 import shutil
-
+from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
+from scipy.stats import false_discovery_control
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
                   validation_split=None, drop_nans=False, random_seed="23d", prefix=''):
@@ -261,7 +262,6 @@ def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids,
             batch_id = gender_ids[gender]
             oscilogram[gender][fb] = []
             for slice in age_slices:
-                print(np.logical_and(x>=slice, x<slice+5))
                 d = data[np.logical_and(x>=slice, x<slice+5),batch_id]
                 m = np.mean(d)
                 s = np.std(d)
@@ -405,8 +405,8 @@ def kfold_split(data_path:str, save_dir:str, n_folds:int, sub_file="folds", pref
     return folds_path
 
 
-def prepare_test_data(data, save_path, covariates=['age'], batch_effects=None, 
-                  validation_split=None, drop_nans=False, random_seed=42, prefix=''):
+def prepare_prediction_data(data, save_path, covariates=['age'], batch_effects=None, 
+                 drop_nans=False, prefix=''):
     
 
 
@@ -415,32 +415,16 @@ def prepare_test_data(data, save_path, covariates=['age'], batch_effects=None,
     if drop_nans:
         data = data.dropna(axis=0)
 
-    x_test_all, y_test_all, b_test_all = [], [], []
+    x_test = data.loc[:, covariates]
+    b_test = data.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_test.shape[0],1], dtype=int), 
+                                                                                index=x_test.index, columns=['site'])
+    y_test = data.drop(columns=covariates+batch_effects) if batch_effects is not None else data.drop(columns=covariates) 
 
-    ## Looping through sites to split the data in a stratified way
-    for uniques_site in data.site.unique():
-
-        data_site = data[data.site == uniques_site]
-
-        test_set = data_site.copy()
-
-        x_test = test_set.loc[:, covariates]
-        b_test = test_set.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_test.shape[0],1], dtype=int), 
-                                                                                    index=x_test.index, columns=['site'])
-        y_test = test_set.drop(columns=covariates+batch_effects) if batch_effects is not None else test_set.drop(columns=covariates) 
-        x_test_all.append(x_test), y_test_all.append(y_test), b_test_all.append(b_test)
-
-
-
-    # test
-    pd.concat(x_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'x_test.pkl'))
-    pd.concat(y_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'y_test.pkl'))
-    pd.concat(b_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'b_test.pkl'))
-    
-    with open(os.path.join(save_path,  prefix + 'random_seed.pkl'), 'wb') as file:
-        pickle.dump({'random_seed':random_seed}, file)
+    x_test.to_pickle(os.path.join(save_path,  prefix + 'x_test.pkl'))
+    y_test.to_pickle(os.path.join(save_path,  prefix + 'y_test.pkl'))
+    b_test.to_pickle(os.path.join(save_path,  prefix + 'b_test.pkl'))
         
-    return 
+    return None
 
 
 def cal_stats_for_gauge(q_path, features, features_list, site_id, gender_id, age):
@@ -474,3 +458,33 @@ def cal_stats_for_gauge(q_path, features, features_list, site_id, gender_id, age
             
         statistics[features_list[ind]].extend(biomarker_stats)
     return statistics
+
+
+def abnormal_probability(processing_dir, nm_processing_dir, site_id, n_permutation=1000):
+
+
+    with open(os.path.join(processing_dir, "Z_clinicalpredict.pkl"), "rb") as file:
+        z_patient = pickle.load(file)
+
+    with open(os.path.join(processing_dir,"Z_estimate.pkl"), "rb") as file:
+        z_healthy = pickle.load(file)
+
+    with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
+        b_healthy = pickle.load(file)
+
+    z_healthy = z_healthy.iloc[np.where(b_healthy["site"]==site_id)[0], :]
+
+    # z_patient = pd.concat([z_patient, np.sqrt((z_patient.iloc[:, [0, 1, 2, 3]]**2).sum(axis=1))], axis=1)
+    # z_healthy = pd.concat([z_healthy, np.sqrt((z_healthy.iloc[:, [0, 1, 2, 3]]**2).sum(axis=1))], axis=1)
+
+    p_patient = z_to_abnormal_p(z_patient)
+    p_healthy = z_to_abnormal_p(z_healthy)
+
+    p = np.concatenate([p_patient, p_healthy])
+    labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
+
+    auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
+
+    p_val = false_discovery_control(p_val)
+
+    return p_val, auc
