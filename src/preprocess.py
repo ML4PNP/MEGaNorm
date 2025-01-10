@@ -130,7 +130,10 @@ def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000, IcaMethod="fast
                                 verbose=False)
     ica.fit(data, verbose=False, picks=["eeg", "meg"])
     
-    ecg_indices, _ = ica.find_bads_ecg(data, method="correlation", threshold=auto_ica_corr_thr)
+    ecg_indices, _ = ica.find_bads_ecg(data, 
+                                       method="correlation", 
+                                       threshold=auto_ica_corr_thr,
+                                       measure='correlation')
 
     ica.exclude = ecg_indices
     # ica.apply() changes the Raw object in-place
@@ -330,11 +333,6 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                             eog = False,
                             ecg = False)
     
-    if which_sensor['meg']:
-        bads, picks, data_scores = find_bad_channels_maxwell(
-                data, cross_talk=None, calibration=None,
-                return_scores=True, verbose=True)
-        
     return data, data.info["ch_names"], int(sampling_rate)
 
     
