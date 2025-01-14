@@ -257,7 +257,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
             mne.export.export_raw(eyes_closed_file_path, raw_eyes_closed, fmt='eeglab', overwrite = True)
 
 
-def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, include_patients=False):
+def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, include_patients=False, diagnosis="parkinson"):
     """
     Loads demographic data and features, then concatenates them. 
     It assigns a site index for each dataset and normalizes the age range to [0, 1].
@@ -299,7 +299,7 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     data["age"] = data["age"]/100
 
     if not include_patients:
-        data_patient = data[data["diagnosis"] != "control"]
+        data_patient = data[data["diagnosis"] == diagnosis]
         # data_patient["diagnosis"] = pd.factorize(data_patient["diagnosis"])[0]
 
         data = data[data["diagnosis"] == "control"]
