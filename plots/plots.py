@@ -227,7 +227,7 @@ def plot_age_dist(data, save_path=None):
     plt.show()
     
 
-def plot_neurooscillochart(data, age_slices, save_path, colors):
+def plot_neurooscillochart(data, age_slices, save_path):
     
     # Age ranges
     ages = [f"{i}-{i+5}" for i in age_slices]
@@ -236,7 +236,7 @@ def plot_neurooscillochart(data, age_slices, save_path, colors):
     
     fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
     
-    def plot_gender_data(ax, gender_data, title, legend=True):
+    def plot_gender_data(ax, gender_data, title, legend=True, colors=None):
         
         means = {k: [item[0] * 100 for item in v] for k, v in gender_data.items()}  
         stds = {k: [item[1] * 100 * 1.96 for item in v] for k, v in gender_data.items()}  
@@ -255,8 +255,8 @@ def plot_neurooscillochart(data, age_slices, save_path, colors):
                           y + height / 2 + 2, 
                           f'{height:.0f}%', 
                           ha='center', 
-                          va='center', fontsize=10)
-        ax.set_title(title)
+                          va='center', fontsize=14)
+        ax.set_title(title, fontsize=18)
         ax.set_xlabel('Age Ranges', fontsize=16)
         if legend:
             ax.legend(loc='upper right', bbox_to_anchor=(1.1,1))  
@@ -269,17 +269,17 @@ def plot_neurooscillochart(data, age_slices, save_path, colors):
         ax.set_yticklabels([])  
     
     plot_gender_data(axes[0], data['Male'], "Males' Chrono-NeuroOscilloChart", 
-                     colors= ['#0a2f66', '#081f45', '#061737', '#040f23'])
+                     colors= ['lightgrey', 'gray', 'dimgrey', 'lightslategray'])
     
     plot_gender_data(axes[1], data['Female'], "Females' Chrono-NeuroOscilloChart", legend=False, 
-                     colors=['#081f45', '#061737', '#040f23', '#020711'])
+                     colors=['lightgrey', 'gray', 'dimgrey', 'lightslategray'])
     
     axes[1].set_xlabel('Age Ranges', fontsize=14)
     plt.xticks(rotation=45)
     plt.tight_layout()
     
     if save_path is not None:
-        plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.png'), dpi=600)
+        plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.svg'), dpi=600)
     else:
         plt.show()
 
@@ -318,6 +318,7 @@ def plot_age_dist2(df, site_names, save_path):
     plt.xticks(bins)
     plt.ylabel("Count",  fontsize=25)
     plt.savefig(os.path.join(save_path, "age_dis.svg"), format="svg", dpi=600, bbox_inches="tight")
+    plt.close()
 
     
 
@@ -487,7 +488,7 @@ def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None)
         plt.savefig(os.path.join(save_path, idp.replace(" ", "_") + '_growthchart.png'), dpi=600)
 
 
-def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
+def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100):
     """Plotting growth charts for multiple idps.
 
     Args:
@@ -532,11 +533,6 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
     - max_value (float): The maximum value for the gauge range (default is 1).
     - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
     """
-    
-    if min_value >= percentile_5:
-        min_value = 0
-    if max_value <= percentile_95:
-        max_value = 1
 
     if current_value < percentile_5:
         value_color = "rgba(115, 90, 63, 1)"  # Purple 
@@ -610,8 +606,6 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
                                  marker=dict(size=12, color="rgba(128, 0, 128, 0.9)"),
                                  name="95th-100th Percentile (Extremely High)"))
-        
-        
     
     # Update layout for better aesthetics
     fig.update_layout(
@@ -633,9 +627,6 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         yaxis=dict(visible=False)   # Hide y-axis   
     )
 
-    # Display the adapted gauge chart
-    # fig.show()
-    # Save the figure as a PNG image with the specified name
     fig.write_image(os.path.join(save_path, f"{bio_name}.png"))
 
 
@@ -782,22 +773,25 @@ def box_plot_auc(df, save_path):
     data_long = pd.melt(df)
 
 
-    plt.figure(figsize=(10, 8))
-    colors = ['#E6B213', 'sandybrown', '#E84653', 'lightseagreen']
-    sns.boxplot(x='variable', y='value', data=data_long, palette=colors)
+    plt.figure(figsize=(6, 5))
+    # colors = ['#E6B213', 'sandybrown', '#E84653', 'lightseagreen']
+    sns.boxplot(x='variable', y='value', data=data_long, color="lightgray")#, palette=colors)
 
+    sns.stripplot(x='variable', y='value', data=data_long, color='black', marker='o', size=6, alpha=0.7, jitter=True)
 
     means = df.mean(axis=0)
     for i, mean in enumerate(means):
-        plt.text(i, mean, f'{mean:.3f}', color='black', ha='center', va='center', fontsize=12)
+        plt.text(i, mean, '', color='black', ha='center', va='center', fontsize=2)
+
 
     # Customize the plot
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
-    plt.title('AUCs Across 10 Runs', fontsize=16)
+    # plt.title('AUCs Across 10 Runs', fontsize=16)
     plt.ylabel('AUC', fontsize=16)
+    plt.xlabel("")
     plt.grid()
-    plt.xlabel('Aperiodic-Adjusted Canonical Frequency Bands', fontsize=16)
+
 
     plt.gca().spines["right"].set_visible(False)
     plt.gca().spines["top"].set_visible(False)
@@ -807,3 +801,127 @@ def box_plot_auc(df, save_path):
     plt.tight_layout()
     # Show the plot
     plt.savefig(os.path.join(save_path, "AUCs.svg"), dpi=600, format="svg")
+
+
+
+def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None):
+
+
+
+    plt.figure(figsize=(8, 8))
+
+    plt.ylim((-4, 4))
+    plt.xlim((-4, 4))
+
+    # Define the fixed order of labels and corresponding colors
+    order = [
+        (f'High {bands_name[1]} - Low {bands_name[0]}', 'red'),
+        (f'High {bands_name[0]} - Low {bands_name[1]}', 'purple'),
+        (f'High {bands_name[1]} - Normal {bands_name[0]}', 'blue'),
+        (f'Normal {bands_name[0]} - Low {bands_name[1]}', 'orange'),
+        (f'Normal {bands_name[1]} - High {bands_name[0]}', 'green'),
+        (f'Normal {bands_name[1]} - Low {bands_name[0]}', 'teal'),
+        (f'Low {bands_name[1]} - Low {bands_name[0]}', 'pink'),
+        (f'High {bands_name[1]} - High {bands_name[0]}', 'mediumvioletred'),
+        (f'Normal range', 'black')
+    ]
+
+    # Initialize lists for colors and labels
+    colors = []
+    labels = []
+
+    # Assign colors and labels based on conditions
+    for x, y in zip(X, Y):
+        if y > thr and x < -thr:
+            colors.append('red')
+            labels.append('High beta - Low theta')
+        elif thr > thr and y < -thr:
+            colors.append('purple')
+            labels.append('High theta - Low beta')
+        elif y > thr and -thr < x < thr:
+            colors.append("blue")
+            labels.append('High beta - Normal theta')
+        elif -thr < x < thr and y < -thr:
+            colors.append("orange")
+            labels.append('Normal theta - Low beta')
+        elif -thr < y < thr and x > thr:
+            colors.append("olive")
+            labels.append('Normal beta - High theta')
+        elif -thr < y < thr and x < -thr:
+            colors.append("teal")
+            labels.append('Normal beta - Low theta')
+        elif y < -thr and x < -thr:
+            colors.append("pink")
+            labels.append('Low beta - Low theta')
+        elif  y > thr and x > thr:
+            colors.append("mediumvioletred")
+            labels.append('High beta - High theta')
+        else:
+            colors.append('black')
+            labels.append('Normal range')
+
+    # Create the legend handles in the correct order
+    handles = []
+    for label, color in order:
+        handles.append(plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10, label=label))
+
+    # Plot the scatter plot
+    plt.scatter(X, Y, color=colors)
+
+    # Add the gray region and lines
+    plt.fill_betweenx(y=[-thr, thr], x1=-thr, x2=thr, color='gray', alpha=0.5, label=f"|z| < {thr}")
+    plt.hlines(y=[-thr, thr], xmin=-thr, xmax=thr, colors='black', linestyles='--', linewidth=1.5)
+    plt.vlines(x=[-thr, thr], ymin=-thr, ymax=thr, colors='black', linestyles='--', linewidth=1.5)
+
+    # Set axis ticks
+    ticks = [-3, -thr, 0, thr, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+
+    # Labeling
+    plt.xlabel('Theta z-scores', fontsize=16)
+    plt.ylabel('Beta z-scores', fontsize=16)
+
+    # Style the plot
+    plt.grid(alpha=0.5)
+    plt.gca().spines["right"].set_visible(False)
+    plt.gca().spines["top"].set_visible(False)
+    plt.gca().spines["left"].set_visible(False)
+    plt.gca().spines["bottom"].set_visible(False)
+
+    # Add the legend with the correct order
+    plt.legend(handles=handles, fontsize=13)
+
+    # Finalize and save the plot
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+
+
+
+
+def plot_metrics(metrics_path, which_features,
+                  feature_new_name=[], save_path = None):
+
+    # Use valid hexadecimal colors
+    colors = ["#9E6240", "#819595", "#5F0F40", "#0F4C5C"]
+    
+    with open(metrics_path, "rb") as file:
+        metrics_dic = pickle.load(file)
+    
+    for metric in metrics_dic.keys():
+        df_temp = pd.DataFrame(metrics_dic.get(metric)).loc[:, which_features]
+        df_temp.columns = feature_new_name
+        
+        # Reshape the data for boxplot
+        df_temp = df_temp.melt(var_name='Variable', value_name='Value')
+
+        sns.set_theme(style="ticks", palette="pastel")
+        
+        # Use palette instead of color
+        sns.boxplot(x='Variable', y='Value', data=df_temp, palette=colors)
+        sns.despine(offset=0, trim=True)
+        plt.xlabel("Frequency Bands")
+        plt.ylabel(metric.title())
+
+        plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+        plt.close()
