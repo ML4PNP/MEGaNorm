@@ -1,6 +1,8 @@
 import os
+import matplotlib
 import pickle
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
@@ -225,7 +227,7 @@ def plot_age_dist(data, save_path=None):
     plt.show()
     
 
-def plot_neurooscillochart(data, age_slices, save_path=None):
+def plot_neurooscillochart(data, age_slices, save_path):
     
     # Age ranges
     ages = [f"{i}-{i+5}" for i in age_slices]
@@ -234,16 +236,18 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
     
     fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
     
-    def plot_gender_data(ax, gender_data, title, legend=True):
+    def plot_gender_data(ax, gender_data, title, legend=True, colors=None):
         
         means = {k: [item[0] * 100 for item in v] for k, v in gender_data.items()}  
         stds = {k: [item[1] * 100 * 1.96 for item in v] for k, v in gender_data.items()}  
         
         df_means = pd.DataFrame(means, index=ages)
         df_stds = pd.DataFrame(stds, index=ages)
+  
+        my_cmap = ListedColormap(colors, name="my_cmap")
         
         bar_plot = df_means.plot(kind='bar', yerr=df_stds, capsize=4, stacked=True, ax=ax, alpha=0.7, 
-                                 colormap=sns.color_palette("Set2", 8, as_cmap=True))
+                                 colormap=my_cmap)
         for p in bar_plot.patches:
             width, height = p.get_width(), p.get_height()
             x, y = p.get_xy()
@@ -251,8 +255,8 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
                           y + height / 2 + 2, 
                           f'{height:.0f}%', 
                           ha='center', 
-                          va='center', fontsize=10)
-        ax.set_title(title)
+                          va='center', fontsize=14)
+        ax.set_title(title, fontsize=18)
         ax.set_xlabel('Age Ranges', fontsize=16)
         if legend:
             ax.legend(loc='upper right', bbox_to_anchor=(1.1,1))  
@@ -264,44 +268,63 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
         ax.tick_params(axis='x', labelsize=14)
         ax.set_yticklabels([])  
     
-    plot_gender_data(axes[0], data['Male'], "Males' Chrono-NeuroOscilloChart")
+    plot_gender_data(axes[0], data['Male'], "Males' Chrono-NeuroOscilloChart", 
+                     colors= ['lightgrey', 'gray', 'dimgrey', 'lightslategray'])
     
-    plot_gender_data(axes[1], data['Female'], "Females' Chrono-NeuroOscilloChart", legend=False)
+    plot_gender_data(axes[1], data['Female'], "Females' Chrono-NeuroOscilloChart", legend=False, 
+                     colors=['lightgrey', 'gray', 'dimgrey', 'lightslategray'])
     
     axes[1].set_xlabel('Age Ranges', fontsize=14)
     plt.xticks(rotation=45)
     plt.tight_layout()
     
     if save_path is not None:
-        plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.png'), dpi=600)
+        plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.svg'), dpi=600)
     else:
         plt.show()
 
 
 
-def plot_age_dist2(df, site_ids, site_names):
+def plot_age_dist2(df, site_names, save_path):
     
     bins = list(range(5, 90, 5))
     ages = []
 
-    for counter in range(len(site_ids)):
-        ages.append(df[df["site"]==site_ids[counter]]["age"].to_numpy()*100)
+    for counter in range(len(site_names)):
+        ages.append(df[df["site"]==counter]["age"].to_numpy()*100)
     
     plt.figure(figsize=(14, 8))
-    plt.hist(ages, bins=bins, color=["teal", "#3e525f"], edgecolor="black", alpha=0.5, histtype="barstacked", rwidth=0.9,)
+    plt.hist(ages, bins=bins, color=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213'], 
+             edgecolor="black", 
+             alpha=0.6, 
+             histtype="barstacked", 
+             rwidth=0.9,)
+    
+    # Remove the top and right spines
+    plt.gca().spines['top'].set_visible(False)
+    plt.gca().spines['right'].set_visible(False)
+
+    # Offset the bottom and left spines
+    plt.gca().spines['bottom'].set_position(('outward', 15))  # Set offset in points
+    plt.gca().spines['left'].set_position(('outward', 15))
+
+    # Optionally, trim the axis ticks to fit the visible range
+    plt.gca().xaxis.set_ticks_position('bottom')
+    plt.gca().yaxis.set_ticks_position('left')
     plt.grid(axis="y", color = 'black', linestyle = '--')
-    plt.xlabel("Age", fontsize=25)
-    plt.legend(site_names, prop={'size': 20})
+    plt.xlabel("Age (years)", fontsize=25)
+    plt.legend(site_names, prop={'size': 20}, loc='upper right')
     plt.tick_params(axis="both", labelsize=17)
     plt.xticks(bins)
     plt.ylabel("Count",  fontsize=25)
-    plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "age_dis.svg"), format="svg", dpi=600, bbox_inches="tight")
+    plt.close()
 
     
 
 def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                         save_plot=True, outputsuffix='estimate', experiment_id=0,
-                        batch_curve={1:["Male", "Female"]}, batch_marker={0:['CAMCAN', 'BTNRH']}):
+                        batch_curve={0:["Male", "Female"]}, batch_marker={1:['CAMCAN', 'BTNRH']}):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -465,7 +488,7 @@ def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None)
         plt.savefig(os.path.join(save_path, idp.replace(" ", "_") + '_growthchart.png'), dpi=600)
 
 
-def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
+def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100):
     """Plotting growth charts for multiple idps.
 
     Args:
@@ -483,14 +506,18 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
     b = temp['batch_effects']
 
     for i, idp in enumerate(idp_indices):
-        data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site),:,idp:idp+1], 
-                            q[np.logical_and(b[:,0]== 1, b[:,1]== site),:,idp:idp+1]], axis=2)
+
+        data = np.concatenate([q[b[:,0]== 0,:,idp:idp+1], 
+                            q[b[:,0]== 1,:,idp:idp+1]], axis=2)
+        data = data.reshape(5, 100, 5, 2) 
+        data = data.mean(axis=0)
+
         plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
         
 
 
 def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
-                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False):
+                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False, bio_name=None, save_path=""):
     """
     Plots a gauge chart based on quantile ranges with a threshold marker for the 0.5 percentile.
     
@@ -506,14 +533,9 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
     - max_value (float): The maximum value for the gauge range (default is 1).
     - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
     """
-    
-    if min_value >= percentile_5:
-        min_value = 0
-    if max_value <= percentile_95:
-        max_value = 1
 
     if current_value < percentile_5:
-        value_color = "rgba(128, 0, 128, 1)"  # Purple 
+        value_color = "rgba(115, 90, 63, 1)"  # Purple 
     elif current_value < q1:
         value_color = "rgba(255, 215, 0, 1)"  # Gold 
     elif current_value <= q3:
@@ -546,7 +568,7 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
             },
             'bar': {'color': "rgb(255, 69, 58)"},  
             'steps': [
-                {'range': [min_value, percentile_5], 'color': "rgba(128, 0, 128, 0.4)"},  # Purple 
+                {'range': [min_value, percentile_5], 'color': "rgba(115, 90, 63, 1)"},  # Purple 
                 {'range': [percentile_5, q1], 'color': "rgba(255, 215, 0, 0.6)"},  # Warm gold 
                 {'range': [q1, q3], 'color': "rgba(34, 139, 34, 0.7)"},  # Forest green 
                 {'range': [q3, percentile_95], 'color': "rgba(255, 99, 71, 0.6)"},  # Soft tomato red
@@ -559,14 +581,14 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
             },
         },
         title={
-            'text': title,
-            'font': {'size': 30, 'family': 'Arial', 'color': 'black'}
+            'text': bio_name,
+            'font': {'size': 50, 'family': 'Arial', 'color': 'black'}
         }
     ))
 
     if show_legend:
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.4)"),
+                                 marker=dict(size=12, color="rgba(115, 90, 63, 1)"),
                                  name="0-5th Percentile (Extremely Low)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
@@ -584,8 +606,6 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
                                  marker=dict(size=12, color="rgba(128, 0, 128, 0.9)"),
                                  name="95th-100th Percentile (Extremely High)"))
-        
-        
     
     # Update layout for better aesthetics
     fig.update_layout(
@@ -593,6 +613,8 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         plot_bgcolor='white',
         margin=dict(t=50, b=100 if show_legend else 30, l=30, r=30),  # Adjust bottom margin for legend
         showlegend=show_legend,
+        width=1100,
+        height=700,
         legend=dict(
             orientation="h",      # Horizontal orientation for legend
             yanchor="top",        # Align legend to top
@@ -605,8 +627,8 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         yaxis=dict(visible=False)   # Hide y-axis   
     )
 
-    # Display the adapted gauge chart
-    fig.show()
+    fig.write_image(os.path.join(save_path, f"{bio_name}.png"))
+
 
 
 def plot_feature_scatter(df, feature_names, save_fig_path):
@@ -626,3 +648,280 @@ def plot_feature_scatter(df, feature_names, save_fig_path):
         ax[coutner].set_xlabel("Age")
     # ax[coutner].legend(["BTH", "CAMCAN", "NIMH"])
     plt.savefig(save_fig_path, dpi=600)
+
+
+
+
+
+
+def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
+                        save_plot=True, outputsuffix='estimate', experiment_id=0,
+                        batch_curve={"sex":["Male", "Female"]}, batch_marker={"site":['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP"]},
+                        new_names = ['Theta', 'Alpha','Beta', 'Gamma']):
+    
+    """Function to plot notmative ranges. This function assumes only gender as batch effect
+    stored in the first column of batch effect array.
+
+    Args:
+        processing_dir (str): Path to normative modeling processing directory.
+        quantiles (list, optional): Plotted centiles. Defaults to [0.05, 0.25, 0.5, 0.75, 0.95].
+        ind (int, optional): Index of target biomarker to plot. Defaults to 0.
+        parallel (bool, optional): Is parallel NM used to estimate the model?. Defaults to True.
+        save_plot (bool, optional): Save the plot?. Defaults to True.
+        outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
+    """
+    matplotlib.rcParams['pdf.fonttype']=42
+
+    z_scores = st.norm.ppf(quantiles)
+    # paths
+    testrespfile_path = os.path.join(data_dir, 'y_test.pkl')
+    testcovfile_path = os.path.join(data_dir, 'x_test.pkl')
+    tsbefile = os.path.join(data_dir, 'b_test.pkl')
+    quantiles_path = os.path.join(processing_dir, 'Quantiles_' + outputsuffix + '.pkl')
+    # reading the paths
+    X_test = pickle.load(open(testcovfile_path, 'rb')).to_numpy(float)
+    be_test = pickle.load(open(tsbefile, 'rb'))
+    Y_test = pickle.load(open(testrespfile_path, 'rb'))
+    temp = pickle.load(open(quantiles_path, 'rb'))
+
+    q = temp['quantiles']
+    synthetic_X = temp['synthetic_X']
+    quantiles_be = temp['batch_effects']
+    # converting age values to original space
+    X_test = X_test * 100
+
+    colors =  ['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213']
+    markers = ["o", "^"]
+    curves_colors = ["#6E750E", "#A9561E"]
+    curve_indx = int(np.where(be_test.columns == list(batch_curve.keys())[0])[0])
+    hue_indx = int(np.where(be_test.columns == list(batch_marker.keys())[0])[0])
+
+    be_test = be_test.to_numpy(float)
+
+    num_biomarkers = q.shape[2]
+    for ind in range(num_biomarkers):
+        bio_name = Y_test.columns[ind]
+        y_test = Y_test[[bio_name]].to_numpy(float)
+
+        # fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
+        fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
+        
+        for unique_hue in np.unique(be_test[:,hue_indx]).tolist():
+
+        
+            # Extract all male and female subjects and use different 
+            # markers for them
+            for unique_marker in np.unique(be_test[:,curve_indx]).tolist():
+
+                ts_idx = np.logical_and(be_test[:,hue_indx]==unique_hue, 
+                                        be_test[:,curve_indx]==unique_marker)
+                
+                ax.scatter(X_test[ts_idx], 
+                           y_test[ts_idx], 
+                            s = 35, 
+                            alpha = 0.6, 
+                            label=([*batch_curve.values()][0][int(unique_marker)] 
+                                        + " " 
+                                        + [*batch_marker.values()][0][int(unique_hue)]), 
+                            color=colors[int(unique_hue)], 
+                            marker=markers[int(unique_marker)])
+        
+        for unique_marker in np.unique(be_test[:,curve_indx]).tolist():
+            q_idx = np.where(quantiles_be[:,curve_indx]==unique_marker)[0] # only for males
+            
+            for i, v in enumerate(z_scores):
+
+                if v == 0:
+                    thickness = 3
+                    linestyle = "-"
+                else:
+                    linestyle = "--"
+                    thickness = 1
+
+                x = np.asarray(synthetic_X[q_idx]).flatten()
+                x = np.mean(x.reshape(-1, 100), axis=0)
+
+                y = q[q_idx,i:i+1,ind]
+                y = np.asarray(y).flatten()
+                y = np.mean(y.reshape(-1, 100), axis=0)
+
+                ax.plot(x.tolist(), y.tolist(), linewidth = thickness, 
+                        linestyle = linestyle,  alpha = 1, color=curves_colors[int(unique_marker)]) 
+
+            ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
+            ax.set_ylabel(f"{new_names[ind]} (proportion)", fontsize=10)
+            ax.set_xlabel('Age (years)', fontsize=16)
+            ax.tick_params(axis='both', which='major', labelsize=14)
+
+            for spine in ax.spines.values():
+                spine.set_visible(False)  
+                
+            ax.legend()
+            plt.tight_layout()
+        
+        if save_plot:
+            save_path = os.path.join(processing_dir, f'Figures_experiment{experiment_id}')
+            if not os.path.isdir(save_path):
+                os.makedirs(save_path)
+            plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.svg'), dpi=300, format="svg")
+
+
+
+def box_plot_auc(df, save_path):
+
+    # Melt the DataFrame to long format for Seaborn
+    data_long = pd.melt(df)
+
+
+    plt.figure(figsize=(6, 5))
+    # colors = ['#E6B213', 'sandybrown', '#E84653', 'lightseagreen']
+    sns.boxplot(x='variable', y='value', data=data_long, color="lightgray")#, palette=colors)
+
+    sns.stripplot(x='variable', y='value', data=data_long, color='black', marker='o', size=6, alpha=0.7, jitter=True)
+
+    means = df.mean(axis=0)
+    for i, mean in enumerate(means):
+        plt.text(i, mean, '', color='black', ha='center', va='center', fontsize=2)
+
+
+    # Customize the plot
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
+    # plt.title('AUCs Across 10 Runs', fontsize=16)
+    plt.ylabel('AUC', fontsize=16)
+    plt.xlabel("")
+    plt.grid()
+
+
+    plt.gca().spines["right"].set_visible(False)
+    plt.gca().spines["top"].set_visible(False)
+    plt.gca().spines["left"].set_visible(False)
+    plt.gca().spines["bottom"].set_visible(False)
+
+    plt.tight_layout()
+    # Show the plot
+    plt.savefig(os.path.join(save_path, "AUCs.svg"), dpi=600, format="svg")
+
+
+
+def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None):
+
+
+
+    plt.figure(figsize=(8, 8))
+
+    plt.ylim((-4, 4))
+    plt.xlim((-4, 4))
+
+    # Define the fixed order of labels and corresponding colors
+    order = [
+        (f'High {bands_name[1]} - Low {bands_name[0]}', 'red'),
+        (f'High {bands_name[0]} - Low {bands_name[1]}', 'purple'),
+        (f'High {bands_name[1]} - Normal {bands_name[0]}', 'blue'),
+        (f'Normal {bands_name[0]} - Low {bands_name[1]}', 'orange'),
+        (f'Normal {bands_name[1]} - High {bands_name[0]}', 'green'),
+        (f'Normal {bands_name[1]} - Low {bands_name[0]}', 'teal'),
+        (f'Low {bands_name[1]} - Low {bands_name[0]}', 'pink'),
+        (f'High {bands_name[1]} - High {bands_name[0]}', 'mediumvioletred'),
+        (f'Normal range', 'black')
+    ]
+
+    # Initialize lists for colors and labels
+    colors = []
+    labels = []
+
+    # Assign colors and labels based on conditions
+    for x, y in zip(X, Y):
+        if y > thr and x < -thr:
+            colors.append('red')
+            labels.append('High beta - Low theta')
+        elif thr > thr and y < -thr:
+            colors.append('purple')
+            labels.append('High theta - Low beta')
+        elif y > thr and -thr < x < thr:
+            colors.append("blue")
+            labels.append('High beta - Normal theta')
+        elif -thr < x < thr and y < -thr:
+            colors.append("orange")
+            labels.append('Normal theta - Low beta')
+        elif -thr < y < thr and x > thr:
+            colors.append("olive")
+            labels.append('Normal beta - High theta')
+        elif -thr < y < thr and x < -thr:
+            colors.append("teal")
+            labels.append('Normal beta - Low theta')
+        elif y < -thr and x < -thr:
+            colors.append("pink")
+            labels.append('Low beta - Low theta')
+        elif  y > thr and x > thr:
+            colors.append("mediumvioletred")
+            labels.append('High beta - High theta')
+        else:
+            colors.append('black')
+            labels.append('Normal range')
+
+    # Create the legend handles in the correct order
+    handles = []
+    for label, color in order:
+        handles.append(plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10, label=label))
+
+    # Plot the scatter plot
+    plt.scatter(X, Y, color=colors)
+
+    # Add the gray region and lines
+    plt.fill_betweenx(y=[-thr, thr], x1=-thr, x2=thr, color='gray', alpha=0.5, label=f"|z| < {thr}")
+    plt.hlines(y=[-thr, thr], xmin=-thr, xmax=thr, colors='black', linestyles='--', linewidth=1.5)
+    plt.vlines(x=[-thr, thr], ymin=-thr, ymax=thr, colors='black', linestyles='--', linewidth=1.5)
+
+    # Set axis ticks
+    ticks = [-3, -thr, 0, thr, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+
+    # Labeling
+    plt.xlabel('Theta z-scores', fontsize=16)
+    plt.ylabel('Beta z-scores', fontsize=16)
+
+    # Style the plot
+    plt.grid(alpha=0.5)
+    plt.gca().spines["right"].set_visible(False)
+    plt.gca().spines["top"].set_visible(False)
+    plt.gca().spines["left"].set_visible(False)
+    plt.gca().spines["bottom"].set_visible(False)
+
+    # Add the legend with the correct order
+    plt.legend(handles=handles, fontsize=13)
+
+    # Finalize and save the plot
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+
+
+
+
+def plot_metrics(metrics_path, which_features,
+                  feature_new_name=[], save_path = None):
+
+    # Use valid hexadecimal colors
+    colors = ["#9E6240", "#819595", "#5F0F40", "#0F4C5C"]
+    
+    with open(metrics_path, "rb") as file:
+        metrics_dic = pickle.load(file)
+    
+    for metric in metrics_dic.keys():
+        df_temp = pd.DataFrame(metrics_dic.get(metric)).loc[:, which_features]
+        df_temp.columns = feature_new_name
+        
+        # Reshape the data for boxplot
+        df_temp = df_temp.melt(var_name='Variable', value_name='Value')
+
+        sns.set_theme(style="ticks", palette="pastel")
+        
+        # Use palette instead of color
+        sns.boxplot(x='Variable', y='Value', data=df_temp, palette=colors)
+        sns.despine(offset=0, trim=True)
+        plt.xlabel("Frequency Bands")
+        plt.ylabel(metric.title())
+
+        plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+        plt.close()

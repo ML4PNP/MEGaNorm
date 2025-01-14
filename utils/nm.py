@@ -10,10 +10,12 @@ from scipy.stats import shapiro
 import itertools
 from sklearn.model_selection import StratifiedKFold
 import shutil
-
+from scipy.stats import skew, kurtosis
+from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
+from scipy.stats import false_discovery_control
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
-                  validation_split=None, drop_nans=False, random_seed=42, prefix=''):
+                  validation_split=None, drop_nans=False, random_seed="23d", prefix=''):
     
     """Utility function for splitting data into training, validation and test sets
     before HBR normative modeling. The sets are save as picke file in the specified 
@@ -39,7 +41,7 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
     os.makedirs(save_path, exist_ok=True)
 
     if drop_nans:
-        data = data.dropna(axis=1)
+        data = data.dropna(axis=0)
 
     x_train_all, y_train_all, b_train_all = [], [], []
     x_val_all, y_val_all, b_val_all = [], [], []
@@ -244,16 +246,19 @@ def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids,
     x = temp['synthetic_X'][0:point_num].squeeze()
     b = temp['batch_effects']
 
+
     for fb in frequency_band_model_ids.keys():
         model_id = frequency_band_model_ids[fb]
         
         if site_id is None:
             data = np.concatenate([q[b[:,0]== 0, quantile_id, model_id:model_id+1], 
                             q[b[:,0]== 1, quantile_id ,model_id:model_id+1]], axis=1)
+            data = data.reshape(5, 100, 2)  
+            data = data.mean(axis=0)
         else:
             data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site_id), quantile_id ,model_id:model_id+1]], axis=1)
-                
+        
         for gender in gender_ids.keys():
             batch_id = gender_ids[gender]
             oscilogram[gender][fb] = []
@@ -399,3 +404,131 @@ def kfold_split(data_path:str, save_dir:str, n_folds:int, sub_file="folds", pref
         saving(data=y_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='y', split='te')
         
     return folds_path
+
+
+def prepare_prediction_data(data, save_path, covariates=['age'], batch_effects=None, 
+                 drop_nans=False, prefix=''):
+    
+
+
+    os.makedirs(save_path, exist_ok=True)
+
+    if drop_nans:
+        data = data.dropna(axis=0)
+
+    x_test = data.loc[:, covariates]
+    b_test = data.loc[:, batch_effects] if batch_effects is not None else pd.DataFrame(np.zeros([x_test.shape[0],1], dtype=int), 
+                                                                                index=x_test.index, columns=['site'])
+    y_test = data.drop(columns=covariates+batch_effects) if batch_effects is not None else data.drop(columns=covariates) 
+
+    x_test.to_pickle(os.path.join(save_path,  prefix + 'x_test.pkl'))
+    y_test.to_pickle(os.path.join(save_path,  prefix + 'y_test.pkl'))
+    b_test.to_pickle(os.path.join(save_path,  prefix + 'b_test.pkl'))
+        
+    return None
+
+
+def cal_stats_for_gauge(q_path, features, site_id, gender_id, age):
+
+    q = pickle.load(open(q_path, "rb"))
+    quantiles = q["quantiles"]
+    synthetic_X = q["synthetic_X"].reshape(10, 100).mean(axis=0) # since Xs are repeated !
+    b = q["batch_effects"]
+
+    statistics = {feature: [] for feature in features}
+    for ind in range(len(features)):
+        
+        biomarker_stats = []
+        for quantile_id in range(quantiles.shape[1]):
+
+            if not site_id: # if not any specific site, average between all sites (batch effect)
+                data = quantiles[b[:,0]== gender_id, quantile_id, ind:ind+1]
+                data = data.reshape(5, 100, 1)  
+                data = data.mean(axis=0)
+            if site_id:
+                data = quantiles[np.logical_and(b[:,0]== gender_id, b[:,1]== site_id), quantile_id, ind:ind+1]
+            
+            data = data.squeeze()
+
+            closest_x = min(synthetic_X, key=lambda x: abs(x - age))
+            age_bin_ind = np.where(synthetic_X==closest_x)[0][0]
+
+            biomarker_stats.append(data[age_bin_ind])
+            
+        statistics[features[ind]].extend(biomarker_stats)
+    return statistics
+
+
+def abnormal_probability(processing_dir, nm_processing_dir, site_id, n_permutation=1000):
+
+
+    with open(os.path.join(processing_dir, "Z_clinicalpredict.pkl"), "rb") as file:
+        z_patient = pickle.load(file)
+
+    with open(os.path.join(processing_dir,"Z_estimate.pkl"), "rb") as file:
+        z_healthy = pickle.load(file)
+
+    with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
+        b_healthy = pickle.load(file)
+
+    z_healthy = z_healthy.iloc[np.where(b_healthy["site"]==site_id)[0], :]
+
+    # z_patient = pd.concat([z_patient, np.sqrt((z_patient.iloc[:, [0, 1, 2, 3]]**2).mean(axis=1))], axis=1)
+    # z_healthy = pd.concat([z_healthy, np.sqrt((z_healthy.iloc[:, [0, 1, 2, 3]]**2).mean(axis=1))], axis=1)
+
+    p_patient = z_to_abnormal_p(z_patient)
+    p_healthy = z_to_abnormal_p(z_healthy)
+    
+    p_patient = np.hstack([p_patient, p_patient[:, [0, 2, 3]].mean(axis=1).reshape(-1, 1)])
+    p_healthy = np.hstack([p_healthy, p_healthy[:, [0, 2, 3]].mean(axis=1).reshape(-1, 1)])
+
+    p = np.concatenate([p_patient, p_healthy])
+    labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
+
+    auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
+
+    p_val = false_discovery_control(p_val)
+
+    return p_val, auc
+
+
+def aggregate_metrics_across_runs(path, method_name, biomarker_names, valcovfile_path,
+                                valrespfile_path, valbefile,  metrics = ["skewness", "kurtosis", "W"], 
+                                num_runs=10, quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
+                                outputsuffix='estimate'):
+    
+    # index_labels = [metric + "_" + biomarker_name for metric in metrics for biomarker_name in biomarker_names]
+    # df = pd.DataFrame(index=index_labels, columns=list(range(10)))
+    data = {metric: {biomarker_name: [] for biomarker_name in biomarker_names} 
+                                for metric in metrics}
+
+    for run in range(num_runs):
+        run_path = path.replace("Run_0", f"Run_{run}")
+        with open(os.path.join(run_path, method_name, 'Z_estimate.pkl'), 'rb') as file:
+            z_scores = pickle.load(file)
+            
+            for metric in metrics:
+                values = []
+
+                if metric == "MACE":
+                    for ind in range(len(biomarker_names)):
+                        values.append(evaluate_mace(os.path.join(run_path, method_name, 'Models'), valcovfile_path, 
+                                                    valrespfile_path, valbefile, model_id=ind,
+                                                    quantiles=quantiles,
+                                                    outputsuffix=outputsuffix))
+                        
+                if metric == "W":
+                    with open(os.path.join(run_path, 'x_test.pkl'), 'rb') as file:
+                        cov = pickle.load(file)
+                    values.extend(shapiro_stat(z_scores, cov))
+
+                if metric == "skewness":
+                    values.extend(skew(z_scores))
+                
+                if metric == "kurtosis":
+                    values.extend(kurtosis(z_scores))
+
+                for counter, name in enumerate(biomarker_names):
+                    data[metric][name].append(values[counter])
+
+    return data

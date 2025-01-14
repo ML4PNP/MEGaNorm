@@ -7,9 +7,10 @@ import json
 import numpy as np
 import argparse
 from glob import glob
-from scipy import stats
 import warnings
 warnings.filterwarnings('ignore')
+from mne.preprocessing import find_bad_channels_maxwell
+
 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -39,10 +40,9 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     components = ica.get_sources(data.copy()).get_data()
     corr = np.corrcoef(components, physiological_signal)[:-1, -1]
     if np.max(corr) >= auto_ica_corr_thr:
-        componentIndx = np.argmax(corr)
+        componentIndx = [np.argmax(corr)]
     else:
         componentIndx = []
-
     return componentIndx
 
 
@@ -79,13 +79,14 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, Ica
     ica: object
     final ica model
     """
-    
+
     physiological_signal = data.copy().pick(picks=physiological_sensor).get_data()
 
-    data = data.pick_types(meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
-                                eeg=which_sensor["eeg"],
-                                ref_meg=False)
-    data = data.pick(picks=[sensor for sensor, if_calculate in which_sensor.items() if if_calculate])
+    data = data.pick_types(meg = which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
+                            eeg = which_sensor["eeg"],
+                            ref_meg = False,
+                            eog = True,
+                            ecg = True)
 
     # ICA
     ica = mne.preprocessing.ICA(n_components=n_components,
@@ -93,30 +94,33 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, Ica
                                 method=IcaMethod,
                                 random_state=42,
                                 verbose=False)
-    ica.fit(data, verbose=False)
+    ica.fit(data, verbose=False, picks=["eeg", "meg"])
     
     # calculating bad ica components using automatic method
     badComponents = []
     for sensor in physiological_signal:
-        badComponents.append(find_ica_component(ica=ica, data=data, physiological_signal=sensor, 
+        badComponents.extend(find_ica_component(ica=ica, data=data, physiological_signal=sensor, 
                                            auto_ica_corr_thr=auto_ica_corr_thr))
         # TODO test if this happens three times for camcan
 
-    ica.exclude = badComponents.copy()
-    # ica.apply() changes the Raw object in-place
-    ica.apply(data, verbose=False)
+    if any(badComponents):
+        ica.exclude = badComponents.copy()
+        # ica.apply() changes the Raw object in-place
+        ica.apply(data, verbose=False)
+        ICA_flag = False
+    else:
+        ICA_flag = True
 
-    return data
+    return data, ICA_flag
 
 
 def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000, IcaMethod="fastica", which_sensor=["meg", "eeg"], auto_ica_corr_thr=0.9):
 
-    # For excluding ref_meg and eeg
-    data = data.pick_types(meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
-                                eeg=False,
-                                ref_meg=False)
-    # for excluding either mag or grad if neccessary
-    data = data.pick(picks=[sensor for sensor, if_calculate in which_sensor.items() if if_calculate])
+    data = data.pick_types(meg = which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
+                            eeg = which_sensor["eeg"],
+                            ref_meg = False,
+                            eog = True,
+                            ecg = True)
     
     # ICA
     ica = mne.preprocessing.ICA(n_components=n_components,
@@ -124,9 +128,12 @@ def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000, IcaMethod="fast
                                 method=IcaMethod,
                                 random_state=42,
                                 verbose=False)
-    ica.fit(data, verbose=False)
+    ica.fit(data, verbose=False, picks=["eeg", "meg"])
     
-    ecg_indices, _ = ica.find_bads_ecg(data, method="correlation", threshold=auto_ica_corr_thr)
+    ecg_indices, _ = ica.find_bads_ecg(data, 
+                                       method="correlation", 
+                                       threshold=auto_ica_corr_thr,
+                                       measure='correlation')
 
     ica.exclude = ecg_indices
     # ica.apply() changes the Raw object in-place
@@ -147,7 +154,7 @@ def AutoIca_with_IcaLabel(data, physiological_noise_type, n_components=30, ica_m
                                 random_state=42, 
                                 fit_params=dict(extended=True),
                                 verbose=False) #fit_params=dict(extended=True) bc icalabel is trained with this
-    ica.fit(data, verbose=False)
+    ica.fit(data, verbose=False, picks=["eeg"])
 
     #apply ICLabel
     labels = label_components(data, ica, method='iclabel')
@@ -246,6 +253,14 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
     --------------
     datamne raw data
     """
+    # since pick_channels can not seperate mag and grad signals
+    if not (which_sensor['meg'] or which_sensor['eeg']):
+        if not which_sensor['mag']:
+            mag_channels = [ch for ch, ch_type in zip(data.ch_names, data.get_channel_types()) if ch_type == 'mag']
+        elif not which_sensor['grad']:
+            mag_channels = [ch for ch, ch_type in zip(data.ch_names, data.get_channel_types()) if ch_type == 'grad']
+        data.drop_channels(mag_channels)
+
     channel_types = set(data.get_channel_types())
 
     sampling_rate = data.info["sfreq"]
@@ -268,13 +283,16 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
     if which_sensor['eeg'] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
 
+    ICA_flag = False #initialize flag
+
     physiological_electrods = {channel: channel in channel_types for channel in ["ecg", "eog"]}
+
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
-    
+
         if which_sensor['meg']: # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data = auto_ica(data=data, 
+                data, _ = auto_ica(data=data, 
                             n_components=n_component, 
                             ica_max_iter=ica_max_iter,
                             IcaMethod = IcaMethod,
@@ -293,7 +311,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
         if which_sensor['eeg']: # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data = auto_ica(data=data, 
+                data, ICA_flag = auto_ica(data=data, 
                             n_components=n_component, 
                             ica_max_iter=ica_max_iter,
                             IcaMethod = IcaMethod,
@@ -301,7 +319,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                             physiological_sensor=phys_activity_type,
                             auto_ica_corr_thr=auto_ica_corr_thr)
             # 2
-            elif not if_elec_exist and apply_ica:
+            elif not if_elec_exist and apply_ica and ICA_flag:
                 data = AutoIca_with_IcaLabel(data = data, 
                                         n_components=n_component, 
                                         ica_max_iter=ica_max_iter, 
@@ -309,6 +327,12 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                                         iclabel_thr=auto_ica_corr_thr,
                                         physiological_noise_type=phys_activity_type) 
 
+    data = data.pick_types(meg = which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
+                            eeg = which_sensor["eeg"],
+                            ref_meg = False,
+                            eog = False,
+                            ecg = False)
+    
     return data, data.info["ch_names"], int(sampling_rate)
 
     

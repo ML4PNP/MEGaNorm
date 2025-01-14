@@ -8,6 +8,7 @@ import numpy as np
 import pathlib
 import mne_bids
 import pandas as pd
+import glob
 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,23 +48,37 @@ def mainParallel(*args):
 
 	# subject ID
 	subID = args.subject
-	
+
+	paths = args.dir.split("*")
+	paths = list(filter(lambda x: len(x), paths))
+	path = paths[0]
+
+	extention = path[0].split(".")[-1]
+	if "4D" in path[0]: extention = "BTI" # TODO: you need to change this
+
 	# read the data ====================================================================
-	data = mne.io.read_raw(args.dir, verbose=False, preload=True)
+
+	try:	
+		data = mne.io.read_raw(path, verbose=False, preload=True)
+	except:
+		data = mne.io.read_raw_bti(                   
+					pdf_fname=os.path.join(path, "c,rfDC"),     
+					config_fname=os.path.join(path, "config"),     
+					head_shape_fname=None,  
+					preload=True)
 
 	power_line_freq = data.info.get("line_freq") 
 	if not power_line_freq:
 		power_line_freq = 60
 
-	# In order to determine the loayout
-	extention = args.dir.split(".")[-1]
-
 	if configs["which_sensor"] == "eeg":
-		channel_file = os.path.dirname(args.dir)
-		channel_file = os.path.join(channel_file, subID + "_task-rest_channels.tsv")
-		channels_df = pd.read_csv(channel_file, sep = '\t')
+		base_dir = os.path.dirname(path)
+		subID = args.subject
+		channel_files = glob.glob(os.path.join(base_dir, f"{subID}_task-*_channels.tsv"))
+		channel_file = channel_files[0]
+		channels_df = pd.read_csv(channel_file, sep='\t')
 		channels_types = channels_df.set_index('name')['type'].str.lower().to_dict()
-		data.set_channel_types(channels_types)
+		data.set_channel_types(channels_types)	
 
 	which_sensor = {"meg":False,
 					"mag":False,
