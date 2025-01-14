@@ -8,6 +8,8 @@ import scipy.stats as st
 from plots.plots import KDE_plot
 from scipy.stats import shapiro
 import itertools
+from sklearn.model_selection import StratifiedKFold
+import shutil
 
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
@@ -94,7 +96,9 @@ def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, trai
     pd.concat(y_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'y_test.pkl'))
     pd.concat(b_test_all, axis=0).to_pickle(os.path.join(save_path,  prefix + 'b_test.pkl'))
     
-    
+    with open(os.path.join(save_path,  prefix + 'random_seed.pkl'), 'wb') as file:
+        pickle.dump({'random_seed':random_seed}, file)
+        
     return y_test.shape[1]
 
 
@@ -227,7 +231,7 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
 
 
 def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids, 
-                          quantile_id=2, site_id=0, point_num=100, age_slices=None):
+                          quantile_id=2, site_id=None, point_num=100, age_slices=None):
     
 
     if age_slices is None:
@@ -243,7 +247,11 @@ def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids,
     for fb in frequency_band_model_ids.keys():
         model_id = frequency_band_model_ids[fb]
         
-        data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
+        if site_id is None:
+            data = np.concatenate([q[b[:,0]== 0, quantile_id, model_id:model_id+1], 
+                            q[b[:,0]== 1, quantile_id ,model_id:model_id+1]], axis=1)
+        else:
+            data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site_id), quantile_id ,model_id:model_id+1]], axis=1)
                 
         for gender in gender_ids.keys():
@@ -341,3 +349,53 @@ def estimate_centiles(processing_dir, bio_num, quantiles=[0.05, 0.25, 0.5, 0.75,
     
     return q
 
+
+
+
+
+def saving(data, path, counter, tag, split):
+    fold_path = os.path.join(path, f"{tag}_fold_{counter}_{split}.pkl")
+    data.to_pickle(fold_path)
+def kfold_split(data_path:str, save_dir:str, n_folds:int, sub_file="folds", prefix="", random_state=42):
+    """
+    This function creates stratified k-fold cross-validation splits and saves them as separate batch, x, and y files.
+    Both 'sex' and 'site' are used to stratify the data, preserving their distribution across the folds.
+
+    Parameters:
+        data_path (str): The path to the directory containing the input data files (e.g., x_train.pkl, b_train.pkl, y_train.pkl).
+        save_dir (str): The directory where the generated fold data will be saved.
+        n_folds (int): The number of folds to split the data into for cross-validation.
+        sub_file (str): The subdirectory name within `save_dir` where fold data will be saved (default is "folds").
+        prefix (str): Prefix to add to the file names when loading data files (default is an empty string).
+        random_state (int): Random seed for reproducibility (default is 42).
+    
+    returns:
+        folds_path (str): where the folds are saved
+        """
+
+    folds_path = os.path.join(save_dir, sub_file)
+
+    if os.path.exists(folds_path):
+        shutil.rmtree(folds_path)
+    os.makedirs(folds_path)   
+
+    x_all = pickle.load(open(os.path.join(data_path, prefix + 'x_train.pkl'), "rb"))
+    b_all = pickle.load(open(os.path.join(data_path,  prefix + 'b_train.pkl'), "rb"))
+    y_all = pickle.load(open(os.path.join(data_path,  prefix + 'y_train.pkl'), "rb"))
+
+    numpy_batch = b_all.apply(lambda row: row["site"]*2 + row["sex"], axis=1).to_numpy()
+
+    skf = StratifiedKFold(n_splits=n_folds)
+    skf.get_n_splits(x_all, numpy_batch)
+
+
+    for counter, (train_ind, test_ind) in enumerate(skf.split(x_all, numpy_batch)):
+        saving(data=x_all.iloc[train_ind,:], path= folds_path, counter=counter, tag='x', split='tr')
+        saving(data=b_all.iloc[train_ind,:], path= folds_path, counter=counter, tag='b', split='tr')
+        saving(data=y_all.iloc[train_ind,:], path= folds_path, counter=counter, tag='y', split='tr')
+
+        saving(data=x_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='x', split='te')
+        saving(data=b_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='b', split='te')
+        saving(data=y_all.iloc[test_ind,:], path= folds_path, counter=counter, tag='y', split='te')
+        
+    return folds_path

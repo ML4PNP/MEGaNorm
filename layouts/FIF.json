@@ -1,6 +1,6 @@
 {
-    "Megin_MAG_All": {
-        "MAG_All": [
+    "FIF_MAG_ALL": {
+        "MAG_ALL": [
             "MEG0121",
             "MEG0341",
             "MEG0311",
@@ -105,7 +105,7 @@
             "MEG2131"
         ]
     },
-    "Megin_All_Lobe": {
+    "FIF_MEG_LOBE": {
         "MAG_frontal_left": [
             "MEG0121",
             "MEG0341",
@@ -461,8 +461,8 @@
             "MEG2133"
         ]
     },
-    "Megin_GRAD_All": {
-        "GRAD_All": [
+    "FIF_GRAD_ALL": {
+        "GRAD_ALL": [
             "MEG0122",
             "MEG0342",
             "MEG0312",

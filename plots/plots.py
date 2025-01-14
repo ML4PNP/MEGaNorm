@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
 import pandas as pd
-
+import plotly.graph_objects as go
 
 
 def KDE_plot(data, experiments, metric, xlim = 'auto', fontsize=24):
@@ -164,10 +164,22 @@ def plot_comparison(path, hbr_configs, biomarker_num, metrics = ['Rho','SMSE','M
         if plot_type == 'boxplot':
             ax.boxplot(values, positions=index, notch=True, showfliers=False)
         elif plot_type == 'violin':
-            ax.violinplot(values, index, showmedians=True, showextrema=False)    
-        ax.set_title(f'{metric_name} Comparison')
+            violin_parts = ax.violinplot(values, index, showmedians=True, showextrema=False)    
+
+            for partname in ['cmedians']:
+                vp = violin_parts[partname]
+                vp.set_edgecolor("black")
+                vp.set_linewidth(1)
+                
+            # Make the violin body blue with a red border:
+            for vp in violin_parts['bodies']:
+                vp.set_facecolor("#929591")
+                vp.set_edgecolor("#000000")
+                vp.set_alpha(1)
+                
+        ax.set_title(f'{metric_name} Comparison', fontsize=14)
         ax.set_xticks(index)
-        ax.set_xticklabels(methods, rotation=45, ha="right")  
+        ax.set_xticklabels(methods, rotation=45, ha="right", fontsize=12)  
         ax.grid(True, linestyle='--', alpha=0.5)
 
     plt.tight_layout()
@@ -276,11 +288,12 @@ def plot_age_dist2(df, site_ids, site_names):
         ages.append(df[df["site"]==site_ids[counter]]["age"].to_numpy()*100)
     
     plt.figure(figsize=(14, 8))
-    plt.hist(ages, bins=bins, color=["r", "b"], edgecolor="black", alpha=0.5, histtype="barstacked")
+    plt.hist(ages, bins=bins, color=["teal", "#3e525f"], edgecolor="black", alpha=0.5, histtype="barstacked", rwidth=0.9,)
     plt.grid(axis="y", color = 'black', linestyle = '--')
     plt.xlabel("Age", fontsize=25)
     plt.legend(site_names, prop={'size': 20})
     plt.tick_params(axis="both", labelsize=17)
+    plt.xticks(bins)
     plt.ylabel("Count",  fontsize=25)
     plt.savefig("pics/site_age.png", dpi=600, bbox_inches="tight")
 
@@ -288,7 +301,7 @@ def plot_age_dist2(df, site_ids, site_names):
 
 def plot_nm_range_site(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                         save_plot=True, outputsuffix='estimate', experiment_id=0,
-                        batch_curve={0:["Male", "Female"]}, batch_marker={1:['CAMCAN', 'BTNRH']}):
+                        batch_curve={1:["Male", "Female"]}, batch_marker={0:['CAMCAN', 'BTNRH']}):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -474,3 +487,142 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
                             q[np.logical_and(b[:,0]== 1, b[:,1]== site),:,idp:idp+1]], axis=2)
         plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
         
+
+
+def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
+                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False):
+    """
+    Plots a gauge chart based on quantile ranges with a threshold marker for the 0.5 percentile.
+    
+    Parameters:
+    - current_value (float): The current decimal value to display.
+    - q1 (float): The 25th percentile value as a decimal.
+    - q3 (float): The 75th percentile value as a decimal.
+    - percentile_5 (float): The 5th percentile value as a decimal.
+    - percentile_95 (float): The 95th percentile value as a decimal.
+    - percentile_50 (float): The 0.5 percentile value as a decimal, marked by a threshold line.
+    - title (str): The title of the gauge chart.
+    - min_value (float): The minimum value for the gauge range (default is 0).
+    - max_value (float): The maximum value for the gauge range (default is 1).
+    - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
+    """
+    
+    if min_value >= percentile_5:
+        min_value = 0
+    if max_value <= percentile_95:
+        max_value = 1
+
+    if current_value < percentile_5:
+        value_color = "rgba(128, 0, 128, 1)"  # Purple 
+    elif current_value < q1:
+        value_color = "rgba(255, 215, 0, 1)"  # Gold 
+    elif current_value <= q3:
+        value_color = "rgba(34, 139, 34, 1)"  # Green 
+    elif current_value <= percentile_95:
+        value_color = "rgba(255, 99, 71, 1)"  # Tomato red
+    else:
+        value_color = "rgba(128, 0, 128, 1)"  # Purple
+
+    if show_legend:
+        number_font_size = 75
+        delta_font_size = 30
+    else:
+        number_font_size = 150
+        delta_font_size = 50
+        
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=current_value,
+        number={'font': {'size': number_font_size, 'family': 'Arial', 'color': value_color}},  
+        delta={'reference': percentile_50, 'position': "top", 'font': {'size': delta_font_size}},
+        gauge={
+            'axis': {
+                'range': [min_value, max_value],
+                'tickfont': {'size': 30, 'family': 'Arial', 'color': 'black'},
+                'showticklabels': True,
+                'tickwidth': 2,
+                'tickcolor': "lightgrey",
+                'tickvals': [round(min_value + i * (max_value - min_value) / 10, 2) for i in range(11)],  
+            },
+            'bar': {'color': "rgb(255, 69, 58)"},  
+            'steps': [
+                {'range': [min_value, percentile_5], 'color': "rgba(128, 0, 128, 0.4)"},  # Purple 
+                {'range': [percentile_5, q1], 'color': "rgba(255, 215, 0, 0.6)"},  # Warm gold 
+                {'range': [q1, q3], 'color': "rgba(34, 139, 34, 0.7)"},  # Forest green 
+                {'range': [q3, percentile_95], 'color': "rgba(255, 99, 71, 0.6)"},  # Soft tomato red
+                {'range': [percentile_95, max_value], 'color': "rgba(128, 0, 128, 0.9)"},  # dark Purple
+            ],
+            'threshold': {
+                'line': {'color': "black", 'width': 6},  # Black line for the 0.5th percentile marker
+                'thickness': 0.75,
+                'value': percentile_50, 
+            },
+        },
+        title={
+            'text': title,
+            'font': {'size': 30, 'family': 'Arial', 'color': 'black'}
+        }
+    ))
+
+    if show_legend:
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.4)"),
+                                 name="0-5th Percentile (Extremely Low)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(255, 215, 0, 0.6)"),
+                                 name="5th-25th Percentile (Below Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(34, 139, 34, 0.7)"),
+                                 name="25th-75th Percentile (Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(255, 99, 71, 0.6)"),
+                                 name="75th-95th Percentile (Above Normal)"))
+
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.9)"),
+                                 name="95th-100th Percentile (Extremely High)"))
+        
+        
+    
+    # Update layout for better aesthetics
+    fig.update_layout(
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        margin=dict(t=50, b=100 if show_legend else 30, l=30, r=30),  # Adjust bottom margin for legend
+        showlegend=show_legend,
+        legend=dict(
+            orientation="h",      # Horizontal orientation for legend
+            yanchor="top",        # Align legend to top
+            y=-0.2,               # Place below the chart
+            xanchor="center",     # Center legend horizontally
+            x=0.5,                # Centered under the chart
+            font=dict(size=14)    # Set font size for readability
+        ),
+        xaxis=dict(visible=False),  # Hide x-axis
+        yaxis=dict(visible=False)   # Hide y-axis   
+    )
+
+    # Display the adapted gauge chart
+    fig.show()
+
+
+def plot_feature_scatter(df, feature_names, save_fig_path):
+    """
+    pltots the scatter plot of the specified features
+    """
+    import pandas as pd
+    import math
+
+    fig, ax = plt.subplots(math.ceil(len(feature_names)/2), 2, figsize=(15,10))
+    ax = ax.flatten()
+
+    for coutner, name in enumerate(feature_names):
+        sns.scatterplot(data=df, x="age", y=name, hue="site", size=10, ax=ax[coutner], palette=["orange", "teal", "black"], legend=False)
+        ax[coutner].set_title(name)
+        
+        ax[coutner].set_xlabel("Age")
+    # ax[coutner].legend(["BTH", "CAMCAN", "NIMH"])
+    plt.savefig(save_fig_path, dpi=600)

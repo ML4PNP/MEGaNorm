@@ -1,8 +1,24 @@
 import os
+import shutil
+import glob
 import subprocess
 import argparse
 import numpy as np
 from pcntoolkit.util.utils import retrieve_freesurfer_eulernum
+
+def prepare_mri_data(mri_directory):
+    """This function is written to prepare the BTNRH MRI data for recon-all processing.
+
+    Args:
+        mri_directory (str): Directory to MRI data
+    """
+    subject_list = glob.glob(mri_directory + '/*.nii')
+    subject_list = [os.path.basename(file).split('.')[0] for file in subject_list]
+    
+    for subject in subject_list:
+        os.makedirs(os.path.join(mri_directory, subject, 'anat'))
+        shutil.move(os.path.join(mri_directory, subject + '.nii'), 
+                    os.path.join(mri_directory, subject, 'anat', subject + '.nii'))
 
 def list_subject_ids(directory, save_path=None):
     """Retrieves all folders in the given directory as subject IDs, and
@@ -26,15 +42,16 @@ def list_subject_ids(directory, save_path=None):
             
     return subject_ids
 
+
 def create_slurm_script(subjects_directory, subject_id, results_dir, processing_directory, 
                         freesurfer_path, nodes=1, ntasks=1, cpus_per_task=1, 
-                        mem='16G', time='48:00:00', i_option=True):
+                        mem='16G', time='48:00:00', i_option=True, file_postfix='.nii'):
     """
     Create a Slurm batch script for running recon-all with given parameters.
     """
     
     # TODO: This line works for camcan. Check for other datasets.
-    t1_volume_path = os.path.join(subjects_directory, subject_id, 'anat', subject_id + '_T1w.nii.gz')
+    t1_volume_path = os.path.join(subjects_directory, subject_id, 'anat', subject_id + file_postfix)
     
     script_filename = subject_id + '_recon_all_slurm.sh'
     
@@ -86,7 +103,7 @@ def create_slurm_script(subjects_directory, subject_id, results_dir, processing_
 
 
 def run_parallel_reconall(subjects_directory, results_directory, 
-                          processing_directory, freesurfer_path):
+                          processing_directory, freesurfer_path, file_postfix='.nii'):
     
     """Runs Freesurfer recon-all in parallel on an Slurm cluster. 
 
@@ -95,6 +112,7 @@ def run_parallel_reconall(subjects_directory, results_directory,
         results_directory (str): Path to save the results.
         processing_directory (str): Path to save the bash script.
         freesurfer_path (str): Path to freesurfer.
+        file_postfix (str): file postfix for nifti files (could be different from one dataset to another).
     
     Returns:
         A list of subject IDs.
@@ -106,7 +124,7 @@ def run_parallel_reconall(subjects_directory, results_directory,
     for subject_id in subject_ids:
         
         script_file_path = create_slurm_script(subjects_directory, subject_id, results_directory, 
-                                               processing_directory, freesurfer_path)
+                                               processing_directory, freesurfer_path, file_postfix=file_postfix)
         
         command = ['sbatch', script_file_path, subject_id]
         
@@ -142,7 +160,7 @@ def check_log_for_success(results_directory, subject_ids):
 
 
 def rerun_failed_subs(failed_subjetcs, subjects_directory, results_directory, 
-                          processing_directory, freesurfer_path):
+                          processing_directory, freesurfer_path, file_postfix='.nii'):
     
     """Re-runs Freesurfer recon-all for failed subjects. 
 
@@ -158,7 +176,8 @@ def rerun_failed_subs(failed_subjetcs, subjects_directory, results_directory,
     for subject_id in failed_subjetcs:
         
         script_file_path = create_slurm_script(subjects_directory, subject_id, results_directory, 
-                                               processing_directory, freesurfer_path, i_option=False)
+                                               processing_directory, freesurfer_path, i_option=False,
+                                               file_postfix=file_postfix)
         
         command = ['sbatch', script_file_path, subject_id]
         
