@@ -1,4 +1,5 @@
 import os
+import matplotlib
 import pickle
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
@@ -226,7 +227,7 @@ def plot_age_dist(data, save_path=None):
     plt.show()
     
 
-def plot_neurooscillochart(data, age_slices, save_path=None):
+def plot_neurooscillochart(data, age_slices, save_path, colors):
     
     # Age ranges
     ages = [f"{i}-{i+5}" for i in age_slices]
@@ -243,7 +244,6 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
         df_means = pd.DataFrame(means, index=ages)
         df_stds = pd.DataFrame(stds, index=ages)
   
-        colors = ["paleturquoise", "lightseagreen", "teal", "cadetblue"]
         my_cmap = ListedColormap(colors, name="my_cmap")
         
         bar_plot = df_means.plot(kind='bar', yerr=df_stds, capsize=4, stacked=True, ax=ax, alpha=0.7, 
@@ -268,9 +268,11 @@ def plot_neurooscillochart(data, age_slices, save_path=None):
         ax.tick_params(axis='x', labelsize=14)
         ax.set_yticklabels([])  
     
-    plot_gender_data(axes[0], data['Male'], "Males' Chrono-NeuroOscilloChart")
+    plot_gender_data(axes[0], data['Male'], "Males' Chrono-NeuroOscilloChart", 
+                     colors= ['#0a2f66', '#081f45', '#061737', '#040f23'])
     
-    plot_gender_data(axes[1], data['Female'], "Females' Chrono-NeuroOscilloChart", legend=False)
+    plot_gender_data(axes[1], data['Female'], "Females' Chrono-NeuroOscilloChart", legend=False, 
+                     colors=['#081f45', '#061737', '#040f23', '#020711'])
     
     axes[1].set_xlabel('Age Ranges', fontsize=14)
     plt.xticks(rotation=45)
@@ -297,14 +299,25 @@ def plot_age_dist2(df, site_names, save_path):
              alpha=0.6, 
              histtype="barstacked", 
              rwidth=0.9,)
+    
+    # Remove the top and right spines
+    plt.gca().spines['top'].set_visible(False)
+    plt.gca().spines['right'].set_visible(False)
+
+    # Offset the bottom and left spines
+    plt.gca().spines['bottom'].set_position(('outward', 15))  # Set offset in points
+    plt.gca().spines['left'].set_position(('outward', 15))
+
+    # Optionally, trim the axis ticks to fit the visible range
+    plt.gca().xaxis.set_ticks_position('bottom')
+    plt.gca().yaxis.set_ticks_position('left')
     plt.grid(axis="y", color = 'black', linestyle = '--')
-    plt.xlabel("Age", fontsize=25)
-    plt.legend(site_names, prop={'size': 20})
+    plt.xlabel("Age (years)", fontsize=25)
+    plt.legend(site_names, prop={'size': 20}, loc='upper right')
     plt.tick_params(axis="both", labelsize=17)
     plt.xticks(bins)
     plt.ylabel("Count",  fontsize=25)
-    plt.title("Age Distribution Across Datasets", fontsize=25)
-    plt.savefig(os.path.join(save_path, "age_dis.png"), dpi=600, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "age_dis.svg"), format="svg", dpi=600, bbox_inches="tight")
 
     
 
@@ -492,8 +505,12 @@ def plot_growthcharts(path, idp_indices, idp_names, site=0, point_num=100):
     b = temp['batch_effects']
 
     for i, idp in enumerate(idp_indices):
-        data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site),:,idp:idp+1], 
-                            q[np.logical_and(b[:,0]== 1, b[:,1]== site),:,idp:idp+1]], axis=2)
+
+        data = np.concatenate([q[b[:,0]== 0,:,idp:idp+1], 
+                            q[b[:,0]== 1,:,idp:idp+1]], axis=2)
+        data = data.reshape(5, 100, 5, 2) 
+        data = data.mean(axis=0)
+
         plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
         
 
@@ -648,7 +665,8 @@ def plot_feature_scatter(df, feature_names, save_fig_path):
 
 def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                         save_plot=True, outputsuffix='estimate', experiment_id=0,
-                        batch_curve={"sex":["Male", "Female"]}, batch_marker={"site":['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP"]}):
+                        batch_curve={"sex":["Male", "Female"]}, batch_marker={"site":['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP"]},
+                        new_names = ['Theta', 'Alpha','Beta', 'Gamma']):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -661,15 +679,8 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
         save_plot (bool, optional): Save the plot?. Defaults to True.
         outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
     """
+    matplotlib.rcParams['pdf.fonttype']=42
 
-    names = ['Theta',
-            'Theta',
-            'Alpha',
-            'Alpha',
-            'Beta',
-            'Beta',
-            'Gamma',
-            'Gamma']
     z_scores = st.norm.ppf(quantiles)
     # paths
     testrespfile_path = os.path.join(data_dir, 'y_test.pkl')
@@ -747,8 +758,8 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
                         linestyle = linestyle,  alpha = 1, color=curves_colors[int(unique_marker)]) 
 
             ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
-            ax.set_ylabel(names[ind].replace('_', ' '), fontsize=10)
-            ax.set_xlabel('Age', fontsize=16)
+            ax.set_ylabel(f"{new_names[ind]} (proportion)", fontsize=10)
+            ax.set_xlabel('Age (years)', fontsize=16)
             ax.tick_params(axis='both', which='major', labelsize=14)
 
             for spine in ax.spines.values():
@@ -761,7 +772,7 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
             save_path = os.path.join(processing_dir, f'Figures_experiment{experiment_id}')
             if not os.path.isdir(save_path):
                 os.makedirs(save_path)
-            plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300)
+            plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.svg'), dpi=300, format="svg")
 
 
 
@@ -795,4 +806,4 @@ def box_plot_auc(df, save_path):
 
     plt.tight_layout()
     # Show the plot
-    plt.savefig(os.path.join(save_path, "AUCs.png"), dpi=600)
+    plt.savefig(os.path.join(save_path, "AUCs.svg"), dpi=600, format="svg")
