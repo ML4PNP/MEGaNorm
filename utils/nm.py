@@ -10,6 +10,7 @@ from scipy.stats import shapiro
 import itertools
 from sklearn.model_selection import StratifiedKFold
 import shutil
+from scipy.stats import skew, kurtosis
 from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
 
@@ -427,17 +428,15 @@ def prepare_prediction_data(data, save_path, covariates=['age'], batch_effects=N
     return None
 
 
-def cal_stats_for_gauge(q_path, features, features_list, site_id, gender_id, age):
+def cal_stats_for_gauge(q_path, features, site_id, gender_id, age):
 
     q = pickle.load(open(q_path, "rb"))
     quantiles = q["quantiles"]
     synthetic_X = q["synthetic_X"].reshape(10, 100).mean(axis=0) # since Xs are repeated !
     b = q["batch_effects"]
 
-    bio_indices = [ind for ind, name in enumerate(features_list) if name in features]
-
     statistics = {feature: [] for feature in features}
-    for ind in bio_indices:
+    for ind in range(len(features)):
         
         biomarker_stats = []
         for quantile_id in range(quantiles.shape[1]):
@@ -456,7 +455,7 @@ def cal_stats_for_gauge(q_path, features, features_list, site_id, gender_id, age
 
             biomarker_stats.append(data[age_bin_ind])
             
-        statistics[features_list[ind]].extend(biomarker_stats)
+        statistics[features[ind]].extend(biomarker_stats)
     return statistics
 
 
@@ -474,11 +473,14 @@ def abnormal_probability(processing_dir, nm_processing_dir, site_id, n_permutati
 
     z_healthy = z_healthy.iloc[np.where(b_healthy["site"]==site_id)[0], :]
 
-    # z_patient = pd.concat([z_patient, np.sqrt((z_patient.iloc[:, [0, 1, 2, 3]]**2).sum(axis=1))], axis=1)
-    # z_healthy = pd.concat([z_healthy, np.sqrt((z_healthy.iloc[:, [0, 1, 2, 3]]**2).sum(axis=1))], axis=1)
+    # z_patient = pd.concat([z_patient, np.sqrt((z_patient.iloc[:, [0, 1, 2, 3]]**2).mean(axis=1))], axis=1)
+    # z_healthy = pd.concat([z_healthy, np.sqrt((z_healthy.iloc[:, [0, 1, 2, 3]]**2).mean(axis=1))], axis=1)
 
     p_patient = z_to_abnormal_p(z_patient)
     p_healthy = z_to_abnormal_p(z_healthy)
+    
+    p_patient = np.hstack([p_patient, p_patient[:, [0, 2, 3]].mean(axis=1).reshape(-1, 1)])
+    p_healthy = np.hstack([p_healthy, p_healthy[:, [0, 2, 3]].mean(axis=1).reshape(-1, 1)])
 
     p = np.concatenate([p_patient, p_healthy])
     labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
@@ -488,3 +490,45 @@ def abnormal_probability(processing_dir, nm_processing_dir, site_id, n_permutati
     p_val = false_discovery_control(p_val)
 
     return p_val, auc
+
+
+def aggregate_metrics_across_runs(path, method_name, biomarker_names, valcovfile_path,
+                                valrespfile_path, valbefile,  metrics = ["skewness", "kurtosis", "W"], 
+                                num_runs=10, quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
+                                outputsuffix='estimate'):
+    
+    # index_labels = [metric + "_" + biomarker_name for metric in metrics for biomarker_name in biomarker_names]
+    # df = pd.DataFrame(index=index_labels, columns=list(range(10)))
+    data = {metric: {biomarker_name: [] for biomarker_name in biomarker_names} 
+                                for metric in metrics}
+
+    for run in range(num_runs):
+        run_path = path.replace("Run_0", f"Run_{run}")
+        with open(os.path.join(run_path, method_name, 'Z_estimate.pkl'), 'rb') as file:
+            z_scores = pickle.load(file)
+            
+            for metric in metrics:
+                values = []
+
+                if metric == "MACE":
+                    for ind in range(len(biomarker_names)):
+                        values.append(evaluate_mace(os.path.join(run_path, method_name, 'Models'), valcovfile_path, 
+                                                    valrespfile_path, valbefile, model_id=ind,
+                                                    quantiles=quantiles,
+                                                    outputsuffix=outputsuffix))
+                        
+                if metric == "W":
+                    with open(os.path.join(run_path, 'x_test.pkl'), 'rb') as file:
+                        cov = pickle.load(file)
+                    values.extend(shapiro_stat(z_scores, cov))
+
+                if metric == "skewness":
+                    values.extend(skew(z_scores))
+                
+                if metric == "kurtosis":
+                    values.extend(kurtosis(z_scores))
+
+                for counter, name in enumerate(biomarker_names):
+                    data[metric][name].append(values[counter])
+
+    return data
