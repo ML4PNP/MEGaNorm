@@ -832,33 +832,34 @@ def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_pat
 
     # Assign colors and labels based on conditions
     for x, y in zip(X, Y):
-        if y > thr and x < -thr:
-            colors.append('red')
-            labels.append('High beta - Low theta')
-        elif thr > thr and y < -thr:
-            colors.append('purple')
-            labels.append('High theta - Low beta')
-        elif y > thr and -thr < x < thr:
-            colors.append("blue")
-            labels.append('High beta - Normal theta')
-        elif -thr < x < thr and y < -thr:
-            colors.append("orange")
-            labels.append('Normal theta - Low beta')
-        elif -thr < y < thr and x > thr:
-            colors.append("olive")
-            labels.append('Normal beta - High theta')
-        elif -thr < y < thr and x < -thr:
-            colors.append("teal")
-            labels.append('Normal beta - Low theta')
-        elif y < -thr and x < -thr:
-            colors.append("pink")
-            labels.append('Low beta - Low theta')
-        elif  y > thr and x > thr:
-            colors.append("mediumvioletred")
-            labels.append('High beta - High theta')
-        else:
-            colors.append('black')
-            labels.append('Normal range')
+        match (x, y):
+            case (x, y) if y > thr and x < -thr:
+                colors.append('red')
+                labels.append('High beta - Low theta')
+            case (x, y) if y < -thr and x < -thr:
+                colors.append("pink")
+                labels.append('Low beta - Low theta')
+            case (x, y) if y < -thr and x > thr:
+                colors.append("purple")
+                labels.append('High theta - Low beta')
+            case (x, y) if y > thr and x > thr:
+                colors.append("mediumvioletred")
+                labels.append('High beta - High theta')
+            case (x, y) if y > thr and -thr < x < thr:
+                colors.append("blue")
+                labels.append('High beta - Normal theta')
+            case (x, y) if -thr < x < thr and y < -thr:
+                colors.append("orange")
+                labels.append('Normal theta - Low beta')
+            case (x, y) if -thr < y < thr and x > thr:
+                colors.append("olive")
+                labels.append('Normal beta - High theta')
+            case (x, y) if -thr < y < thr and x < -thr:
+                colors.append("teal")
+                labels.append('Normal beta - Low theta')
+            case _:
+                colors.append('black')
+                labels.append('Normal range')
 
     # Create the legend handles in the correct order
     handles = []
