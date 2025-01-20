@@ -1,12 +1,8 @@
-from pathlib import Path
 import argparse
 import json
 import os
 import sys
 import mne
-import numpy as np
-import pathlib
-import mne_bids
 import pandas as pd
 import glob
 
