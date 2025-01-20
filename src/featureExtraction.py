@@ -28,7 +28,7 @@ def offset(fm):
     """
     Returns offset of the apperiodic fit
     """
-    return fm.get_params("aperiodic_params")[0], 
+    return fm.get_params("aperiodic_params")[0] 
 
 
 def exponent(fm, aperiodic_mode):

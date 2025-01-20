@@ -208,3 +208,17 @@ if __name__ == "__main__":
                             "Other Specified Obsessive-Compulsive and Related Disorder": "other specified obsessive compulsive and related disorder",
                             "Developmental Coordination Disorder": "developmental coordination disorder",
                             "Acute Stress Disorder": "acute stress disorder"}, "single_value":None})
+    
+
+
+
+    # MOUS 
+    file_dir = "/project/meganorm/Data/MOUS/participants.tsv"
+    save_dir = "/project/meganorm/Data/BTNRH/participants_bids.tsv"
+    make_demo_file_bids(file_dir, 
+                        save_dir, 
+                        0, 
+                        2, 
+                        {"col_name": "sex", "col_id": 1, "mapping": {"M": "Male", "F": "Female"}, "single_value":None},
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_open"},
+                        {"col_name": "diagnosis", "col_id": None, "mapping": None, "single_value":"control"})
