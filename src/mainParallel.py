@@ -56,6 +56,9 @@ def mainParallel(*args):
 	extention = path[0].split(".")[-1]
 	if "4D" in path[0]: extention = "BTI" # TODO: you need to change this
 
+	#Task
+	task = path.split("/")[-1].split("_")[-2]
+
 	# read the data ====================================================================
 
 	try:	
@@ -74,7 +77,8 @@ def mainParallel(*args):
 	if configs["which_sensor"] == "eeg":
 		base_dir = os.path.dirname(path)
 		subID = args.subject
-		channel_files = glob.glob(os.path.join(base_dir, f"{subID}_task-*_channels.tsv"))
+		search_pattern = os.path.join(base_dir, f"**_{task}_channels.tsv")
+		channel_files = glob.glob(search_pattern, recursive=True)
 		channel_file = channel_files[0]
 		channels_df = pd.read_csv(channel_file, sep='\t')
 		channels_types = channels_df.set_index('name')['type'].str.lower().to_dict()
