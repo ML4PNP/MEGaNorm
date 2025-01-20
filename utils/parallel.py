@@ -272,3 +272,35 @@ def collect_results(target_dir, subjects, temp_path, file_name='features', clean
         shutil.rmtree(temp_path)
     
     
+def auto_parallel_feature_extraction(mainParallel_path, features_dir, subjects,
+                                     job_configs, config_file, username=None, auto_rerun=True,
+                                     auto_collect=True, max_try=3):
+    
+    features_temp_path = os.path.join(features_dir,'temp')  
+    
+    if username is None:
+        username = os.environ.get('USER')
+    
+    # Running Jobs
+    start_time = submit_jobs(mainParallel_path, features_dir, subjects, 
+                    features_temp_path, job_configs=job_configs, config_file=config_file)
+    # Checking jobs
+    failed_jobs = check_jobs_status(username, start_time)
+
+    falied_subjects = {failed_job:subjects[failed_job] for failed_job in failed_jobs}
+
+    try_num = 0
+    
+    while (len(failed_jobs)>0 and auto_rerun and try_num<max_try):
+        # Re-running Jobs
+        start_time = submit_jobs(mainParallel_path, features_dir, falied_subjects, 
+                    features_temp_path, job_configs=job_configs, config_file=config_file)
+        # Checking jobs
+        failed_jobs = check_jobs_status(username, start_time)
+        
+        try_num+=1
+    
+    if auto_collect:
+        collect_results(features_dir, subjects, features_temp_path, file_name='all_features', clean=False)
+    
+    return failed_jobs
