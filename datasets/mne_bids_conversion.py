@@ -222,3 +222,38 @@ if __name__ == "__main__":
                         {"col_name": "sex", "col_id": 1, "mapping": {"M": "Male", "F": "Female"}, "single_value":None},
                         {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_open"},
                         {"col_name": "diagnosis", "col_id": None, "mapping": None, "single_value":"control"})
+    
+    #TDBrain
+    file_dir = "/project/meganorm/Data/EEG_TDBrain/EEG/TDBRAIN_participants_V2.tsv"
+    save_dir = "/project/meganorm/Data/EEG_TDBrain/EEG/participants_bids.tsv"
+    make_demo_file_bids(file_dir, 
+                        save_dir, 
+                        0, 
+                        10, 
+                        {"col_name": "sex", "col_id": 11, "mapping": {"1.0": "Male", "0.0": "Female"}, "single_value":None},
+                        {"col_name": "eyes", "col_id": None, "mapping": None, "single_value":"eyes_closed"},
+                        {"col_name": "diagnosis", "col_id": 2, "mapping": {
+                            "REPLICATION": "replication", "BURNOUT": "burnout",  "SMC": "smc", 
+                            "HEALTHY": "control", "Dyslexia": "dyslexia", "CHRONIC PAIN": "chronic pain", 
+                            "MDD": "mdd", "nan": "nan", "ADHD": "adhd", 
+                            "ADHD/ASPERGER": "adhd/asperger", "PDD NOS/DYSLEXIA": "pdd nos/dyslexia", 
+                            "PDD NOS": "pdd nos", "WHIPLASH": "whiplash", "ANXIETY": "anxiety",
+                            "ADHD/DYSLEXIA": "adhd/dyslexia", "ASD": "asd", "TINNITUS": "tinnitus",
+                            "OCD": "ocd", "Tinnitus": "tinnitus", "PDD NOS ": "pdd nos", "PANIC": "panic",
+                            "MDD/ANXIETY": "mdd/anxiety", "MIGRAINE": "migraine", "PDD NOS/ANXIETY": "pdd nos/anxiety",
+                            "PARKINSON": "parkinson",  "BIPOLAR": "bipolar",  "MDD/bipolar": "mdd/bipolar",
+                            "DYSPRAXIA": "dyspraxia", "TINNITUS/MDD": "tinnitus/mdd", "ADHD/ASD/ANXIETY": "adhd/asd/anxiety",
+                            "MDD/ADHD": "mdd/adhd",  "ADHD/PDD NOS": "adhd/pdd nos", "MDD/BIPOLAR": "mdd/bipolar",
+                            "ASPERGER": "asperger", "ADHD/EPILEPSY": "adhd/epilepsy", "MDD/PAIN": "mdd/pain",
+                            "PDD NOS/GTS": "pdd nos/gts",  "PDD NOS/ADHD": "pdd nos/adhd", "PDD NOS/ASD": "pdd nos/asd",
+                            "TBI": "tbi", "ADHD/ANXIETY": "adhd/anxiety",  "ADHD/DYSLEXIA/DYSCALCULIA": "adhd/dyslexia/dyscalculia",
+                            "ADHD/MDD": "adhd/mdd", "MDD/PANIC": "mdd/panic", "DEPERSONALIZATION": "depersonalization",
+                            "MDD/TRAUMA": "mdd/trauma", "PTSD/ADHD": "ptsd/adhd",  "OCD/DPS": "ocd/dps","MDD/OCD": "mdd/ocd",
+                            "MDD/TUMOR": "mdd/tumor", "ADHD/GTS": "adhd/gts", "OCD/MDD": "ocd/mdd", "CONVERSION DX": "conversion dx",
+                            "ASD/ASPERGER": "asd/asperger", "MDD/ADHD/LYME": "mdd/adhd/lyme", "ADHD/OCD": "adhd/ocd",
+                            "MSA-C": "msa-c", "OCD/ASD": "ocd/asd", "STROKE/PAIN": "stroke/pain",
+                            "STROKE ": "stroke", "MDD/OCD/ADHD": "mdd/ocd/adhd",  "EPILEPSY/OCD": "epilepsy/ocd",
+                            "ADHD ": "adhd", "INSOMNIA": "insomnia", "MDD/ADHD/ANOREXIA": "mdd/adhd/anorexia",
+                            "MDD/ANXIETY/TINNITUS": "mdd/anxiety/tinnitus"
+                        }})
+
