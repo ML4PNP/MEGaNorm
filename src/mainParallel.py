@@ -160,7 +160,7 @@ def mainParallel(*args):
 
 if __name__ == "__main__":
 
-	# command = python src/mainParallel.py /project/meganorm/Data/BTNRH/BTNRH/BIDS_data/sub-049/meg/sub-049_task-rest_meg.fif /home/meganorm-mznasrabadi/MEGaNorm/tests
+	# command = python src/mainParallel.py /project/meganorm/Data/MOUS/sub-A2021/meg/sub-A2021_task-rest_meg.ds /home/meganorm-mznasrabadi/MEGaNorm/tests sub-A2021
 	# command = python src/mainParallel.py /project/meganorm/Data/BTNRH/CAMCAN/BIDS_data/sub-CC221828/meg/sub-CC221828_task-rest_meg.fif /home/meganorm-mznasrabadi/MEGaNorm/tests
 
 	mainParallel(sys.argv[1:])
