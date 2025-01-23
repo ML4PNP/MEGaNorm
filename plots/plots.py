@@ -946,3 +946,50 @@ def plot_metrics(metrics_path, which_features,
             plt.savefig(os.path.join(save_path, f"{metric}_metric.png"), dpi=600, format="png")
         
         plt.close()
+
+
+def qq_plot(processing_dir, save_fig, label_dict):
+    plotkwargs = {"markerfacecolor": "black", "markeredgecolor": "black"}
+
+    with open(os.path.join(processing_dir, "Z_estimate.pkl"), "rb") as file:
+        z_scores = pickle.load(file)
+
+    for key, value in label_dict.items():
+        plt.figure(figsize=(4, 4))
+        ax = plt.gca()  
+
+        # Generate QQ plot without the line
+        sm.qqplot(
+            z_scores.iloc[:, value].to_numpy(), 
+            line=None, 
+            ax=ax, 
+            **plotkwargs
+        )
+
+        # Add a red 45-degree line manually
+        x = np.linspace(-3, 3, 100)
+        ax.plot(x, x, color='red', linewidth=2, linestyle='-', alpha=0.6)
+
+        plt.ylim((-3, 3))
+        plt.xlim((-3, 3))
+
+        # Customize spines
+        ax.spines["right"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        ax.spines["bottom"].set_position(('outward', 10))
+        ax.spines["left"].set_position(('outward', 10))
+
+        plt.grid()
+
+        plt.xticks(np.linspace(-3, 3, 7))
+        plt.yticks(np.linspace(-3, 3, 7))
+        plt.tick_params(axis='both', labelsize=16)
+
+        plt.title(key.capitalize(), fontsize=16)
+        # Save the figure
+        if save_fig is not None:
+            os.makedirs(save_fig, exist_ok=True)
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.pdf"), dpi=300, bbox_inches='tight')
+
+        plt.close()
