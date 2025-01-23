@@ -70,7 +70,6 @@ def mainParallel(*args):
 					head_shape_fname=None,  
 					preload=True)
 
-
 	power_line_freq = data.info.get("line_freq") 
 	if not power_line_freq:
 		power_line_freq = 60
@@ -88,23 +87,27 @@ def mainParallel(*args):
 	if configs["which_sensor"] == "eeg":
 		montage = data.get_montage()
 		if montage is None: 
-			search_pattern_montage = os.path.join(base_dir, "*_montage.csv")
-			print("Searching for:",search_pattern_montage )
-			montage_files = glob.glob(search_pattern_montage, recursive=True)
+			try: 
+				search_pattern_montage = os.path.join(base_dir, "*_montage.csv")
+				print("Searching for:",search_pattern_montage )
+				montage_files = glob.glob(search_pattern_montage, recursive=True)
 
-			if not montage_files:
-				raise FileNotFoundError("No montage CSV file found!")
+				if not montage_files:
+					raise FileNotFoundError("No montage CSV file found!")
 
-			eeg_montage = montage_files[0]
-			montage_df = pd.read_csv(eeg_montage)
-			ch_positions = {
-            	row['Channel']: [row['X'], row['Y'], row['Z']]
-           	for _, row in montage_df.iterrows()
-        	}
-			eeg_montage = mne.channels.make_dig_montage(ch_pos=ch_positions, coord_frame='head')
-			data.set_montage(eeg_montage)
-
-	print(data.get_montage)
+				eeg_montage = montage_files[0]
+				montage_df = pd.read_csv(eeg_montage)
+				ch_positions = {
+            		row['Channel']: [row['X'], row['Y'], row['Z']]
+           		for _, row in montage_df.iterrows()
+        		}
+				eeg_montage = mne.channels.make_dig_montage(ch_pos=ch_positions, coord_frame='head')
+				data.set_montage(eeg_montage)
+			
+			except Exception as e:
+				# Log the error and continue without setting the montage
+				print(f"Error setting montage: {e}")
+				print("Continuing without a montage. This may raise issues for ICA label.")
 
 
 
