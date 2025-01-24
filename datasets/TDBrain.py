@@ -3,7 +3,7 @@ import glob
 import mne
 import pandas as pd
 
-def define_eog_ecg_channels(input_base_path):
+def define_eog_ecg_channels_TDBrain(input_base_path):
 
 
     search_pattern = os.path.join(input_base_path, "*/ses-1/eeg/*_ses-1_task-restEC_channels.tsv")
