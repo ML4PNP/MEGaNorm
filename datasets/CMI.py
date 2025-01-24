@@ -47,7 +47,7 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
 
         # Define channels on nek and chin as misc and channels close to eyes as eog
         misc_channels = ['E48', 'E49', 'E56', 'E63', 'E68', 'E73', 'E81', 'E88', 'E94', 'E99', 'E107', 'E113', 'E119']
-        eog_channels = ['E128', 'E127', 'E126', 'E125']
+        eog_channels = ['E8', 'E14', 'E17', 'E21', 'E25', 'E128', 'E127', 'E126', 'E125'] 
 
         # Create a dictionary for setting channel types
         channel_types = {ch: 'misc' for ch in misc_channels}
@@ -95,11 +95,57 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
                      root=output_base_path)
         mne_bids.write_raw_bids(raw, bids_path=bids_path, allow_preload=True, format='EEGLAB', overwrite=True,)   
 
-        channel_types = raw.get_channel_types()
-        for ch_name, ch_type in zip(raw.info['ch_names'], channel_types):
-            print(f"Channel: {ch_name}, Type: {ch_type}")
+        #channel_types = raw.get_channel_types()
+        #for ch_name, ch_type in zip(raw.info['ch_names'], channel_types):
+            #print(f"Channel: {ch_name}, Type: {ch_type}")
+
+        print(f"created bids for parcipant {subject_id}" )
 
     return None
+
+def define_eog_ecg_channels_CMI(input_base_path):
+
+
+    search_pattern = os.path.join(input_base_path, "*/eeg/*_task-eyesclosed_channels.tsv")
+    channel_files = glob.glob(search_pattern)
+    print("found:", channel_files)
+
+    for file in channel_files: 
+        channels_df = pd.read_csv(file, sep="\t")
+        #Define the mappings for channel types 
+        update_mapping = {
+            "E8": "EOG",
+            "E14": "EOG",
+            "E17": "EOG",
+            "E21": "EOG",
+            "E25": "EOG",
+            "E128": "EOG",
+            "E127": "EOG",
+            "E126": "EOG",
+            "E125": "EOG",
+            "E48": "misc",
+            "E49": "misc",
+            "E56": "misc",
+            "E63": "misc",
+            "E68": "misc",
+            "E73": "misc",
+            "E81": "misc",
+            "E88": "misc",
+            "E94": "misc",
+            "E99": "misc",
+            "E107": "misc",
+            "E113": "misc",
+            "E119": "misc"
+            }
+    
+        # Update the 'type' column based on the mapping
+        channels_df["type"] = channels_df["name"].apply(lambda x: update_mapping[x] if x in update_mapping else channels_df.loc[channels_df["name"] == x, "type"].values[0])
+
+        # Save the updated DataFrame back to the .tsv file
+        channels_df.to_csv(file, sep="\t", index=False)
+
+        print("Channel types updated successfully.")
+
 
 def load_covariates_CMI(CMI_covariates_path:str, save_dir:str): 
 
