@@ -5,7 +5,7 @@ import scipy
 import mne
 import mne_bids
 import pandas as pd
-from utils.IO import separate_eyes_open_close_eeglab
+#from utils.IO import separate_eyes_open_close_eeglab
 
 def preprocess_events_file(file_path):
     """
@@ -73,9 +73,9 @@ def mne_bids_MIPDB(input_base_path, output_base_path, montage_path):
         raw.info.rename_channels(mapping)
 
         # Define channels on nek and chin as misc and channels close to eyes as eog
-        eeg_channels = ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 
-                        'E11', 'E12', 'E13', 'E14', 'E15', 'E16', 'E17', 'E18', 'E19', 'E20',
-                        'E21', 'E22', 'E23', 'E24', 'E25', 'E26', 'E27', 'E28', 'E29', 'E30',
+        eeg_channels = ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E9', 'E10', 
+                        'E11', 'E12', 'E13', 'E14', 'E15', 'E16', 'E18', 'E19', 'E20',
+                        'E22', 'E23', 'E24', 'E26', 'E27', 'E28', 'E29', 'E30',
                         'E31', 'E32', 'E33', 'E34', 'E35', 'E36', 'E37', 'E38', 'E39', 'E40',
                         'E41', 'E42', 'E43', 'E44', 'E45', 'E46', 'E47', 'E50',
                         'E51', 'E52', 'E53', 'E54', 'E55', 'E57', 'E58', 'E59', 'E60',
@@ -87,7 +87,7 @@ def mne_bids_MIPDB(input_base_path, output_base_path, montage_path):
                         'E111', 'E112', 'E114', 'E115', 'E116', 'E117', 'E118', 'E120',
                         'E121', 'E122', 'E123', 'E124', 'E125', 'E126']
         misc_channels = ['E48', 'E49', 'E56', 'E63', 'E68', 'E73', 'E81', 'E88', 'E94', 'E99', 'E107', 'E113', 'E119']
-        eog_channels = ['E127', 'E126', 'E125'] #Actually also E128 but not present? 
+        eog_channels = ['E8','E14', 'E17','E21', 'E25', 'E127', 'E126', 'E125'] #Actually also E128 but not present? 
 
         # Create a dictionary for setting channel types
         channel_types = {ch: 'eeg' for ch in eeg_channels}
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     annotation_description_open = "20"
     annotation_description_close = "30"
 
-    separate_eyes_open_close_eeglab(input_base_path2, output_base_path2, annotation_description_open, annotation_description_close, trim_before=5, trim_after=5)
+    #separate_eyes_open_close_eeglab(input_base_path2, output_base_path2, annotation_description_open, annotation_description_close, trim_before=5, trim_after=5)
 
 
 
