@@ -102,13 +102,13 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, Ica
         badComponents.extend(find_ica_component(ica=ica, data=data, physiological_signal=sensor, 
                                            auto_ica_corr_thr=auto_ica_corr_thr))
         # TODO test if this happens three times for camcan
-
+    print("Bad Components identified by auto ICA:", badComponents)
+    
     if any(badComponents):
         ica.exclude = badComponents.copy()
         # ica.apply() changes the Raw object in-place
         ica.apply(data, verbose=False)
         ICA_flag = False
-        print("Bad Components identified by auto ICA:", badComponents)
     else:
         ICA_flag = True
 
