@@ -14,7 +14,7 @@ from utils.EEGlab import read_raw_eeglab
 def mne_bids_CMI(input_base_path, output_base_path, montage_path):
     """
     This code converges the CMI dataset into BIDS format. 
-    Meanwhile, it defines channels on nek and chin as misc channels and channels around the eyes as eog channels #TODO
+    Meanwhile, it defines channels on nek and chin as misc channels and channels around the eyes as eog channels 
     """
 
     # Ensure output directory exists
@@ -188,11 +188,11 @@ def load_CMI_data(feature_path, covariates_path):
     return CMI_data
 
 if __name__ == "__main__":
-    input_base_path = "/project/meganorm/Data/EEG_CMI/EEG/"
-    output_base_path = "/project/meganorm/Data/EEG_CMI/EEG_BIDS"
+    input_base_path = "/home/meganorm-yverduyn/Dev/2_EXAMPLE_SUBJECTS_CMI"
+    output_base_path = "/home/meganorm-yverduyn/Dev/2_EXAMPLE_SUBJECTS_CMI/BIDS"
     montage_path = "/project/meganorm/Data/EEG_CMI/info/GSN_HydroCel_129.sfp"
     mne_bids_CMI(input_base_path, output_base_path, montage_path)
 
-    CMI_demo_path = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" ##for R1
-    CMI_site_path = "/project/meganorm/Data/EEG_CMI/info/Subject-Site_R1_1.xlsx" ##for R1
-    load_covariates_CMI(CMI_demo_path, CMI_site_path)
+    #CMI_demo_path = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" ##for R1
+    #CMI_site_path = "/project/meganorm/Data/EEG_CMI/info/Subject-Site_R1_1.xlsx" ##for R1
+    #load_covariates_CMI(CMI_demo_path, CMI_site_path)
