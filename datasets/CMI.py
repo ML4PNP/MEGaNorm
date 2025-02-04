@@ -146,29 +146,87 @@ def define_eog_ecg_channels_CMI(input_base_path):
 
         print("Channel types updated successfully.")
 
+def clean_diagnosis(input_path, save_path):
+    #Load phenotype file
+    file= input_path
+    df = pd.read_csv(file)
 
-def load_covariates_CMI(CMI_covariates_path:str, save_dir:str): 
+    subject_id_column = df.columns[0] 
 
-    """Load age, gender, diagnosis and site for CMI dataset.
+    # only keep the rows where the diagnosis is confirmed (up to 10 diagnosis)
+    columns_to_check = [
+        'Diagnosis_ClinicianConsensus,DX_01_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_02_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_03_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_04_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_05_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_06_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_07_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_08_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_09_Confirmed',
+        'Diagnosis_ClinicianConsensus,DX_10_Confirmed', 
+        'Diagnosis_ClinicianConsensus,NoDX'
+    ]
+
+    # Filter rows where at least one of the specified columns equals 1
+    filtered_df = df[df[columns_to_check].eq(1).any(axis=1)]
+
+    #only keep columns of interest
+    columns_to_keep = [subject_id_column]
+    for i in range(1, 11):
+        prefix = f'Diagnosis_ClinicianConsensus,DX_{i:02d}'
+        columns_to_keep.extend([f'{prefix}', f'{prefix}_Confirmed', f'{prefix}_Cat', f'{prefix}_Sub'])
+
+
+    final_df = filtered_df[columns_to_keep]
+
+    #Rename columns and subjectIDs
+    final_df = final_df.rename(columns={subject_id_column: 'subject'})
+    final_df['subject'] = 'sub-' + final_df['subject'].str.replace(',assessment', '', regex=False)
+    final_df.columns = [col.replace('Diagnosis_ClinicianConsensus,', '') for col in final_df.columns]
+
+    newfile = save_path
+    final_df.to_csv(newfile, index=False)
+
+def load_covariates_CMI(base_path:str, save_dir:str): 
+
+    """This info loads all files containing age, gender, diagnosis and site for CMI dataset"
 
     Args:
         path (str): path to covariates.
 
     Returns:
-        DataFrame: Pandas dataframe containing age and gender for CMI dataset.
+        DataFrame: Pandas dataframe containing age, gender, site and diagnosis for CMI dataset.
     """
 
-    df = pd.read_csv(CMI_covariates_path, sep=',')
-    df = df.rename(columns={df.columns[0]: 'EID'})
-    df = df[['EID', 'Age', 'Sex', 'Site', 'Diagnosis']]  # Select necessary columns
-    df = df.rename(columns={'EID': 'Subject_ID', 'Age': 'age', 'Sex': 'gender', 'Site':'site', 'Diagnosis':'diagnosis'})  # Rename columns
-    #TODO Maybe rename diagnosis to match for every dataset?
-    df.dropna(inplace=True)
+    #Find & concatenate all phenotype files to extract age and gender later
+    search_pattern_pheno = os.path.join(base_path, "HBN_*_Pheno.csv")
+    pheno_files = glob.glob(search_pattern_pheno)
+    pheno_dfs = [pd.read_csv(file) for file in pheno_files]
+    pheno_df = pd.concat(pheno_dfs, ignore_index=True)
+    pheno_df.rename(columns={'EID': 'subject'}, inplace=True)
+    pheno_df['subject'] = 'sub-' + pheno_df['subject'].astype(str)
 
-    # Prepend 'sub-' to all Subject_IDs so that it can easily be merged with the features 
-    df['Subject_ID'] = 'sub-' + df['Subject_ID'].astype(str)
+    # Find and concatenate all site files
+    search_pattern_site = os.path.join(base_path, "Subject-Site_*.xlsx")
+    site_files = glob.glob(search_pattern_site)
+    site_dfs = [pd.read_excel(file) for file in site_files]
+    site_df = pd.concat(site_dfs, ignore_index=True)
+    site_df.rename(columns={'EID': 'subject'}, inplace=True)
+    site_df['subject'] = 'sub-' + site_df['subject'].astype(str)
 
-    df.to_csv(save_dir, sep='\t', index=False) 
+    #Find cleaned diagnosis file
+    search_pattern_diagnosis = os.path.join(base_path, "cleaned_diagnosis.csv")
+    diagnosis_files = glob.glob(search_pattern_diagnosis)
+    diagnosis_dfs = [pd.read_csv(file) for file in diagnosis_files]
+    diagnosis_df = pd.concat(diagnosis_dfs, ignore_index=True)
+
+    #Merge the 3 dataframes 
+    merged_df = pd.merge(pheno_df, site_df, on="subject", how="inner")
+    merged_df = pd.merge(merged_df, diagnosis_df, on="subject", how="inner")
+
+    # Save the final dataframe
+    merged_df.to_csv(save_dir, sep='\t', index=False)
 
 def load_CMI_data(feature_path, covariates_path):
     """Load CMI dataset
@@ -196,3 +254,7 @@ if __name__ == "__main__":
     #CMI_demo_path = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" ##for R1
     #CMI_site_path = "/project/meganorm/Data/EEG_CMI/info/Subject-Site_R1_1.xlsx" ##for R1
     #load_covariates_CMI(CMI_demo_path, CMI_site_path)
+
+    input_path = "/project/meganorm/Data/EEG_CMI/Phenotypes/data-2025-01-28T08_15_39.544Z.csv"
+    save_path = "/project/meganorm/Data/EEG_CMI/info/cleaned_diagnosis.tsv"
+    clean_diagnosis(input_path, save_path)
