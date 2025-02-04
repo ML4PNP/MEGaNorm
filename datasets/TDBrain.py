@@ -1,9 +1,8 @@
 import os
 import glob
-import mne
 import pandas as pd
 
-def define_eog_ecg_channels_TDBrain(input_base_path):
+def define_eog_ecg_emg_channels_TDBrain(input_base_path):
 
 
     search_pattern = os.path.join(input_base_path, "*/ses-1/eeg/*_ses-1_task-restEC_channels.tsv")
@@ -18,7 +17,8 @@ def define_eog_ecg_channels_TDBrain(input_base_path):
             "VNVB": "EOG",
             "HPHL": "EOG",
             "HNHR": "EOG",
-            "Erbs": "ECG"
+            "Erbs": "ECG", 
+            "Mass": "EMG"
             }
     
         # Update the 'type' column based on the mapping
@@ -29,3 +29,6 @@ def define_eog_ecg_channels_TDBrain(input_base_path):
 
         print("Channel types updated successfully.")
 
+if __name__ == "__main__":
+    path = "/project/meganorm/Data/EEG_TDBrain/EEG/"
+    define_eog_ecg_emg_channels_TDBrain(path)
