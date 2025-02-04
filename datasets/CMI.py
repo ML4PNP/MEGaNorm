@@ -211,6 +211,11 @@ def load_covariates_CMI(base_path:str, save_dir:str):
     search_pattern_site = os.path.join(base_path, "Subject-Site_*.xlsx")
     site_files = glob.glob(search_pattern_site)
     site_dfs = [pd.read_excel(file) for file in site_files]
+
+    for df in site_dfs:
+        if 'Study_Site' in df.columns:
+            df.rename(columns={'Study_Site': 'Study Site'}, inplace=True)
+            
     site_df = pd.concat(site_dfs, ignore_index=True)
     site_df.rename(columns={'EID': 'subject'}, inplace=True)
     site_df['subject'] = 'sub-' + site_df['subject'].astype(str)
