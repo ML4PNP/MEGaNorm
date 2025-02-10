@@ -220,6 +220,16 @@ def load_covariates_CMI(base_path:str, save_dir:str):
     site_df.rename(columns={'EID': 'subject'}, inplace=True)
     site_df['subject'] = 'sub-' + site_df['subject'].astype(str)
 
+    site_mapping = {
+        0.0: "CMI0",
+        1.0: "CMI1",
+        2.0: "CMI2",
+        3.0: "CMI3",
+        4.0: "CMI4"  # Add more if needed
+    }
+
+    site_df['Study Site'] = site_df['Study Site'].map(site_mapping).astype(str)
+
     #Find cleaned diagnosis file
     search_pattern_diagnosis = os.path.join(base_path, "cleaned_diagnosis.csv")
     diagnosis_files = glob.glob(search_pattern_diagnosis)
