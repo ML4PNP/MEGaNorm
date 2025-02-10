@@ -303,8 +303,11 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     
     feature_path = os.path.join(features_dir, "all_features.csv")
     data = pd.read_csv(feature_path, index_col=0)
+    data.index = data.index.astype(str)
+    data.index.name=None
 
     data = demographic_df.join(data, how='inner')
+    data.index.name=None
 
     # resacle age range to [0,1]
     data["age"] = data["age"]/100
@@ -313,13 +316,14 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     data_patient = None
 
     if not include_patients:
-        data_patient = data[data["diagnosis"] == diagnosis]
+        data_patient = data[data["diagnosis"].isin(diagnosis)] #changed from data_patient = data[data["diagnosis"] == diagnosis]
         # data_patient["diagnosis"] = pd.factorize(data_patient["diagnosis"])[0]
 
         data = data[data["diagnosis"] == "control"]
         data.drop(columns="diagnosis", inplace=True)
     elif include_patients:
-        data["diagnosis"] = pd.factorize(data["diagnosis"])[0] # changed from  data["diagnosis"] = pd.factorize(demographic_df["diagnosis"])[0]
+        data = data.dropna(subset=["diagnosis"]) #Drop rows where diangosis = nan 
+        data["diagnosis"] = np.where(data["diagnosis"] == "control", 0, pd.factorize(data["diagnosis"])[0] + 1) 
         
     return data, data_patient
 
