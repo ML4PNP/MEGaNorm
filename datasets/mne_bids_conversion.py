@@ -6,6 +6,7 @@ import mne
 from pathlib import Path
 import scipy
 import sys
+import numpy as np 
 # Add utils folder to the system path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_path = os.path.join(parent_dir, 'utils')
@@ -59,6 +60,12 @@ def make_demo_file_bids( file_dir:str, save_dir:str, id_col:int, age_col:int, *a
 
         if mapping:
             new_df[col_name] = new_df[col_name].map(mapping)
+        
+
+        if col_name == "diagnosis":
+            new_df[col_name] = new_df[col_name].replace(np.nan, "nan")
+
+        new_df = new_df.drop_duplicates(subset=["participant_id"], keep="first") 
 
     new_df.to_csv(save_dir, sep='\t', index=False)
 
