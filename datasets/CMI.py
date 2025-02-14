@@ -146,44 +146,45 @@ def define_eog_ecg_channels_CMI(input_base_path):
 
         print("Channel types updated successfully.")
 
+def determine_final_diagnosis(row):
+    if row["NoDX"] == 1 and row["DX_01_Sub"] == "No Diagnosis Given":
+        return "No Diagnosis Given"
+    elif row["NoDX"] == 2 and row["DX_01_Confirmed"] == 1:
+        return row["DX_01_Sub"]
+    elif row["NoDX"] == 3:
+        return "dropped out"
+    elif row["NoDX"] == 2 and row["DX_01_Confirmed"] == 0:
+        return "Diagnosis not confirmed"
+    elif row["NoDX"] == 2 and pd.isna(row["DX_01_Confirmed"]):
+        return "No info about confirmation"
+    else:
+        return np.nan
+
 def clean_diagnosis(input_path, save_path):
     #Load phenotype file
     file= input_path
     df = pd.read_csv(file)
 
     subject_id_column = df.columns[0] 
-
-    # only keep the rows where the diagnosis is confirmed (up to 10 diagnosis)
-    columns_to_check = [
-        'Diagnosis_ClinicianConsensus,DX_01_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_02_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_03_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_04_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_05_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_06_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_07_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_08_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_09_Confirmed',
-        'Diagnosis_ClinicianConsensus,DX_10_Confirmed', 
-        'Diagnosis_ClinicianConsensus,NoDX'
-    ]
-
-    # Filter rows where at least one of the specified columns equals 1
-    filtered_df = df[df[columns_to_check].eq(1).any(axis=1)]
+    diagnosis_given = df.columns[156] 
 
     #only keep columns of interest
-    columns_to_keep = [subject_id_column]
-    for i in range(1, 11):
+    columns_to_keep = [subject_id_column, diagnosis_given]
+    for i in range(1, 2):
         prefix = f'Diagnosis_ClinicianConsensus,DX_{i:02d}'
         columns_to_keep.extend([f'{prefix}', f'{prefix}_Confirmed', f'{prefix}_Cat', f'{prefix}_Sub'])
 
 
-    final_df = filtered_df[columns_to_keep]
+    final_df = df[columns_to_keep]
 
     #Rename columns and subjectIDs
     final_df = final_df.rename(columns={subject_id_column: 'subject'})
     final_df['subject'] = 'sub-' + final_df['subject'].str.replace(',assessment', '', regex=False)
     final_df.columns = [col.replace('Diagnosis_ClinicianConsensus,', '') for col in final_df.columns]
+
+    final_df["DX_01_Sub"] = final_df["DX_01_Sub"].fillna(final_df["DX_01_Cat"])
+
+    final_df["FinalDiagnosis"] = final_df.apply(determine_final_diagnosis, axis=1)
 
     newfile = save_path
     final_df.to_csv(newfile, index=False)
@@ -199,6 +200,8 @@ def load_covariates_CMI(base_path:str, save_dir:str):
         DataFrame: Pandas dataframe containing age, gender, site and diagnosis for CMI dataset.
     """
 
+    pd.set_option("display.max_rows", None)
+    
     #Find & concatenate all phenotype files to extract age and gender later
     search_pattern_pheno = os.path.join(base_path, "HBN_*_Pheno.csv")
     pheno_files = glob.glob(search_pattern_pheno)
@@ -210,7 +213,13 @@ def load_covariates_CMI(base_path:str, save_dir:str):
     # Find and concatenate all site files
     search_pattern_site = os.path.join(base_path, "Subject-Site_*.xlsx")
     site_files = glob.glob(search_pattern_site)
-    site_dfs = [pd.read_excel(file) for file in site_files]
+    site_dfs = []
+    for file in site_files:
+        try:
+            df = pd.read_excel(file, engine="openpyxl")
+            site_dfs.append(df)
+        except Exception as e:
+            print(f"Error reading {file}: {e}")
 
     for df in site_dfs:
         if 'Study_Site' in df.columns:
@@ -225,13 +234,13 @@ def load_covariates_CMI(base_path:str, save_dir:str):
         1.0: "CMI1",
         2.0: "CMI2",
         3.0: "CMI3",
-        4.0: "CMI4"  # Add more if needed
+        4.0: "CMI4"  
     }
 
     site_df['Study Site'] = site_df['Study Site'].map(site_mapping).astype(str)
 
     #Find cleaned diagnosis file
-    search_pattern_diagnosis = os.path.join(base_path, "cleaned_diagnosis.csv")
+    search_pattern_diagnosis = os.path.join(base_path, "cleaned_diagnosis2.csv")
     diagnosis_files = glob.glob(search_pattern_diagnosis)
     diagnosis_dfs = [pd.read_csv(file) for file in diagnosis_files]
     diagnosis_df = pd.concat(diagnosis_dfs, ignore_index=True)
