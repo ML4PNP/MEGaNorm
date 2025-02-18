@@ -7,6 +7,7 @@ from pathlib import Path
 import scipy
 import numpy as np
 import pandas as pd
+import re 
 import numpy as np
 import pandas as pd
 from utils.EEGlab import read_raw_eeglab
@@ -26,80 +27,81 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
 
     # Loop through all found .mat files
     for mat_path in raw_mat_path:
-        subject_id = Path(mat_path).parts[-5]  # Extract subject number from the file path
+        try:
+            subject_id = Path(mat_path).parts[-5]  # Extract subject number from the file path
+            print(subject_id)
 
-        # read the math file & save the mat_file to extract needed info later on 
-        raw = read_raw_eeglab(mat_path) 
-        mat_data = scipy.io.loadmat(mat_path)
+            # Read the .mat file & save the mat_file to extract needed info later on
+            raw = read_raw_eeglab(mat_path) 
+            mat_data = scipy.io.loadmat(mat_path)
 
-        #### ADD extra information, that is not in the raw object yet ####
+            #### ADD extra information, that is not in the raw object yet ####
+            EEG_data = mat_data['EEG']  # Access the EEG data to extract info
+            sfreq = EEG_data['srate'][0][0][0][0]  # Get sampling frequency
+            
+            # Set channel locations
+            montage = mne.channels.read_custom_montage(montage_path)
 
-        EEG_data = mat_data['EEG'] # Access the EEG data to extract info within there
-        sfreq = EEG_data['srate'][0][0][0][0]    #Get sampling frequency 
-        # set channel locations
-        montage = mne.channels.read_custom_montage(montage_path)
+            # Create a mapping to rename the channels in raw to match the montage
+            mapping = {f'EEG {i:03d}': f'E{i+1}' for i in range(128)}  # EEG 000 -> E1, EEG 001 -> E2, ..., EEG 128 -> E129
+            mapping['EEG 128'] = 'Cz'  
+            raw.info.rename_channels(mapping)
+            raw.info.set_montage(montage)
 
-        # Create a mapping to rename the channels in raw to match the montage
-        mapping = {f'EEG {i:03d}': f'E{i+1}' for i in range(128)}  # EEG 000 -> E1, EEG 001 -> E2, ..., EEG 128 -> E129
-        mapping['EEG 128'] = 'Cz'  
-        raw.info.rename_channels(mapping)
-        raw.info.set_montage(montage)
+            # Define channels on neck and chin as misc and channels close to eyes as eog
+            misc_channels = ['E48', 'E49', 'E56', 'E63', 'E68', 'E73', 'E81', 'E88', 'E94', 'E99', 'E107', 'E113', 'E119']
+            eog_channels = ['E8', 'E14', 'E17', 'E21', 'E25', 'E128', 'E127', 'E126', 'E125'] 
 
-        # Define channels on nek and chin as misc and channels close to eyes as eog
-        misc_channels = ['E48', 'E49', 'E56', 'E63', 'E68', 'E73', 'E81', 'E88', 'E94', 'E99', 'E107', 'E113', 'E119']
-        eog_channels = ['E8', 'E14', 'E17', 'E21', 'E25', 'E128', 'E127', 'E126', 'E125'] 
+            # Create a dictionary for setting channel types
+            channel_types = {ch: 'misc' for ch in misc_channels}
+            channel_types.update({ch: 'eog' for ch in eog_channels})
 
-        # Create a dictionary for setting channel types
-        channel_types = {ch: 'misc' for ch in misc_channels}
-        channel_types.update({ch: 'eog' for ch in eog_channels})
+            # Apply the channel types to the raw object
+            raw.set_channel_types(channel_types)
 
-        # Apply the channel types to the raw object
-        raw.set_channel_types(channel_types)
+            # Set EEG reference to match the reference of the recording
+            raw.set_eeg_reference(ref_channels=['Cz'])
 
-        #set eeg reference to match the reference of the recording 
-        raw.set_eeg_reference(ref_channels=['Cz'])
+            ##### Extract event and epoch information to set the annotations #####
+            events_data = EEG_data['event']
 
-        ##### Extract event and epoch information to set the annotations
-        # Access the event info within EEG_data
-        events_data = EEG_data['event']
+            # Loop through each event entry to extract type, onset, and duration needed for annotations
+            for event in events_data[0][0]:
+                event_type = event['type']
+                event_types = [item[0] for item in event_type]
 
-        # Loop through each event entry to extract type, onset and duration needded for annotations 
-        for event in events_data[0][0]:
-            event_type = event['type']
-            event_types = [item[0] for item in event_type]
+                event_sample = event['sample']
+                event_samples = [item[0][0] for item in event_sample]
+                event_onsets = [(sample / sfreq) for sample in event_samples]
+                print(event_onsets)
 
-            event_sample= event['sample']
-            event_samples = [item[0][0] for item in event_sample]
-            event_onsets = [(sample / sfreq) for sample in event_samples]
-            print(event_onsets)
+                event_duration = [event_onsets[i] - event_onsets[i-1] for i in range(1, len(event_onsets))]
+                event_duration.append(0)
 
-            event_duration = [event_onsets[i] - event_onsets[i-1] for i in range (1, len(event_onsets))]
-            event_duration.append(0)
+            # Create annotations using onset, duration, and description
+            annotations = mne.Annotations(onset=event_onsets, duration=event_duration, description=event_types)
 
-        # Create annotations using onset, duration, and description
-        annotations = mne.Annotations(onset=event_onsets, duration=event_duration, description=event_types)
+            # Attach annotations to the raw object
+            raw.set_annotations(annotations)
 
-        # Attach annotations to the raw object
-        raw.set_annotations(annotations)
-
-        #extra info that cannot 
-        raw.info["line_freq"] = 60
-        raw.info["device_info"] = {
-            'type': 'EEG',
-            'manufacturer': 'Electrical Geodesics',
-            'model': 'HydroCel GSN 130'
+            # Extra info
+            raw.info["line_freq"] = 60
+            raw.info["device_info"] = {
+                'type': 'EEG',
+                'manufacturer': 'Electrical Geodesics',
+                'model': 'HydroCel GSN 130'
             }
-        
-        #convert to BIDS
-        bids_path = mne_bids.BIDSPath(subject=subject_id, datatype='eeg', task='rest',
-                     root=output_base_path)
-        mne_bids.write_raw_bids(raw, bids_path=bids_path, allow_preload=True, format='EEGLAB', overwrite=True,)   
+            
+            # Convert to BIDS
+            bids_path = mne_bids.BIDSPath(subject=subject_id, datatype='eeg', task='rest',
+                                          root=output_base_path)
+            mne_bids.write_raw_bids(raw, bids_path=bids_path, allow_preload=True, format='EEGLAB', overwrite=True)
 
-        #channel_types = raw.get_channel_types()
-        #for ch_name, ch_type in zip(raw.info['ch_names'], channel_types):
-            #print(f"Channel: {ch_name}, Type: {ch_type}")
+            print(f"Created BIDS for participant {subject_id}")
 
-        print(f"created bids for parcipant {subject_id}" )
+        except Exception as e:
+            print(f"Error processing subject {subject_id}: {e}")
+            continue  
 
     return None
 
@@ -189,6 +191,11 @@ def clean_diagnosis(input_path, save_path):
     newfile = save_path
     final_df.to_csv(newfile, index=False)
 
+def extract_r_number(filename: str) -> str:
+    """Extracts the R number from the filename."""
+    match = re.search(r'_R(\d+(?:_\d+)?)', filename)
+    return match.group(1) if match else None
+
 def load_covariates_CMI(base_path:str, save_dir:str): 
 
     """This info loads all files containing age, gender, diagnosis and site for CMI dataset"
@@ -199,24 +206,33 @@ def load_covariates_CMI(base_path:str, save_dir:str):
     Returns:
         DataFrame: Pandas dataframe containing age, gender, site and diagnosis for CMI dataset.
     """
-
-    pd.set_option("display.max_rows", None)
     
     #Find & concatenate all phenotype files to extract age and gender later
-    search_pattern_pheno = os.path.join(base_path, "HBN_*_Pheno.csv")
+    search_pattern_pheno = os.path.join(base_path, "HBN_R*_Pheno.csv")
     pheno_files = glob.glob(search_pattern_pheno)
-    pheno_dfs = [pd.read_csv(file) for file in pheno_files]
-    pheno_df = pd.concat(pheno_dfs, ignore_index=True)
-    pheno_df.rename(columns={'EID': 'subject'}, inplace=True)
-    pheno_df['subject'] = 'sub-' + pheno_df['subject'].astype(str)
+    pheno_dfs = {}
+
+    for file in pheno_files:
+        r_number = extract_r_number(file)
+        if r_number:
+            df = pd.read_csv(file)
+            df['R_number'] = r_number
+            pheno_dfs[r_number] = df
+
+    full_pheno_df = pd.concat(pheno_dfs.values(), ignore_index=True)
+    full_pheno_df.rename(columns={'EID': 'subject'}, inplace=True)
+    full_pheno_df['subject'] = 'sub-' + full_pheno_df['subject'].astype(str)
 
     # Find and concatenate all site files
-    search_pattern_site = os.path.join(base_path, "Subject-Site_*.xlsx")
+    search_pattern_site = os.path.join(base_path, "Subject-Site_R*.xlsx")
     site_files = glob.glob(search_pattern_site)
     site_dfs = []
     for file in site_files:
         try:
             df = pd.read_excel(file, engine="openpyxl")
+            r_number = extract_r_number(file)
+            if r_number:
+                df['R_number'] = r_number
             site_dfs.append(df)
         except Exception as e:
             print(f"Error reading {file}: {e}")
@@ -239,18 +255,20 @@ def load_covariates_CMI(base_path:str, save_dir:str):
 
     site_df['Study Site'] = site_df['Study Site'].map(site_mapping).astype(str)
 
+    # Keep only rows from pheno_df that match site_df R_number
+    merged_pheno_site = pd.merge(site_df, full_pheno_df, on=["subject", "R_number"], how="inner")
+
     #Find cleaned diagnosis file
-    search_pattern_diagnosis = os.path.join(base_path, "cleaned_diagnosis2.csv")
+    search_pattern_diagnosis = os.path.join(base_path, "cleaned_diagnosis.csv")
     diagnosis_files = glob.glob(search_pattern_diagnosis)
     diagnosis_dfs = [pd.read_csv(file) for file in diagnosis_files]
     diagnosis_df = pd.concat(diagnosis_dfs, ignore_index=True)
 
     #Merge the 3 dataframes 
-    merged_df = pd.merge(pheno_df, site_df, on="subject", how="inner")
-    merged_df = pd.merge(merged_df, diagnosis_df, on="subject", how="inner")
+    final_df = pd.merge(merged_pheno_site, diagnosis_df, on="subject", how="inner")
 
     # Save the final dataframe
-    merged_df.to_csv(save_dir, sep='\t', index=False)
+    final_df.to_csv(save_dir, index=False)
 
 def load_CMI_data(feature_path, covariates_path):
     """Load CMI dataset
@@ -275,9 +293,9 @@ if __name__ == "__main__":
     montage_path = "/project/meganorm/Data/EEG_CMI/info/GSN_HydroCel_129.sfp"
     mne_bids_CMI(input_base_path, output_base_path, montage_path)
 
-    #CMI_demo_path = "/project/meganorm/Data/EEG_CMI/Phenotypes/HBN_R1_1_Pheno.csv" ##for R1
-    #CMI_site_path = "/project/meganorm/Data/EEG_CMI/info/Subject-Site_R1_1.xlsx" ##for R1
-    #load_covariates_CMI(CMI_demo_path, CMI_site_path)
+    base_path = "/project/meganorm/Data/EEG_CMI/info/"
+    save_dir = "/project/meganorm/Data/EEG_CMI/info/participants_info.csv"
+    load_covariates_CMI(base_path, save_dir)
 
     input_path = "/project/meganorm/Data/EEG_CMI/Phenotypes/data-2025-01-28T08_15_39.544Z.csv"
     save_path = "/project/meganorm/Data/EEG_CMI/info/cleaned_diagnosis.tsv"
