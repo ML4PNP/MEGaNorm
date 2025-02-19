@@ -191,11 +191,6 @@ def clean_diagnosis(input_path, save_path):
     newfile = save_path
     final_df.to_csv(newfile, index=False)
 
-def extract_r_number(filename: str) -> str:
-    """Extracts the R number from the filename."""
-    match = re.search(r'_R(\d+(?:_\d+)?)', filename)
-    return match.group(1) if match else None
-
 def load_covariates_CMI(base_path:str, save_dir:str): 
 
     """This info loads all files containing age, gender, diagnosis and site for CMI dataset"
@@ -210,40 +205,19 @@ def load_covariates_CMI(base_path:str, save_dir:str):
     #Find & concatenate all phenotype files to extract age and gender later
     search_pattern_pheno = os.path.join(base_path, "HBN_R*_Pheno.csv")
     pheno_files = glob.glob(search_pattern_pheno)
-    pheno_dfs = {}
+    pheno_dfs = []
 
     for file in pheno_files:
-        r_number = extract_r_number(file)
-        if r_number:
-            df = pd.read_csv(file)
-            df['R_number'] = r_number
-            pheno_dfs[r_number] = df
+        df = pd.read_csv(file)
+        pheno_dfs.append(df)
 
-    full_pheno_df = pd.concat(pheno_dfs.values(), ignore_index=True)
+    full_pheno_df = pd.concat(pheno_dfs, ignore_index=True)
     full_pheno_df.rename(columns={'EID': 'subject'}, inplace=True)
     full_pheno_df['subject'] = 'sub-' + full_pheno_df['subject'].astype(str)
 
-    # Find and concatenate all site files
-    search_pattern_site = os.path.join(base_path, "Subject-Site_R*.xlsx")
-    site_files = glob.glob(search_pattern_site)
-    site_dfs = []
-    for file in site_files:
-        try:
-            df = pd.read_excel(file, engine="openpyxl")
-            r_number = extract_r_number(file)
-            if r_number:
-                df['R_number'] = r_number
-            site_dfs.append(df)
-        except Exception as e:
-            print(f"Error reading {file}: {e}")
-
-    for df in site_dfs:
-        if 'Study_Site' in df.columns:
-            df.rename(columns={'Study_Site': 'Study Site'}, inplace=True)
-            
-    site_df = pd.concat(site_dfs, ignore_index=True)
-    site_df.rename(columns={'EID': 'subject'}, inplace=True)
-    site_df['subject'] = 'sub-' + site_df['subject'].astype(str)
+    # site files
+    site_file = os.path.join(base_path, "Subject-Site_all_Releases.xlsx")
+    site_df = pd.read_excel(site_file, engine="openpyxl")
 
     site_mapping = {
         0.0: "CMI0",
@@ -256,7 +230,7 @@ def load_covariates_CMI(base_path:str, save_dir:str):
     site_df['Study Site'] = site_df['Study Site'].map(site_mapping).astype(str)
 
     # Keep only rows from pheno_df that match site_df R_number
-    merged_pheno_site = pd.merge(site_df, full_pheno_df, on=["subject", "R_number"], how="inner")
+    merged_pheno_site = pd.merge(site_df, full_pheno_df, on="subject", how="inner")
 
     #Find cleaned diagnosis file
     search_pattern_diagnosis = os.path.join(base_path, "cleaned_diagnosis.csv")
@@ -266,6 +240,9 @@ def load_covariates_CMI(base_path:str, save_dir:str):
 
     #Merge the 3 dataframes 
     final_df = pd.merge(merged_pheno_site, diagnosis_df, on="subject", how="inner")
+    
+    # Ensure each subject appears only once (keep first occurrence)
+    final_df = final_df.drop_duplicates(subset=['subject'], keep='first')
 
     # Save the final dataframe
     final_df.to_csv(save_dir, index=False)
