@@ -306,7 +306,7 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     data.index = data.index.astype(str)
     data.index.name=None
 
-    data = demographic_df.join(data, how='inner')
+    data = demographic_df.join(data, how='inser')
     data.index.name=None
 
     # resacle age range to [0,1]
@@ -324,6 +324,14 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     elif include_patients:
         data = data.dropna(subset=["diagnosis"]) #Drop rows where diangosis = nan 
         data["diagnosis"] = np.where(data["diagnosis"] == "control", 0, pd.factorize(data["diagnosis"])[0] + 1) 
+    
+    # Filter out sites with only one subject
+    site_counts = data["site"].value_counts()
+    valid_sites = site_counts[site_counts > 1].index
+
+    data = data[data["site"].isin(valid_sites)]
+    if data_patient is not None:
+        data_patient = data_patient[data_patient["site"].isin(valid_sites)]
         
     return data, data_patient
 
