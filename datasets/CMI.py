@@ -224,7 +224,8 @@ def load_covariates_CMI(base_path:str, save_dir:str):
         1.0: "CMI1",
         2.0: "CMI2",
         3.0: "CMI3",
-        4.0: "CMI4"  
+        4.0: "CMI4",
+        5.0: "CMI5"    
     }
 
     site_df['Study Site'] = site_df['Study Site'].map(site_mapping).astype(str)
