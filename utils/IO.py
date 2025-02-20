@@ -306,7 +306,7 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     data.index = data.index.astype(str)
     data.index.name=None
 
-    data = demographic_df.join(data, how='inser')
+    data = demographic_df.join(data, how='inner')
     data.index.name=None
 
     # resacle age range to [0,1]
@@ -332,6 +332,14 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     data = data[data["site"].isin(valid_sites)]
     if data_patient is not None:
         data_patient = data_patient[data_patient["site"].isin(valid_sites)]
+    
+    # Create a mapping for renumbering sites so that numbers are sequentially and none are skipped
+    site_mapping = {old_site: new_site for new_site, old_site in enumerate(sorted(valid_sites))}
+    
+    # Apply the new site numbering
+    data["site"] = data["site"].map(site_mapping)
+    if data_patient is not None:
+        data_patient["site"] = data_patient["site"].map(site_mapping)
         
     return data, data_patient
 
