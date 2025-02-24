@@ -928,8 +928,8 @@ def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68
     plt.yticks(ticks)
 
     # Labeling
-    plt.xlabel('Theta z-scores', fontsize=16)
-    plt.ylabel('Beta z-scores', fontsize=16)
+    plt.xlabel(f'{bands_name[0]} z-scores', fontsize=16)
+    plt.ylabel(f'{bands_name[1]} z-scores', fontsize=16)
 
     # Style the plot
     plt.grid(alpha=0.5)
