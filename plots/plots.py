@@ -2,7 +2,7 @@ import os
 import matplotlib
 import pickle
 import numpy as np
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, mcolors
 import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
@@ -294,7 +294,7 @@ def plot_age_dist2(df, site_names, save_path):
         ages.append(df[df["site"]==counter]["age"].to_numpy()*100)
     
     plt.figure(figsize=(14, 8))
-    plt.hist(ages, bins=bins, color=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213'], 
+    plt.hist(ages, bins=bins, color=['#E84653', 'black', '#006685', '#591154', '#E6B213', '#008080', '#D97706'],  #'#006685' ,'#591154' ,
              edgecolor="black", 
              alpha=0.6, 
              histtype="barstacked", 
@@ -657,7 +657,8 @@ def plot_feature_scatter(df, feature_names, save_fig_path):
 def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                         save_plot=True, outputsuffix='estimate', experiment_id=0,
                         batch_curve={"sex":["Male", "Female"]}, batch_marker={"site":['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP"]},
-                        new_names = ['Theta', 'Alpha','Beta', 'Gamma']):
+                        #new_names = ['Theta', 'Alpha','Beta', 'Gamma']
+                        ):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -749,9 +750,12 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
                         linestyle = linestyle,  alpha = 1, color=curves_colors[int(unique_marker)]) 
 
             ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
-            ax.set_ylabel(f"{new_names[ind]} (proportion)", fontsize=10)
+            #ax.set_ylabel(f"{new_names[ind]} (proportion)", fontsize=10)
+            ax.set_ylabel(bio_name.replace('_', ' '), fontsize=10)
             ax.set_xlabel('Age (years)', fontsize=16)
             ax.tick_params(axis='both', which='major', labelsize=14)
+
+            ax.set_xlim(0, 48)
 
             for spine in ax.spines.values():
                 spine.set_visible(False)  
@@ -895,9 +899,54 @@ def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_pat
 
     # Finalize and save the plot
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+    plt.savefig(os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg")
 
+def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None):
+    plt.figure(figsize=(8, 8))
 
+    plt.ylim((-4, 4))
+    plt.xlim((-4, 4))
+
+    # Define a continuous color scale using the magnitude of X and Y
+    color_values = np.sqrt(np.array(X)**2 + np.array(Y)**2)  # Using Euclidean distance
+
+    # Normalize the color scale to improve contrast
+    norm = mcolors.Normalize(vmin=min(color_values), vmax=np.percentile(color_values, 95)) 
+
+    # Create scatter plot with a colormap
+    scatter = plt.scatter(X, Y, c=color_values, cmap='plasma', norm=norm, edgecolors='black', linewidth=0.2)
+
+    # Add the gray region and lines
+    plt.fill_betweenx(y=[-thr, thr], x1=-thr, x2=thr, color='gray', alpha=0.5, label=f"|z| < {thr}")
+    plt.hlines(y=[-thr, thr], xmin=-4, xmax=4, colors='black', linestyles='--', linewidth=1.5)
+    plt.vlines(x=[-thr, thr], ymin=-4, ymax=4, colors='black', linestyles='--', linewidth=1.5)
+
+    # Set axis ticks
+    ticks = [-3, -thr, 0, thr, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+
+    # Labeling
+    plt.xlabel('Theta z-scores', fontsize=16)
+    plt.ylabel('Beta z-scores', fontsize=16)
+
+    # Style the plot
+    plt.grid(alpha=0.5)
+    plt.gca().spines["right"].set_visible(False)
+    plt.gca().spines["top"].set_visible(False)
+    plt.gca().spines["left"].set_visible(False)
+    plt.gca().spines["bottom"].set_visible(False)
+
+    # Add colorbar
+    cbar = plt.colorbar(scatter)
+    cbar.set_label('Magnitude of z-scores')
+
+    # Finalize and save the plot
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg")
+
+    plt.show()
 
 
 def plot_metrics(metrics_path, which_features,
@@ -923,6 +972,6 @@ def plot_metrics(metrics_path, which_features,
         sns.despine(offset=0, trim=True)
         plt.xlabel("Frequency Bands")
         plt.ylabel(metric.title())
-
-        plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+        plt.show()
+        plt.savefig(os.path.join(save_path, "metrices.png"), dpi=600, format="svg")
         plt.close()
