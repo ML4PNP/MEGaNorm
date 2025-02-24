@@ -2,7 +2,8 @@ import os
 import matplotlib
 import pickle
 import numpy as np
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap, mcolors
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
