@@ -903,7 +903,7 @@ def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_pat
     plt.savefig(os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg")
 
 def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None):
-    plt.figure(figsize=(8, 8))
+    plt.figure(figsize=(10, 8))
 
     plt.ylim((-4, 4))
     plt.xlim((-4, 4))
@@ -915,7 +915,7 @@ def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68
     norm = mcolors.Normalize(vmin=min(color_values), vmax=np.percentile(color_values, 95)) 
 
     # Create scatter plot with a colormap
-    scatter = plt.scatter(X, Y, c=color_values, cmap='plasma', norm=norm, edgecolors='black', linewidth=0.2)
+    scatter = plt.scatter(X, Y, c=color_values, cmap='coolwarm', norm=norm, edgecolors='black', linewidth=0.2)
 
     # Add the gray region and lines
     plt.fill_betweenx(y=[-thr, thr], x1=-thr, x2=thr, color='gray', alpha=0.5, label=f"|z| < {thr}")
@@ -946,6 +946,58 @@ def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68
     plt.tight_layout()
     if save_path:
         plt.savefig(os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg")
+
+    plt.show()
+
+
+def z_scores_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
+
+    # define range from -4 to 4
+    delta = 0.025
+    x = np.arange(-4.0, 4.0, delta)
+    y = np.arange(-4.0, 4.0, delta)
+    xx, yy = np.meshgrid(x, y)
+
+    Z_magnitude = np.sqrt(xx**2 + yy**2)
+
+    #Compute contour levels 
+    levels = [thr]  
+
+    #contour plot 
+    fig, ax = plt.subplots(figsize=(10, 8))
+    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2)
+    ax.clabel(contour, fontsize=10)
+
+
+    # Scatter plot of clinical data
+    color_values = np.sqrt(np.array(X)**2 + np.array(Y)**2)  # Euclidean distance of Z-scores
+    norm = mcolors.Normalize(vmin=min(color_values), vmax=np.percentile(color_values, 95)) 
+    scatter = plt.scatter(X, Y, c=color_values, cmap='coolwarm', norm=norm, edgecolors='black', linewidth=0.2)
+    ax.set_xlim(-4, 4)
+    ax.set_ylim(-4, 4)
+    ticks = [-3, -thr, 0, thr, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+
+    # Style the plot
+    ax.grid(alpha=0.5)
+    ax.spines["right"].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+
+    # Add colorbar
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label("Magnitude of Z-scores")
+
+    #Labels & title
+    plt.xlabel(f'{bands_name[0]} z-scores', fontsize=16)
+    plt.ylabel(f'{bands_name[1]} z-scores', fontsize=16)
+    ax.set_title('Z-scores contour plot')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, "z_scores_contour.svg"), dpi=600, format="svg")
 
     plt.show()
 
