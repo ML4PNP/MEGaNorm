@@ -1001,6 +1001,77 @@ def z_scores_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
 
     plt.show()
 
+def z_scores_quadrant_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
+    # Convert data to a Pandas DataFrame
+    data = pd.DataFrame({'X': X, 'Y': Y})
+    
+    # Compute magnitude of Z-scores, the higher magnitude, the darker colour
+    data['Magnitude'] = np.sqrt(data['X']**2 + data['Y']**2)
+    
+    # Assign quadrants
+    conditions = [
+        (data['X'] >= 0) & (data['Y'] >= 0),
+        (data['X'] < 0) & (data['Y'] >= 0),
+        (data['X'] < 0) & (data['Y'] < 0),
+        (data['X'] >= 0) & (data['Y'] < 0),
+    ]
+    choices = ['Q1', 'Q2', 'Q3', 'Q4']
+    data['Quadrant'] = np.select(conditions, choices)
+
+    # Define quadrant colormaps
+    quadrant_cmaps = {
+        'Q1': plt.cm.Reds,    
+        'Q2': plt.cm.YlGn, 
+        'Q3': plt.cm.GnBu,   
+        'Q4': plt.cm.RdPu 
+    }
+
+    # Set Fixed Color Normalization Range (-3.5 to 3.5)
+    norm = plt.Normalize(vmin=0, vmax=3.5)  
+
+    #figure
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    # Contour plot for threshold
+    delta = 0.025
+    x = np.arange(-4.0, 4.0, delta)
+    y = np.arange(-4.0, 4.0, delta)
+    xx, yy = np.meshgrid(x, y)
+    Z_magnitude = np.sqrt(xx**2 + yy**2)
+    levels = [thr]
+
+    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2)
+    ax.clabel(contour, fontsize=10)
+
+    #Ensure each quadrant gets visible coolours depending on mgnitude
+    for quadrant, cmap in quadrant_cmaps.items():
+        subset = data[data['Quadrant'] == quadrant]
+
+        if not subset.empty:
+            colors = cmap(norm(subset['Magnitude']))
+            # Scatter plot
+            ax.scatter(subset['X'], subset['Y'], color=colors, edgecolors='black', linewidth=0.3, alpha=0.9, s=50)
+
+    # Axis settings
+    ax.set_xlim(-4, 4)
+    ax.set_ylim(-4, 4)
+    ticks = [-3, -thr, 0, thr, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+    ax.grid(alpha=0.5)
+    ax.spines["right"].set_visible(False)
+    ax.spines["top"].set_visible(False)
+
+    # Labels & Title
+    plt.xlabel(f'{bands_name[0]} z-scores', fontsize=16)
+    plt.ylabel(f'{bands_name[1]} z-scores', fontsize=16)
+    ax.set_title('Z-scores contour plot', fontsize=18)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, "z_scores_contour_plot.svg"), dpi=600, format="svg")
+
+    plt.show()
 
 def plot_metrics(metrics_path, which_features,
                   feature_new_name=[], save_path = None):
