@@ -911,8 +911,8 @@ def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68
     # Define a continuous color scale using the magnitude of X and Y
     color_values = np.sqrt(np.array(X)**2 + np.array(Y)**2)  # Using Euclidean distance
 
-    # Normalize the color scale to improve contrast
-    norm = mcolors.Normalize(vmin=min(color_values), vmax=np.percentile(color_values, 95)) 
+    # Normalize the color scale from 0-3.5 to improve contrast
+    norm = mcolors.Normalize(vmin=0, vmax=3.5)
 
     # Create scatter plot with a colormap
     scatter = plt.scatter(X, Y, c=color_values, cmap='coolwarm', norm=norm, edgecolors='black', linewidth=0.2)
@@ -971,7 +971,7 @@ def z_scores_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
 
     # Scatter plot of clinical data
     color_values = np.sqrt(np.array(X)**2 + np.array(Y)**2)  # Euclidean distance of Z-scores
-    norm = mcolors.Normalize(vmin=min(color_values), vmax=np.percentile(color_values, 95)) 
+    norm = mcolors.Normalize(vmin=0, vmax=3.5)
     scatter = plt.scatter(X, Y, c=color_values, cmap='coolwarm', norm=norm, edgecolors='black', linewidth=0.2)
     ax.set_xlim(-4, 4)
     ax.set_ylim(-4, 4)
