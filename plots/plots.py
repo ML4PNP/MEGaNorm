@@ -9,6 +9,7 @@ import scipy.stats as st
 import seaborn as sns
 import pandas as pd
 import plotly.graph_objects as go
+from scipy.stats import chi2
 
 
 def KDE_plot(data, experiments, metric, xlim = 'auto', fontsize=24):
@@ -950,7 +951,8 @@ def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68
     plt.show()
 
 
-def z_scores_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
+def z_scores_contour_plot(X, Y, bands_name, percentiles = [0.05, 0.25, 0.50, 0.75, 0.95], save_path=None): 
+    "scatterplot of patient Z-scores with 75th, and 95th percentile"
 
     # define range from -4 to 4
     delta = 0.025
@@ -961,12 +963,19 @@ def z_scores_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
     Z_magnitude = np.sqrt(xx**2 + yy**2)
 
     #Compute contour levels 
-    levels = [thr]  
+    # Compute Mahalanobis distances for each percentile, bc multivariate normal distribution
+    #bivariate normal distribution, the Mahalanobis distance follows a chi-squared distribution with 2 degrees of freedom
+    thr = [np.sqrt(chi2.ppf(p, df=2)) for p in percentiles]
+    levels = thr
 
     #contour plot 
     fig, ax = plt.subplots(figsize=(10, 8))
-    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2)
-    ax.clabel(contour, fontsize=10)
+    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2, linestyles='dashed')
+
+    #Labels
+    percentile_labels = [f"{int(p * 100)}th" for p in percentiles]
+    fmt = {thr[i]: percentile_labels[i] for i in range(len(thr))}  # Map contour levels to labels
+    ax.clabel(contour, fmt=fmt, fontsize=10) 
 
 
     # Scatter plot of clinical data
@@ -975,7 +984,7 @@ def z_scores_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
     scatter = plt.scatter(X, Y, c=color_values, cmap='coolwarm', norm=norm, edgecolors='black', linewidth=0.2)
     ax.set_xlim(-4, 4)
     ax.set_ylim(-4, 4)
-    ticks = [-3, -thr, 0, thr, 3]
+    ticks = [-3, -2, -1, 0, 1, 2, 3]
     plt.xticks(ticks)
     plt.yticks(ticks)
 
@@ -1001,7 +1010,7 @@ def z_scores_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
 
     plt.show()
 
-def z_scores_quadrant_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
+def z_scores_quadrant_contour_plot(X, Y, bands_name, percentiles = [0.05, 0.25, 0.50, 0.75, 0.95], save_path=None):
     # Convert data to a Pandas DataFrame
     data = pd.DataFrame({'X': X, 'Y': Y})
     
@@ -1038,10 +1047,19 @@ def z_scores_quadrant_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
     y = np.arange(-4.0, 4.0, delta)
     xx, yy = np.meshgrid(x, y)
     Z_magnitude = np.sqrt(xx**2 + yy**2)
-    levels = [thr]
+    
+    #Compute contour levels 
+    # Compute Mahalanobis distances for each percentile, bc multivariate normal distribution
+    #bivariate normal distribution, the Mahalanobis distance follows a chi-squared distribution with 2 degrees of freedom
+    thr = [np.sqrt(chi2.ppf(p, df=2)) for p in percentiles]
+    levels = thr
 
-    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2)
-    ax.clabel(contour, fontsize=10)
+    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2, linestyles='dashed')
+    
+     #Labels
+    percentile_labels = [f"{int(p * 100)}th" for p in percentiles]
+    fmt = {thr[i]: percentile_labels[i] for i in range(len(thr))}  # Map contour levels to labels
+    ax.clabel(contour, fmt=fmt, fontsize=10)
 
     #Ensure each quadrant gets visible coolours depending on mgnitude
     for quadrant, cmap in quadrant_cmaps.items():
@@ -1055,7 +1073,7 @@ def z_scores_quadrant_contour_plot(X, Y, bands_name, thr=0.68, save_path=None):
     # Axis settings
     ax.set_xlim(-4, 4)
     ax.set_ylim(-4, 4)
-    ticks = [-3, -thr, 0, thr, 3]
+    ticks = [-3, -2, -1, 0, 1, 2, 3]
     plt.xticks(ticks)
     plt.yticks(ticks)
     ax.grid(alpha=0.5)
