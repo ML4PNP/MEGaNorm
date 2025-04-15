@@ -101,9 +101,9 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
 
     return None
 
-def load_covariates_CMI(CMI_demo_paths:list, CMI_site_paths:list, save_dir:str): 
+def load_covariates_CMI(CMI_covariates_path:str, save_dir:str): 
 
-    """Load age, gender and site for CMI dataset.
+    """Load age, gender, diagnosis and site for CMI dataset.
 
     Args:
         path (str): path to covariates.
@@ -111,26 +111,12 @@ def load_covariates_CMI(CMI_demo_paths:list, CMI_site_paths:list, save_dir:str):
     Returns:
         DataFrame: Pandas dataframe containing age and gender for CMI dataset.
     """
-    
-    # Initialize empty DataFrames
-    combined_demo = pd.DataFrame()
-    combined_site = pd.DataFrame()
 
-    for path in CMI_demo_paths:
-        df_demo = pd.read_csv(path, sep=',')
-        df_demo = df_demo[['EID', 'Age', 'Sex']]  # Select necessary columns
-        df_demo = df_demo.rename(columns={'EID': 'Subject_ID', 'Age': 'age', 'Sex': 'gender'})  # Rename columns
-        combined_demo = pd.concat([combined_demo, df_demo], ignore_index=True)
-
-    for path in CMI_site_paths:
-        df_site = pd.read_excel(path)
-        df_site.columns = df_site.columns.str.replace(' ', '_')  # Replace spaces with underscores to deal with study_site vs study site
-        df_site = df_site[['EID', 'Study_Site']]  # Select necessary columns
-        df_site = df_site.rename(columns={'EID': 'Subject_ID', 'Study_Site': 'site'})  # Rename columns
-        combined_site = pd.concat([combined_site, df_site], ignore_index=True)
-
-
-    df = pd.merge(combined_demo, combined_site, on='Subject_ID', how='inner')
+    df = pd.read_csv(CMI_covariates_path, sep=',')
+    df = df.rename(columns={df.columns[0]: 'EID'})
+    df = df[['EID', 'Age', 'Sex', 'Site', 'Diagnosis']]  # Select necessary columns
+    df = df.rename(columns={'EID': 'Subject_ID', 'Age': 'age', 'Sex': 'gender', 'Site':'site', 'Diagnosis':'diagnosis'})  # Rename columns
+    #TODO Maybe rename diagnosis to match for every dataset?
     df.dropna(inplace=True)
 
     # Prepend 'sub-' to all Subject_IDs so that it can easily be merged with the features 

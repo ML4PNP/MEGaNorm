@@ -258,8 +258,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
             mne.export.export_raw(eyes_closed_file_path, raw_eyes_closed, fmt='eeglab', overwrite = True)
 
 
-
-def merge_fidp_demo(datasets_paths:str, features_dir:str):
+def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, include_patients=False, diagnosis="parkinson"):
     """
     Loads demographic data and features, then concatenates them. 
     It assigns a site index for each dataset and normalizes the age range to [0, 1].
@@ -275,17 +274,85 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str):
 
     demographic_df = pd.DataFrame({})
     for counter,dataset_path in enumerate(datasets_paths):
-        demo = pd.read_csv(os.path.join(dataset_path, "participants.tsv"), 
+        demo = pd.read_csv(os.path.join(dataset_path, "participants_bids.tsv"), 
                                                 sep="\t", index_col=0)
-        demo["site"] = counter
+        demo.index = demo.index.astype(str)
+
+        if not 'site' in demo.columns:
+            demo['site'] = data_set_names[counter] 
+
         demographic_df = pd.concat([demographic_df, 
                                     demo],
                                     axis=0)
-        
+
+    demographic_df.drop(columns="eyes", inplace=True)
+    # demographic_df["eyes"] = pd.factorize(demographic_df["eyes"])[0]
+
+    demographic_df["sex"] = pd.factorize(demographic_df["sex"])[0]
+    demographic_df["site"] = pd.factorize(demographic_df["site"])[0]
+    
     feature_path = os.path.join(features_dir, "all_features.csv")
     data = pd.read_csv(feature_path, index_col=0)
+
     data = demographic_df.join(data, how='inner')
 
     # resacle age range to [0,1]
     data["age"] = data["age"]/100
-    return data
+
+    if not include_patients:
+        data_patient = data[data["diagnosis"] == diagnosis]
+        # data_patient["diagnosis"] = pd.factorize(data_patient["diagnosis"])[0]
+
+        data = data[data["diagnosis"] == "control"]
+        data.drop(columns="diagnosis", inplace=True)
+    elif include_patients:
+        data["diagnosis"] = pd.factorize(demographic_df["diagnosis"])[0]
+        
+    return data, data_patient
+
+
+def merge_datasets_with_glob(datasets):
+    
+    subjects = {}
+
+    for dataset_name, dataset_info in datasets.items():
+        base_dir = dataset_info['base_dir']
+        
+        dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+        subjects.update({subj:[] for subj in dirs})
+
+        paths = glob.glob(f"{datasets[dataset_name]["base_dir"]}/**/*{datasets[dataset_name]["task"]}*{datasets[dataset_name]["ending"]}", recursive=True)
+
+        # Walk through the base directory to find subject directories
+        for subject_dir in dirs:
+            pattern = os.path.join(datasets[dataset_name]["base_dir"], subject_dir)
+            subjects[subject_dir].extend(list(filter(lambda path: path.startswith(pattern), paths)))
+
+    def join_with_star(lst):
+        if len(lst) == 1:
+            return lst[0] + '*'  
+        return '*'.join(lst) 
+
+    # add this part to main parallel when you want to concatenate 
+    # different run
+    subjects = dict(filter(lambda item:item[1], subjects.items()))
+    subjects = {key: join_with_star(value) for key, value in subjects.items()}
+
+    # 	paths = args.dir.split("*")
+	# paths = list(filter(lambda x: len(x), paths))
+	# # read the data ====================================================================
+	# for path_counter, path in enumerate(paths):
+	# 	if path_counter == 0:
+	# 		data = mne.io.read_raw(path, verbose=False, preload=True)
+	# 		dev_head_t_ref = data.info['dev_head_t']
+	# 	else:
+	# 		new_data = mne.io.read_raw(path, verbose=False, preload=True)
+	# 		new_data = mne.preprocessing.maxwell_filter(
+	# 												new_data,
+	# 												origin=(0,0,0),
+	# 												coord_frame='head',
+	# 												destination=dev_head_t_ref
+	# 												)
+	# 		data = mne.concatenate_raws([data, new_data])
+
+    return subjects

@@ -28,7 +28,7 @@ def offset(fm):
     """
     Returns offset of the apperiodic fit
     """
-    return fm.get_params("aperiodic_params")[0], 
+    return fm.get_params("aperiodic_params")[0] 
 
 
 def exponent(fm, aperiodic_mode):
@@ -252,12 +252,11 @@ def feature_extract(subjectId, fmGroup, psds, feature_categories, freqs, freq_ba
         # offset ==================================
         if feature_categories["Offset"]:
             feature_arr = offset(fm)
-            feature_container = add_feature(feature_container, feature_arr, feature_categories, "Offset", channel_name, "")
-
+            feature_container = add_feature(feature_container, feature_arr, "Offset", channel_name, "")
         # Exponent ==================================
         if feature_categories["Exponent"]:
             feature_arr = exponent(fm, aperiodic_mode)
-            feature_container = add_feature(feature_container, feature_arr, feature_categories, "Exponent", channel_name, "")
+            feature_container = add_feature(feature_container, feature_arr, "Exponent", channel_name, "")
         
         original_psd = psds[channel_num, :]
         # isolate periodic parts of signals
