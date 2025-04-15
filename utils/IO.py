@@ -213,7 +213,7 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
             os.makedirs(subject_output_path)
 
         # Load the raw .set file (EEGLAB format)
-        raw = mne.io.read_raw_eeglab(set_path, preload=True)
+        raw = mne.io.read_raw(set_path, preload=True)
 
         # Extract annotations
         annotations = raw.annotations
@@ -225,12 +225,17 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
         # Extract and concatenate eyes open segments
         eyes_open_data = []
         for onset, duration in zip(eyes_open_events.onset, eyes_open_events.duration):
+            
+            if duration <= trim_before + trim_after:
+                print(f"Skipping event with onset {onset} and duration {duration} (invalid after trimming)")
+                continue
+            
             # Trim the first 5s and last 5s from each event
             trimmed_onset = onset + trim_before
             trimmed_duration = duration - trim_before - trim_after
             start_sample = int(trimmed_onset * raw.info['sfreq'])
             stop_sample = int((trimmed_onset + trimmed_duration) * raw.info['sfreq'])
-        eyes_open_data.append(raw[:, start_sample:stop_sample][0])
+            eyes_open_data.append(raw[:, start_sample:stop_sample][0])
 
         if eyes_open_data:
             eyes_open_data_concat = np.concatenate(eyes_open_data, axis=1)
@@ -243,6 +248,11 @@ def separate_eyes_open_close_eeglab(input_base_path, output_base_path, annotatio
         # Extract and concatenate eyes closed segments
         eyes_closed_data = []
         for onset, duration in zip(eyes_closed_events.onset, eyes_closed_events.duration):
+            
+            if duration <= trim_before + trim_after:
+                print(f"Skipping event with onset {onset} and duration {duration} (invalid after trimming)")
+                continue
+            
             trimmed_onset = onset + trim_before
             trimmed_duration = duration - trim_before - trim_after
             start_sample = int(trimmed_onset * raw.info['sfreq'])
@@ -293,20 +303,44 @@ def merge_fidp_demo(datasets_paths:str, features_dir:str, data_set_names:list, i
     
     feature_path = os.path.join(features_dir, "all_features.csv")
     data = pd.read_csv(feature_path, index_col=0)
+    data.index = data.index.astype(str)
+    data.index.name=None
 
     data = demographic_df.join(data, how='inner')
+    data.index.name=None
 
     # resacle age range to [0,1]
     data["age"] = data["age"]/100
 
+    #initialize data_patient
+    data_patient = None
+
     if not include_patients:
-        data_patient = data[data["diagnosis"] == diagnosis]
+        data_patient = data[data["diagnosis"].isin(diagnosis)] #changed from data_patient = data[data["diagnosis"] == diagnosis]
         # data_patient["diagnosis"] = pd.factorize(data_patient["diagnosis"])[0]
 
         data = data[data["diagnosis"] == "control"]
         data.drop(columns="diagnosis", inplace=True)
     elif include_patients:
-        data["diagnosis"] = pd.factorize(demographic_df["diagnosis"])[0]
+        data = data.dropna(subset=["diagnosis"]) #Drop rows where diangosis = nan 
+        data["diagnosis"] = np.where(data["diagnosis"] == "control", 0, pd.factorize(data["diagnosis"])[0] + 1) 
+    
+    # Filter out sites with only one subject
+    site_counts = data["site"].value_counts()
+    valid_sites = site_counts[site_counts > 1].index
+
+    data = data[data["site"].isin(valid_sites)]
+    if data_patient is not None:
+        data_patient = data_patient[data_patient["site"].isin(valid_sites)]
+        data_patient.dropna(inplace=True) #drop rows with nan values 
+    
+    # Create a mapping for renumbering sites so that numbers are sequentially and none are skipped
+    site_mapping = {old_site: new_site for new_site, old_site in enumerate(sorted(valid_sites))}
+    
+    # Apply the new site numbering
+    data["site"] = data["site"].map(site_mapping)
+    if data_patient is not None:
+        data_patient["site"] = data_patient["site"].map(site_mapping)
         
     return data, data_patient
 

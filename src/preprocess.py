@@ -102,7 +102,8 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, Ica
         badComponents.extend(find_ica_component(ica=ica, data=data, physiological_signal=sensor, 
                                            auto_ica_corr_thr=auto_ica_corr_thr))
         # TODO test if this happens three times for camcan
-
+    print("Bad Components identified by auto ICA:", badComponents)
+    
     if any(badComponents):
         ica.exclude = badComponents.copy()
         # ica.apply() changes the Raw object in-place
@@ -165,6 +166,7 @@ def AutoIca_with_IcaLabel(data, physiological_noise_type, n_components=30, ica_m
         if label==physiological_noise_type and labels['y_pred_proba'][idx] > iclabel_thr:
             bad_components.append(idx)
 
+    print("Bad Components identified by ICALabel:", bad_components)
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
@@ -283,7 +285,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
     if which_sensor['eeg'] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
 
-    ICA_flag = False #initialize flag
+    ICA_flag = True #initialize flag
 
     physiological_electrods = {channel: channel in channel_types for channel in ["ecg", "eog"]}
 
@@ -319,7 +321,7 @@ def preprocess(data, which_sensor:dict, resampling_rate=None, digital_filter=Tru
                             physiological_sensor=phys_activity_type,
                             auto_ica_corr_thr=auto_ica_corr_thr)
             # 2
-            elif not if_elec_exist and apply_ica and ICA_flag:
+            elif not if_elec_exist and apply_ica and ICA_flag: 
                 data = AutoIca_with_IcaLabel(data = data, 
                                         n_components=n_component, 
                                         ica_max_iter=ica_max_iter, 

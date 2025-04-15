@@ -3,12 +3,15 @@ import matplotlib
 import pickle
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
 import pandas as pd
 import plotly.graph_objects as go
 import matplotlib.ticker as mticker
+rom scipy.stats import chi2
+
 
 def KDE_plot(data, experiments, metric, xlim = 'auto', fontsize=24):
     # Create the data
@@ -750,6 +753,8 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
             ax.set_xlabel('Age (years)', fontsize=16)
             ax.tick_params(axis='both', which='major', labelsize=14)
 
+            ax.set_xlim(0, 48)
+
             for spine in ax.spines.values():
                 spine.set_visible(False)  
             
@@ -894,8 +899,195 @@ def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_pat
 
     # Finalize and save the plot
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+    plt.savefig(os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg")
 
+def z_scores_scatter_plot_continuum(X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None):
+    plt.figure(figsize=(10, 8))
+
+    plt.ylim((-4, 4))
+    plt.xlim((-4, 4))
+
+    # Define a continuous color scale using the magnitude of X and Y
+    color_values = np.sqrt(np.array(X)**2 + np.array(Y)**2)  # Using Euclidean distance
+
+    # Normalize the color scale from 0-3.5 to improve contrast
+    norm = mcolors.Normalize(vmin=0, vmax=3.5)
+
+    # Create scatter plot with a colormap
+    scatter = plt.scatter(X, Y, c=color_values, cmap='coolwarm', norm=norm, edgecolors='black', linewidth=0.2)
+
+    # Add the gray region and lines
+    plt.fill_betweenx(y=[-thr, thr], x1=-thr, x2=thr, color='gray', alpha=0.5, label=f"|z| < {thr}")
+    plt.hlines(y=[-thr, thr], xmin=-4, xmax=4, colors='black', linestyles='--', linewidth=1.5)
+    plt.vlines(x=[-thr, thr], ymin=-4, ymax=4, colors='black', linestyles='--', linewidth=1.5)
+
+    # Set axis ticks
+    ticks = [-3, -thr, 0, thr, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+
+    # Labeling
+    plt.xlabel(f'{bands_name[0]} z-scores', fontsize=16)
+    plt.ylabel(f'{bands_name[1]} z-scores', fontsize=16)
+
+    # Style the plot
+    plt.grid(alpha=0.5)
+    plt.gca().spines["right"].set_visible(False)
+    plt.gca().spines["top"].set_visible(False)
+    plt.gca().spines["left"].set_visible(False)
+    plt.gca().spines["bottom"].set_visible(False)
+
+    # Add colorbar
+    cbar = plt.colorbar(scatter)
+    cbar.set_label('Magnitude of z-scores')
+
+    # Finalize and save the plot
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg")
+
+    plt.show()
+
+
+def z_scores_contour_plot(X, Y, bands_name, percentiles = [0.05, 0.25, 0.50, 0.75, 0.95], save_path=None): 
+    "scatterplot of patient Z-scores with 75th, and 95th percentile"
+
+    # define range from -4 to 4
+    delta = 0.025
+    x = np.arange(-4.0, 4.0, delta)
+    y = np.arange(-4.0, 4.0, delta)
+    xx, yy = np.meshgrid(x, y)
+
+    Z_magnitude = np.sqrt(xx**2 + yy**2)
+
+    #Compute contour levels 
+    # Compute Mahalanobis distances for each percentile, bc multivariate normal distribution
+    #bivariate normal distribution, the Mahalanobis distance follows a chi-squared distribution with 2 degrees of freedom
+    thr = [np.sqrt(chi2.ppf(p, df=2)) for p in percentiles]
+    levels = thr
+
+    #contour plot 
+    fig, ax = plt.subplots(figsize=(10, 8))
+    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2, linestyles='dashed')
+
+    #Labels
+    percentile_labels = [f"{int(p * 100)}th" for p in percentiles]
+    fmt = {thr[i]: percentile_labels[i] for i in range(len(thr))}  # Map contour levels to labels
+    ax.clabel(contour, fmt=fmt, fontsize=10) 
+
+
+    # Scatter plot of clinical data
+    color_values = np.sqrt(np.array(X)**2 + np.array(Y)**2)  # Euclidean distance of Z-scores
+    norm = mcolors.Normalize(vmin=0, vmax=3.5)
+    scatter = plt.scatter(X, Y, c=color_values, cmap='coolwarm', norm=norm, edgecolors='black', linewidth=0.2)
+    ax.set_xlim(-4, 4)
+    ax.set_ylim(-4, 4)
+    ticks = [-3, -2, -1, 0, 1, 2, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+
+    # Style the plot
+    ax.grid(alpha=0.5)
+    ax.spines["right"].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+
+    # Add colorbar
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label("Magnitude of Z-scores")
+
+    #Labels & title
+    plt.xlabel(f'{bands_name[0]} z-scores', fontsize=16)
+    plt.ylabel(f'{bands_name[1]} z-scores', fontsize=16)
+    ax.set_title('Z-scores contour plot')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, "z_scores_contour.svg"), dpi=600, format="svg")
+
+    plt.show()
+
+def z_scores_quadrant_contour_plot(X, Y, bands_name, percentiles = [0.05, 0.25, 0.50, 0.75, 0.95], save_path=None):
+    # Convert data to a Pandas DataFrame
+    data = pd.DataFrame({'X': X, 'Y': Y})
+    
+    # Compute magnitude of Z-scores, the higher magnitude, the darker colour
+    data['Magnitude'] = np.sqrt(data['X']**2 + data['Y']**2)
+    
+    # Assign quadrants
+    conditions = [
+        (data['X'] >= 0) & (data['Y'] >= 0),
+        (data['X'] < 0) & (data['Y'] >= 0),
+        (data['X'] < 0) & (data['Y'] < 0),
+        (data['X'] >= 0) & (data['Y'] < 0),
+    ]
+    choices = ['Q1', 'Q2', 'Q3', 'Q4']
+    data['Quadrant'] = np.select(conditions, choices)
+
+    # Define quadrant colormaps
+    quadrant_cmaps = {
+        'Q1': plt.cm.Reds,    
+        'Q2': plt.cm.YlGn, 
+        'Q3': plt.cm.GnBu,   
+        'Q4': plt.cm.RdPu 
+    }
+
+    # Set Fixed Color Normalization Range (-3.5 to 3.5)
+    norm = plt.Normalize(vmin=0, vmax=3.5)  
+
+    #figure
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    # Contour plot for threshold
+    delta = 0.025
+    x = np.arange(-4.0, 4.0, delta)
+    y = np.arange(-4.0, 4.0, delta)
+    xx, yy = np.meshgrid(x, y)
+    Z_magnitude = np.sqrt(xx**2 + yy**2)
+    
+    #Compute contour levels 
+    # Compute Mahalanobis distances for each percentile, bc multivariate normal distribution
+    #bivariate normal distribution, the Mahalanobis distance follows a chi-squared distribution with 2 degrees of freedom
+    thr = [np.sqrt(chi2.ppf(p, df=2)) for p in percentiles]
+    levels = thr
+
+    contour = ax.contour(xx, yy, Z_magnitude, levels=levels, colors='black', linewidths=2, linestyles='dashed')
+    
+     #Labels
+    percentile_labels = [f"{int(p * 100)}th" for p in percentiles]
+    fmt = {thr[i]: percentile_labels[i] for i in range(len(thr))}  # Map contour levels to labels
+    ax.clabel(contour, fmt=fmt, fontsize=10)
+
+    #Ensure each quadrant gets visible coolours depending on mgnitude
+    for quadrant, cmap in quadrant_cmaps.items():
+        subset = data[data['Quadrant'] == quadrant]
+
+        if not subset.empty:
+            colors = cmap(norm(subset['Magnitude']))
+            # Scatter plot
+            ax.scatter(subset['X'], subset['Y'], color=colors, edgecolors='black', linewidth=0.3, alpha=0.9, s=50)
+
+    # Axis settings
+    ax.set_xlim(-4, 4)
+    ax.set_ylim(-4, 4)
+    ticks = [-3, -2, -1, 0, 1, 2, 3]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+    ax.grid(alpha=0.5)
+    ax.spines["right"].set_visible(False)
+    ax.spines["top"].set_visible(False)
+
+    # Labels & Title
+    plt.xlabel(f'{bands_name[0]} z-scores', fontsize=16)
+    plt.ylabel(f'{bands_name[1]} z-scores', fontsize=16)
+    ax.set_title('Z-scores contour plot', fontsize=18)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, "z_scores_contour_plot.svg"), dpi=600, format="svg")
+
+    plt.show()
 
 def plot_metrics(metrics_path, which_features,
                  feature_new_name=[], save_path=None):
