@@ -493,9 +493,9 @@ def abnormal_probability(processing_dir, nm_processing_dir, site_id, n_permutati
 
 
 def aggregate_metrics_across_runs(path, method_name, biomarker_names, valcovfile_path,
-                                valrespfile_path, valbefile,  metrics = ["skewness", "kurtosis", "W"], 
+                                valrespfile_path, valbefile,  metrics = ["skewness", "kurtosis", "W", "MACE"], 
                                 num_runs=10, quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
-                                outputsuffix='estimate'):
+                                outputsuffix='estimate', zscore_clipping_value = 8):
     
     # index_labels = [metric + "_" + biomarker_name for metric in metrics for biomarker_name in biomarker_names]
     # df = pd.DataFrame(index=index_labels, columns=list(range(10)))
@@ -503,9 +503,13 @@ def aggregate_metrics_across_runs(path, method_name, biomarker_names, valcovfile
                                 for metric in metrics}
 
     for run in range(num_runs):
+        
         run_path = path.replace("Run_0", f"Run_{run}")
         with open(os.path.join(run_path, method_name, 'Z_estimate.pkl'), 'rb') as file:
             z_scores = pickle.load(file)
+            
+            # clipping
+            z_scores = z_scores.applymap(lambda x: zscore_clipping_value if abs(x) > zscore_clipping_value else x)
             
             for metric in metrics:
                 values = []
