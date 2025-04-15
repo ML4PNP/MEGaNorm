@@ -8,7 +8,7 @@ import scipy.stats as st
 import seaborn as sns
 import pandas as pd
 import plotly.graph_objects as go
-
+import matplotlib.ticker as mticker
 
 def KDE_plot(data, experiments, metric, xlim = 'auto', fontsize=24):
     # Create the data
@@ -285,7 +285,7 @@ def plot_neurooscillochart(data, age_slices, save_path):
 
 
 
-def plot_age_dist2(df, site_names, save_path):
+def plot_age_dist2(df, site_names, save_path, colors=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213', "Slategrey"]):
     
     bins = list(range(5, 90, 5))
     ages = []
@@ -293,8 +293,8 @@ def plot_age_dist2(df, site_names, save_path):
     for counter in range(len(site_names)):
         ages.append(df[df["site"]==counter]["age"].to_numpy()*100)
     
-    plt.figure(figsize=(14, 8))
-    plt.hist(ages, bins=bins, color=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213'], 
+    plt.figure(figsize=(12, 7))
+    plt.hist(ages, bins=bins, color=colors, 
              edgecolor="black", 
              alpha=0.6, 
              histtype="barstacked", 
@@ -305,19 +305,20 @@ def plot_age_dist2(df, site_names, save_path):
     plt.gca().spines['right'].set_visible(False)
 
     # Offset the bottom and left spines
-    plt.gca().spines['bottom'].set_position(('outward', 15))  # Set offset in points
+    plt.gca().spines['bottom'].set_position(('outward', 15))  #
     plt.gca().spines['left'].set_position(('outward', 15))
 
-    # Optionally, trim the axis ticks to fit the visible range
+
     plt.gca().xaxis.set_ticks_position('bottom')
     plt.gca().yaxis.set_ticks_position('left')
     plt.grid(axis="y", color = 'black', linestyle = '--')
     plt.xlabel("Age (years)", fontsize=25)
-    plt.legend(site_names, prop={'size': 20}, loc='upper right')
-    plt.tick_params(axis="both", labelsize=17)
+    plt.legend(site_names, prop={'size': 23}, loc='upper right')
+    plt.tick_params(axis="both", labelsize=19)
     plt.xticks(bins)
     plt.ylabel("Count",  fontsize=25)
     plt.savefig(os.path.join(save_path, "age_dis.svg"), format="svg", dpi=600, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "age_dis.png"), format="png", dpi=600, bbox_inches="tight")
     plt.close()
 
     
@@ -650,14 +651,11 @@ def plot_feature_scatter(df, feature_names, save_fig_path):
     plt.savefig(save_fig_path, dpi=600)
 
 
-
-
-
-
 def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], 
                         save_plot=True, outputsuffix='estimate', experiment_id=0,
-                        batch_curve={"sex":["Male", "Female"]}, batch_marker={"site":['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP"]},
-                        new_names = ['Theta', 'Alpha','Beta', 'Gamma']):
+                        batch_curve={"sex":["Male", "Female"]}, batch_marker={"site":['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
+                        new_names = ['Theta', 'Alpha','Beta', 'Gamma'],
+                        colors=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213', "Slategrey"]):
     
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
@@ -690,7 +688,6 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
     # converting age values to original space
     X_test = X_test * 100
 
-    colors =  ['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213']
     markers = ["o", "^"]
     curves_colors = ["#6E750E", "#A9561E"]
     curve_indx = int(np.where(be_test.columns == list(batch_curve.keys())[0])[0])
@@ -749,14 +746,15 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
                         linestyle = linestyle,  alpha = 1, color=curves_colors[int(unique_marker)]) 
 
             ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
-            ax.set_ylabel(f"{new_names[ind]} (proportion)", fontsize=10)
+            ax.set_ylabel(f"{new_names[ind]} (proportion)", fontsize=16)
             ax.set_xlabel('Age (years)', fontsize=16)
             ax.tick_params(axis='both', which='major', labelsize=14)
 
             for spine in ax.spines.values():
                 spine.set_visible(False)  
-                
-            ax.legend()
+            
+            if ind+1 == num_biomarkers:
+                ax.legend(loc="upper right", prop={'size': 14})
             plt.tight_layout()
         
         if save_plot:
@@ -764,6 +762,7 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
             if not os.path.isdir(save_path):
                 os.makedirs(save_path)
             plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.svg'), dpi=300, format="svg")
+            plt.savefig(os.path.join(save_path, str(ind) + '_' + bio_name + '.png'), dpi=300, format="png")
 
 
 
@@ -898,31 +897,99 @@ def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_pat
     plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
 
 
-
-
 def plot_metrics(metrics_path, which_features,
-                  feature_new_name=[], save_path = None):
-
-    # Use valid hexadecimal colors
-    colors = ["#9E6240", "#819595", "#5F0F40", "#0F4C5C"]
-    
+                 feature_new_name=[], save_path=None):
     with open(metrics_path, "rb") as file:
         metrics_dic = pickle.load(file)
     
     for metric in metrics_dic.keys():
         df_temp = pd.DataFrame(metrics_dic.get(metric)).loc[:, which_features]
         df_temp.columns = feature_new_name
-        
-        # Reshape the data for boxplot
         df_temp = df_temp.melt(var_name='Variable', value_name='Value')
 
         sns.set_theme(style="ticks", palette="pastel")
         
-        # Use palette instead of color
-        sns.boxplot(x='Variable', y='Value', data=df_temp, palette=colors)
+        sns.boxplot(
+            x='Variable', 
+            y='Value', 
+            data=df_temp, 
+            boxprops=dict(facecolor="dimgrey", alpha=0.7),  
+            showfliers=False
+        )
+
+        sns.stripplot(
+            x='Variable', 
+            y='Value', 
+            data=df_temp, 
+            color='black', 
+            marker='o', 
+            size=6, 
+            alpha=0.5, 
+            jitter=True
+        )
+
+        # Set the y-axis to scientific notation
+        ax = plt.gca()
+        ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
+        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+
+        # Move the scale to the top left
+        ax.yaxis.get_offset_text().set_position((-0.1, 1.05))
+
         sns.despine(offset=0, trim=True)
         plt.xlabel("Frequency Bands")
         plt.ylabel(metric.title())
 
-        plt.savefig(os.path.join(save_path, "z_scores_scatter.png"), dpi=600, format="svg")
+        if save_path is not None:
+            os.makedirs(save_path, exist_ok=True)
+            plt.savefig(os.path.join(save_path, f"{metric}_metric.svg"), dpi=600, format="svg")
+            plt.savefig(os.path.join(save_path, f"{metric}_metric.png"), dpi=600, format="png")
+        
+        plt.close()
+
+
+def qq_plot(processing_dir, save_fig, label_dict):
+    plotkwargs = {"markerfacecolor": "black", "markeredgecolor": "black"}
+
+    with open(os.path.join(processing_dir, "Z_estimate.pkl"), "rb") as file:
+        z_scores = pickle.load(file)
+
+    for key, value in label_dict.items():
+        plt.figure(figsize=(4, 4))
+        ax = plt.gca()  
+
+        # Generate QQ plot without the line
+        sm.qqplot(
+            z_scores.iloc[:, value].to_numpy(), 
+            line=None, 
+            ax=ax, 
+            **plotkwargs
+        )
+
+        # Add a red 45-degree line manually
+        x = np.linspace(-3, 3, 100)
+        ax.plot(x, x, color='red', linewidth=2, linestyle='-', alpha=0.6)
+
+        plt.ylim((-3, 3))
+        plt.xlim((-3, 3))
+
+        # Customize spines
+        ax.spines["right"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        ax.spines["bottom"].set_position(('outward', 10))
+        ax.spines["left"].set_position(('outward', 10))
+
+        plt.grid()
+
+        plt.xticks(np.linspace(-3, 3, 7))
+        plt.yticks(np.linspace(-3, 3, 7))
+        plt.tick_params(axis='both', labelsize=16)
+
+        plt.title(key.capitalize(), fontsize=16)
+        # Save the figure
+        if save_fig is not None:
+            os.makedirs(save_fig, exist_ok=True)
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.pdf"), dpi=300, bbox_inches='tight')
+
         plt.close()
