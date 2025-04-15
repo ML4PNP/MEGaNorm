@@ -13,9 +13,9 @@ from mne.preprocessing import find_bad_channels_maxwell
 
 
 # Add utils folder to the system path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-config_path = os.path.join(parent_dir, 'utils')
-sys.path.append(config_path)
+#parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#config_path = os.path.join(parent_dir, 'utils')
+#sys.path.append(config_path)
 
 
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):

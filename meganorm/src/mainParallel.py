@@ -7,14 +7,14 @@ import pandas as pd
 import glob
 
 # Add utils folder to the system path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-config_path = os.path.join(parent_dir, 'utils')
-sys.path.append(config_path)
+#parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#config_path = os.path.join(parent_dir, 'utils')
+#sys.path.append(config_path)
 
-from IO import make_config, storeFooofModels
-from psdParameterize import psdParameterize
-from preprocess import preprocess, segment_epoch, drop_bads
-from featureExtraction import feature_extract
+from meganorm.utils.IO import make_config, storeFooofModels
+from meganorm.src.psdParameterize import psdParameterize
+from meganorm.src.preprocess import preprocess, segment_epoch, drop_bads
+from meganorm.src.featureExtraction import feature_extract
 
 
 def mainParallel(*args):

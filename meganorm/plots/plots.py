@@ -10,7 +10,7 @@ import seaborn as sns
 import pandas as pd
 import plotly.graph_objects as go
 import matplotlib.ticker as mticker
-rom scipy.stats import chi2
+from scipy.stats import chi2
 
 
 def KDE_plot(data, experiments, metric, xlim = 'auto', fontsize=24):

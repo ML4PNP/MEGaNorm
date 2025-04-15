@@ -8,10 +8,10 @@ from tqdm import tqdm
 from glob import glob
 import fooof as f
 
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-config_path = os.path.join(parent_dir, 'utils')
-sys.path.append(config_path)
-from IO import make_config, storeFooofModels
+#parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#config_path = os.path.join(parent_dir, 'utils')
+#sys.path.append(config_path)
+from meganorm.utils.IO import make_config, storeFooofModels
 
 import warnings
 warnings.filterwarnings('ignore')
