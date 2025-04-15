@@ -1,0 +1,73 @@
+
+(Cambridge Centre for Ageing and Neuroscience (Cam-CAN) dataset)
+
+MEG data were collected during resting state, a sensorimotor task, and an audio-visual (passive)
+
+T1 and T2 weighted MRI
+
+Gathered at a single site
+306 sensor (102 magnetometer and 204 planer gradiometer)
+light magnetically shilded room
+
+fs = 1000 hz
+high pass filter (cutoff 0.03)
+
+other signals:    
+    - Head-position Indicator (HPI)
+    - one vertical and one horizontal EOG
+    - ECG
+
+
+eyes closed
+
+signal duration: 8min and 40s
+
+preprocessing:
+    temporal signal space seperation (tSSS) ==> removing noise including external and HPI coils noise (correlation threshold 0.98, 10-sec sliding window)
+    head motion corection
+    maxwell filter (notchfilter(50Hz) and automatically detect and virtually reconstruct any noisy channels)
+    transformed into a common head position
+    ICA (those ICs that had the highest correlation with ECG, VEOG and HOG were projected out ==> Therefore, 3 ICs were projected out)
+
+
+numbers of participants per seven decades from 18 to 87, respectively: 47, 102, 100, 97, 94, 93, 90 (Notice that these are those participants that had 
+both resting and task MEG)
+
+
+
+
+
+
+
+
+(Boys Town National Research Hospital)
+
+434 participants (205 female)
+Age range: 6 - 84 => highly skweed
+204 planar gradiometers and 102  magnetometers
+sampling rate: 1khz
+acquisition bandwidth of 0.1 to 330 Hz
+Data were recorded in five different studies (using same MEG instrument). Note these were recorded in a single site, across five studies.
+eyes-open
+signal length: 5 - 8 min
+head-motion correction using signal space seperation  (MaxFilter v2.2; correlation limit: 0.950; correlation window duration: 6 s) 
+notch filter: 60 Hz
+Cardiac activity is removed by signal-space projection approach
+Empty room data (present)
+
+
+
+
+
+differences between CAMCAN and BTNRH:
+1. CAMCAN has HPI coils - BTNRH may has HPI (the author has not clearly stated, but I think there are HPI recordings in the dataset)
+2. CAMCAN dataset has ECG while in BTNRH, 
+3. CAMCAN dataset has V/HEOG recordings
+4. CAMCAN: temporal SSS (tSSS) (correlation threshold 0.98, 10-sec sliding window)  + maxwell => in order to remove external noise and head 
+    motion BTNRH: adjusted for head motion and processed for noise reduction using the signal space separation technique with a temporal 
+    extension (MaxFilter v2.2; correlation threshold: 0.950; correlation window length: 6 seconds)
+5. CAMCAN: MaxFilter (50 Hz) BTNRH: notch filter (60 Hz and its harmonic)
+6. In CAMCAN blinks, eye movements heart pulse were projected out by automatic ICA  BTNRH: cardiac activity was projected out using signal space projection
+7. CAMCAN: 8 min 40 sec BTNRH: between 5-8 min
+8. Both have empty room data 
+9. In BTNRH, after epoching the data, those epoch that were outliers (amplitude and gradient based) were remved
