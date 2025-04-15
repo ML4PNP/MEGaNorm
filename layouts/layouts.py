@@ -222,9 +222,20 @@ def create_layouts(modality='MEG', device='FIF'):
         }
         save_sensor_layouts(SET_layouts, 'SET')
 
+    elif modality=='EEG' and device=='VHDR': #26-channel EEG-recordings, based on the 10–10 electrode international system using a Compumedics Quickcap or ANT-Neuro Waveguard Cap with sintered Ag/AgCl electrode, file is .vhdr
+        VHDR_layouts = {
+            "VHDR_EEG_ALL":{ 
+                'EEG_ALL': ['Fp1', 'Fp2', 'F7', 'F3', 'Fz', 'F4', 'F8', 'FC3', 'FCz', 'FC4', 'T7', 'C3', 'Cz', 'C4', 'T8', 'CP3', 'CPz', 'CP4',
+                            'P7', 'P3', 'Pz', 'P4', 'P8', 'O1', 'Oz', 'O2', 'VPVA', 'VNVB', 'HPHL', 'HNHR', 'Erbs', 'OrbOcc', 'Mass']
+
+            }
+        }
+        save_sensor_layouts(VHDR_layouts, 'VHDR')
+
 
 if __name__ == "__main__":
         
     create_layouts(modality='MEG', device='FIF')
     create_layouts(modality='MEG', device='DS')
     create_layouts(modality='EEG', device='SET')
+    create_layouts(modality='EEG', device='VHDR')
