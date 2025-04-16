@@ -8,7 +8,6 @@ import pandas as pd
 
 
 def load_covariates(path):
-    
     """Load age and gender for CamCAN dataset.
 
     Args:
@@ -17,19 +16,18 @@ def load_covariates(path):
     Returns:
         DataFrame: Pandas dataframe containing age and gender for camcan dataset.
     """
-    
-    df = pd.read_csv(path, sep='\t', index_col=0)
-    df = df[['age', 'gender_code']]
-    df = df.rename(columns={'gender_code':'gender'})
-    df.gender = df.gender - 1 # 0 for males and 1 for females
+
+    df = pd.read_csv(path, sep="\t", index_col=0)
+    df = df[["age", "gender_code"]]
+    df = df.rename(columns={"gender_code": "gender"})
+    df.gender = df.gender - 1  # 0 for males and 1 for females
     df.index.name = None
-    df['site'] = np.zeros([df.shape[0],1], dtype=int)
-    
-    return df   
+    df["site"] = np.zeros([df.shape[0], 1], dtype=int)
+
+    return df
 
 
 def load_camcan_data(feature_path, covariates_path):
-    
     """Load camcan dataset
 
     Args:
@@ -39,47 +37,39 @@ def load_camcan_data(feature_path, covariates_path):
     Returns:
         DataFrame: Pandas dataframe with camcan covariates and features.
     """
-    
+
     camcan_covariates = load_covariates(covariates_path)
     camcan_features = pd.read_csv(feature_path, index_col=0)
-    camcan_data = camcan_covariates.join(camcan_features, how='inner')
-    
+    camcan_data = camcan_covariates.join(camcan_features, how="inner")
+
     return camcan_data
 
 
-def mne_bids_CAMCAN(input_base_path,
-                   output_path):
-    
+def mne_bids_CAMCAN(input_base_path, output_path):
 
-    if os.path.exists(output_path): shutil.rmtree(output_path); os.mkdir(output_path)
+    if os.path.exists(output_path):
+        shutil.rmtree(output_path)
+        os.mkdir(output_path)
 
     raw_fpath = glob.glob(os.path.join(input_base_path, "*/*.fif"))
 
     for counter in range(len(raw_fpath)):
 
-        
-        subject_id =Path(raw_fpath[counter]).parts[-2].split("-")[1]
-        
+        subject_id = Path(raw_fpath[counter]).parts[-2].split("-")[1]
+
         raw = mne.io.read_raw_fif(raw_fpath[counter], verbose=False)
         # As stated in bellow link, apparantly CHPI signal must be droped. We have to investigate more later if we need other recordings
         # https://mne.discourse.group/t/chpi-channels-not-recognized-by-mne-bids-write-raw-bids/5609
         raw = raw.pick(picks=["meg", "ecg", "eog"], verbose=False)
         raw.info["line_freq"] = 50
 
-        bids_path = mne_bids.BIDSPath(
-            task="rest",
-            subject=subject_id,
-            root=output_path)
+        bids_path = mne_bids.BIDSPath(task="rest", subject=subject_id, root=output_path)
 
-        mne_bids.write_raw_bids(raw=raw,
-                           bids_path=bids_path,
-                           overwrite=True, 
-                           verbose=False,
-                           symlink=True)
-        
+        mne_bids.write_raw_bids(
+            raw=raw, bids_path=bids_path, overwrite=True, verbose=False, symlink=True
+        )
+
     return None
-    
-    
 
 
 if __name__ == "__main__":
