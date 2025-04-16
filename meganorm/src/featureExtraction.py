@@ -60,7 +60,7 @@ def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, flo
         fmax (int or float): The maximum frequency of the band.
 
     Returns
-        (list): A list of peaks that lie within the specified frequency band. Each peak is represented as a tuple.
+        list: A list of peaks that lie within the specified frequency band. Each peak is represented as a tuple.
     """
 
     peaks = fm.get_params('peak_params')
@@ -74,42 +74,76 @@ def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, flo
     return band_peaks
 
 
-def peak_center(band_peaks):
+def peak_center(band_peaks:list):
     """
-    This function returns peak parmaters: Dominant peak frequency
+    Returns the frequency of the dominant peak from a list of band peaks.
+
+    Args
+        band_peaks (list): A list of tuples where each tuple represents a peak.
+                                     The first element is the frequency and the second element is the peak value.
+
+    Returns
+        float: The frequency of the dominant peak, or np.nan if the list is empty.
     """
-    if band_peaks:
-        dominant_peak = max(band_peaks, key=lambda x: x[1])
-        return dominant_peak[0]
-    else: return np.nan
+    if not band_peaks:
+        return np.nan
+
+    # Get the dominant peak by selecting the one with the maximum second element (e.g., power)
+    dominant_peak = max(band_peaks, key=lambda x: x[1])
+    
+    # Return the frequency of the dominant peak (first element of the tuple)
+    return dominant_peak[0]
 
 
-def peak_power(band_peaks):
+def peak_power(band_peaks:list):
     """
-    This function returns peak parmaters: Dominant peak power
+    Returns the power of the dominant peak from a list of band peaks.
+
+    Args
+        band_peaks (list of tuples): A list of tuples where each tuple represents a peak.
+                                     The first element is the frequency and the second element is the peak value
+                                     (e.g., power, amplitude, or another relevant measure).
+
+    Returns
+        float: The power of the dominant peak, or np.nan if the list is empty.
     """
-    if band_peaks:
-        dominant_peak = max(band_peaks, key=lambda x: x[1])
-        return dominant_peak[1]
-    else: return np.nan
+    if not band_peaks:
+        return np.nan
+
+    dominant_peak = max(band_peaks, key=lambda x: x[1])
+    return dominant_peak[1]
 
 
-def peak_width(band_peaks):
+def peak_width(band_peaks:list):
     """
-    This function returns peak parmaters: Dominant peak width
+    Returns the width of the dominant peak from a list of band peaks.
+
+    Args
+        band_peaks (list of tuples): A list of tuples where each tuple represents a peak.
+                                     The elements are (frequency, power, width).
+
+    Returns
+        float: The width of the dominant peak, or np.nan if the list is empty.
     """
-    if band_peaks:
-        dominant_peak = max(band_peaks, key=lambda x: x[1])
-        return dominant_peak[2]
-    else: return np.nan
+    if not band_peaks:
+        return np.nan
+
+    dominant_peak = max(band_peaks, key=lambda x: x[1])
+    return dominant_peak[2]
 
 
-def isolate_periodic(fm, psd):
+def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
     """
-    this function isolate periodic parts of signal
-    through subtracting aperiodic fit from original psds
+    Isolates the periodic component of the power spectrum by subtracting the aperiodic fit.
+
+    Args
+        fm (f.FOOOF): A FOOOF model object that contains the aperiodic fit.
+        psd (np.ndarray): A 1D array of the original power spectrum in linear scale.
+
+    Returns
+        np.ndarray: A 1D array of the peridic component of the power spectrum.
     """
-    return psd - 10**fm._ap_fit 
+    return psd - 10**fm._ap_fit
 
 
 def abs_canonical_power(psd, freqs, fmin, fmax):
