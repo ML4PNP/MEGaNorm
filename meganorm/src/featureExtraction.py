@@ -258,7 +258,16 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
 
 def summarizeFeatures(df, extention, which_layout, which_sensor):
     """
-    average features accroding to the layout. 
+    Averages features across channels according to the specified sensor layout.
+
+    Args:
+        df (pd.DataFrame): A DataFrame where each column is a channel and each row is a sample.
+        extension (str): Dataset or subject-specific prefix to construct layout names.
+        which_layout (str): Name of the sensor layout to summarize ('all' for global average).
+        which_sensor (dict): Dictionary indicating sensor modality to use (e.g., {'meg': True, 'eeg': False}).
+
+    Returns:
+        pd.DataFrame: A new DataFrame with features averaged by layout or parcel.
     """
     df.dropna(axis=0, how="all", inplace=True)
     summrized_df = pd.DataFrame(index=df.index)
@@ -281,7 +290,21 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
 
 def psd_ratio(psd, freqs, freqRangeNumerator:float, freqRangeDenominator:float, channelNames:str, name:str, psdType:str):
     """
-    this function calculates ratios of canonical frequency bands
+    Calculates the ratio of power in two frequency bands (numerator/denominator) in the power spectral density (PSD).
+    
+    Args:
+        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
+        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
+        freqRangeNumerator (tuple): A tuple (min_freq, max_freq) representing the numerator frequency range.
+        freqRangeDenominator (tuple): A tuple (min_freq, max_freq) representing the denominator frequency range.
+        channelNames (str): Name of the channel for which the ratio is calculated.
+        name (str): Descriptive name for the output feature.
+        psdType (str): Type of the PSD (e.g., 'power', 'spectrum').
+
+    Returns:
+        Tuple[List[float], List[str]]: A tuple containing:
+            - A list with the computed PSD ratio (log of numerator/denominator)
+            - A list with the generated feature name
     """
 
     # Numerator
@@ -302,66 +325,98 @@ def psd_ratio(psd, freqs, freqRangeNumerator:float, freqRangeDenominator:float, 
 
 
 def create_feature_container(feature_categories, freq_bands, channel_names):
+    """
+    Creates a DataFrame to store features for each channel, with feature names corresponding to 
+    the specified categories and frequency bands.
+
+    Args:
+        feature_categories (dict): Dictionary with feature names as keys and booleans indicating 
+                                    whether the feature should be calculated.
+        freq_bands (list): List of frequency bands (e.g., ['theta', 'alpha', 'beta']).
+        channel_names (list): List of channel names (e.g., ['ch1', 'ch2', 'ch3']).
+
+    Returns:
+        pd.DataFrame: A DataFrame with feature names as rows and channels as columns.
+    """
     # TODO if band_name != "broadband" although not necessary because we fill the
     # data frame with name (df.at())
-    no_freq = ["Offset","Exponent","Peak_Center","Peak_Power","Peak_Width"]
+
+    # Features that do not need frequency band appended
+    no_freq = ["Offset", "Exponent", "Peak_Center", "Peak_Power", "Peak_Width"]
+    
     feature_names = []
+    
     for feature, if_calculate in feature_categories.items():
         if if_calculate:
             if feature not in no_freq:
+                # Append frequency bands to the feature name
                 for freq_band in freq_bands:
-                    feature = feature + freq_band
-                    feature_names.append(feature)
-            else: feature_names.append(feature)
-        else: continue
-
+                    feature_names.append(f"{feature}_{freq_band}")
+            else:
+                # For features that don't need frequency bands
+                feature_names.append(feature)
+    
+    # Return an empty DataFrame with features as index and channels as columns
     return pd.DataFrame(columns=channel_names, index=feature_names)
 
 
 def add_feature(feature_container, feature_arr, feature_name, channel_name, band_name):
+    """
+    Adds a feature to the feature container (DataFrame) for a specific channel and frequency band.
+
+    Args:
+        feature_container (pd.DataFrame): DataFrame where features are stored, with rows as feature names and columns as channels.
+        feature_arr (np.ndarray): Array of feature values to add to the DataFrame.
+        feature_name (str): The name of the feature to add.
+        channel_name (str): The name of the channel to assign the feature value.
+        band_name (str): The frequency band name to append to the feature name.
+
+    Returns:
+        pd.DataFrame: The updated feature container with the added feature.
+    """
     feature_name = feature_name + band_name
     feature_container.at[feature_name, channel_name] = feature_arr
+
     return feature_container
 
-
-def feature_extract(subjectId, fmGroup, psds, feature_categories, freqs, freq_bands, 
-                    channel_names, individualized_band_ranges, extention,
-                    which_layout , which_sensor, aperiodic_mode, min_r_squared):
+def feature_extract(subjectId: str, 
+                    fmGroup: Any, 
+                    psds: np.ndarray, 
+                    feature_categories: Dict[str, bool], 
+                    freqs: np.ndarray, 
+                    freq_bands: Dict[str, tuple], 
+                    channel_names: List[str], 
+                    individualized_band_ranges: Dict[str, tuple], 
+                    extention: str, 
+                    which_layout: str, 
+                    which_sensor: Dict[str, bool], 
+                    aperiodic_mode: str, 
+                    min_r_squared: float) -> pd.DataFrame:
     """
-    extract features from fooof results
+    Extract features from fooof results for a set of channels.
 
-    parameters
-    -----------
-    subjectId: str
-    subject ID
-    
-    fmGroup: fooof object
-    here, group represent channels
+    Args:
+        subjectId (str): Subject identifier.
+        fmGroup (Any): Group of FOOOF models, where each channel has a corresponding FOOOF object.
+        psds (np.ndarray): Original power spectral density (not flattened).
+        feature_categories (dict): A dictionary with feature names as keys and booleans indicating 
+                                   whether the feature should be calculated.
+        freqs (np.ndarray): Frequency values corresponding to each power value in psds.
+        freq_bands (dict): Dictionary mapping band names to tuples of (fmin, fmax).
+        channel_names (list): List of channel names.
+        individualized_band_ranges (dict): Dictionary of individualized frequency ranges for each band.
+        extention (str): The extension type for layout.
+        which_layout (str): The layout to use for summarization.
+        which_sensor (dict): Dictionary indicating whether each sensor should be included.
+        aperiodic_mode (str): Aperiodic mode for the FOOOF model.
+        min_r_squared (float): Minimum acceptable r-squared value for model fitting.
 
-    psds: array
-    original power spectrum (not flattened)
-
-    freqs: list
-    frequency values corresponding to each power value
-
-    freq_bands: dictionary
-
-    leastR2: float
-    least accpetable r_squared in fitting fooof mdeols
-
-    channel_names: list
-
-    individualized_band_ranges: dict
-    individualized frequency ranges
-
-    return
-    -------------
-    featuresRow: list
+    Returns:
+        pd.DataFrame: A DataFrame containing extracted features for each channel and band.
     """
 
     # Store features in a pandas DataFrame with channel names as columns 
     # and feature names as the index,
-    
     feature_container = create_feature_container(feature_categories, freq_bands, channel_names)
 
     for channel_num, channel_name in enumerate(channel_names):
