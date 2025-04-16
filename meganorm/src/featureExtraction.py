@@ -7,26 +7,25 @@ import pickle
 import argparse
 import pandas as pd
 import fooof as f
-
-# Add utils folder to the system path
-#parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-#config_path = os.path.join(parent_dir, 'utils')
-#sys.path.append(config_path)
-#config_path = os.path.join(parent_dir, 'layouts')
-#sys.path.append(config_path)
-
 # from layouts import load_specific_layout
 from meganorm.utils.IO import make_config
 from meganorm.layouts.layouts import load_specific_layout
 
 
 
-
-
-def offset(fm):
+def offset(fm: f.FOOOF) -> float:
     """
-    Returns offset of the apperiodic fit
+    Extract the offset parameter from the aperiodic component of a FOOOF model.
+
+    Args:
+        fm (f.FOOOF): A FOOOF model object that has been fit to data and contains aperiodic parameters.
+
+    Returns:
+        (float): The offset value, which is the first element of the aperiodic parameters.
     """
+    if not isinstance(fm, f.FOOOF):
+        raise TypeError("Expected a FOOOF model instance.")
+
     return fm.get_params("aperiodic_params")[0] 
 
 
