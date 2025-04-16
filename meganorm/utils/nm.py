@@ -5,7 +5,6 @@ import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.stats as st
-from plots.plots import KDE_plot
 from scipy.stats import shapiro
 import itertools
 from sklearn.model_selection import StratifiedKFold
@@ -13,6 +12,7 @@ import shutil
 from scipy.stats import skew, kurtosis
 from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
+from meganorm.plots.plots import KDE_plot
 
 def hbr_data_split(data, save_path, covariates=['age'], batch_effects=None, train_split=0.5, 
                   validation_split=None, drop_nans=False, random_seed="23d", prefix=''):
