@@ -193,42 +193,71 @@ def plot_comparison(path, hbr_configs, biomarker_num, metrics = ['Rho','SMSE','M
     
     
 
-def plot_age_dist(data, save_path=None):
+def plot_age_hist(df, site_names, save_path, 
+    lower_age_range=5, upper_age_range=90, step_size=5,
+    colors=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213', "Slategrey"]):
+    """ ***
+    Plots and saves a stacked histogram showing the age distribution across multiple sites.
+
+    Args:
+        df (pandas.DataFrame): A dataframe containing at least two columns: "site" and "age".
+                               Each row represents a participant. The "site" column should 
+                               contain numeric identifiers corresponding to each site.
+        site_names (list): A list of site names (str), used as labels in the legend. 
+        save_path (str): Directory path where the resulting plots will be saved. 
+        lower_age_range (int, optional): Minimum age to include in the histogram. Default is 5.
+        upper_age_range (int, optional): Maximum age to include in the histogram. Default is 90.
+        step_size (int, optional): Bin width (in years) for the histogram. Default is 5.
+        colors (list, optional): List of colors for each site's histogram. Must be the same length
+                                 or longer than `site_names`.
+
+    Raises:
+        Exception: If the number of provided colors is less than the number of sites.
+
+    Saves:
+        "age_dis.svg"
+        "age_dis.png"
+    """
+
+    if len(site_names) > len(colors):
+        raise Exception("The number of colors is less than site_names, please specify a longer list of colors.")
+
     
-    ## This function customized for camcan data and needs adaptation for other datasets
+    bins = list(range(lower_age_range, upper_age_range, step_size))
+    ages = []
+
+    for counter in range(len(site_names)):
+        ages.append(df[df["site"]==counter]["age"].to_numpy()*100)
     
-    data_copy = data.copy()
-    data_copy['Gender'] = data_copy['gender'].map({0: 'Males', 1: 'Females'})
-
-    fig, ax1 = plt.subplots(1, 1, figsize=(8, 5))
-
-    # KDE plot of age
-    sns.kdeplot(data=data_copy, x='age', ax=ax1, fill=True,
-                common_norm=False, palette="crest", hue='Gender',
-                alpha=.3, linewidth=0)
-    ax1.set_xlabel('Age', fontsize=16)
-    ax1.set_ylabel('Density', fontsize=16)
-    ax1.set_title('Age Distribution', fontsize=18)
-    ax1.grid(True, axis='y', linestyle='--', alpha=0.7)
-    ax1.set_xticks(range(0, 101, 10))  
-
-    for spine in ax1.spines.values():
-        spine.set_visible(False)
-
-    # Secondary y-axis for histogram
-    ax2 = ax1.twinx()
-    sns.histplot(data=data_copy, x='age', hue='Gender', bins=10, palette="crest",
-                 alpha=0.8, ax=ax2, element='step', linewidth=1.5)
-    ax2.set_ylabel('Count', fontsize=16)
-    ax2.set_ylim(0, ax2.get_ylim()[1] * 1.1)  # Adjust y-axis to ensure visibility
+    plt.figure(figsize=(12, 7))
+    plt.hist(ages, bins=bins, color=colors, 
+             edgecolor="black", 
+             alpha=0.6, 
+             histtype="barstacked", 
+             rwidth=0.9)
     
+    # Remove the top and right spines
+    plt.gca().spines['top'].set_visible(False)
+    plt.gca().spines['right'].set_visible(False)
 
-    plt.tight_layout()
-        
-    if save_path is not None:
-        plt.savefig(os.path.join(save_path, 'age_dist.png'), dpi=600)
+    # Offset the bottom and left spines
+    plt.gca().spines['bottom'].set_position(('outward', 15))  
+    plt.gca().spines['left'].set_position(('outward', 15))
 
-    plt.show()
+
+    plt.gca().xaxis.set_ticks_position('bottom')
+    plt.gca().yaxis.set_ticks_position('left')
+    plt.grid(axis="y", color = 'black', linestyle = '--')
+    plt.grid(axis="x", linestyle = '')
+
+    plt.xlabel("Age (years)", fontsize=25)
+    plt.legend(site_names, prop={'size': 23}, loc='upper right')
+    plt.tick_params(axis="both", labelsize=19)
+    plt.xticks(list(range(lower_age_range, lower_age_range, step_size*2)))
+    plt.ylabel("Count",  fontsize=25)
+    plt.savefig(os.path.join(save_path, "age_dis.svg"), format="svg", dpi=600, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "age_dis.png"), format="png", dpi=600, bbox_inches="tight")
+
     
 
 def plot_neurooscillochart(data, age_slices, save_path):
