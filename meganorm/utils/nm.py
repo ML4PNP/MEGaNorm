@@ -233,7 +233,7 @@ def model_quantile_evaluation(configs, save_path, valcovfile_path,
 
 
 def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids, 
-                          quantile_id=2, site_id=None, point_num=100, age_slices=None):
+                          quantile_id=2, site_id=None, point_num=100, age_slices=None, num_of_datasets=None):
     
 
     if age_slices is None:
@@ -253,7 +253,7 @@ def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids,
         if site_id is None:
             data = np.concatenate([q[b[:,0]== 0, quantile_id, model_id:model_id+1], 
                             q[b[:,0]== 1, quantile_id ,model_id:model_id+1]], axis=1)
-            data = data.reshape(5, 100, 2)  
+            data = data.reshape(num_of_datasets, 100, 2)  
             data = data.mean(axis=0)
         else:
             data = np.concatenate([q[np.logical_and(b[:,0]== 0, b[:,1]== site_id), quantile_id, model_id:model_id+1], 
@@ -269,7 +269,6 @@ def calculate_oscilochart(quantiles_path, gender_ids, frequency_band_model_ids,
                 oscilogram[gender][fb].append([m,s])
     
     return oscilogram, age_slices
-
 
 
 def shapiro_stat(z_scores, covariates, n_bins=10):
@@ -428,11 +427,11 @@ def prepare_prediction_data(data, save_path, covariates=['age'], batch_effects=N
     return None
 
 
-def cal_stats_for_gauge(q_path, features, site_id, gender_id, age):
+def cal_stats_for_gauge(q_path, features, site_id, gender_id, age, num_of_datasets):
 
     q = pickle.load(open(q_path, "rb"))
     quantiles = q["quantiles"]
-    synthetic_X = q["synthetic_X"].reshape(10, 100).mean(axis=0) # since Xs are repeated !
+    synthetic_X = q["synthetic_X"].reshape(num_of_datasets*2, 100).mean(axis=0) # since Xs are repeated !
     b = q["batch_effects"]
 
     statistics = {feature: [] for feature in features}
@@ -443,7 +442,7 @@ def cal_stats_for_gauge(q_path, features, site_id, gender_id, age):
 
             if not site_id: # if not any specific site, average between all sites (batch effect)
                 data = quantiles[b[:,0]== gender_id, quantile_id, ind:ind+1]
-                data = data.reshape(5, 100, 1)  
+                data = data.reshape(num_of_datasets, 100, 1)  
                 data = data.mean(axis=0)
             if site_id:
                 data = quantiles[np.logical_and(b[:,0]== gender_id, b[:,1]== site_id), quantile_id, ind:ind+1]

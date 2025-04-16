@@ -221,7 +221,7 @@ if __name__ == "__main__":
 
     # MOUS 
     file_dir = "/project/meganorm/Data/MOUS/participants.tsv"
-    save_dir = "/project/meganorm/Data/BTNRH/participants_bids.tsv"
+    save_dir = "/project/meganorm/Data/MOUS/participants_bids.tsv"
     make_demo_file_bids(file_dir, 
                         save_dir, 
                         0, 

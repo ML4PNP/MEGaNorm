@@ -1,4 +1,5 @@
 import os
+import statsmodels.api as sm
 import matplotlib
 import pickle
 import numpy as np
@@ -260,7 +261,7 @@ def plot_neurooscillochart(data, age_slices, save_path):
                           ha='center', 
                           va='center', fontsize=14)
         ax.set_title(title, fontsize=18)
-        ax.set_xlabel('Age Ranges', fontsize=16)
+        ax.set_xlabel('Age ranges (years)', fontsize=16)
         if legend:
             ax.legend(loc='upper right', bbox_to_anchor=(1.1,1))  
         else:    
@@ -277,7 +278,7 @@ def plot_neurooscillochart(data, age_slices, save_path):
     plot_gender_data(axes[1], data['Female'], "Females' Chrono-NeuroOscilloChart", legend=False, 
                      colors=['lightgrey', 'gray', 'dimgrey', 'lightslategray'])
     
-    axes[1].set_xlabel('Age Ranges', fontsize=14)
+    axes[1].set_xlabel('Age ranges (years)', fontsize=14)
     plt.xticks(rotation=45)
     plt.tight_layout()
     
@@ -285,8 +286,7 @@ def plot_neurooscillochart(data, age_slices, save_path):
         plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.svg'), dpi=600)
     else:
         plt.show()
-
-
+        
 
 def plot_age_dist2(df, site_names, save_path, colors=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213', "Slategrey"]):
     
@@ -472,7 +472,7 @@ def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None)
         axes[j].grid(True, which='both', linestyle='--', linewidth=2, alpha=0.85)
         axes[j].spines['top'].set_visible(False)
         axes[j].spines['right'].set_visible(False)
-        axes[j].set_xlabel('Age (years)', fontsize=28)
+        # axes[j].set_xlabel('Age (years)', fontsize=28)
         
         #axes[j].legend(loc='upper left', fontsize=20)
 
@@ -483,16 +483,16 @@ def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None)
         #axes[j].axvline(x=age_transform(cut), color='k', linestyle='--', linewidth=2, alpha=0.5)
 
     axes[0].set_ylabel(idp, fontsize=28)
-    axes[0].set_title("Males", fontsize=28)
-    axes[1].set_title("Females", fontsize=28)
+    # axes[0].set_title("Males", fontsize=28)
+    # axes[1].set_title("Females", fontsize=28)
 
     plt.tight_layout(pad=2)
     
     if save_path is not None:
-        plt.savefig(os.path.join(save_path, idp.replace(" ", "_") + '_growthchart.png'), dpi=600)
+        plt.savefig(os.path.join(save_path, idp.replace(" ", "_") + '_growthchart.svg'), dpi=600)
 
 
-def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100):
+def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100, num_of_sites=None):
     """Plotting growth charts for multiple idps.
 
     Args:
@@ -501,6 +501,7 @@ def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100):
         idp_names (list): A list of IDP names corresponding to IDP indices.
         site (int, optional): The site id to plot. Defaults to 0.
         point_num (int, optional): Number of points used in creating the synthetic X. Defaults to 100.
+        num_of_sites: number of sites (used for averaging)
     """
 
     temp = pickle.load(open(os.path.join(path, 'Quantiles_estimate.pkl'),'rb'))
@@ -510,15 +511,15 @@ def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100):
     b = temp['batch_effects']
 
     for i, idp in enumerate(idp_indices):
-
+        
+        print(q.shape)
         data = np.concatenate([q[b[:,0]== 0,:,idp:idp+1], 
                             q[b[:,0]== 1,:,idp:idp+1]], axis=2)
-        data = data.reshape(5, 100, 5, 2) 
+        data = data.reshape(num_of_sites, 100, 5, 2) 
         data = data.mean(axis=0)
 
         plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path)
         
-
 
 def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
                         title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False, bio_name=None, save_path=""):
@@ -538,16 +539,18 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
     - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
     """
 
+    if bio_name == "Gamma": max_value = 0.1
+
     if current_value < percentile_5:
-        value_color = "rgba(115, 90, 63, 1)"  # Purple 
+        value_color = "rgb(35, 36, 54)"  # Purple 
     elif current_value < q1:
-        value_color = "rgba(255, 215, 0, 1)"  # Gold 
+        value_color = "rgb(54, 89, 194)"  # Gold 
     elif current_value <= q3:
-        value_color = "rgba(34, 139, 34, 1)"  # Green 
+        value_color = "rgb(192, 192, 192)"  # Green 
     elif current_value <= percentile_95:
-        value_color = "rgba(255, 99, 71, 1)"  # Tomato red
+        value_color = "rgb(171, 30, 28)"  # Tomato red
     else:
-        value_color = "rgba(128, 0, 128, 1)"  # Purple
+        value_color = "rgb(118, 13, 22)"  # Purple
 
     if show_legend:
         number_font_size = 75
@@ -570,13 +573,13 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
                 'tickcolor': "lightgrey",
                 'tickvals': [round(min_value + i * (max_value - min_value) / 10, 2) for i in range(11)],  
             },
-            'bar': {'color': "rgb(255, 69, 58)"},  
+            'bar': {'color': "rgb(128, 128, 128)"},  
             'steps': [
-                {'range': [min_value, percentile_5], 'color': "rgba(115, 90, 63, 1)"},  # Purple 
-                {'range': [percentile_5, q1], 'color': "rgba(255, 215, 0, 0.6)"},  # Warm gold 
-                {'range': [q1, q3], 'color': "rgba(34, 139, 34, 0.7)"},  # Forest green 
-                {'range': [q3, percentile_95], 'color': "rgba(255, 99, 71, 0.6)"},  # Soft tomato red
-                {'range': [percentile_95, max_value], 'color': "rgba(128, 0, 128, 0.9)"},  # dark Purple
+                {'range': [min_value, percentile_5], 'color': "rgb(35, 36, 54)"},  # Purple 
+                {'range': [percentile_5, q1], 'color': "rgb(54, 89, 194)"},  # Warm gold 
+                {'range': [q1, q3], 'color': "rgb(192, 192, 192)"},  # Forest green 
+                {'range': [q3, percentile_95], 'color': "rgb(171, 30, 28)"},  # Soft tomato red
+                {'range': [percentile_95, max_value], 'color': "rgb(118, 13, 22)"},  # dark Purple
             ],
             'threshold': {
                 'line': {'color': "black", 'width': 6},  # Black line for the 0.5th percentile marker
@@ -592,23 +595,23 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
 
     if show_legend:
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgba(115, 90, 63, 1)"),
+                                 marker=dict(size=12, color="rgb(35, 36, 54)"),
                                  name="0-5th Percentile (Extremely Low)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgba(255, 215, 0, 0.6)"),
+                                 marker=dict(size=12, color="rgb(54, 89, 194)"),
                                  name="5th-25th Percentile (Below Normal)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgba(34, 139, 34, 0.7)"),
+                                 marker=dict(size=12, color="rgb(192, 192, 192)"),
                                  name="25th-75th Percentile (Normal)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgba(255, 99, 71, 0.6)"),
+                                 marker=dict(size=12, color="rgb(171, 30, 28)"),
                                  name="75th-95th Percentile (Above Normal)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgba(128, 0, 128, 0.9)"),
+                                 marker=dict(size=12, color="rgb(118, 13, 22)"),
                                  name="95th-100th Percentile (Extremely High)"))
     
     # Update layout for better aesthetics
@@ -631,8 +634,7 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
         yaxis=dict(visible=False)   # Hide y-axis   
     )
 
-    fig.write_image(os.path.join(save_path, f"{bio_name}.png"))
-
+    fig.write_image(os.path.join(save_path, f"{bio_name}.svg"))
 
 
 def plot_feature_scatter(df, feature_names, save_fig_path):
@@ -1129,7 +1131,6 @@ def plot_metrics(metrics_path, which_features,
         ax.yaxis.get_offset_text().set_position((-0.1, 1.05))
 
         sns.despine(offset=0, trim=True)
-        plt.xlabel("Frequency Bands")
         plt.ylabel(metric.title())
 
         if save_path is not None:
