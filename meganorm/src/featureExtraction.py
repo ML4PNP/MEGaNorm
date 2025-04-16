@@ -29,17 +29,48 @@ def offset(fm: f.FOOOF) -> float:
     return fm.get_params("aperiodic_params")[0] 
 
 
-def exponent(fm, aperiodic_mode):
-    if aperiodic_mode == "knee" : exponent_index = 2 
-    if aperiodic_mode == "fixed" : exponent_index = 1
+def exponent(fm:f.FOOOF, aperiodic_mode:str) -> float:
+    """
+    Extract the exponent value from the aperiodic component of a FOOOF model, based on the specified mode.
+
+    Args
+        fm (f.FOOOF): A FOOOF model object that has been fit to data and contains aperiodic parameters.
+        aperiodic_mode (str): The mode to extract the exponent value for. Must be one of ['knee', 'fixed'].
+
+    Returns
+        (float): The exponent value corresponding to the specified mode ('knee' or 'fixed').
+    """
+    if aperiodic_mode == "knee": 
+        exponent_index = 2 
+    elif aperiodic_mode == "fixed": 
+        exponent_index = 1
+    else:
+        raise ValueError(f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'.")
+
     return fm.get_params("aperiodic_params")[exponent_index]
 
 
-def find_peak_in_band(fm, fmin, fmax):
-    # checking for possible nan values
-    band_peaks = [peak for peak in 
-                fm.get_params('peak_params') if np.any(peak == peak)]
-    band_peaks = [peak for peak in band_peaks if fmin <= peak[0] <= fmax]
+def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, float]) -> list:
+    """
+    Find peaks in a specified frequency band from the peak parameters of a FOOOF model.
+
+    Args
+        fm (f.FOOOF): A FOOOF model object that contains peak parameters.
+        fmin (int or float): The minimum frequency of the band.
+        fmax (int or float): The maximum frequency of the band.
+
+    Returns
+        (list): A list of peaks that lie within the specified frequency band. Each peak is represented as a tuple.
+    """
+
+    peaks = fm.get_params('peak_params')
+    
+    # filter peaks: check for NaNs and then within thee frequency band
+    band_peaks = [
+        peak for peak in peaks
+        if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
+    ]
+
     return band_peaks
 
 
