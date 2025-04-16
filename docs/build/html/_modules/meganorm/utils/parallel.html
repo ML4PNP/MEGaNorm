@@ -1,0 +1,425 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>meganorm.utils.parallel &mdash; MEGaNorm 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            MEGaNorm
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">MEGaNorm</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">meganorm.utils.parallel</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for meganorm.utils.parallel</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<div class="viewcode-block" id="progress_bar">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.parallel.progress_bar">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">progress_bar</span><span class="p">(</span><span class="n">current</span><span class="p">,</span> <span class="n">total</span><span class="p">,</span> <span class="n">bar_length</span><span class="o">=</span><span class="mi">20</span><span class="p">):</span>
+<span class="w">    </span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Displays or updates a console progress bar.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        current (int): Current progress (must be between 0 and total).</span>
+<span class="sd">        total (int): Total steps for complete progress.</span>
+<span class="sd">        bar_length (int, optional): Character length of the bar. Defaults to 20.</span>
+<span class="sd">    &quot;&quot;&quot;</span>    
+    
+    <span class="n">fraction</span> <span class="o">=</span> <span class="n">current</span> <span class="o">/</span> <span class="n">total</span>
+    <span class="n">arrow</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">fraction</span> <span class="o">*</span> <span class="n">bar_length</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="s1">&#39;&gt;&#39;</span> <span class="o">+</span> <span class="s1">&#39;&gt;&#39;</span>
+    <span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="n">bar_length</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">arrow</span><span class="p">))</span> <span class="o">*</span> <span class="s1">&#39; &#39;</span>
+    <span class="n">progress_percentage</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">fraction</span> <span class="o">*</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\r</span><span class="s2">Progress: [</span><span class="si">{</span><span class="s1">&#39;&gt;&#39;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">arrow</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">padding</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">progress_percentage</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">current</span> <span class="o">==</span> <span class="n">total</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">()</span>  <span class="c1"># Move to the next line when progress is complete.</span></div>
+
+
+
+<div class="viewcode-block" id="sbatchfile">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.parallel.sbatchfile">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">sbatchfile</span><span class="p">(</span><span class="n">mainParallel_path</span><span class="p">,</span>
+                <span class="n">bash_file_path</span><span class="p">,</span>
+                <span class="n">log_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">module</span><span class="o">=</span><span class="s1">&#39;mne&#39;</span><span class="p">,</span>
+                <span class="n">time</span><span class="o">=</span><span class="s1">&#39;1:00:00&#39;</span><span class="p">,</span>
+                <span class="n">memory</span><span class="o">=</span><span class="s1">&#39;20GB&#39;</span><span class="p">,</span>
+                <span class="n">partition</span><span class="o">=</span><span class="s1">&#39;normal&#39;</span><span class="p">,</span>
+                <span class="n">core</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">node</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">batch_file_name</span><span class="o">=</span><span class="s1">&#39;batch_job&#39;</span><span class="p">,</span>
+                <span class="n">with_config</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;_summary_</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mainParallel_path (str): Path to the mainParallel.py file.</span>
+<span class="sd">        bash_file_path (str): Path to save the create batch job file.</span>
+<span class="sd">        log_path (str, optional): _description_. Defaults to None.</span>
+<span class="sd">        module (str, optional): _description_. Defaults to &#39;mne&#39;.</span>
+<span class="sd">        time (str, optional): _description_. Defaults to &#39;1:00:00&#39;.</span>
+<span class="sd">        memory (str, optional): _description_. Defaults to &#39;20GB&#39;.</span>
+<span class="sd">        partition (str, optional): _description_. Defaults to &#39;normal&#39;.</span>
+<span class="sd">        core (int, optional): _description_. Defaults to 1.</span>
+<span class="sd">        node (int, optional): _description_. Defaults to 1.</span>
+<span class="sd">        batch_file_name (str, optional): _description_. Defaults to &#39;batch_job&#39;.</span>
+<span class="sd">        with_config (boolean, optional): _description_. Defaults to True.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        _type_: _description_</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="n">sbatch_init</span> <span class="o">=</span> <span class="s1">&#39;#!/bin/bash</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_nodes</span> <span class="o">=</span> <span class="s1">&#39;#SBATCH -N &#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">node</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_tasks</span> <span class="o">=</span> <span class="s1">&#39;#SBATCH -c &#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">core</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_partition</span> <span class="o">=</span> <span class="s1">&#39;#SBATCH -p &#39;</span> <span class="o">+</span> <span class="n">partition</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_time</span> <span class="o">=</span> <span class="s1">&#39;#SBATCH --time=&#39;</span> <span class="o">+</span> <span class="n">time</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_memory</span> <span class="o">=</span> <span class="s1">&#39;#SBATCH --mem=&#39;</span> <span class="o">+</span> <span class="n">memory</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_module</span> <span class="o">=</span> <span class="s1">&#39;source activate &#39;</span> <span class="o">+</span> <span class="n">module</span> <span class="o">+</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="k">if</span> <span class="n">log_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">sbatch_log_out</span> <span class="o">=</span> <span class="s1">&#39;#SBATCH -o &#39;</span> <span class="o">+</span> <span class="n">log_path</span> <span class="o">+</span> <span class="s2">&quot;/</span><span class="si">%x</span><span class="s2">_%j.out&quot;</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+        <span class="n">sbatch_log_error</span> <span class="o">=</span>  <span class="s1">&#39;#SBATCH -e &#39;</span> <span class="o">+</span> <span class="n">log_path</span> <span class="o">+</span> <span class="s2">&quot;/</span><span class="si">%x</span><span class="s2">_%j.err&quot;</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    
+    <span class="n">sbatch_input_1</span> <span class="o">=</span> <span class="s1">&#39;source=$1</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_input_2</span> <span class="o">=</span> <span class="s1">&#39;target=$2</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_input_3</span> <span class="o">=</span> <span class="s1">&#39;subject=$3</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="n">sbatch_input_4</span> <span class="o">=</span> <span class="s1">&#39;config=$4</span><span class="se">\n</span><span class="s1">&#39;</span>
+    
+    <span class="k">if</span> <span class="n">with_config</span><span class="p">:</span>
+        <span class="n">command</span> <span class="o">=</span> <span class="s1">&#39;srun python &#39;</span> <span class="o">+</span> <span class="n">mainParallel_path</span> <span class="o">+</span> <span class="s1">&#39; $source $target $subject --configs $config&#39;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">command</span> <span class="o">=</span> <span class="s1">&#39;srun python &#39;</span> <span class="o">+</span> <span class="n">mainParallel_path</span> <span class="o">+</span> <span class="s1">&#39; $source $target $subject&#39;</span> 
+
+    <span class="n">bash_environment</span> <span class="o">=</span> <span class="p">[</span><span class="n">sbatch_init</span> <span class="o">+</span>
+                        <span class="n">sbatch_nodes</span> <span class="o">+</span>
+                        <span class="n">sbatch_tasks</span> <span class="o">+</span>
+                        <span class="n">sbatch_partition</span> <span class="o">+</span>
+                        <span class="n">sbatch_time</span> <span class="o">+</span>
+                        <span class="n">sbatch_memory</span> 
+                        <span class="p">]</span>
+    
+    <span class="k">if</span> <span class="n">log_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">sbatch_log_out</span>
+        <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">sbatch_log_error</span>
+    
+    <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">sbatch_module</span>
+    <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">sbatch_input_1</span> 
+    <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">sbatch_input_2</span> 
+    <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">sbatch_input_3</span> 
+    <span class="k">if</span> <span class="n">with_config</span><span class="p">:</span>
+        <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">sbatch_input_4</span>
+    <span class="n">bash_environment</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">command</span>
+
+    <span class="n">job_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">bash_file_path</span><span class="p">,</span> <span class="n">batch_file_name</span> <span class="o">+</span> <span class="s1">&#39;.sh&#39;</span><span class="p">)</span>
+    <span class="c1"># writes bash file into processing dir</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">job_path</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">bash_file</span><span class="p">:</span>
+        <span class="n">bash_file</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">bash_environment</span><span class="p">)</span>
+
+    <span class="c1"># changes permissoins for bash.sh file</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">job_path</span><span class="p">,</span> <span class="mo">0o770</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">job_path</span></div>
+
+
+<div class="viewcode-block" id="submit_jobs">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.parallel.submit_jobs">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">submit_jobs</span><span class="p">(</span><span class="n">mainParallel_path</span><span class="p">,</span> <span class="n">bash_file_path</span><span class="p">,</span> <span class="n">subjects</span><span class="p">,</span> 
+                <span class="n">temp_path</span><span class="p">,</span> <span class="n">config_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">job_configs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">progress</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Submits jobs for each subject to the Slurm cluster.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mainParallel_path (string): Path to the mainParallel.py.</span>
+<span class="sd">        bash_file_path (string): Path to save the batch bash file.</span>
+<span class="sd">        subjects (dict): A dictionary of subject names (key) and paths (values).</span>
+<span class="sd">        temp_path (string): Path for saving temporary files.</span>
+<span class="sd">        config_file (string): Path to the json config file. Defaults to None.</span>
+<span class="sd">        job_configs (dictionary, optional): Dictionary of job configurations. Defaults to None.</span>
+<span class="sd">        progress (bool, optional): Show the progress bar or not. Defaults to False.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        string: The start time for the batch job submission.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">temp_path</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">temp_path</span><span class="p">)</span>
+        
+    <span class="k">if</span> <span class="n">job_configs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">job_configs</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;log_path&#39;</span><span class="p">:</span><span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;module&#39;</span><span class="p">:</span><span class="s1">&#39;mne&#39;</span><span class="p">,</span> <span class="s1">&#39;time&#39;</span><span class="p">:</span><span class="s1">&#39;1:00:00&#39;</span><span class="p">,</span> <span class="s1">&#39;memory&#39;</span><span class="p">:</span><span class="s1">&#39;20GB&#39;</span><span class="p">,</span> 
+                       <span class="s1">&#39;partition&#39;</span><span class="p">:</span><span class="s1">&#39;normal&#39;</span><span class="p">,</span> <span class="s1">&#39;core&#39;</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;node&#39;</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;batch_file_name&#39;</span><span class="p">:</span><span class="s1">&#39;batch_job&#39;</span><span class="p">}</span>
+        
+    <span class="n">batch_file</span> <span class="o">=</span> <span class="n">sbatchfile</span><span class="p">(</span><span class="n">mainParallel_path</span><span class="p">,</span> <span class="n">bash_file_path</span><span class="p">,</span> <span class="n">log_path</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;log_path&#39;</span><span class="p">],</span> 
+                            <span class="n">module</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;module&#39;</span><span class="p">],</span> <span class="n">time</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">],</span> 
+                            <span class="n">memory</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;memory&#39;</span><span class="p">],</span> <span class="n">partition</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;partition&#39;</span><span class="p">],</span> 
+                            <span class="n">core</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;core&#39;</span><span class="p">],</span> <span class="n">node</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;node&#39;</span><span class="p">],</span>
+                            <span class="n">batch_file_name</span><span class="o">=</span><span class="n">job_configs</span><span class="p">[</span><span class="s1">&#39;batch_file_name&#39;</span><span class="p">],</span> <span class="n">with_config</span><span class="o">=</span><span class="n">config_file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">)</span>
+    
+    <span class="n">start_time</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">T%H:%M:%S&quot;</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">s</span><span class="p">,</span> <span class="n">subject</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">subjects</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+        <span class="c1">#fname = os.path.join(subjects[subject], &#39;meg&#39;, subject + &#39;_task-rest_meg.fif&#39;)</span>
+        <span class="n">fname</span> <span class="o">=</span> <span class="n">subjects</span><span class="p">[</span><span class="n">subject</span><span class="p">]</span>
+        <span class="c1"># if os.path.exists(fname[0]):</span>
+        <span class="k">if</span> <span class="n">config_file</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">subprocess</span><span class="o">.</span><span class="n">check_call</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sbatch --job-name=</span><span class="si">{</span><span class="n">subject</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">batch_file</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">fname</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">temp_path</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">subject</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> 
+                                <span class="n">shell</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">subprocess</span><span class="o">.</span><span class="n">check_call</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sbatch --job-name=</span><span class="si">{</span><span class="n">subject</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">batch_file</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">fname</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">temp_path</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">subject</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">config_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> 
+                                <span class="n">shell</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="c1"># else:</span>
+        <span class="c1">#     print(&#39;File does not exist!&#39;)</span>
+        
+        <span class="k">if</span> <span class="n">progress</span><span class="p">:</span>
+            <span class="n">progress_bar</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">subjects</span><span class="p">))</span>
+    
+    <span class="k">return</span> <span class="n">start_time</span></div>
+
+
+
+<div class="viewcode-block" id="check_jobs_status">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.parallel.check_jobs_status">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">check_jobs_status</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">start_time</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="mi">20</span><span class="p">):</span>
+<span class="w">    </span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot; Checks the status of submitted jobs.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        username (string): Slurm username.</span>
+<span class="sd">        start_time (string): The start time for the batch job submission (see submit_jobs).</span>
+<span class="sd">        delay (int, optional): The delay in seconds for checks. Defaults to 20.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        list: List of failed job names.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="n">n</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">while</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span> 
+        <span class="n">job_counts</span><span class="p">,</span> <span class="n">failed_job_names</span> <span class="o">=</span> <span class="n">check_user_jobs</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">start_time</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">job_counts</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Status for user </span><span class="si">{</span><span class="n">username</span><span class="si">}</span><span class="s2"> from </span><span class="si">{</span><span class="n">start_time</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">job_counts</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">failed_job_names</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Failed Jobs:&quot;</span><span class="p">,</span> <span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">failed_job_names</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;No job data available.&quot;</span><span class="p">)</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="n">job_counts</span><span class="p">[</span><span class="s1">&#39;PENDING&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="n">job_counts</span><span class="p">[</span><span class="s1">&#39;RUNNING&#39;</span><span class="p">]</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">failed_job_names</span></div>
+
+    
+
+
+<div class="viewcode-block" id="check_user_jobs">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.parallel.check_user_jobs">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">check_user_jobs</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">start_time</span><span class="p">):</span>
+<span class="w">    </span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;_ Utility function for counting the jobs with different stata.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        username (string): Slurm username.</span>
+<span class="sd">        start_time (string): The start time for the batch job submission (see submit_jobs).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        status_counts (dict): Dictionary of different job stata counts</span>
+<span class="sd">        failed_jobs (list): list of failed jobs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Format the current datetime to match Slurm&#39;s expected format</span>
+        <span class="n">end_time</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">T%H:%M:%S&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># sacct command to get job states and names within the specified time frame</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;sacct&#39;</span><span class="p">,</span> <span class="s1">&#39;-n&#39;</span><span class="p">,</span> <span class="s1">&#39;-X&#39;</span><span class="p">,</span> <span class="s1">&#39;--parsable2&#39;</span><span class="p">,</span> <span class="s1">&#39;--noheader&#39;</span><span class="p">,</span>
+               <span class="s1">&#39;-S&#39;</span><span class="p">,</span> <span class="n">start_time</span><span class="p">,</span> <span class="s1">&#39;-E&#39;</span><span class="p">,</span> <span class="n">end_time</span><span class="p">,</span> <span class="s1">&#39;-u&#39;</span><span class="p">,</span> <span class="n">username</span><span class="p">,</span>
+               <span class="s1">&#39;--format=JobName,State&#39;</span><span class="p">]</span>
+        
+        <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Failed to query jobs:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+            <span class="k">return</span>
+        
+        <span class="c1"># Initialize status counts and a list for failed job names</span>
+        <span class="n">status_counts</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;PENDING&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;RUNNING&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;COMPLETED&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;FAILED&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;CANCELLED&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+        <span class="n">failed_jobs</span> <span class="o">=</span> <span class="p">[]</span>
+        
+        <span class="c1"># Process each line to count statuses and collect names of failed jobs</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+                <span class="n">parts</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;|&#39;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="n">job_name</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="s1">&#39;PENDING&#39;</span><span class="p">:</span>
+                        <span class="n">status_counts</span><span class="p">[</span><span class="s2">&quot;PENDING&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="k">elif</span> <span class="n">state</span> <span class="o">==</span> <span class="s1">&#39;RUNNING&#39;</span><span class="p">:</span>
+                        <span class="n">status_counts</span><span class="p">[</span><span class="s2">&quot;RUNNING&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="k">elif</span> <span class="n">state</span> <span class="o">==</span> <span class="s1">&#39;COMPLETED&#39;</span><span class="p">:</span>
+                        <span class="n">status_counts</span><span class="p">[</span><span class="s2">&quot;COMPLETED&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="k">elif</span> <span class="n">state</span> <span class="o">==</span> <span class="s1">&#39;FAILED&#39;</span><span class="p">:</span>
+                        <span class="n">status_counts</span><span class="p">[</span><span class="s2">&quot;FAILED&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="n">failed_jobs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">job_name</span><span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">state</span> <span class="o">==</span> <span class="s1">&#39;CANCELLED&#39;</span><span class="p">:</span>
+                        <span class="n">status_counts</span><span class="p">[</span><span class="s2">&quot;CANCELLED&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="k">return</span> <span class="n">status_counts</span><span class="p">,</span> <span class="n">failed_jobs</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;An error occurred while checking the job status:&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+        <span class="k">return</span></div>
+
+    
+    
+<div class="viewcode-block" id="collect_results">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.parallel.collect_results">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">collect_results</span><span class="p">(</span><span class="n">target_dir</span><span class="p">,</span> <span class="n">subjects</span><span class="p">,</span> <span class="n">temp_path</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s1">&#39;features&#39;</span><span class="p">,</span> <span class="n">clean</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">    </span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Collects and merges the results of all jobs.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        target_dir (str): Target directory path to save the collected results.</span>
+<span class="sd">        subjects (dict): dict of subject names and paths.</span>
+<span class="sd">        temp_path (str): Path to the temp directory.</span>
+<span class="sd">        file_name (str, optional): The file name for the collected results. Defaults to &#39;features&#39;.</span>
+<span class="sd">        clean (bool, optional): Whether to clean the temporary files or not. Defaults to True.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">target_dir</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">target_dir</span><span class="p">)</span>
+    
+    <span class="n">all_features</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">subject</span> <span class="ow">in</span> <span class="n">subjects</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">all_features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">temp_path</span><span class="p">,</span> <span class="n">subject</span> <span class="o">+</span> <span class="s1">&#39;.csv&#39;</span><span class="p">),</span> <span class="n">index_col</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+        <span class="k">except</span><span class="p">:</span> <span class="k">continue</span>
+    <span class="n">features</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">all_features</span><span class="p">)</span>
+    <span class="n">features</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">target_dir</span><span class="p">,</span> <span class="n">file_name</span> <span class="o">+</span> <span class="s1">&#39;.csv&#39;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">clean</span><span class="p">:</span>  
+        <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">temp_path</span><span class="p">)</span></div>
+
+    
+    
+<div class="viewcode-block" id="auto_parallel_feature_extraction">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.parallel.auto_parallel_feature_extraction">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">auto_parallel_feature_extraction</span><span class="p">(</span><span class="n">mainParallel_path</span><span class="p">,</span> <span class="n">features_dir</span><span class="p">,</span> <span class="n">subjects</span><span class="p">,</span>
+                                     <span class="n">job_configs</span><span class="p">,</span> <span class="n">config_file</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">auto_rerun</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                                     <span class="n">auto_collect</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">max_try</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+    
+    <span class="n">features_temp_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">features_dir</span><span class="p">,</span><span class="s1">&#39;temp&#39;</span><span class="p">)</span>  
+    
+    <span class="k">if</span> <span class="n">username</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">username</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;USER&#39;</span><span class="p">)</span>
+    
+    <span class="c1"># Running Jobs</span>
+    <span class="n">start_time</span> <span class="o">=</span> <span class="n">submit_jobs</span><span class="p">(</span><span class="n">mainParallel_path</span><span class="p">,</span> <span class="n">features_dir</span><span class="p">,</span> <span class="n">subjects</span><span class="p">,</span> 
+                    <span class="n">features_temp_path</span><span class="p">,</span> <span class="n">job_configs</span><span class="o">=</span><span class="n">job_configs</span><span class="p">,</span> <span class="n">config_file</span><span class="o">=</span><span class="n">config_file</span><span class="p">)</span>
+    <span class="c1"># Checking jobs</span>
+    <span class="n">failed_jobs</span> <span class="o">=</span> <span class="n">check_jobs_status</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">start_time</span><span class="p">)</span>
+
+    <span class="n">falied_subjects</span> <span class="o">=</span> <span class="p">{</span><span class="n">failed_job</span><span class="p">:</span><span class="n">subjects</span><span class="p">[</span><span class="n">failed_job</span><span class="p">]</span> <span class="k">for</span> <span class="n">failed_job</span> <span class="ow">in</span> <span class="n">failed_jobs</span><span class="p">}</span>
+
+    <span class="n">try_num</span> <span class="o">=</span> <span class="mi">0</span>
+    
+    <span class="k">while</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">failed_jobs</span><span class="p">)</span><span class="o">&gt;</span><span class="mi">0</span> <span class="ow">and</span> <span class="n">auto_rerun</span> <span class="ow">and</span> <span class="n">try_num</span><span class="o">&lt;</span><span class="n">max_try</span><span class="p">):</span>
+        <span class="c1"># Re-running Jobs</span>
+        <span class="n">start_time</span> <span class="o">=</span> <span class="n">submit_jobs</span><span class="p">(</span><span class="n">mainParallel_path</span><span class="p">,</span> <span class="n">features_dir</span><span class="p">,</span> <span class="n">falied_subjects</span><span class="p">,</span> 
+                    <span class="n">features_temp_path</span><span class="p">,</span> <span class="n">job_configs</span><span class="o">=</span><span class="n">job_configs</span><span class="p">,</span> <span class="n">config_file</span><span class="o">=</span><span class="n">config_file</span><span class="p">)</span>
+        <span class="c1"># Checking jobs</span>
+        <span class="n">failed_jobs</span> <span class="o">=</span> <span class="n">check_jobs_status</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">start_time</span><span class="p">)</span>
+        
+        <span class="n">try_num</span><span class="o">+=</span><span class="mi">1</span>
+    
+    <span class="k">if</span> <span class="n">auto_collect</span><span class="p">:</span>
+        <span class="n">collect_results</span><span class="p">(</span><span class="n">features_dir</span><span class="p">,</span> <span class="n">subjects</span><span class="p">,</span> <span class="n">features_temp_path</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s1">&#39;all_features&#39;</span><span class="p">,</span> <span class="n">clean</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">failed_jobs</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

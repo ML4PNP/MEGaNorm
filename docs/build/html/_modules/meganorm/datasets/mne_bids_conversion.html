@@ -1,0 +1,367 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>meganorm.datasets.mne_bids_conversion &mdash; MEGaNorm 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            MEGaNorm
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">MEGaNorm</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">meganorm.datasets.mne_bids_conversion</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for meganorm.datasets.mne_bids_conversion</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">mne_bids</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">glob</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">mne</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">scipy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span> 
+<span class="c1"># Add utils folder to the system path</span>
+<span class="n">parent_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)))</span>
+<span class="n">config_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parent_dir</span><span class="p">,</span> <span class="s1">&#39;utils&#39;</span><span class="p">)</span>
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+<span class="c1"># from utils.EEGlab import read_raw_eeglab</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+
+<div class="viewcode-block" id="make_demo_file_bids">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.mne_bids_conversion.make_demo_file_bids">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_demo_file_bids</span><span class="p">(</span> <span class="n">file_dir</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span> <span class="n">save_dir</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span> <span class="n">id_col</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="n">age_col</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="o">*</span><span class="n">argv</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    This function read demographic data and convert them to a common</span>
+<span class="sd">    template so can be used later in processing.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        file_dir (str): Path to the input demographic file (e.g., CSV).</span>
+<span class="sd">        save_dir (str): Directory where the BIDS-formatted file should be saved.</span>
+<span class="sd">        id_col (int): Column index for the participant ID.</span>
+<span class="sd">        age_col (int): Column index for the age.</span>
+<span class="sd">        argv (dict):  </span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">new_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({})</span>
+
+    <span class="k">if</span> <span class="s2">&quot;xlsx&quot;</span> <span class="ow">in</span> <span class="n">file_dir</span><span class="p">[</span><span class="o">-</span><span class="mi">4</span><span class="p">:]:</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_excel</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> <span class="n">index_col</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;csv&quot;</span> <span class="ow">in</span> <span class="n">file_dir</span><span class="p">[</span><span class="o">-</span><span class="mi">4</span><span class="p">:]:</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> <span class="n">index_col</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;tsv&quot;</span> <span class="ow">in</span> <span class="n">file_dir</span><span class="p">[</span><span class="o">-</span><span class="mi">4</span><span class="p">:]:</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">,</span> <span class="n">index_col</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+
+    <span class="n">new_df</span><span class="p">[</span><span class="s2">&quot;participant_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="n">id_col</span><span class="p">]</span>
+    <span class="n">new_df</span><span class="p">[</span><span class="s2">&quot;age&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="n">age_col</span><span class="p">]</span>
+    
+    <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">argv</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">arg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;col_id&quot;</span><span class="p">):</span>
+            <span class="n">new_df</span><span class="p">[</span><span class="n">arg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;col_name&quot;</span><span class="p">)]</span> <span class="o">=</span> <span class="n">arg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;single_value&quot;</span><span class="p">)</span>
+            <span class="k">continue</span>
+
+        <span class="n">col_id</span> <span class="o">=</span> <span class="n">arg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;col_id&quot;</span><span class="p">)</span>
+        <span class="n">col_name</span> <span class="o">=</span> <span class="n">arg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;col_name&quot;</span><span class="p">)</span>
+        <span class="n">mapping</span> <span class="o">=</span> <span class="n">arg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;mapping&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">col_id</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">col_name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Both&#39;col_id&#39; and &#39;col_name&#39; can not be None.&quot;</span><span class="p">)</span>
+
+        <span class="n">new_df</span><span class="p">[</span><span class="n">col_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="n">col_id</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">mapping</span><span class="p">:</span>
+            <span class="n">new_df</span><span class="p">[</span><span class="n">col_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_df</span><span class="p">[</span><span class="n">col_name</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">mapping</span><span class="p">)</span>
+        
+
+        <span class="k">if</span> <span class="n">col_name</span> <span class="o">==</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">:</span>
+            <span class="n">new_df</span><span class="p">[</span><span class="n">col_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_df</span><span class="p">[</span><span class="n">col_name</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">,</span> <span class="s2">&quot;nan&quot;</span><span class="p">)</span>
+
+        <span class="n">new_df</span> <span class="o">=</span> <span class="n">new_df</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;participant_id&quot;</span><span class="p">],</span> <span class="n">keep</span><span class="o">=</span><span class="s2">&quot;first&quot;</span><span class="p">)</span> 
+
+    <span class="n">new_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">save_dir</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+
+    <span class="c1"># Preparing demographic data according to mne_bids format</span>
+    <span class="c1"># BTH</span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/BTNRH/Rempe_Ott_PNAS_2022_Data.xlsx&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/BTNRH/BIDS/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">1</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;M&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;F&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_closed&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;control&quot;</span><span class="p">})</span>
+
+    <span class="c1"># CAMCAN</span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/camcan/CamCAN/cc700/participants.tsv&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/camcan/BIDS/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">1</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;MALE&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;FEMALE&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_closed&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;control&quot;</span><span class="p">})</span>
+
+    
+    
+    <span class="c1"># # NIMH </span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/NIMH/participants_original.tsv&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/NIMH/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">1</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;male&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;female&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_closed&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;control&quot;</span><span class="p">})</span>
+
+    
+    <span class="c1"># # OMEGA </span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/Omega/participants.tsv&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/Omega/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">3</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;M&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;F&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_open&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;Control&quot;</span><span class="p">:</span> <span class="s2">&quot;control&quot;</span><span class="p">,</span> 
+                                                                           <span class="s2">&quot;Parkinson&quot;</span><span class="p">:</span> <span class="s2">&quot;parkinson&quot;</span><span class="p">,</span> 
+                                                                           <span class="s2">&quot;Chronic Pain&quot;</span><span class="p">:</span> <span class="s2">&quot;chronic pain&quot;</span><span class="p">,</span> 
+                                                                           <span class="s2">&quot;Control	1&quot;</span> <span class="p">:</span> <span class="s2">&quot;control&quot;</span><span class="p">,</span>
+                                                                           <span class="s2">&quot;ADHD&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">})</span>
+
+    
+    <span class="c1"># # # HCP </span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/HCP/info/RESTRICTED_smkia_11_25_2024_7_16_58_merged.csv&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/HCP/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">1</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">203</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;M&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;F&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_open&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;control&quot;</span><span class="p">})</span>
+
+    
+    <span class="c1"># CMI</span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_CMI/EEG_BIDS/covariates.tsv&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_CMI/EEG_BIDS/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">1</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:{</span><span class="s2">&quot;0&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;1&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_closed&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s2">&quot;ADHD-Combined Type&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd combined type&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Generalized Anxiety Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;generalized anxiety disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;ADHD-Inattentive Type&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd inattentive type&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Specific Learning Disorder with Impairment in Reading&quot;</span><span class="p">:</span> <span class="s2">&quot;specific learning disorder with impairment in reading&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Disruptive Mood Dysregulation Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;disruptive mood dysregulation disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Oppositional Defiant Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;oppositional defiant disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Major Depressive Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;major depressive disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Tourettes Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;tourettes disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Anxiety Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified anxiety disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Attention-Deficit/Hyperactivity Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified attention deficit hyperactivity disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;No Diagnosis Given&quot;</span><span class="p">:</span> <span class="s2">&quot;control&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Autism Spectrum Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;autism spectrum disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Language Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;language disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Specific Learning Disorder with Impairment in Mathematics&quot;</span><span class="p">:</span> <span class="s2">&quot;specific learning disorder with impairment in mathematics&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;No Diagnosis Given: Incomplete Eval&quot;</span><span class="p">:</span> <span class="s2">&quot;no diagnosis given incomplete eval&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Separation Anxiety&quot;</span><span class="p">:</span> <span class="s2">&quot;separation anxiety&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Social (Pragmatic) Communication Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;social pragmatic communication disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Provisional Tic Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;provisional tic disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Social Anxiety (Social Phobia)&quot;</span><span class="p">:</span> <span class="s2">&quot;social anxiety social phobia&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Specific Phobia&quot;</span><span class="p">:</span> <span class="s2">&quot;specific phobia&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Borderline Intellectual Functioning&quot;</span><span class="p">:</span> <span class="s2">&quot;borderline intellectual functioning&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;ADHD-Hyperactive/Impulsive Type&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd hyperactive impulsive type&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Intellectual Disability-Moderate&quot;</span><span class="p">:</span> <span class="s2">&quot;intellectual disability moderate&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Intellectual Disability-Mild&quot;</span><span class="p">:</span> <span class="s2">&quot;intellectual disability mild&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Adjustment Disorders&quot;</span><span class="p">:</span> <span class="s2">&quot;adjustment disorders&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Bipolar I Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;bipolar i disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Obsessive-Compulsive Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;obsessive compulsive disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Conduct Disorder-Childhood-onset type&quot;</span><span class="p">:</span> <span class="s2">&quot;conduct disorder childhood onset type&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Selective Mutism&quot;</span><span class="p">:</span> <span class="s2">&quot;selective mutism&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Depressive Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified depressive disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Unspecified Attention-Deficit/Hyperactivity Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;unspecified attention deficit hyperactivity disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Disruptive, Impulse-Control, and Conduct Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified disruptive impulse control and conduct disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Persistent Depressive Disorder (Dysthymia)&quot;</span><span class="p">:</span> <span class="s2">&quot;persistent depressive disorder dysthymia&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Trauma- and Stressor-Related Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified trauma and stressor related disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Tic Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified tic disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Posttraumatic Stress Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;posttraumatic stress disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Excoriation (Skin-Picking) Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;excoriation skin picking disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Substance/Medication-Induced Bipolar and Related Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;substance medication induced bipolar and related disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Specific Learning Disorder with Impairment in Written Expression&quot;</span><span class="p">:</span> <span class="s2">&quot;specific learning disorder with impairment in written expression&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Enuresis&quot;</span><span class="p">:</span> <span class="s2">&quot;enuresis&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Major Neurocognitive Disorder Due to Epilepsy&quot;</span><span class="p">:</span> <span class="s2">&quot;major neurocognitive disorder due to epilepsy&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Speech Sound Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;speech sound disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Encopresis&quot;</span><span class="p">:</span> <span class="s2">&quot;encopresis&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Bipolar II Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;bipolar ii disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Intermittent Explosive Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;intermittent explosive disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Persistent (Chronic) Motor or Vocal Tic Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;persistent chronic motor or vocal tic disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Neurodevelopmental Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified neurodevelopmental disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Unspecified Anxiety Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;unspecified anxiety disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Feeding or Eating Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified feeding or eating disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Cannabis Use Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;cannabis use disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Bulimia Nervosa&quot;</span><span class="p">:</span> <span class="s2">&quot;bulimia nervosa&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Avoidant/Restrictive Food Intake Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;avoidant restrictive food intake disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot; &quot;</span><span class="p">:</span> <span class="s2">&quot;unspecified&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Reactive Attachment Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;reactive attachment disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Unspecified Neurodevelopmental Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;unspecified neurodevelopmental disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Agoraphobia&quot;</span><span class="p">:</span> <span class="s2">&quot;agoraphobia&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Depressive Disorder Due to Another Medical Condition&quot;</span><span class="p">:</span> <span class="s2">&quot;depressive disorder due to another medical condition&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Delirium due to another medical condition&quot;</span><span class="p">:</span> <span class="s2">&quot;delirium due to another medical condition&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Specific Learning Disorder with Impairment in Reading &quot;</span><span class="p">:</span> <span class="s2">&quot;specific learning disorder with impairment in reading&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Cyclothymic Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;cyclothymic disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Schizophrenia&quot;</span><span class="p">:</span> <span class="s2">&quot;schizophrenia&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Delirium due to multiple etiologies&quot;</span><span class="p">:</span> <span class="s2">&quot;delirium due to multiple etiologies&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Gender Dysphoria in Adolescents and Adults&quot;</span><span class="p">:</span> <span class="s2">&quot;gender dysphoria in adolescents and adults&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Other Specified Obsessive-Compulsive and Related Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;other specified obsessive compulsive and related disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Developmental Coordination Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;developmental coordination disorder&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;Acute Stress Disorder&quot;</span><span class="p">:</span> <span class="s2">&quot;acute stress disorder&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">})</span>
+    
+
+
+
+    <span class="c1"># MOUS </span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/MOUS/participants.tsv&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/BTNRH/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">2</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;M&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;F&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_open&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;control&quot;</span><span class="p">})</span>
+    
+    <span class="c1">#TDBrain</span>
+    <span class="n">file_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_TDBrain/EEG/TDBRAIN_participants_V2.tsv&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_TDBrain/EEG/participants_bids.tsv&quot;</span>
+    <span class="n">make_demo_file_bids</span><span class="p">(</span><span class="n">file_dir</span><span class="p">,</span> 
+                        <span class="n">save_dir</span><span class="p">,</span> 
+                        <span class="mi">0</span><span class="p">,</span> 
+                        <span class="mi">10</span><span class="p">,</span> 
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">11</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;1.0&quot;</span><span class="p">:</span> <span class="s2">&quot;Male&quot;</span><span class="p">,</span> <span class="s2">&quot;0.0&quot;</span><span class="p">:</span> <span class="s2">&quot;Female&quot;</span><span class="p">},</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="kc">None</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;eyes&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;single_value&quot;</span><span class="p">:</span><span class="s2">&quot;eyes_closed&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">&quot;col_name&quot;</span><span class="p">:</span> <span class="s2">&quot;diagnosis&quot;</span><span class="p">,</span> <span class="s2">&quot;col_id&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;mapping&quot;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s2">&quot;REPLICATION&quot;</span><span class="p">:</span> <span class="s2">&quot;replication&quot;</span><span class="p">,</span> <span class="s2">&quot;BURNOUT&quot;</span><span class="p">:</span> <span class="s2">&quot;burnout&quot;</span><span class="p">,</span>  <span class="s2">&quot;SMC&quot;</span><span class="p">:</span> <span class="s2">&quot;smc&quot;</span><span class="p">,</span> 
+                            <span class="s2">&quot;HEALTHY&quot;</span><span class="p">:</span> <span class="s2">&quot;control&quot;</span><span class="p">,</span> <span class="s2">&quot;Dyslexia&quot;</span><span class="p">:</span> <span class="s2">&quot;dyslexia&quot;</span><span class="p">,</span> <span class="s2">&quot;CHRONIC PAIN&quot;</span><span class="p">:</span> <span class="s2">&quot;chronic pain&quot;</span><span class="p">,</span> 
+                            <span class="s2">&quot;MDD&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd&quot;</span><span class="p">,</span> <span class="s2">&quot;nan&quot;</span><span class="p">:</span> <span class="s2">&quot;nan&quot;</span><span class="p">,</span> <span class="s2">&quot;ADHD&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd&quot;</span><span class="p">,</span> 
+                            <span class="s2">&quot;ADHD/ASPERGER&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/asperger&quot;</span><span class="p">,</span> <span class="s2">&quot;PDD NOS/DYSLEXIA&quot;</span><span class="p">:</span> <span class="s2">&quot;pdd nos/dyslexia&quot;</span><span class="p">,</span> 
+                            <span class="s2">&quot;PDD NOS&quot;</span><span class="p">:</span> <span class="s2">&quot;pdd nos&quot;</span><span class="p">,</span> <span class="s2">&quot;WHIPLASH&quot;</span><span class="p">:</span> <span class="s2">&quot;whiplash&quot;</span><span class="p">,</span> <span class="s2">&quot;ANXIETY&quot;</span><span class="p">:</span> <span class="s2">&quot;anxiety&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;ADHD/DYSLEXIA&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/dyslexia&quot;</span><span class="p">,</span> <span class="s2">&quot;ASD&quot;</span><span class="p">:</span> <span class="s2">&quot;asd&quot;</span><span class="p">,</span> <span class="s2">&quot;TINNITUS&quot;</span><span class="p">:</span> <span class="s2">&quot;tinnitus&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;OCD&quot;</span><span class="p">:</span> <span class="s2">&quot;ocd&quot;</span><span class="p">,</span> <span class="s2">&quot;Tinnitus&quot;</span><span class="p">:</span> <span class="s2">&quot;tinnitus&quot;</span><span class="p">,</span> <span class="s2">&quot;PDD NOS &quot;</span><span class="p">:</span> <span class="s2">&quot;pdd nos&quot;</span><span class="p">,</span> <span class="s2">&quot;PANIC&quot;</span><span class="p">:</span> <span class="s2">&quot;panic&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;MDD/ANXIETY&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/anxiety&quot;</span><span class="p">,</span> <span class="s2">&quot;MIGRAINE&quot;</span><span class="p">:</span> <span class="s2">&quot;migraine&quot;</span><span class="p">,</span> <span class="s2">&quot;PDD NOS/ANXIETY&quot;</span><span class="p">:</span> <span class="s2">&quot;pdd nos/anxiety&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;PARKINSON&quot;</span><span class="p">:</span> <span class="s2">&quot;parkinson&quot;</span><span class="p">,</span>  <span class="s2">&quot;BIPOLAR&quot;</span><span class="p">:</span> <span class="s2">&quot;bipolar&quot;</span><span class="p">,</span>  <span class="s2">&quot;MDD/bipolar&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/bipolar&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;DYSPRAXIA&quot;</span><span class="p">:</span> <span class="s2">&quot;dyspraxia&quot;</span><span class="p">,</span> <span class="s2">&quot;TINNITUS/MDD&quot;</span><span class="p">:</span> <span class="s2">&quot;tinnitus/mdd&quot;</span><span class="p">,</span> <span class="s2">&quot;ADHD/ASD/ANXIETY&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/asd/anxiety&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;MDD/ADHD&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/adhd&quot;</span><span class="p">,</span>  <span class="s2">&quot;ADHD/PDD NOS&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/pdd nos&quot;</span><span class="p">,</span> <span class="s2">&quot;MDD/BIPOLAR&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/bipolar&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;ASPERGER&quot;</span><span class="p">:</span> <span class="s2">&quot;asperger&quot;</span><span class="p">,</span> <span class="s2">&quot;ADHD/EPILEPSY&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/epilepsy&quot;</span><span class="p">,</span> <span class="s2">&quot;MDD/PAIN&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/pain&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;PDD NOS/GTS&quot;</span><span class="p">:</span> <span class="s2">&quot;pdd nos/gts&quot;</span><span class="p">,</span>  <span class="s2">&quot;PDD NOS/ADHD&quot;</span><span class="p">:</span> <span class="s2">&quot;pdd nos/adhd&quot;</span><span class="p">,</span> <span class="s2">&quot;PDD NOS/ASD&quot;</span><span class="p">:</span> <span class="s2">&quot;pdd nos/asd&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;TBI&quot;</span><span class="p">:</span> <span class="s2">&quot;tbi&quot;</span><span class="p">,</span> <span class="s2">&quot;ADHD/ANXIETY&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/anxiety&quot;</span><span class="p">,</span>  <span class="s2">&quot;ADHD/DYSLEXIA/DYSCALCULIA&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/dyslexia/dyscalculia&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;ADHD/MDD&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/mdd&quot;</span><span class="p">,</span> <span class="s2">&quot;MDD/PANIC&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/panic&quot;</span><span class="p">,</span> <span class="s2">&quot;DEPERSONALIZATION&quot;</span><span class="p">:</span> <span class="s2">&quot;depersonalization&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;MDD/TRAUMA&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/trauma&quot;</span><span class="p">,</span> <span class="s2">&quot;PTSD/ADHD&quot;</span><span class="p">:</span> <span class="s2">&quot;ptsd/adhd&quot;</span><span class="p">,</span>  <span class="s2">&quot;OCD/DPS&quot;</span><span class="p">:</span> <span class="s2">&quot;ocd/dps&quot;</span><span class="p">,</span><span class="s2">&quot;MDD/OCD&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/ocd&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;MDD/TUMOR&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/tumor&quot;</span><span class="p">,</span> <span class="s2">&quot;ADHD/GTS&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/gts&quot;</span><span class="p">,</span> <span class="s2">&quot;OCD/MDD&quot;</span><span class="p">:</span> <span class="s2">&quot;ocd/mdd&quot;</span><span class="p">,</span> <span class="s2">&quot;CONVERSION DX&quot;</span><span class="p">:</span> <span class="s2">&quot;conversion dx&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;ASD/ASPERGER&quot;</span><span class="p">:</span> <span class="s2">&quot;asd/asperger&quot;</span><span class="p">,</span> <span class="s2">&quot;MDD/ADHD/LYME&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/adhd/lyme&quot;</span><span class="p">,</span> <span class="s2">&quot;ADHD/OCD&quot;</span><span class="p">:</span> <span class="s2">&quot;adhd/ocd&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;MSA-C&quot;</span><span class="p">:</span> <span class="s2">&quot;msa-c&quot;</span><span class="p">,</span> <span class="s2">&quot;OCD/ASD&quot;</span><span class="p">:</span> <span class="s2">&quot;ocd/asd&quot;</span><span class="p">,</span> <span class="s2">&quot;STROKE/PAIN&quot;</span><span class="p">:</span> <span class="s2">&quot;stroke/pain&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;STROKE &quot;</span><span class="p">:</span> <span class="s2">&quot;stroke&quot;</span><span class="p">,</span> <span class="s2">&quot;MDD/OCD/ADHD&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/ocd/adhd&quot;</span><span class="p">,</span>  <span class="s2">&quot;EPILEPSY/OCD&quot;</span><span class="p">:</span> <span class="s2">&quot;epilepsy/ocd&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;ADHD &quot;</span><span class="p">:</span> <span class="s2">&quot;adhd&quot;</span><span class="p">,</span> <span class="s2">&quot;INSOMNIA&quot;</span><span class="p">:</span> <span class="s2">&quot;insomnia&quot;</span><span class="p">,</span> <span class="s2">&quot;MDD/ADHD/ANOREXIA&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/adhd/anorexia&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;MDD/ANXIETY/TINNITUS&quot;</span><span class="p">:</span> <span class="s2">&quot;mdd/anxiety/tinnitus&quot;</span>
+                        <span class="p">}})</span>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

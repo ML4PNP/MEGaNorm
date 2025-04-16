@@ -1,0 +1,916 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>meganorm.utils package &mdash; MEGaNorm 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            MEGaNorm
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"><ul>
+<li><a class="reference internal" href="#">meganorm.utils package</a><ul>
+<li><a class="reference internal" href="#submodules">Submodules</a></li>
+<li><a class="reference internal" href="#module-meganorm.utils.EEGlab">meganorm.utils.EEGlab module</a><ul>
+<li><a class="reference internal" href="#meganorm.utils.EEGlab.RawEEGLAB"><code class="docutils literal notranslate"><span class="pre">RawEEGLAB</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.EEGlab.read_raw_eeglab"><code class="docutils literal notranslate"><span class="pre">read_raw_eeglab()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-meganorm.utils.IO">meganorm.utils.IO module</a><ul>
+<li><a class="reference internal" href="#meganorm.utils.IO.make_config"><code class="docutils literal notranslate"><span class="pre">make_config()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.IO.merge_datasets"><code class="docutils literal notranslate"><span class="pre">merge_datasets()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.IO.merge_datasets_with_glob"><code class="docutils literal notranslate"><span class="pre">merge_datasets_with_glob()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.IO.merge_datasets_with_regex"><code class="docutils literal notranslate"><span class="pre">merge_datasets_with_regex()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.IO.merge_fidp_demo"><code class="docutils literal notranslate"><span class="pre">merge_fidp_demo()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.IO.separate_eyes_open_close_eeglab"><code class="docutils literal notranslate"><span class="pre">separate_eyes_open_close_eeglab()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.IO.storeFooofModels"><code class="docutils literal notranslate"><span class="pre">storeFooofModels()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-meganorm.utils.freesurfer">meganorm.utils.freesurfer module</a><ul>
+<li><a class="reference internal" href="#meganorm.utils.freesurfer.check_log_for_success"><code class="docutils literal notranslate"><span class="pre">check_log_for_success()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.freesurfer.create_slurm_script"><code class="docutils literal notranslate"><span class="pre">create_slurm_script()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.freesurfer.freesurfer_QC"><code class="docutils literal notranslate"><span class="pre">freesurfer_QC()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.freesurfer.list_subject_ids"><code class="docutils literal notranslate"><span class="pre">list_subject_ids()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.freesurfer.prepare_mri_data"><code class="docutils literal notranslate"><span class="pre">prepare_mri_data()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.freesurfer.rerun_failed_subs"><code class="docutils literal notranslate"><span class="pre">rerun_failed_subs()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.freesurfer.run_parallel_reconall"><code class="docutils literal notranslate"><span class="pre">run_parallel_reconall()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-meganorm.utils.nm">meganorm.utils.nm module</a><ul>
+<li><a class="reference internal" href="#meganorm.utils.nm.abnormal_probability"><code class="docutils literal notranslate"><span class="pre">abnormal_probability()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.aggregate_metrics_across_runs"><code class="docutils literal notranslate"><span class="pre">aggregate_metrics_across_runs()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.cal_stats_for_gauge"><code class="docutils literal notranslate"><span class="pre">cal_stats_for_gauge()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.calculate_oscilochart"><code class="docutils literal notranslate"><span class="pre">calculate_oscilochart()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.estimate_centiles"><code class="docutils literal notranslate"><span class="pre">estimate_centiles()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.evaluate_mace"><code class="docutils literal notranslate"><span class="pre">evaluate_mace()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.hbr_data_split"><code class="docutils literal notranslate"><span class="pre">hbr_data_split()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.kfold_split"><code class="docutils literal notranslate"><span class="pre">kfold_split()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.mace"><code class="docutils literal notranslate"><span class="pre">mace()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.model_quantile_evaluation"><code class="docutils literal notranslate"><span class="pre">model_quantile_evaluation()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.prepare_prediction_data"><code class="docutils literal notranslate"><span class="pre">prepare_prediction_data()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.saving"><code class="docutils literal notranslate"><span class="pre">saving()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.nm.shapiro_stat"><code class="docutils literal notranslate"><span class="pre">shapiro_stat()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-meganorm.utils.parallel">meganorm.utils.parallel module</a><ul>
+<li><a class="reference internal" href="#meganorm.utils.parallel.auto_parallel_feature_extraction"><code class="docutils literal notranslate"><span class="pre">auto_parallel_feature_extraction()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.parallel.check_jobs_status"><code class="docutils literal notranslate"><span class="pre">check_jobs_status()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.parallel.check_user_jobs"><code class="docutils literal notranslate"><span class="pre">check_user_jobs()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.parallel.collect_results"><code class="docutils literal notranslate"><span class="pre">collect_results()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.parallel.progress_bar"><code class="docutils literal notranslate"><span class="pre">progress_bar()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.parallel.sbatchfile"><code class="docutils literal notranslate"><span class="pre">sbatchfile()</span></code></a></li>
+<li><a class="reference internal" href="#meganorm.utils.parallel.submit_jobs"><code class="docutils literal notranslate"><span class="pre">submit_jobs()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-meganorm.utils">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">MEGaNorm</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">meganorm.utils package</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/meganorm.utils.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="meganorm-utils-package">
+<h1>meganorm.utils package<a class="headerlink" href="#meganorm-utils-package" title="Link to this heading"></a></h1>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading"></a></h2>
+</section>
+<section id="module-meganorm.utils.EEGlab">
+<span id="meganorm-utils-eeglab-module"></span><h2>meganorm.utils.EEGlab module<a class="headerlink" href="#module-meganorm.utils.EEGlab" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="meganorm.utils.EEGlab.RawEEGLAB">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">meganorm.utils.EEGlab.</span></span><span class="sig-name descname"><span class="pre">RawEEGLAB</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eog</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preload</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">uint16_codec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">montage_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/EEGlab.html#RawEEGLAB"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.EEGlab.RawEEGLAB" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseRaw</span></code></p>
+<p>Raw object from EEGLAB .set file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input_fname</strong> (<em>path-like</em>) – Path to the <code class="docutils literal notranslate"><span class="pre">.set</span></code> file. If the data is stored in a separate <code class="docutils literal notranslate"><span class="pre">.fdt</span></code>
+file, it is expected to be in the same folder as the <code class="docutils literal notranslate"><span class="pre">.set</span></code> file.</p></li>
+<li><p><strong>eog</strong> (<em>list</em><em> | </em><em>tuple</em><em> | </em><em>'auto'</em>) – Names or indices of channels that should be designated EOG channels.
+If ‘auto’, the channel names containing <code class="docutils literal notranslate"><span class="pre">EOG</span></code> or <code class="docutils literal notranslate"><span class="pre">EYE</span></code> are used.
+Defaults to empty tuple.</p></li>
+<li><p><strong>preload</strong> (<em>bool</em><em> or </em><em>str</em><em> (</em><em>default False</em><em>)</em>) – Preload data into memory for data manipulation and faster indexing.
+If True, the data will be preloaded into memory (fast, requires
+large amount of memory). If preload is a string, preload is the
+file name of a memory-mapped file which is used to store the data
+on the hard drive (slower, requires less memory).
+Note that preload=False will be effective only if the data is stored
+in a separate binary file.</p></li>
+<li><p><strong>uint16_codec</strong> (<em>str</em><em> | </em><em>None</em>) – If your set file contains non-ascii characters, sometimes reading
+it may fail and give rise to error message stating that “buffer is
+too small”. <code class="docutils literal notranslate"><span class="pre">uint16_codec</span></code> allows to specify what codec (for example:
+‘latin1’ or ‘utf-8’) should be used when reading character arrays and
+can therefore help you solve this problem.</p></li>
+<li><p><strong>montage_units</strong> (<em>str</em>) – <p>Units that channel positions are represented in. Defaults to “mm”
+(millimeters), but can be any prefix + “m” combination (including just
+“m” for meters).</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+</p></li>
+<li><p><strong>verbose</strong> (<em>bool</em><em> | </em><em>str</em><em> | </em><em>int</em><em> | </em><em>None</em>) – Control verbosity of the logging output. If <code class="docutils literal notranslate"><span class="pre">None</span></code>, use the default
+verbosity level. See the <span class="xref std std-ref">logging documentation</span> and
+<code class="xref py py-func docutils literal notranslate"><span class="pre">mne.verbose()</span></code> for details. Should only be passed as a keyword
+argument.</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">mne.io.Raw</span></code></dt><dd><p>Documentation of attributes and methods.</p>
+</dd>
+</dl>
+</div>
+<p class="rubric">Notes</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 0.11.0.</span></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Attributes<span class="colon">:</span></dt>
+<dd class="field-odd"><dl class="simple">
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">annotations</span></code></dt><dd><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Annotations</span></code> for marking segments of data.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">ch_names</span></code></dt><dd><p>Channel names.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">compensation_grade</span></code></dt><dd><p>The current gradient compensation grade.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">duration</span></code></dt><dd><p>Duration of the data in seconds.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">filenames</span></code></dt><dd><p>The filenames used.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">first_samp</span></code></dt><dd><p>The first data sample.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">first_time</span></code></dt><dd><p>The first time point (including first_samp but not meas_date).</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">last_samp</span></code></dt><dd><p>The last data sample.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">n_times</span></code></dt><dd><p>Number of time points.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">proj</span></code></dt><dd><p>Whether or not projections are active.</p>
+</dd>
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">times</span></code></dt><dd><p>Time points.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">add_channels</span></code>(add_list[, force_update_info])</p></td>
+<td><p>Append new channels to the instance.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">add_events</span></code>(events[, stim_channel, replace])</p></td>
+<td><p>Add events to stim channel.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">add_proj</span></code>(projs[, remove_existing, verbose])</p></td>
+<td><p>Add SSP projection vectors.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">add_reference_channels</span></code>(ref_channels)</p></td>
+<td><p>Add reference channels to data that consists of all zeros.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">anonymize</span></code>([daysback, keep_his, verbose])</p></td>
+<td><p>Anonymize measurement information in place.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">append</span></code>(raws[, preload])</p></td>
+<td><p>Concatenate raw instances as if they were continuous.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_function</span></code>(fun[, picks, dtype, n_jobs, ...])</p></td>
+<td><p>Apply a function to a subset of channels.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_gradient_compensation</span></code>(grade[, verbose])</p></td>
+<td><p>Apply CTF gradient compensation.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_hilbert</span></code>([picks, envelope, n_jobs, ...])</p></td>
+<td><p>Compute analytic signal or envelope for a subset of channels/vertices.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_proj</span></code>([verbose])</p></td>
+<td><p>Apply the signal space projection (SSP) operators to the data.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">close</span></code>()</p></td>
+<td><p>Clean up the object.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">compute_psd</span></code>([method, fmin, fmax, tmin, ...])</p></td>
+<td><p>Perform spectral analysis on sensor data.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">compute_tfr</span></code>(method, freqs, *[, tmin, tmax, ...])</p></td>
+<td><p>Compute a time-frequency representation of sensor data.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">copy</span></code>()</p></td>
+<td><p>Return copy of Raw instance.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">crop</span></code>([tmin, tmax, include_tmax, verbose])</p></td>
+<td><p>Crop raw data file.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">crop_by_annotations</span></code>([annotations, verbose])</p></td>
+<td><p>Get crops of raw data file for selected annotations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">del_proj</span></code>([idx])</p></td>
+<td><p>Remove SSP projection vector.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">describe</span></code>([data_frame])</p></td>
+<td><p>Describe channels (name, type, descriptive statistics).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">drop_channels</span></code>(ch_names[, on_missing])</p></td>
+<td><p>Drop channel(s).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">export</span></code>(fname[, fmt, physical_range, ...])</p></td>
+<td><p>Export Raw to external formats.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">filter</span></code>(l_freq, h_freq[, picks, ...])</p></td>
+<td><p>Filter a subset of channels/vertices.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_channel_types</span></code>([picks, unique, only_data_chs])</p></td>
+<td><p>Get a list of channel type for each channel.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_data</span></code>([picks, start, stop, ...])</p></td>
+<td><p>Get data in the given range.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_montage</span></code>()</p></td>
+<td><p>Get a DigMontage from instance.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">interpolate_bads</span></code>([reset_bads, mode, origin, ...])</p></td>
+<td><p>Interpolate bad MEG and EEG channels.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">load_bad_channels</span></code>([bad_file, force, verbose])</p></td>
+<td><p>Mark channels as bad from a text file.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">load_data</span></code>([verbose])</p></td>
+<td><p>Load raw data.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">notch_filter</span></code>(freqs[, picks, filter_length, ...])</p></td>
+<td><p>Notch filter a subset of channels.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">pick</span></code>(picks[, exclude, verbose])</p></td>
+<td><p>Pick a subset of channels.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">pick_channels</span></code>(ch_names[, ordered, verbose])</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">pick_types</span></code>([meg, eeg, stim, eog, ecg, emg, ...])</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">plot</span></code>([events, duration, start, n_channels, ...])</p></td>
+<td><p>Plot raw data.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">plot_projs_topomap</span></code>([ch_type, sensors, ...])</p></td>
+<td><p>Plot SSP vector.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">plot_psd</span></code>([fmin, fmax, tmin, tmax, picks, ...])</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">plot_psd_topo</span></code>([tmin, tmax, fmin, fmax, ...])</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">plot_psd_topomap</span></code>([bands, tmin, tmax, ...])</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">plot_sensors</span></code>([kind, ch_type, title, ...])</p></td>
+<td><p>Plot sensor positions.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">rename_channels</span></code>(mapping[, allow_duplicates, ...])</p></td>
+<td><p>Rename channels.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">reorder_channels</span></code>(ch_names)</p></td>
+<td><p>Reorder channels.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">resample</span></code>(sfreq, *[, npad, window, ...])</p></td>
+<td><p>Resample all channels.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">rescale</span></code>(scalings, *[, verbose])</p></td>
+<td><p>Rescale channels.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">save</span></code>(fname[, picks, tmin, tmax, ...])</p></td>
+<td><p>Save raw data to file.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">savgol_filter</span></code>(h_freq[, verbose])</p></td>
+<td><p>Filter the data using Savitzky-Golay polynomial method.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">set_annotations</span></code>(annotations[, emit_warning, ...])</p></td>
+<td><p>Setter for annotations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">set_channel_types</span></code>(mapping, *[, ...])</p></td>
+<td><p>Specify the sensor types of channels.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">set_eeg_reference</span></code>([ref_channels, ...])</p></td>
+<td><p>Specify which reference to use for EEG data.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">set_meas_date</span></code>(meas_date)</p></td>
+<td><p>Set the measurement start date.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">set_montage</span></code>(montage[, match_case, ...])</p></td>
+<td><p>Set EEG/sEEG/ECoG/DBS/fNIRS channel positions and digitization points.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">time_as_index</span></code>(times[, use_rounding, origin])</p></td>
+<td><p>Convert time to indices.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_data_frame</span></code>([picks, index, scalings, ...])</p></td>
+<td><p>Export data in tabular structure as a pandas DataFrame.</p></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.EEGlab.read_raw_eeglab">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.EEGlab.</span></span><span class="sig-name descname"><span class="pre">read_raw_eeglab</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eog</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preload</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">uint16_codec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">montage_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#meganorm.utils.EEGlab.RawEEGLAB" title="meganorm.utils.EEGlab.RawEEGLAB"><span class="pre">RawEEGLAB</span></a></span></span><a class="reference internal" href="_modules/meganorm/utils/EEGlab.html#read_raw_eeglab"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.EEGlab.read_raw_eeglab" title="Link to this definition"></a></dt>
+<dd><p>Read an EEGLAB .set file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input_fname</strong> (<em>path-like</em>) – Path to the <code class="docutils literal notranslate"><span class="pre">.set</span></code> file. If the data is stored in a separate <code class="docutils literal notranslate"><span class="pre">.fdt</span></code>
+file, it is expected to be in the same folder as the <code class="docutils literal notranslate"><span class="pre">.set</span></code> file.</p></li>
+<li><p><strong>eog</strong> (list | tuple | <code class="docutils literal notranslate"><span class="pre">'auto'</span></code>) – Names or indices of channels that should be designated EOG channels.
+If ‘auto’, the channel names containing <code class="docutils literal notranslate"><span class="pre">EOG</span></code> or <code class="docutils literal notranslate"><span class="pre">EYE</span></code> are used.
+Defaults to empty tuple.</p></li>
+<li><p><strong>preload</strong> (<em>bool</em><em> or </em><em>str</em><em> (</em><em>default False</em><em>)</em>) – Preload data into memory for data manipulation and faster indexing.
+If True, the data will be preloaded into memory (fast, requires
+large amount of memory). If preload is a string, preload is the
+file name of a memory-mapped file which is used to store the data
+on the hard drive (slower, requires less memory).
+Note that <code class="docutils literal notranslate"><span class="pre">preload=False</span></code> will be effective only if the data is
+stored in a separate binary file.</p></li>
+<li><p><strong>uint16_codec</strong> (<em>str</em><em> | </em><em>None</em>) – If your set file contains non-ascii characters, sometimes reading
+it may fail and give rise to error message stating that “buffer is
+too small”. <code class="docutils literal notranslate"><span class="pre">uint16_codec</span></code> allows to specify what codec (for example:
+‘latin1’ or ‘utf-8’) should be used when reading character arrays and
+can therefore help you solve this problem.</p></li>
+<li><p><strong>montage_units</strong> (<em>str</em>) – <p>Units that channel positions are represented in. Defaults to “mm”
+(millimeters), but can be any prefix + “m” combination (including just
+“m” for meters).</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+<div class="versionchanged">
+<p><span class="versionmodified changed">Changed in version 1.6: </span>Support for <code class="docutils literal notranslate"><span class="pre">'auto'</span></code> was added and is the new default.</p>
+</div>
+</p></li>
+<li><p><strong>verbose</strong> (<em>bool</em><em> | </em><em>str</em><em> | </em><em>int</em><em> | </em><em>None</em>) – Control verbosity of the logging output. If <code class="docutils literal notranslate"><span class="pre">None</span></code>, use the default
+verbosity level. See the <span class="xref std std-ref">logging documentation</span> and
+<code class="xref py py-func docutils literal notranslate"><span class="pre">mne.verbose()</span></code> for details. Should only be passed as a keyword
+argument.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>raw</strong> – A Raw object containing EEGLAB .set data.
+See <code class="xref py py-class docutils literal notranslate"><span class="pre">mne.io.Raw</span></code> for documentation of attributes and methods.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>instance of <a class="reference internal" href="#meganorm.utils.EEGlab.RawEEGLAB" title="meganorm.utils.EEGlab.RawEEGLAB">RawEEGLAB</a></p>
+</dd>
+</dl>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><code class="xref py py-obj docutils literal notranslate"><span class="pre">mne.io.Raw</span></code></dt><dd><p>Documentation of attributes and methods of RawEEGLAB.</p>
+</dd>
+</dl>
+</div>
+<p class="rubric">Notes</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 0.11.0.</span></p>
+</div>
+</dd></dl>
+
+</section>
+<section id="module-meganorm.utils.IO">
+<span id="meganorm-utils-io-module"></span><h2>meganorm.utils.IO module<a class="headerlink" href="#module-meganorm.utils.IO" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.IO.make_config">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.IO.</span></span><span class="sig-name descname"><span class="pre">make_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">project</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/IO.html#make_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.IO.make_config" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.IO.merge_datasets">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.IO.</span></span><span class="sig-name descname"><span class="pre">merge_datasets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datasets</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/IO.html#merge_datasets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.IO.merge_datasets" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.IO.merge_datasets_with_glob">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.IO.</span></span><span class="sig-name descname"><span class="pre">merge_datasets_with_glob</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datasets</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/IO.html#merge_datasets_with_glob"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.IO.merge_datasets_with_glob" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.IO.merge_datasets_with_regex">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.IO.</span></span><span class="sig-name descname"><span class="pre">merge_datasets_with_regex</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datasets</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/IO.html#merge_datasets_with_regex"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.IO.merge_datasets_with_regex" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.IO.merge_fidp_demo">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.IO.</span></span><span class="sig-name descname"><span class="pre">merge_fidp_demo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datasets_paths</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">features_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_set_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_patients</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diagnosis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'parkinson'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/IO.html#merge_fidp_demo"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.IO.merge_fidp_demo" title="Link to this definition"></a></dt>
+<dd><p>Loads demographic data and features, then concatenates them.
+It assigns a site index for each dataset and normalizes the age range to [0, 1].
+Note that the demographic data must be stored according to MNE BIDS standards.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>datasets_paths</strong> (<em>str</em>) – Path to the datasets.</p></li>
+<li><p><strong>features_dir</strong> (<em>str</em>) – Path to the extracted features.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Merged data.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>data (pd.DataFrame)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.IO.separate_eyes_open_close_eeglab">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.IO.</span></span><span class="sig-name descname"><span class="pre">separate_eyes_open_close_eeglab</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_base_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_base_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">annotation_description_open</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">annotation_description_close</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trim_before</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trim_after</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/IO.html#separate_eyes_open_close_eeglab"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.IO.separate_eyes_open_close_eeglab" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.IO.storeFooofModels">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.IO.</span></span><span class="sig-name descname"><span class="pre">storeFooofModels</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subjId</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fooofModels</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">freqs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="_modules/meganorm/utils/IO.html#storeFooofModels"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.IO.storeFooofModels" title="Link to this definition"></a></dt>
+<dd><p>This function stores the periodic and aperiodic
+results in a h5py file</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>path</strong> (<em>str</em>)</p></li>
+<li><p><strong>save</strong> (<em>where to</em>)</p></li>
+<li><p><strong>subjid</strong> (<em>str</em>)</p></li>
+<li><p><strong>ID</strong> (<em>subject</em>)</p></li>
+<li><p><strong>fooofModels</strong> (<em>object</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-meganorm.utils.freesurfer">
+<span id="meganorm-utils-freesurfer-module"></span><h2>meganorm.utils.freesurfer module<a class="headerlink" href="#module-meganorm.utils.freesurfer" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.freesurfer.check_log_for_success">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.freesurfer.</span></span><span class="sig-name descname"><span class="pre">check_log_for_success</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">results_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subject_ids</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/freesurfer.html#check_log_for_success"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.freesurfer.check_log_for_success" title="Link to this definition"></a></dt>
+<dd><p>Check the log file for the success message.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>results_directory</strong> (<em>str</em>) – Path for the freesurfer results.</p></li>
+<li><p><strong>subject_ids</strong> (<em>list</em>) – List of subject IDs.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of failed subject Ids.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>List</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.freesurfer.create_slurm_script">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.freesurfer.</span></span><span class="sig-name descname"><span class="pre">create_slurm_script</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">subjects_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subject_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">results_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">processing_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">freesurfer_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nodes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ntasks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cpus_per_task</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mem</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'16G'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'48:00:00'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i_option</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_postfix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.nii'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/freesurfer.html#create_slurm_script"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.freesurfer.create_slurm_script" title="Link to this definition"></a></dt>
+<dd><p>Create a Slurm batch script for running recon-all with given parameters.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.freesurfer.freesurfer_QC">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.freesurfer.</span></span><span class="sig-name descname"><span class="pre">freesurfer_QC</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">results_directory</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/freesurfer.html#freesurfer_QC"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.freesurfer.freesurfer_QC" title="Link to this definition"></a></dt>
+<dd><p>Performs Euler number based quality control on the results of Freesurfer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>results_directory</strong> (<em>str</em>) – The path to the Freesurfer results directory.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of passed QC subjects.
+qc_failed_samples (list): List of failed QC subjects.
+missing_samples (list): List of missing subjects.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>qc_passed_samples (list)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.freesurfer.list_subject_ids">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.freesurfer.</span></span><span class="sig-name descname"><span class="pre">list_subject_ids</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/freesurfer.html#list_subject_ids"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.freesurfer.list_subject_ids" title="Link to this definition"></a></dt>
+<dd><p>Retrieves all folders in the given directory as subject IDs, and
+store them in a text file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>directory</strong> (<em>str</em>) – Path to data directory.</p></li>
+<li><p><strong>save_path</strong> (<em>str</em>) – If specified, path to the text file to save the subject IDs,</p></li>
+<li><p><strong>None.</strong> (<em>e.g. &quot;/home/subjects.txt&quot;. Defaults to</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of subject Ids.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.freesurfer.prepare_mri_data">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.freesurfer.</span></span><span class="sig-name descname"><span class="pre">prepare_mri_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mri_directory</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/freesurfer.html#prepare_mri_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.freesurfer.prepare_mri_data" title="Link to this definition"></a></dt>
+<dd><p>This function is written to prepare the BTNRH MRI data for recon-all processing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>mri_directory</strong> (<em>str</em>) – Directory to MRI data</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.freesurfer.rerun_failed_subs">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.freesurfer.</span></span><span class="sig-name descname"><span class="pre">rerun_failed_subs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">failed_subjetcs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subjects_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">results_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">processing_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">freesurfer_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_postfix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.nii'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/freesurfer.html#rerun_failed_subs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.freesurfer.rerun_failed_subs" title="Link to this definition"></a></dt>
+<dd><p>Re-runs Freesurfer recon-all for failed subjects.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>failed_subjetcs</strong> (<em>list</em>) – List of failed subjects IDs.</p></li>
+<li><p><strong>subjects_directory</strong> (<em>str</em>) – Path to data.</p></li>
+<li><p><strong>results_directory</strong> (<em>str</em>) – Path to save the results.</p></li>
+<li><p><strong>processing_directory</strong> (<em>str</em>) – Path to save the bash script.</p></li>
+<li><p><strong>freesurfer_path</strong> (<em>str</em>) – Path to freesurfer.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.freesurfer.run_parallel_reconall">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.freesurfer.</span></span><span class="sig-name descname"><span class="pre">run_parallel_reconall</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">subjects_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">results_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">processing_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">freesurfer_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_postfix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.nii'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/freesurfer.html#run_parallel_reconall"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.freesurfer.run_parallel_reconall" title="Link to this definition"></a></dt>
+<dd><p>Runs Freesurfer recon-all in parallel on an Slurm cluster.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>subjects_directory</strong> (<em>str</em>) – Path to data.</p></li>
+<li><p><strong>results_directory</strong> (<em>str</em>) – Path to save the results.</p></li>
+<li><p><strong>processing_directory</strong> (<em>str</em>) – Path to save the bash script.</p></li>
+<li><p><strong>freesurfer_path</strong> (<em>str</em>) – Path to freesurfer.</p></li>
+<li><p><strong>file_postfix</strong> (<em>str</em>) – file postfix for nifti files (could be different from one dataset to another).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A list of subject IDs.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-meganorm.utils.nm">
+<span id="meganorm-utils-nm-module"></span><h2>meganorm.utils.nm module<a class="headerlink" href="#module-meganorm.utils.nm" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.abnormal_probability">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">abnormal_probability</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">processing_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nm_processing_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">site_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_permutation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#abnormal_probability"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.abnormal_probability" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.aggregate_metrics_across_runs">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">aggregate_metrics_across_runs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">biomarker_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valcovfile_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valrespfile_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valbefile</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metrics</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['skewness',</span> <span class="pre">'kurtosis',</span> <span class="pre">'W',</span> <span class="pre">'MACE']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_runs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[0.01,</span> <span class="pre">0.1,</span> <span class="pre">0.2,</span> <span class="pre">0.3,</span> <span class="pre">0.4,</span> <span class="pre">0.5,</span> <span class="pre">0.6,</span> <span class="pre">0.7,</span> <span class="pre">0.8,</span> <span class="pre">0.9,</span> <span class="pre">0.99]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputsuffix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'estimate'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zscore_clipping_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#aggregate_metrics_across_runs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.aggregate_metrics_across_runs" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.cal_stats_for_gauge">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">cal_stats_for_gauge</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">features</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">site_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gender_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">age</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#cal_stats_for_gauge"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.cal_stats_for_gauge" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.calculate_oscilochart">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">calculate_oscilochart</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quantiles_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gender_ids</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">frequency_band_model_ids</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantile_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">site_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">point_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">age_slices</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#calculate_oscilochart"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.calculate_oscilochart" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.estimate_centiles">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">estimate_centiles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">processing_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bio_num</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[0.05,</span> <span class="pre">0.25,</span> <span class="pre">0.5,</span> <span class="pre">0.75,</span> <span class="pre">0.95]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_map</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{0:</span> <span class="pre">{'Female':</span> <span class="pre">1,</span> <span class="pre">'Male':</span> <span class="pre">0},</span> <span class="pre">1:</span> <span class="pre">{'BTNRH':</span> <span class="pre">1,</span> <span class="pre">'CAMCAN':</span> <span class="pre">0}}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">age_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[0,</span> <span class="pre">100]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">point_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputsuffix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'estimate'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#estimate_centiles"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.estimate_centiles" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.evaluate_mace">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">evaluate_mace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">be_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[0.05,</span> <span class="pre">0.25,</span> <span class="pre">0.5,</span> <span class="pre">0.75,</span> <span class="pre">0.95]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputsuffix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'ms'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#evaluate_mace"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.evaluate_mace" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.hbr_data_split">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">hbr_data_split</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covariates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['age']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_effects</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">train_split</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">validation_split</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">drop_nans</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">random_seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'23d'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#hbr_data_split"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.hbr_data_split" title="Link to this definition"></a></dt>
+<dd><p>Utility function for splitting data into training, validation and test sets
+before HBR normative modeling. The sets are save as picke file in the specified
+save path.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> (<em>DataFrame</em>) – Panda dataframe of data created for example using “load_camcan_data”</p></li>
+<li><p><strong>function.</strong></p></li>
+<li><p><strong>save_path</strong> (<em>str</em>) – Path to save the results.</p></li>
+<li><p><strong>covariates</strong> (<em>list</em><em>, </em><em>optional</em>) – List of covariates. Defaults to [‘age’].</p></li>
+<li><p><strong>batch_effects</strong> (<em>list</em><em>, </em><em>optional</em>) – Used for deciding batch effects in HBR model.</p></li>
+<li><p><strong>effect.</strong> (<em>Defaults to None for no batch</em>)</p></li>
+<li><p><strong>train_split</strong> (<em>float</em><em>, </em><em>optional</em>) – train set split ratio. Defaults to 0.5.</p></li>
+<li><p><strong>validation_split</strong> (<em>_type_</em><em>, </em><em>optional</em>) – If not None will be used for validation set</p></li>
+<li><p><strong>None.</strong> (<em>split ratio. Defaults to</em>)</p></li>
+<li><p><strong>drop_nans</strong> (<em>boolean</em><em>, </em><em>optional</em>) – If True, drops columns with missing values. Defaults to False.</p></li>
+<li><p><strong>random_seed</strong> (<em>int</em><em>, </em><em>optional</em>) – Random seed in the splitting data. Defaults to 42.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The number of biomarkers.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.kfold_split">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">kfold_split</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_folds</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sub_file</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'folds'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">random_state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">42</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#kfold_split"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.kfold_split" title="Link to this definition"></a></dt>
+<dd><p>This function creates stratified k-fold cross-validation splits and saves them as separate batch, x, and y files.
+Both ‘sex’ and ‘site’ are used to stratify the data, preserving their distribution across the folds.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data_path</strong> (<em>str</em>) – The path to the directory containing the input data files (e.g., x_train.pkl, b_train.pkl, y_train.pkl).</p></li>
+<li><p><strong>save_dir</strong> (<em>str</em>) – The directory where the generated fold data will be saved.</p></li>
+<li><p><strong>n_folds</strong> (<em>int</em>) – The number of folds to split the data into for cross-validation.</p></li>
+<li><p><strong>sub_file</strong> (<em>str</em>) – The subdirectory name within <cite>save_dir</cite> where fold data will be saved (default is “folds”).</p></li>
+<li><p><strong>prefix</strong> (<em>str</em>) – Prefix to add to the file names when loading data files (default is an empty string).</p></li>
+<li><p><strong>random_state</strong> (<em>int</em>) – Random seed for reproducibility (default is 42).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>where the folds are saved</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>folds_path (str)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.mace">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">mace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_test</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_test</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">be_test</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[0.05,</span> <span class="pre">0.25,</span> <span class="pre">0.5,</span> <span class="pre">0.75,</span> <span class="pre">0.95]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#mace"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.mace" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.model_quantile_evaluation">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">model_quantile_evaluation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valcovfile_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valrespfile_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valbefile</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bio_num</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputsuffix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'ms'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[0.01,</span> <span class="pre">0.1,</span> <span class="pre">0.2,</span> <span class="pre">0.3,</span> <span class="pre">0.4,</span> <span class="pre">0.5,</span> <span class="pre">0.6,</span> <span class="pre">0.7,</span> <span class="pre">0.8,</span> <span class="pre">0.9,</span> <span class="pre">0.99]</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#model_quantile_evaluation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.model_quantile_evaluation" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.prepare_prediction_data">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">prepare_prediction_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covariates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['age']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_effects</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">drop_nans</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#prepare_prediction_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.prepare_prediction_data" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.saving">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">saving</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">counter</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tag</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">split</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#saving"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.saving" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.nm.shapiro_stat">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.nm.</span></span><span class="sig-name descname"><span class="pre">shapiro_stat</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">z_scores</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covariates</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/nm.html#shapiro_stat"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.nm.shapiro_stat" title="Link to this definition"></a></dt>
+<dd><p>Perform Shapiro-Wilk test for normality on z-scores in bins of covariates.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>z_scores</strong> (<em>numpy.ndarray</em>) – n by p matrix of z-scores (n subjects, p measures)</p></li>
+<li><p><strong>covariates</strong> (<em>numpy.ndarray</em>) – n by 1 matrix of covariates (n subjects)</p></li>
+<li><p><strong>n_bins</strong> (<em>int</em><em>, </em><em>optional</em>) – Number of bins to slice the covariates into (default is 10)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>a p vector of Shapiro-Wilk test statistics for eaxh measure</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>numpy.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-meganorm.utils.parallel">
+<span id="meganorm-utils-parallel-module"></span><h2>meganorm.utils.parallel module<a class="headerlink" href="#module-meganorm.utils.parallel" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.parallel.auto_parallel_feature_extraction">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.parallel.</span></span><span class="sig-name descname"><span class="pre">auto_parallel_feature_extraction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mainParallel_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">features_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subjects</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">job_configs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">username</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_rerun</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_collect</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_try</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/parallel.html#auto_parallel_feature_extraction"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.parallel.auto_parallel_feature_extraction" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.parallel.check_jobs_status">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.parallel.</span></span><span class="sig-name descname"><span class="pre">check_jobs_status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">username</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/parallel.html#check_jobs_status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.parallel.check_jobs_status" title="Link to this definition"></a></dt>
+<dd><p>Checks the status of submitted jobs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>username</strong> (<em>string</em>) – Slurm username.</p></li>
+<li><p><strong>start_time</strong> (<em>string</em>) – The start time for the batch job submission (see submit_jobs).</p></li>
+<li><p><strong>delay</strong> (<em>int</em><em>, </em><em>optional</em>) – The delay in seconds for checks. Defaults to 20.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of failed job names.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.parallel.check_user_jobs">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.parallel.</span></span><span class="sig-name descname"><span class="pre">check_user_jobs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">username</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_time</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/parallel.html#check_user_jobs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.parallel.check_user_jobs" title="Link to this definition"></a></dt>
+<dd><p>_ Utility function for counting the jobs with different stata.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>username</strong> (<em>string</em>) – Slurm username.</p></li>
+<li><p><strong>start_time</strong> (<em>string</em>) – The start time for the batch job submission (see submit_jobs).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary of different job stata counts
+failed_jobs (list): list of failed jobs.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>status_counts (dict)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.parallel.collect_results">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.parallel.</span></span><span class="sig-name descname"><span class="pre">collect_results</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subjects</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temp_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'features'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">clean</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/parallel.html#collect_results"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.parallel.collect_results" title="Link to this definition"></a></dt>
+<dd><p>Collects and merges the results of all jobs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>target_dir</strong> (<em>str</em>) – Target directory path to save the collected results.</p></li>
+<li><p><strong>subjects</strong> (<em>dict</em>) – dict of subject names and paths.</p></li>
+<li><p><strong>temp_path</strong> (<em>str</em>) – Path to the temp directory.</p></li>
+<li><p><strong>file_name</strong> (<em>str</em><em>, </em><em>optional</em>) – The file name for the collected results. Defaults to ‘features’.</p></li>
+<li><p><strong>clean</strong> (<em>bool</em><em>, </em><em>optional</em>) – Whether to clean the temporary files or not. Defaults to True.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.parallel.progress_bar">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.parallel.</span></span><span class="sig-name descname"><span class="pre">progress_bar</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">current</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bar_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/parallel.html#progress_bar"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.parallel.progress_bar" title="Link to this definition"></a></dt>
+<dd><p>Displays or updates a console progress bar.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>current</strong> (<em>int</em>) – Current progress (must be between 0 and total).</p></li>
+<li><p><strong>total</strong> (<em>int</em>) – Total steps for complete progress.</p></li>
+<li><p><strong>bar_length</strong> (<em>int</em><em>, </em><em>optional</em>) – Character length of the bar. Defaults to 20.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.parallel.sbatchfile">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.parallel.</span></span><span class="sig-name descname"><span class="pre">sbatchfile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mainParallel_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bash_file_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mne'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'1:00:00'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'20GB'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">partition</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'normal'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">core</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_file_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'batch_job'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/parallel.html#sbatchfile"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.parallel.sbatchfile" title="Link to this definition"></a></dt>
+<dd><p>_summary_</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>mainParallel_path</strong> (<em>str</em>) – Path to the mainParallel.py file.</p></li>
+<li><p><strong>bash_file_path</strong> (<em>str</em>) – Path to save the create batch job file.</p></li>
+<li><p><strong>log_path</strong> (<em>str</em><em>, </em><em>optional</em>) – _description_. Defaults to None.</p></li>
+<li><p><strong>module</strong> (<em>str</em><em>, </em><em>optional</em>) – _description_. Defaults to ‘mne’.</p></li>
+<li><p><strong>time</strong> (<em>str</em><em>, </em><em>optional</em>) – _description_. Defaults to ‘1:00:00’.</p></li>
+<li><p><strong>memory</strong> (<em>str</em><em>, </em><em>optional</em>) – _description_. Defaults to ‘20GB’.</p></li>
+<li><p><strong>partition</strong> (<em>str</em><em>, </em><em>optional</em>) – _description_. Defaults to ‘normal’.</p></li>
+<li><p><strong>core</strong> (<em>int</em><em>, </em><em>optional</em>) – _description_. Defaults to 1.</p></li>
+<li><p><strong>node</strong> (<em>int</em><em>, </em><em>optional</em>) – _description_. Defaults to 1.</p></li>
+<li><p><strong>batch_file_name</strong> (<em>str</em><em>, </em><em>optional</em>) – _description_. Defaults to ‘batch_job’.</p></li>
+<li><p><strong>with_config</strong> (<em>boolean</em><em>, </em><em>optional</em>) – _description_. Defaults to True.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>_description_</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>_type_</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meganorm.utils.parallel.submit_jobs">
+<span class="sig-prename descclassname"><span class="pre">meganorm.utils.parallel.</span></span><span class="sig-name descname"><span class="pre">submit_jobs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mainParallel_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bash_file_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subjects</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temp_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_file</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">job_configs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">progress</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/meganorm/utils/parallel.html#submit_jobs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#meganorm.utils.parallel.submit_jobs" title="Link to this definition"></a></dt>
+<dd><p>Submits jobs for each subject to the Slurm cluster.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>mainParallel_path</strong> (<em>string</em>) – Path to the mainParallel.py.</p></li>
+<li><p><strong>bash_file_path</strong> (<em>string</em>) – Path to save the batch bash file.</p></li>
+<li><p><strong>subjects</strong> (<em>dict</em>) – A dictionary of subject names (key) and paths (values).</p></li>
+<li><p><strong>temp_path</strong> (<em>string</em>) – Path for saving temporary files.</p></li>
+<li><p><strong>config_file</strong> (<em>string</em>) – Path to the json config file. Defaults to None.</p></li>
+<li><p><strong>job_configs</strong> (<em>dictionary</em><em>, </em><em>optional</em>) – Dictionary of job configurations. Defaults to None.</p></li>
+<li><p><strong>progress</strong> (<em>bool</em><em>, </em><em>optional</em>) – Show the progress bar or not. Defaults to False.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The start time for the batch job submission.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>string</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-meganorm.utils">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-meganorm.utils" title="Link to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

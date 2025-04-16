@@ -1,0 +1,648 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>meganorm.utils.EEGlab &mdash; MEGaNorm 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            MEGaNorm
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">MEGaNorm</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">meganorm.utils.EEGlab</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for meganorm.utils.EEGlab</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Authors: The MNE-Python contributors.</span>
+<span class="c1"># License: BSD-3-Clause</span>
+<span class="c1"># Copyright the MNE-Python contributors.</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os.path</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">op</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">os</span><span class="w"> </span><span class="kn">import</span> <span class="n">PathLike</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne.utils.check</span><span class="w"> </span><span class="kn">import</span> <span class="n">_check_option</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne._fiff._digitization</span><span class="w"> </span><span class="kn">import</span> <span class="n">_ensure_fiducials_head</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne._fiff.constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">FIFF</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne._fiff.meas_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_info</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne._fiff.pick</span><span class="w"> </span><span class="kn">import</span> <span class="n">_PICK_TYPES_KEYS</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne._fiff.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">_find_channels</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne.annotations</span><span class="w"> </span><span class="kn">import</span> <span class="n">read_annotations</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne.channels</span><span class="w"> </span><span class="kn">import</span> <span class="n">make_dig_montage</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne.defaults</span><span class="w"> </span><span class="kn">import</span> <span class="n">DEFAULTS</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Bunch</span><span class="p">,</span>
+    <span class="n">_check_fname</span><span class="p">,</span>
+    <span class="n">_check_head_radius</span><span class="p">,</span>
+    <span class="n">fill_doc</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">,</span>
+    <span class="n">warn</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne.io.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseRaw</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mne.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Bunch</span><span class="p">,</span> <span class="n">_import_pymatreader_funcs</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.io</span><span class="w"> </span><span class="kn">import</span> <span class="n">loadmat</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.io.matlab</span><span class="w"> </span><span class="kn">import</span> <span class="n">MatlabOpaque</span><span class="p">,</span> <span class="n">MatlabFunction</span>
+
+<span class="c1"># just fix the scaling for now, EEGLAB doesn&#39;t seem to provide this info</span>
+<span class="n">CAL</span> <span class="o">=</span> <span class="mf">1e-6</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_eeglab_fname</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">dataname</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check whether the filename is valid.</span>
+
+<span class="sd">    Check if the file extension is ``.fdt`` (older ``.dat`` being invalid) or</span>
+<span class="sd">    whether the ``EEG.data`` filename exists. If ``EEG.data`` file is absent</span>
+<span class="sd">    the set file name with .set changed to .fdt is checked.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">fmt</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">op</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">dataname</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">fmt</span> <span class="o">==</span> <span class="s2">&quot;.dat&quot;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="s2">&quot;Old data format .dat detected. Please update your EEGLAB &quot;</span>
+            <span class="s2">&quot;version and resave the data in .fdt format&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">basedir</span> <span class="o">=</span> <span class="n">op</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">fname</span><span class="p">)</span>
+    <span class="n">data_fname</span> <span class="o">=</span> <span class="n">op</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">basedir</span><span class="p">,</span> <span class="n">dataname</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">op</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">data_fname</span><span class="p">):</span>
+        <span class="n">fdt_from_set_fname</span> <span class="o">=</span> <span class="n">op</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">fname</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;.fdt&quot;</span>
+        <span class="k">if</span> <span class="n">op</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">fdt_from_set_fname</span><span class="p">):</span>
+            <span class="n">data_fname</span> <span class="o">=</span> <span class="n">fdt_from_set_fname</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="s2">&quot;Data file name in EEG.data (</span><span class="si">{}</span><span class="s2">) is incorrect, the file &quot;</span>
+                <span class="s2">&quot;name must have changed on disk, using the correct file &quot;</span>
+                <span class="s2">&quot;name (</span><span class="si">{}</span><span class="s2">).&quot;</span>
+            <span class="p">)</span>
+            <span class="n">warn</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">dataname</span><span class="p">,</span> <span class="n">op</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">fdt_from_set_fname</span><span class="p">)))</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="n">data_fname</span> <span class="o">==</span> <span class="n">fdt_from_set_fname</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s2">&quot;Could not find the .fdt data file, tried </span><span class="si">{}</span><span class="s2"> and </span><span class="si">{}</span><span class="s2">.&quot;</span>
+            <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">data_fname</span><span class="p">,</span> <span class="n">fdt_from_set_fname</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">data_fname</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_load_mat</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">uint16_codec</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if the mat struct contains &#39;EEG&#39;.&quot;&quot;&quot;</span>
+    <span class="n">eeg</span> <span class="o">=</span> <span class="n">_readmat</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">uint16_codec</span><span class="o">=</span><span class="n">uint16_codec</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;ALLEEG&quot;</span> <span class="ow">in</span> <span class="n">eeg</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="s2">&quot;Loading an ALLEEG array is not supported. Please contact&quot;</span>
+            <span class="s2">&quot;mne-python developers for more information.&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;EEG&quot;</span> <span class="ow">in</span> <span class="n">eeg</span><span class="p">:</span>  <span class="c1"># fields are contained in EEG structure</span>
+        <span class="n">eeg</span> <span class="o">=</span> <span class="n">eeg</span><span class="p">[</span><span class="s2">&quot;EEG&quot;</span><span class="p">]</span>
+    <span class="n">eeg</span> <span class="o">=</span> <span class="n">eeg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;EEG&quot;</span><span class="p">,</span> <span class="n">eeg</span><span class="p">)</span>  <span class="c1"># handle nested EEG structure</span>
+    <span class="n">eeg</span> <span class="o">=</span> <span class="n">Bunch</span><span class="p">(</span><span class="o">**</span><span class="n">eeg</span><span class="p">)</span>
+    <span class="n">eeg</span><span class="o">.</span><span class="n">trials</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">trials</span><span class="p">)</span>
+    <span class="n">eeg</span><span class="o">.</span><span class="n">nbchan</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">nbchan</span><span class="p">)</span>
+    <span class="n">eeg</span><span class="o">.</span><span class="n">pnts</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">pnts</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">eeg</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_to_loc</span><span class="p">(</span><span class="n">ll</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if location exists.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ll</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">ll</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">ll</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_eeg_has_montage_information</span><span class="p">(</span><span class="n">eeg</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.io.matlab</span><span class="w"> </span><span class="kn">import</span> <span class="n">mat_struct</span>
+    <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>  <span class="c1"># SciPy &lt; 1.8</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.io.matlab.mio5_params</span><span class="w"> </span><span class="kn">import</span> <span class="n">mat_struct</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">len</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">):</span>
+        <span class="n">has_pos</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">pos_fields</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">mat_struct</span><span class="p">):</span>
+            <span class="n">has_pos</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">fld</span><span class="p">)</span> <span class="k">for</span> <span class="n">fld</span> <span class="ow">in</span> <span class="n">pos_fields</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+            <span class="c1"># Old files</span>
+            <span class="n">has_pos</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span><span class="n">fld</span> <span class="ow">in</span> <span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span> <span class="k">for</span> <span class="n">fld</span> <span class="ow">in</span> <span class="n">pos_fields</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="c1"># new files</span>
+            <span class="n">has_pos</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span><span class="n">fld</span> <span class="ow">in</span> <span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">fld</span> <span class="ow">in</span> <span class="n">pos_fields</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">has_pos</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># unknown (sometimes we get [0, 0])</span>
+
+    <span class="k">return</span> <span class="n">has_pos</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_montage_information</span><span class="p">(</span><span class="n">eeg</span><span class="p">,</span> <span class="n">get_pos</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">montage_units</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get channel name, type and montage information from [&#39;chanlocs&#39;].&quot;&quot;&quot;</span>
+    <span class="n">ch_names</span><span class="p">,</span> <span class="n">ch_types</span><span class="p">,</span> <span class="n">pos_ch_names</span><span class="p">,</span> <span class="n">pos</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(),</span> <span class="nb">list</span><span class="p">(),</span> <span class="nb">list</span><span class="p">(),</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="n">unknown_types</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">chanloc</span> <span class="ow">in</span> <span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">:</span>
+        <span class="c1"># channel name</span>
+        <span class="n">ch_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chanloc</span><span class="p">[</span><span class="s2">&quot;labels&quot;</span><span class="p">])</span>
+
+        <span class="c1"># channel type</span>
+        <span class="n">ch_type</span> <span class="o">=</span> <span class="s2">&quot;eeg&quot;</span>
+        <span class="n">try_type</span> <span class="o">=</span> <span class="n">chanloc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">try_type</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">try_type</span> <span class="o">=</span> <span class="n">try_type</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">try_type</span> <span class="ow">in</span> <span class="n">_PICK_TYPES_KEYS</span><span class="p">:</span>
+                <span class="n">ch_type</span> <span class="o">=</span> <span class="n">try_type</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">try_type</span> <span class="ow">in</span> <span class="n">unknown_types</span><span class="p">:</span>
+                    <span class="n">unknown_types</span><span class="p">[</span><span class="n">try_type</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chanloc</span><span class="p">[</span><span class="s2">&quot;labels&quot;</span><span class="p">])</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">unknown_types</span><span class="p">[</span><span class="n">try_type</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">chanloc</span><span class="p">[</span><span class="s2">&quot;labels&quot;</span><span class="p">]]</span>
+        <span class="n">ch_types</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ch_type</span><span class="p">)</span>
+
+        <span class="c1"># channel loc</span>
+        <span class="k">if</span> <span class="n">get_pos</span><span class="p">:</span>
+            <span class="n">loc_x</span> <span class="o">=</span> <span class="n">_to_loc</span><span class="p">(</span><span class="n">chanloc</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">])</span>
+            <span class="n">loc_y</span> <span class="o">=</span> <span class="n">_to_loc</span><span class="p">(</span><span class="n">chanloc</span><span class="p">[</span><span class="s2">&quot;Y&quot;</span><span class="p">])</span>
+            <span class="n">loc_z</span> <span class="o">=</span> <span class="n">_to_loc</span><span class="p">(</span><span class="n">chanloc</span><span class="p">[</span><span class="s2">&quot;Z&quot;</span><span class="p">])</span>
+            <span class="n">locs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="o">-</span><span class="n">loc_y</span><span class="p">,</span> <span class="n">loc_x</span><span class="p">,</span> <span class="n">loc_z</span><span class="p">]</span>
+            <span class="n">pos_ch_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chanloc</span><span class="p">[</span><span class="s2">&quot;labels&quot;</span><span class="p">])</span>
+            <span class="n">pos</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">locs</span><span class="p">)</span>
+
+    <span class="c1"># warn if unknown types were provided</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unknown_types</span><span class="p">):</span>
+        <span class="n">warn</span><span class="p">(</span>
+            <span class="s2">&quot;Unknown types found, setting as type EEG:</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">unknown_types</span><span class="p">[</span><span class="n">key</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">unknown_types</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="n">lpa</span><span class="p">,</span> <span class="n">rpa</span><span class="p">,</span> <span class="n">nasion</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">eeg</span><span class="p">,</span> <span class="s2">&quot;chaninfo&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chaninfo</span><span class="p">[</span><span class="s2">&quot;nodatchans&quot;</span><span class="p">],</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">nodatchans</span> <span class="o">=</span> <span class="n">eeg</span><span class="o">.</span><span class="n">chaninfo</span><span class="p">[</span><span class="s2">&quot;nodatchans&quot;</span><span class="p">]</span>
+        <span class="n">types</span> <span class="o">=</span> <span class="n">nodatchans</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">descriptions</span> <span class="o">=</span> <span class="n">nodatchans</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;description&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">xs</span> <span class="o">=</span> <span class="n">nodatchans</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;X&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">ys</span> <span class="o">=</span> <span class="n">nodatchans</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Y&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">zs</span> <span class="o">=</span> <span class="n">nodatchans</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Z&quot;</span><span class="p">,</span> <span class="p">[])</span>
+
+        <span class="k">for</span> <span class="n">type_</span><span class="p">,</span> <span class="n">description</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">types</span><span class="p">,</span> <span class="n">descriptions</span><span class="p">,</span> <span class="n">xs</span><span class="p">,</span> <span class="n">ys</span><span class="p">,</span> <span class="n">zs</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">type_</span> <span class="o">!=</span> <span class="s2">&quot;FID&quot;</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">description</span> <span class="o">==</span> <span class="s2">&quot;Nasion&quot;</span><span class="p">:</span>
+                <span class="n">nasion</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="n">description</span> <span class="o">==</span> <span class="s2">&quot;Right periauricular point&quot;</span><span class="p">:</span>
+                <span class="n">rpa</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="n">description</span> <span class="o">==</span> <span class="s2">&quot;Left periauricular point&quot;</span><span class="p">:</span>
+                <span class="n">lpa</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">])</span>
+
+    <span class="c1"># Always check this even if it&#39;s not used</span>
+    <span class="n">_check_option</span><span class="p">(</span><span class="s2">&quot;montage_units&quot;</span><span class="p">,</span> <span class="n">montage_units</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;m&quot;</span><span class="p">,</span> <span class="s2">&quot;dm&quot;</span><span class="p">,</span> <span class="s2">&quot;cm&quot;</span><span class="p">,</span> <span class="s2">&quot;mm&quot;</span><span class="p">,</span> <span class="s2">&quot;auto&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">pos_ch_names</span><span class="p">:</span>
+        <span class="n">pos_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="nb">float</span><span class="p">)</span>
+        <span class="n">pos_array</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+        <span class="c1"># roughly estimate head radius and check if its reasonable</span>
+        <span class="n">is_nan_pos</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_nan_pos</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+            <span class="n">mean_radius</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">pos_array</span><span class="p">[</span><span class="o">~</span><span class="n">is_nan_pos</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+            <span class="n">scale_units</span> <span class="o">=</span> <span class="n">_handle_montage_units</span><span class="p">(</span><span class="n">montage_units</span><span class="p">,</span> <span class="n">mean_radius</span><span class="p">)</span>
+            <span class="n">mean_radius</span> <span class="o">*=</span> <span class="n">scale_units</span>
+            <span class="n">pos_array</span> <span class="o">*=</span> <span class="n">scale_units</span>
+            <span class="n">additional_info</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="s2">&quot; Check if the montage_units argument is correct (the default &quot;</span>
+                <span class="s1">&#39;is &quot;mm&quot;, but your channel positions may be in different units&#39;</span>
+                <span class="s2">&quot;).&quot;</span>
+            <span class="p">)</span>
+            <span class="n">_check_head_radius</span><span class="p">(</span><span class="n">mean_radius</span><span class="p">,</span> <span class="n">add_info</span><span class="o">=</span><span class="n">additional_info</span><span class="p">)</span>
+
+        <span class="n">montage</span> <span class="o">=</span> <span class="n">make_dig_montage</span><span class="p">(</span>
+            <span class="n">ch_pos</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">ch_names</span><span class="p">,</span> <span class="n">pos_array</span><span class="p">)),</span>
+            <span class="n">coord_frame</span><span class="o">=</span><span class="s2">&quot;head&quot;</span><span class="p">,</span>
+            <span class="n">lpa</span><span class="o">=</span><span class="n">lpa</span><span class="p">,</span>
+            <span class="n">rpa</span><span class="o">=</span><span class="n">rpa</span><span class="p">,</span>
+            <span class="n">nasion</span><span class="o">=</span><span class="n">nasion</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">_ensure_fiducials_head</span><span class="p">(</span><span class="n">montage</span><span class="o">.</span><span class="n">dig</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">montage</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">return</span> <span class="n">ch_names</span><span class="p">,</span> <span class="n">ch_types</span><span class="p">,</span> <span class="n">montage</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_info</span><span class="p">(</span><span class="n">eeg</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">eog</span><span class="p">,</span> <span class="n">montage_units</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get measurement info.&quot;&quot;&quot;</span>
+    <span class="c1"># add the ch_names and info[&#39;chs&#39;][idx][&#39;loc&#39;]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">and</span> <span class="n">eeg</span><span class="o">.</span><span class="n">nbchan</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span> <span class="o">=</span> <span class="p">[</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span> <span class="o">=</span> <span class="n">_dol_to_lod</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">)</span>
+
+    <span class="n">eeg_has_ch_names_info</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">chanlocs</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+    <span class="k">if</span> <span class="n">eeg_has_ch_names_info</span><span class="p">:</span>
+        <span class="n">has_pos</span> <span class="o">=</span> <span class="n">_eeg_has_montage_information</span><span class="p">(</span><span class="n">eeg</span><span class="p">)</span>
+        <span class="n">ch_names</span><span class="p">,</span> <span class="n">ch_types</span><span class="p">,</span> <span class="n">eeg_montage</span> <span class="o">=</span> <span class="n">_get_montage_information</span><span class="p">(</span>
+            <span class="n">eeg</span><span class="p">,</span> <span class="n">has_pos</span><span class="p">,</span> <span class="n">montage_units</span><span class="o">=</span><span class="n">montage_units</span>
+        <span class="p">)</span>
+        <span class="n">update_ch_names</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">else</span><span class="p">:</span>  <span class="c1"># if eeg.chanlocs is empty, we still need default chan names</span>
+        <span class="n">ch_names</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;EEG </span><span class="si">{</span><span class="n">ii</span><span class="si">:</span><span class="s2">03d</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">ii</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">nbchan</span><span class="p">)]</span>
+        <span class="n">ch_types</span> <span class="o">=</span> <span class="s2">&quot;eeg&quot;</span>
+        <span class="n">eeg_montage</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">update_ch_names</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="n">info</span> <span class="o">=</span> <span class="n">create_info</span><span class="p">(</span><span class="n">ch_names</span><span class="p">,</span> <span class="n">sfreq</span><span class="o">=</span><span class="n">eeg</span><span class="o">.</span><span class="n">srate</span><span class="p">,</span> <span class="n">ch_types</span><span class="o">=</span><span class="n">ch_types</span><span class="p">)</span>
+
+    <span class="n">eog</span> <span class="o">=</span> <span class="n">_find_channels</span><span class="p">(</span><span class="n">ch_names</span><span class="p">,</span> <span class="n">ch_type</span><span class="o">=</span><span class="s2">&quot;EOG&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">eog</span> <span class="o">==</span> <span class="s2">&quot;auto&quot;</span> <span class="k">else</span> <span class="n">eog</span>
+    <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">ch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;chs&quot;</span><span class="p">]):</span>
+        <span class="n">ch</span><span class="p">[</span><span class="s2">&quot;cal&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">CAL</span>
+        <span class="k">if</span> <span class="n">ch</span><span class="p">[</span><span class="s2">&quot;ch_name&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">eog</span> <span class="ow">or</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">eog</span><span class="p">:</span>
+            <span class="n">ch</span><span class="p">[</span><span class="s2">&quot;coil_type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">FIFF</span><span class="o">.</span><span class="n">FIFFV_COIL_NONE</span>
+            <span class="n">ch</span><span class="p">[</span><span class="s2">&quot;kind&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">FIFF</span><span class="o">.</span><span class="n">FIFFV_EOG_CH</span>
+
+    <span class="k">return</span> <span class="n">info</span><span class="p">,</span> <span class="n">eeg_montage</span><span class="p">,</span> <span class="n">update_ch_names</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_set_dig_montage_in_init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">montage</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Set EEG sensor configuration and head digitization from when init.</span>
+
+<span class="sd">    This is done from the information within fname when</span>
+<span class="sd">    read_raw_eeglab(fname) or read_epochs_eeglab(fname).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">montage</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_montage</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">missing_channels</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ch_names</span><span class="p">)</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">montage</span><span class="o">.</span><span class="n">ch_names</span><span class="p">)</span>
+        <span class="n">ch_pos</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="nb">zip</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">missing_channels</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">missing_channels</span><span class="p">),</span> <span class="mi">3</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_montage</span><span class="p">(</span><span class="n">montage</span> <span class="o">+</span> <span class="n">make_dig_montage</span><span class="p">(</span><span class="n">ch_pos</span><span class="o">=</span><span class="n">ch_pos</span><span class="p">,</span> <span class="n">coord_frame</span><span class="o">=</span><span class="s2">&quot;head&quot;</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_handle_montage_units</span><span class="p">(</span><span class="n">montage_units</span><span class="p">,</span> <span class="n">mean_radius</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">montage_units</span> <span class="o">==</span> <span class="s2">&quot;auto&quot;</span><span class="p">:</span>
+        <span class="c1"># radius should be between 0.05 and 0.11 meters</span>
+        <span class="k">if</span> <span class="n">mean_radius</span> <span class="o">&lt;</span> <span class="mf">0.25</span><span class="p">:</span>
+            <span class="n">montage_units</span> <span class="o">=</span> <span class="s2">&quot;m&quot;</span>
+        <span class="k">elif</span> <span class="n">mean_radius</span> <span class="o">&lt;</span> <span class="mf">2.5</span><span class="p">:</span>
+            <span class="n">montage_units</span> <span class="o">=</span> <span class="s2">&quot;dm&quot;</span>
+        <span class="k">elif</span> <span class="n">mean_radius</span> <span class="o">&lt;</span> <span class="mi">25</span><span class="p">:</span>
+            <span class="n">montage_units</span> <span class="o">=</span> <span class="s2">&quot;cm&quot;</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c1"># mean_radius &gt;= 25</span>
+            <span class="n">montage_units</span> <span class="o">=</span> <span class="s2">&quot;mm&quot;</span>
+    <span class="n">prefix</span> <span class="o">=</span> <span class="n">montage_units</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">scale_units</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">DEFAULTS</span><span class="p">[</span><span class="s2">&quot;prefixes&quot;</span><span class="p">][</span><span class="n">prefix</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">scale_units</span>
+
+
+<div class="viewcode-block" id="read_raw_eeglab">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.EEGlab.read_raw_eeglab">[docs]</a>
+<span class="nd">@fill_doc</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">read_raw_eeglab</span><span class="p">(</span>
+    <span class="n">input_fname</span><span class="p">,</span>
+    <span class="n">eog</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">preload</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">uint16_codec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">montage_units</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;RawEEGLAB&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Read an EEGLAB .set file.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    input_fname : path-like</span>
+<span class="sd">        Path to the ``.set`` file. If the data is stored in a separate ``.fdt``</span>
+<span class="sd">        file, it is expected to be in the same folder as the ``.set`` file.</span>
+<span class="sd">    eog : list | tuple | ``&#39;auto&#39;``</span>
+<span class="sd">        Names or indices of channels that should be designated EOG channels.</span>
+<span class="sd">        If &#39;auto&#39;, the channel names containing ``EOG`` or ``EYE`` are used.</span>
+<span class="sd">        Defaults to empty tuple.</span>
+<span class="sd">    %(preload)s</span>
+<span class="sd">        Note that ``preload=False`` will be effective only if the data is</span>
+<span class="sd">        stored in a separate binary file.</span>
+<span class="sd">    %(uint16_codec)s</span>
+<span class="sd">    %(montage_units)s</span>
+
+<span class="sd">        .. versionchanged:: 1.6</span>
+<span class="sd">           Support for ``&#39;auto&#39;`` was added and is the new default.</span>
+<span class="sd">    %(verbose)s</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    raw : instance of RawEEGLAB</span>
+<span class="sd">        A Raw object containing EEGLAB .set data.</span>
+<span class="sd">        See :class:`mne.io.Raw` for documentation of attributes and methods.</span>
+
+<span class="sd">    See Also</span>
+<span class="sd">    --------</span>
+<span class="sd">    mne.io.Raw : Documentation of attributes and methods of RawEEGLAB.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    .. versionadded:: 0.11.0</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">RawEEGLAB</span><span class="p">(</span>
+        <span class="n">input_fname</span><span class="o">=</span><span class="n">input_fname</span><span class="p">,</span>
+        <span class="n">preload</span><span class="o">=</span><span class="n">preload</span><span class="p">,</span>
+        <span class="n">eog</span><span class="o">=</span><span class="n">eog</span><span class="p">,</span>
+        <span class="n">uint16_codec</span><span class="o">=</span><span class="n">uint16_codec</span><span class="p">,</span>
+        <span class="n">montage_units</span><span class="o">=</span><span class="n">montage_units</span><span class="p">,</span>
+        <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="RawEEGLAB">
+<a class="viewcode-back" href="../../../meganorm.utils.html#meganorm.utils.EEGlab.RawEEGLAB">[docs]</a>
+<span class="nd">@fill_doc</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">RawEEGLAB</span><span class="p">(</span><span class="n">BaseRaw</span><span class="p">):</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Raw object from EEGLAB .set file.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    input_fname : path-like</span>
+<span class="sd">        Path to the ``.set`` file. If the data is stored in a separate ``.fdt``</span>
+<span class="sd">        file, it is expected to be in the same folder as the ``.set`` file.</span>
+<span class="sd">    eog : list | tuple | &#39;auto&#39;</span>
+<span class="sd">        Names or indices of channels that should be designated EOG channels.</span>
+<span class="sd">        If &#39;auto&#39;, the channel names containing ``EOG`` or ``EYE`` are used.</span>
+<span class="sd">        Defaults to empty tuple.</span>
+<span class="sd">    %(preload)s</span>
+<span class="sd">        Note that preload=False will be effective only if the data is stored</span>
+<span class="sd">        in a separate binary file.</span>
+<span class="sd">    %(uint16_codec)s</span>
+<span class="sd">    %(montage_units)s</span>
+<span class="sd">    %(verbose)s</span>
+
+<span class="sd">    See Also</span>
+<span class="sd">    --------</span>
+<span class="sd">    mne.io.Raw : Documentation of attributes and methods.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    .. versionadded:: 0.11.0</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@verbose</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">input_fname</span><span class="p">,</span>
+        <span class="n">eog</span><span class="o">=</span><span class="p">(),</span>
+        <span class="n">preload</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">uint16_codec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">montage_units</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+        <span class="n">verbose</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="n">input_fname</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">_check_fname</span><span class="p">(</span><span class="n">input_fname</span><span class="p">,</span> <span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;input_fname&quot;</span><span class="p">))</span>
+        <span class="n">eeg</span> <span class="o">=</span> <span class="n">_check_load_mat</span><span class="p">(</span><span class="n">input_fname</span><span class="p">,</span> <span class="n">uint16_codec</span><span class="p">)</span>
+        
+        <span class="n">last_samps</span> <span class="o">=</span> <span class="p">[</span><span class="n">eeg</span><span class="o">.</span><span class="n">pnts</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">info</span><span class="p">,</span> <span class="n">eeg_montage</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_get_info</span><span class="p">(</span><span class="n">eeg</span><span class="p">,</span> <span class="n">eog</span><span class="o">=</span><span class="n">eog</span><span class="p">,</span> <span class="n">montage_units</span><span class="o">=</span><span class="n">montage_units</span><span class="p">)</span>
+
+        <span class="c1"># read the data</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">data_fname</span> <span class="o">=</span> <span class="n">_check_eeglab_fname</span><span class="p">(</span><span class="n">input_fname</span><span class="p">,</span> <span class="n">eeg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Reading </span><span class="si">{</span><span class="n">data_fname</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+                <span class="n">info</span><span class="p">,</span>
+                <span class="n">preload</span><span class="p">,</span>
+                <span class="n">filenames</span><span class="o">=</span><span class="p">[</span><span class="n">data_fname</span><span class="p">],</span>
+                <span class="n">last_samps</span><span class="o">=</span><span class="n">last_samps</span><span class="p">,</span>
+                <span class="n">orig_format</span><span class="o">=</span><span class="s2">&quot;double&quot;</span><span class="p">,</span>
+                <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">preload</span> <span class="ow">is</span> <span class="kc">False</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">preload</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="s2">&quot;Data will be preloaded. preload=False or a string &quot;</span>
+                    <span class="s2">&quot;preload is not supported when the data is stored in &quot;</span>
+                    <span class="s2">&quot;the .set file&quot;</span>
+                <span class="p">)</span>
+            <span class="c1"># can&#39;t be done in standard way with preload=True because of</span>
+            <span class="c1"># different reading path (.set file)</span>
+            <span class="k">if</span> <span class="n">eeg</span><span class="o">.</span><span class="n">nbchan</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">n_chan</span><span class="p">,</span> <span class="n">n_times</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="n">eeg</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">n_chan</span><span class="p">,</span> <span class="n">n_times</span> <span class="o">=</span> <span class="n">eeg</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">n_chan</span><span class="p">,</span> <span class="n">n_times</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+            <span class="n">data</span><span class="p">[:</span><span class="n">n_chan</span><span class="p">]</span> <span class="o">=</span> <span class="n">eeg</span><span class="o">.</span><span class="n">data</span>
+            <span class="n">data</span> <span class="o">*=</span> <span class="n">CAL</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+                <span class="n">info</span><span class="p">,</span>
+                <span class="n">data</span><span class="p">,</span>
+                <span class="n">filenames</span><span class="o">=</span><span class="p">[</span><span class="n">input_fname</span><span class="p">],</span>
+                <span class="n">last_samps</span><span class="o">=</span><span class="n">last_samps</span><span class="p">,</span>
+                <span class="n">orig_format</span><span class="o">=</span><span class="s2">&quot;double&quot;</span><span class="p">,</span>
+                <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="c1"># create event_ch from annotations</span>
+        <span class="c1">#annot = read_annotations(input_fname, uint16_codec=uint16_codec)</span>
+        <span class="c1">#self.set_annotations(annot)</span>
+        <span class="c1">#_check_boundary(annot, None)</span>
+
+        <span class="n">_set_dig_montage_in_init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">eeg_montage</span><span class="p">)</span></div>
+
+
+        <span class="c1">#latencies = np.round(annot.onset * self.info[&quot;sfreq&quot;])</span>
+        <span class="c1">#_check_latencies(latencies)</span>
+        
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_boundary</span><span class="p">(</span><span class="n">annot</span><span class="p">,</span> <span class="n">event_id</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">event_id</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">event_id</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="k">if</span> <span class="s2">&quot;boundary&quot;</span> <span class="ow">in</span> <span class="n">annot</span><span class="o">.</span><span class="n">description</span> <span class="ow">and</span> <span class="s2">&quot;boundary&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">event_id</span><span class="p">:</span>
+        <span class="n">warn</span><span class="p">(</span>
+            <span class="s2">&quot;The data contains &#39;boundary&#39; events, indicating data &quot;</span>
+            <span class="s2">&quot;discontinuities. Be cautious of filtering and epoching around &quot;</span>
+            <span class="s2">&quot;these events.&quot;</span>
+        <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_latencies</span><span class="p">(</span><span class="n">latencies</span><span class="p">):</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">latencies</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">&quot;At least one event sample index is negative. Please&quot;</span>
+            <span class="s2">&quot; check if EEG.event.sample values are correct.&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">latencies</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+        <span class="n">warn</span><span class="p">(</span>
+            <span class="s2">&quot;At least one event has a sample index of -1. This usually is &quot;</span>
+            <span class="s2">&quot;a consequence of how eeglab handles event latency after &quot;</span>
+            <span class="s2">&quot;resampling - especially when you had a boundary event at the &quot;</span>
+            <span class="s2">&quot;beginning of the file. Please make sure that the events at &quot;</span>
+            <span class="s2">&quot;the very beginning of your EEGLAB file can be safely dropped &quot;</span>
+            <span class="s2">&quot;(e.g., because they are boundary events).&quot;</span>
+        <span class="p">)</span>
+        
+<span class="k">def</span><span class="w"> </span><span class="nf">_dol_to_lod</span><span class="p">(</span><span class="n">dol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a dict of lists to a list of dicts.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">dol</span><span class="p">[</span><span class="n">key</span><span class="p">][</span><span class="n">ii</span><span class="p">]</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">dol</span><span class="o">.</span><span class="n">keys</span><span class="p">()}</span>
+        <span class="k">for</span> <span class="n">ii</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dol</span><span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">dol</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="mi">0</span><span class="p">]]))</span>
+    <span class="p">]</span>
+    
+    
+<span class="k">def</span><span class="w"> </span><span class="nf">_todict_from_np_struct</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>  <span class="c1"># taken from pymatreader.utils</span>
+    <span class="n">data_dict</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">for</span> <span class="n">cur_field_name</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">n_items</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">cur_field_name</span><span class="p">])</span>
+            <span class="n">cur_list</span> <span class="o">=</span> <span class="p">[]</span>
+
+            <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n_items</span><span class="p">):</span>
+                <span class="n">cur_value</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">cur_field_name</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+                <span class="n">cur_value</span> <span class="o">=</span> <span class="n">_check_for_scipy_mat_struct</span><span class="p">(</span><span class="n">cur_value</span><span class="p">)</span>
+                <span class="n">cur_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cur_value</span><span class="p">)</span>
+
+            <span class="n">data_dict</span><span class="p">[</span><span class="n">cur_field_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">cur_list</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="n">cur_value</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">cur_field_name</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">cur_value</span> <span class="o">=</span> <span class="n">_check_for_scipy_mat_struct</span><span class="p">(</span><span class="n">cur_value</span><span class="p">)</span>
+            <span class="n">data_dict</span><span class="p">[</span><span class="n">cur_field_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">cur_value</span>
+
+    <span class="k">return</span> <span class="n">data_dict</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_handle_scipy_ndarray</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>  <span class="c1"># taken from pymatreader.utils</span>
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;object&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">MatlabFunction</span><span class="p">):</span>
+        <span class="n">as_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">as_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_check_for_scipy_mat_struct</span><span class="p">(</span><span class="n">element</span><span class="p">))</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">as_list</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">_todict_from_np_struct</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">_check_for_scipy_mat_struct</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">data</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_for_scipy_mat_struct</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>  <span class="c1"># taken from pymatreader.utils</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert all scipy.io.matlab.mio5_params.mat_struct elements.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">_check_for_scipy_mat_struct</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">MatlabOpaque</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="sa">b</span><span class="s2">&quot;string&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">_handle_scipy_ndarray</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">data</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_readmat</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">uint16_codec</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">read_mat</span> <span class="o">=</span> <span class="n">_import_pymatreader_funcs</span><span class="p">(</span><span class="s2">&quot;EEGLAB I/O&quot;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">RuntimeError</span><span class="p">:</span>  <span class="c1"># pymatreader not installed</span>
+        <span class="n">eeg</span> <span class="o">=</span> <span class="n">loadmat</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">squeeze_me</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mat_dtype</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_check_for_scipy_mat_struct</span><span class="p">(</span><span class="n">eeg</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">read_mat</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">uint16_codec</span><span class="o">=</span><span class="n">uint16_codec</span><span class="p">)</span>
+    
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_load_mat</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">uint16_codec</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if the mat struct contains &#39;EEG&#39;.&quot;&quot;&quot;</span>
+    <span class="n">eeg</span> <span class="o">=</span> <span class="n">_readmat</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">uint16_codec</span><span class="o">=</span><span class="n">uint16_codec</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;ALLEEG&quot;</span> <span class="ow">in</span> <span class="n">eeg</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="s2">&quot;Loading an ALLEEG array is not supported. Please contact&quot;</span>
+            <span class="s2">&quot;mne-python developers for more information.&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;EEG&quot;</span> <span class="ow">in</span> <span class="n">eeg</span><span class="p">:</span>  <span class="c1"># fields are contained in EEG structure</span>
+        <span class="n">eeg</span> <span class="o">=</span> <span class="n">eeg</span><span class="p">[</span><span class="s2">&quot;EEG&quot;</span><span class="p">]</span>
+    <span class="n">eeg</span> <span class="o">=</span> <span class="n">eeg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;EEG&quot;</span><span class="p">,</span> <span class="n">eeg</span><span class="p">)</span>  <span class="c1"># handle nested EEG structure</span>
+    <span class="n">eeg</span> <span class="o">=</span> <span class="n">Bunch</span><span class="p">(</span><span class="o">**</span><span class="n">eeg</span><span class="p">)</span>
+    <span class="n">eeg</span><span class="o">.</span><span class="n">trials</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">trials</span><span class="p">)</span>
+    <span class="n">eeg</span><span class="o">.</span><span class="n">nbchan</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">nbchan</span><span class="p">)</span>
+    <span class="n">eeg</span><span class="o">.</span><span class="n">pnts</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">eeg</span><span class="o">.</span><span class="n">pnts</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">eeg</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

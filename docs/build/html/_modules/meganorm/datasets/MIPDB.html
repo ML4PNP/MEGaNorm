@@ -1,0 +1,261 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>meganorm.datasets.MIPDB &mdash; MEGaNorm 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            MEGaNorm
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">MEGaNorm</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">meganorm.datasets.MIPDB</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for meganorm.datasets.MIPDB</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">glob</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">scipy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">mne</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">mne_bids</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="c1">#from utils.IO import separate_eyes_open_close_eeglab</span>
+
+<div class="viewcode-block" id="preprocess_events_file">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.MIPDB.preprocess_events_file">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">preprocess_events_file</span><span class="p">(</span><span class="n">file_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Preprocesses the events CSV file to remove repeated headers but keeps the first header.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">clean_lines</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">header_found</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># Track if header is already added</span>
+
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">stripped_line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="c1"># Keep the first header, remove repeated ones, and skip empty lines</span>
+            <span class="k">if</span> <span class="n">stripped_line</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;&quot;type&quot;,&quot;latency&quot;,&quot;urevent&quot;,&#39;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">header_found</span><span class="p">:</span>  <span class="c1"># Add the header only once</span>
+                    <span class="n">clean_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">stripped_line</span><span class="p">)</span>
+                    <span class="n">header_found</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">elif</span> <span class="n">stripped_line</span><span class="p">:</span>  <span class="c1"># Skip empty lines</span>
+                <span class="n">clean_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">stripped_line</span><span class="p">)</span>
+
+    <span class="c1"># Write the cleaned data to a temporary file</span>
+    <span class="n">cleaned_file_path</span> <span class="o">=</span> <span class="n">file_path</span> <span class="o">+</span> <span class="s2">&quot;_cleaned.csv&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">cleaned_file_path</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">clean_lines</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>  <span class="c1"># Ensure proper formatting</span>
+
+    <span class="k">return</span> <span class="n">cleaned_file_path</span></div>
+
+
+<div class="viewcode-block" id="mne_bids_MIPDB">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.MIPDB.mne_bids_MIPDB">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">mne_bids_MIPDB</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">,</span> <span class="n">output_base_path</span><span class="p">,</span> <span class="n">montage_path</span><span class="p">):</span>
+
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    This code converges the MIPDB csv files into an mne raw object and then into BIDS format. </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Ensure output directory exists</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">output_base_path</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">output_base_path</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;directory created&quot;</span><span class="p">)</span>
+
+    <span class="c1">#Find all raw resting state files and event files from every participant</span>
+    <span class="n">search_pattern</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">,</span> <span class="s2">&quot;*/EEG/raw/csv_format/*001.csv&quot;</span><span class="p">)</span>
+    <span class="n">raw_path</span> <span class="o">=</span> <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">search_pattern</span><span class="p">)</span> 
+    <span class="n">search_pattern2</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">,</span> <span class="s2">&quot;*/EEG/raw/csv_format/*001_events.csv&quot;</span><span class="p">)</span>
+    <span class="n">events_data</span> <span class="o">=</span> <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">search_pattern2</span><span class="p">)</span> 
+
+    <span class="c1"># Loop through all found .raw files</span>
+    <span class="k">for</span> <span class="n">raw</span><span class="p">,</span> <span class="n">events</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">raw_path</span><span class="p">,</span> <span class="n">events_data</span><span class="p">):</span> 
+
+        <span class="c1">#extract subject id</span>
+        <span class="n">subject_id</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span><span class="o">.</span><span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="mi">5</span><span class="p">]</span> 
+
+        <span class="c1">#transform csv file into dataframe</span>
+        <span class="n">dataframe</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+        <span class="n">n_channels</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">dataframe</span><span class="p">)</span> 
+        <span class="n">sampling_freq</span> <span class="o">=</span> <span class="mi">500</span>
+
+        <span class="c1">#create mne info object</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="n">mne</span><span class="o">.</span><span class="n">create_info</span><span class="p">(</span><span class="n">n_channels</span><span class="p">,</span> <span class="n">sfreq</span><span class="o">=</span><span class="n">sampling_freq</span><span class="p">,</span> <span class="n">ch_types</span> <span class="o">=</span> <span class="s1">&#39;eeg&#39;</span><span class="p">)</span>
+        <span class="n">raw</span> <span class="o">=</span> <span class="n">mne</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">RawArray</span><span class="p">(</span><span class="n">dataframe</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">info</span><span class="p">)</span>  
+
+        <span class="c1"># set channel locations</span>
+        <span class="n">montage</span> <span class="o">=</span> <span class="n">mne</span><span class="o">.</span><span class="n">channels</span><span class="o">.</span><span class="n">read_custom_montage</span><span class="p">(</span><span class="n">montage_path</span><span class="p">)</span>
+
+        <span class="c1"># Create a mapping to rename the channels in raw to match the montage</span>
+        <span class="n">mapping</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">:</span> <span class="sa">f</span><span class="s1">&#39;E</span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_channels</span><span class="p">)}</span>  <span class="c1"># E1, E2, ...</span>
+        <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">rename_channels</span><span class="p">(</span><span class="n">mapping</span><span class="p">)</span>
+        <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">set_montage</span><span class="p">(</span><span class="n">montage</span><span class="p">)</span>
+
+        <span class="c1"># Define channels on nek and chin as misc and channels close to eyes as eog</span>
+        <span class="n">misc_channels</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;E48&#39;</span><span class="p">,</span> <span class="s1">&#39;E49&#39;</span><span class="p">,</span> <span class="s1">&#39;E56&#39;</span><span class="p">,</span> <span class="s1">&#39;E63&#39;</span><span class="p">,</span> <span class="s1">&#39;E68&#39;</span><span class="p">,</span> <span class="s1">&#39;E73&#39;</span><span class="p">,</span> <span class="s1">&#39;E81&#39;</span><span class="p">,</span> <span class="s1">&#39;E88&#39;</span><span class="p">,</span> <span class="s1">&#39;E94&#39;</span><span class="p">,</span> <span class="s1">&#39;E99&#39;</span><span class="p">,</span> <span class="s1">&#39;E107&#39;</span><span class="p">,</span> <span class="s1">&#39;E113&#39;</span><span class="p">,</span> <span class="s1">&#39;E119&#39;</span><span class="p">]</span>
+        <span class="n">eog_channels</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;E8&#39;</span><span class="p">,</span><span class="s1">&#39;E14&#39;</span><span class="p">,</span> <span class="s1">&#39;E17&#39;</span><span class="p">,</span><span class="s1">&#39;E21&#39;</span><span class="p">,</span> <span class="s1">&#39;E25&#39;</span><span class="p">,</span> <span class="s1">&#39;E127&#39;</span><span class="p">,</span> <span class="s1">&#39;E126&#39;</span><span class="p">,</span> <span class="s1">&#39;E125&#39;</span><span class="p">,</span> <span class="s1">&#39;E128&#39;</span><span class="p">]</span>
+
+        <span class="c1"># Create a dictionary for setting channel types</span>
+        <span class="n">channel_types</span> <span class="o">=</span> <span class="p">{</span><span class="n">ch</span><span class="p">:</span> <span class="s1">&#39;misc&#39;</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">misc_channels</span><span class="p">}</span>
+        <span class="n">channel_types</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">ch</span><span class="p">:</span> <span class="s1">&#39;eog&#39;</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">eog_channels</span><span class="p">})</span>
+
+        <span class="c1"># Apply the channel types to the raw object</span>
+        <span class="n">raw</span><span class="o">.</span><span class="n">set_channel_types</span><span class="p">(</span><span class="n">channel_types</span><span class="p">)</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;channel Types&quot;</span><span class="p">,</span> <span class="n">raw</span><span class="o">.</span><span class="n">get_channel_types</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;channel names&quot;</span><span class="p">,</span> <span class="n">raw</span><span class="o">.</span><span class="n">ch_names</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;montage&quot;</span><span class="p">,</span> <span class="n">raw</span><span class="o">.</span><span class="n">get_montage</span><span class="p">)</span>
+
+        <span class="c1">##### Extract event and epoch information to set the annotations</span>
+        <span class="c1"># Preprocess the events file to remove repeated headers</span>
+        <span class="n">cleaned_events_path</span> <span class="o">=</span> <span class="n">preprocess_events_file</span><span class="p">(</span><span class="n">events</span><span class="p">)</span>
+        <span class="n">events_data</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">cleaned_events_path</span><span class="p">)</span>
+        
+        <span class="c1"># Ensure &#39;latency&#39; column is numeric</span>
+        <span class="n">events_data</span><span class="p">[</span><span class="s1">&#39;latency&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_numeric</span><span class="p">(</span><span class="n">events_data</span><span class="p">[</span><span class="s1">&#39;latency&#39;</span><span class="p">],</span> <span class="n">errors</span><span class="o">=</span><span class="s1">&#39;coerce&#39;</span><span class="p">)</span>
+
+        <span class="c1"># Drop rows with invalid latencies, if any</span>
+        <span class="n">events_data</span> <span class="o">=</span> <span class="n">events_data</span><span class="o">.</span><span class="n">dropna</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;latency&#39;</span><span class="p">])</span>
+
+        <span class="n">event_type</span> <span class="o">=</span> <span class="n">events_data</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span>
+        <span class="n">event_types</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">event_type</span><span class="p">]</span> 
+        <span class="n">event_latencies</span> <span class="o">=</span> <span class="n">events_data</span><span class="p">[</span><span class="s1">&#39;latency&#39;</span><span class="p">]</span>
+
+        <span class="n">event_onsets</span> <span class="o">=</span> <span class="p">[</span><span class="n">latency</span> <span class="o">/</span> <span class="n">sampling_freq</span> <span class="k">for</span> <span class="n">latency</span> <span class="ow">in</span> <span class="n">event_latencies</span><span class="p">]</span>
+        <span class="n">event_duration</span> <span class="o">=</span> <span class="p">[</span><span class="n">event_onsets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">event_onsets</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">event_onsets</span><span class="p">))]</span>
+        <span class="n">event_duration</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        
+        <span class="c1"># Create annotations using onset, duration, and description</span>
+        <span class="n">annotations</span> <span class="o">=</span> <span class="n">mne</span><span class="o">.</span><span class="n">Annotations</span><span class="p">(</span><span class="n">onset</span><span class="o">=</span><span class="n">event_onsets</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="n">event_duration</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="n">event_types</span><span class="p">)</span>
+
+        <span class="c1"># Attach annotations to the raw object</span>
+        <span class="n">raw</span><span class="o">.</span><span class="n">set_annotations</span><span class="p">(</span><span class="n">annotations</span><span class="p">)</span>
+
+        <span class="c1">#extra info that cannot </span>
+        <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;line_freq&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">60</span>
+        <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;device_info&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;EEG&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;manufacturer&#39;</span><span class="p">:</span> <span class="s1">&#39;Electrical Geodesics&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;model&#39;</span><span class="p">:</span> <span class="s1">&#39;HydroCel GSN 130&#39;</span>
+            <span class="p">}</span>
+        
+
+        <span class="c1">#convert to BIDS</span>
+        <span class="n">bids_path</span> <span class="o">=</span> <span class="n">mne_bids</span><span class="o">.</span><span class="n">BIDSPath</span><span class="p">(</span><span class="n">subject</span><span class="o">=</span><span class="n">subject_id</span><span class="p">,</span> <span class="n">datatype</span><span class="o">=</span><span class="s1">&#39;eeg&#39;</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="s1">&#39;rest&#39;</span><span class="p">,</span>
+                     <span class="n">root</span><span class="o">=</span><span class="n">output_base_path</span><span class="p">)</span>
+        <span class="n">mne_bids</span><span class="o">.</span><span class="n">write_raw_bids</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">bids_path</span><span class="o">=</span><span class="n">bids_path</span><span class="p">,</span> <span class="n">allow_preload</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s1">&#39;EEGLAB&#39;</span><span class="p">,</span> <span class="n">overwrite</span><span class="o">=</span><span class="kc">True</span><span class="p">,)</span>   
+         
+    <span class="k">return</span> <span class="kc">None</span></div>
+
+     
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+
+    <span class="c1">#Convert to bids</span>
+
+    <span class="n">input_base_path1</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_MIPDB/EEG/&quot;</span> <span class="c1">#Final</span>
+    <span class="n">output_base_path1</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_MIPDB/EEG_BIDS/&quot;</span> <span class="c1">#Final</span>
+
+    <span class="c1">#input_base_path1 = &quot;/home/meganorm-yverduyn/Dev/MIPDB/EEG&quot;</span>
+    <span class="c1">#output_base_path1 = &quot;/home/meganorm-yverduyn/Dev/MIPDB/EEG_BIDS&quot;</span>
+    <span class="n">montage_path</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_MIPDB/info/GSN_HydroCel_129.sfp&quot;</span>
+    <span class="n">mne_bids_MIPDB</span><span class="p">(</span><span class="n">input_base_path1</span><span class="p">,</span> <span class="n">output_base_path1</span><span class="p">,</span> <span class="n">montage_path</span><span class="p">)</span>
+
+    <span class="c1">#Separate eyes closed and open trials</span>
+
+    <span class="c1">#input_base_path = &quot;/project/meganorm/Data/EEG_MIPDB/EEG_BIDS/&quot;</span>
+    <span class="c1">#output_base_path = &quot;/project/meganorm/Data/EEG_MIPDB/EEG_BIDS/&quot;</span>
+    
+   <span class="c1">#input_base_path2 = &quot;/home/meganorm-yverduyn/Dev/MIPDB/EEG_BIDS&quot;</span>
+    <span class="c1">#output_base_path2 = &quot;/home/meganorm-yverduyn/Dev/MIPDB/EEG_BIDS&quot;</span>
+    <span class="c1">#annotation_description_open = &quot;20&quot;</span>
+    <span class="c1">#annotation_description_close = &quot;30&quot;</span>
+
+    <span class="c1">#separate_eyes_open_close_eeglab(input_base_path2, output_base_path2, annotation_description_open, annotation_description_close, trim_before=5, trim_after=5)</span>
+
+
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

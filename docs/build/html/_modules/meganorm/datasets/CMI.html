@@ -1,0 +1,396 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>meganorm.datasets.CMI &mdash; MEGaNorm 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            MEGaNorm
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">MEGaNorm</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">meganorm.datasets.CMI</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for meganorm.datasets.CMI</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">mne_bids</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">glob</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">mne</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">scipy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span> 
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">meganorm.utils.EEGlab</span><span class="w"> </span><span class="kn">import</span> <span class="n">read_raw_eeglab</span>
+
+<div class="viewcode-block" id="mne_bids_CMI">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.CMI.mne_bids_CMI">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">mne_bids_CMI</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">,</span> <span class="n">output_base_path</span><span class="p">,</span> <span class="n">montage_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    This code converges the CMI dataset into BIDS format. </span>
+<span class="sd">    Meanwhile, it defines channels on nek and chin as misc channels and channels around the eyes as eog channels </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Ensure output directory exists</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">output_base_path</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">output_base_path</span><span class="p">)</span>
+    
+    <span class="n">search_pattern</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">,</span> <span class="s2">&quot;*/*/EEG/raw/mat_format/RestingState.mat&quot;</span><span class="p">)</span>
+    <span class="n">raw_mat_path</span> <span class="o">=</span> <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">search_pattern</span><span class="p">)</span> <span class="c1"># Use glob to find all RestingState.mat files in raw/mat_format folder</span>
+
+    <span class="c1"># Loop through all found .mat files</span>
+    <span class="k">for</span> <span class="n">mat_path</span> <span class="ow">in</span> <span class="n">raw_mat_path</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">subject_id</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">mat_path</span><span class="p">)</span><span class="o">.</span><span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="mi">5</span><span class="p">]</span>  <span class="c1"># Extract subject number from the file path</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">subject_id</span><span class="p">)</span>
+
+            <span class="c1"># Read the .mat file &amp; save the mat_file to extract needed info later on</span>
+            <span class="n">raw</span> <span class="o">=</span> <span class="n">read_raw_eeglab</span><span class="p">(</span><span class="n">mat_path</span><span class="p">)</span> 
+            <span class="n">mat_data</span> <span class="o">=</span> <span class="n">scipy</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">loadmat</span><span class="p">(</span><span class="n">mat_path</span><span class="p">)</span>
+
+            <span class="c1">#### ADD extra information, that is not in the raw object yet ####</span>
+            <span class="n">EEG_data</span> <span class="o">=</span> <span class="n">mat_data</span><span class="p">[</span><span class="s1">&#39;EEG&#39;</span><span class="p">]</span>  <span class="c1"># Access the EEG data to extract info</span>
+            <span class="n">sfreq</span> <span class="o">=</span> <span class="n">EEG_data</span><span class="p">[</span><span class="s1">&#39;srate&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>  <span class="c1"># Get sampling frequency</span>
+            
+            <span class="c1"># Set channel locations</span>
+            <span class="n">montage</span> <span class="o">=</span> <span class="n">mne</span><span class="o">.</span><span class="n">channels</span><span class="o">.</span><span class="n">read_custom_montage</span><span class="p">(</span><span class="n">montage_path</span><span class="p">)</span>
+
+            <span class="c1"># Create a mapping to rename the channels in raw to match the montage</span>
+            <span class="n">mapping</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s1">&#39;EEG </span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s1">03d</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">:</span> <span class="sa">f</span><span class="s1">&#39;E</span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">128</span><span class="p">)}</span>  <span class="c1"># EEG 000 -&gt; E1, EEG 001 -&gt; E2, ..., EEG 128 -&gt; E129</span>
+            <span class="n">mapping</span><span class="p">[</span><span class="s1">&#39;EEG 128&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;Cz&#39;</span>  
+            <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">rename_channels</span><span class="p">(</span><span class="n">mapping</span><span class="p">)</span>
+            <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">set_montage</span><span class="p">(</span><span class="n">montage</span><span class="p">)</span>
+
+            <span class="c1"># Define channels on neck and chin as misc and channels close to eyes as eog</span>
+            <span class="n">misc_channels</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;E48&#39;</span><span class="p">,</span> <span class="s1">&#39;E49&#39;</span><span class="p">,</span> <span class="s1">&#39;E56&#39;</span><span class="p">,</span> <span class="s1">&#39;E63&#39;</span><span class="p">,</span> <span class="s1">&#39;E68&#39;</span><span class="p">,</span> <span class="s1">&#39;E73&#39;</span><span class="p">,</span> <span class="s1">&#39;E81&#39;</span><span class="p">,</span> <span class="s1">&#39;E88&#39;</span><span class="p">,</span> <span class="s1">&#39;E94&#39;</span><span class="p">,</span> <span class="s1">&#39;E99&#39;</span><span class="p">,</span> <span class="s1">&#39;E107&#39;</span><span class="p">,</span> <span class="s1">&#39;E113&#39;</span><span class="p">,</span> <span class="s1">&#39;E119&#39;</span><span class="p">]</span>
+            <span class="n">eog_channels</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;E8&#39;</span><span class="p">,</span> <span class="s1">&#39;E14&#39;</span><span class="p">,</span> <span class="s1">&#39;E17&#39;</span><span class="p">,</span> <span class="s1">&#39;E21&#39;</span><span class="p">,</span> <span class="s1">&#39;E25&#39;</span><span class="p">,</span> <span class="s1">&#39;E128&#39;</span><span class="p">,</span> <span class="s1">&#39;E127&#39;</span><span class="p">,</span> <span class="s1">&#39;E126&#39;</span><span class="p">,</span> <span class="s1">&#39;E125&#39;</span><span class="p">]</span> 
+
+            <span class="c1"># Create a dictionary for setting channel types</span>
+            <span class="n">channel_types</span> <span class="o">=</span> <span class="p">{</span><span class="n">ch</span><span class="p">:</span> <span class="s1">&#39;misc&#39;</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">misc_channels</span><span class="p">}</span>
+            <span class="n">channel_types</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">ch</span><span class="p">:</span> <span class="s1">&#39;eog&#39;</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">eog_channels</span><span class="p">})</span>
+
+            <span class="c1"># Apply the channel types to the raw object</span>
+            <span class="n">raw</span><span class="o">.</span><span class="n">set_channel_types</span><span class="p">(</span><span class="n">channel_types</span><span class="p">)</span>
+
+            <span class="c1"># Set EEG reference to match the reference of the recording</span>
+            <span class="n">raw</span><span class="o">.</span><span class="n">set_eeg_reference</span><span class="p">(</span><span class="n">ref_channels</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;Cz&#39;</span><span class="p">])</span>
+
+            <span class="c1">##### Extract event and epoch information to set the annotations #####</span>
+            <span class="n">events_data</span> <span class="o">=</span> <span class="n">EEG_data</span><span class="p">[</span><span class="s1">&#39;event&#39;</span><span class="p">]</span>
+
+            <span class="c1"># Loop through each event entry to extract type, onset, and duration needed for annotations</span>
+            <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">events_data</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span>
+                <span class="n">event_type</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span>
+                <span class="n">event_types</span> <span class="o">=</span> <span class="p">[</span><span class="n">item</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">event_type</span><span class="p">]</span>
+
+                <span class="n">event_sample</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s1">&#39;sample&#39;</span><span class="p">]</span>
+                <span class="n">event_samples</span> <span class="o">=</span> <span class="p">[</span><span class="n">item</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">event_sample</span><span class="p">]</span>
+                <span class="n">event_onsets</span> <span class="o">=</span> <span class="p">[(</span><span class="n">sample</span> <span class="o">/</span> <span class="n">sfreq</span><span class="p">)</span> <span class="k">for</span> <span class="n">sample</span> <span class="ow">in</span> <span class="n">event_samples</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="n">event_onsets</span><span class="p">)</span>
+
+                <span class="n">event_duration</span> <span class="o">=</span> <span class="p">[</span><span class="n">event_onsets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">event_onsets</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">event_onsets</span><span class="p">))]</span>
+                <span class="n">event_duration</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+            <span class="c1"># Create annotations using onset, duration, and description</span>
+            <span class="n">annotations</span> <span class="o">=</span> <span class="n">mne</span><span class="o">.</span><span class="n">Annotations</span><span class="p">(</span><span class="n">onset</span><span class="o">=</span><span class="n">event_onsets</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="n">event_duration</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="n">event_types</span><span class="p">)</span>
+
+            <span class="c1"># Attach annotations to the raw object</span>
+            <span class="n">raw</span><span class="o">.</span><span class="n">set_annotations</span><span class="p">(</span><span class="n">annotations</span><span class="p">)</span>
+
+            <span class="c1"># Extra info</span>
+            <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;line_freq&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">60</span>
+            <span class="n">raw</span><span class="o">.</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;device_info&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;EEG&#39;</span><span class="p">,</span>
+                <span class="s1">&#39;manufacturer&#39;</span><span class="p">:</span> <span class="s1">&#39;Electrical Geodesics&#39;</span><span class="p">,</span>
+                <span class="s1">&#39;model&#39;</span><span class="p">:</span> <span class="s1">&#39;HydroCel GSN 130&#39;</span>
+            <span class="p">}</span>
+            
+            <span class="c1"># Convert to BIDS</span>
+            <span class="n">bids_path</span> <span class="o">=</span> <span class="n">mne_bids</span><span class="o">.</span><span class="n">BIDSPath</span><span class="p">(</span><span class="n">subject</span><span class="o">=</span><span class="n">subject_id</span><span class="p">,</span> <span class="n">datatype</span><span class="o">=</span><span class="s1">&#39;eeg&#39;</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="s1">&#39;rest&#39;</span><span class="p">,</span>
+                                          <span class="n">root</span><span class="o">=</span><span class="n">output_base_path</span><span class="p">)</span>
+            <span class="n">mne_bids</span><span class="o">.</span><span class="n">write_raw_bids</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">bids_path</span><span class="o">=</span><span class="n">bids_path</span><span class="p">,</span> <span class="n">allow_preload</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s1">&#39;EEGLAB&#39;</span><span class="p">,</span> <span class="n">overwrite</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created BIDS for participant </span><span class="si">{</span><span class="n">subject_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error processing subject </span><span class="si">{</span><span class="n">subject_id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">continue</span>  
+
+    <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="define_eog_ecg_channels_CMI">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.CMI.define_eog_ecg_channels_CMI">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">define_eog_ecg_channels_CMI</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">):</span>
+
+
+    <span class="n">search_pattern</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">,</span> <span class="s2">&quot;*/eeg/*_task-eyesclosed_channels.tsv&quot;</span><span class="p">)</span>
+    <span class="n">channel_files</span> <span class="o">=</span> <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">search_pattern</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;found:&quot;</span><span class="p">,</span> <span class="n">channel_files</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">file</span> <span class="ow">in</span> <span class="n">channel_files</span><span class="p">:</span> 
+        <span class="n">channels_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s2">&quot;</span><span class="se">\t</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="c1">#Define the mappings for channel types </span>
+        <span class="n">update_mapping</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;E8&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E14&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E17&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E21&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E25&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E128&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E127&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E126&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E125&quot;</span><span class="p">:</span> <span class="s2">&quot;EOG&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E48&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E49&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E56&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E63&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E68&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E73&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E81&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E88&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E94&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E99&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E107&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E113&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;E119&quot;</span><span class="p">:</span> <span class="s2">&quot;misc&quot;</span>
+            <span class="p">}</span>
+    
+        <span class="c1"># Update the &#39;type&#39; column based on the mapping</span>
+        <span class="n">channels_df</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">channels_df</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">update_mapping</span><span class="p">[</span><span class="n">x</span><span class="p">]</span> <span class="k">if</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">update_mapping</span> <span class="k">else</span> <span class="n">channels_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">channels_df</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">x</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="c1"># Save the updated DataFrame back to the .tsv file</span>
+        <span class="n">channels_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s2">&quot;</span><span class="se">\t</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Channel types updated successfully.&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="determine_final_diagnosis">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.CMI.determine_final_diagnosis">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">determine_final_diagnosis</span><span class="p">(</span><span class="n">row</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;NoDX&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;DX_01_Sub&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;No Diagnosis Given&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;No Diagnosis Given&quot;</span>
+    <span class="k">elif</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;NoDX&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span> <span class="ow">and</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;DX_01_Confirmed&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;DX_01_Sub&quot;</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;NoDX&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;dropped out&quot;</span>
+    <span class="k">elif</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;NoDX&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span> <span class="ow">and</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;DX_01_Confirmed&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;Diagnosis not confirmed&quot;</span>
+    <span class="k">elif</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;NoDX&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span> <span class="ow">and</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;DX_01_Confirmed&quot;</span><span class="p">]):</span>
+        <span class="k">return</span> <span class="s2">&quot;No info about confirmation&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span></div>
+
+
+<div class="viewcode-block" id="clean_diagnosis">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.CMI.clean_diagnosis">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">clean_diagnosis</span><span class="p">(</span><span class="n">input_path</span><span class="p">,</span> <span class="n">save_path</span><span class="p">):</span>
+    <span class="c1">#Load phenotype file</span>
+    <span class="n">file</span><span class="o">=</span> <span class="n">input_path</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">file</span><span class="p">)</span>
+
+    <span class="n">subject_id_column</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> 
+    <span class="n">diagnosis_given</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="mi">156</span><span class="p">]</span> 
+
+    <span class="c1">#only keep columns of interest</span>
+    <span class="n">columns_to_keep</span> <span class="o">=</span> <span class="p">[</span><span class="n">subject_id_column</span><span class="p">,</span> <span class="n">diagnosis_given</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+        <span class="n">prefix</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Diagnosis_ClinicianConsensus,DX_</span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s1">02d</span><span class="si">}</span><span class="s1">&#39;</span>
+        <span class="n">columns_to_keep</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">,</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s1">_Confirmed&#39;</span><span class="p">,</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s1">_Cat&#39;</span><span class="p">,</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s1">_Sub&#39;</span><span class="p">])</span>
+
+
+    <span class="n">final_df</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">columns_to_keep</span><span class="p">]</span>
+
+    <span class="c1">#Rename columns and subjectIDs</span>
+    <span class="n">final_df</span> <span class="o">=</span> <span class="n">final_df</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="n">subject_id_column</span><span class="p">:</span> <span class="s1">&#39;subject&#39;</span><span class="p">})</span>
+    <span class="n">final_df</span><span class="p">[</span><span class="s1">&#39;subject&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;sub-&#39;</span> <span class="o">+</span> <span class="n">final_df</span><span class="p">[</span><span class="s1">&#39;subject&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;,assessment&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="n">regex</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">final_df</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;Diagnosis_ClinicianConsensus,&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">final_df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+
+    <span class="n">final_df</span><span class="p">[</span><span class="s2">&quot;DX_01_Sub&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">final_df</span><span class="p">[</span><span class="s2">&quot;DX_01_Sub&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="n">final_df</span><span class="p">[</span><span class="s2">&quot;DX_01_Cat&quot;</span><span class="p">])</span>
+
+    <span class="n">final_df</span><span class="p">[</span><span class="s2">&quot;FinalDiagnosis&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">final_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">determine_final_diagnosis</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="n">newfile</span> <span class="o">=</span> <span class="n">save_path</span>
+    <span class="n">final_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">newfile</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="load_covariates_CMI">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.CMI.load_covariates_CMI">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_covariates_CMI</span><span class="p">(</span><span class="n">base_path</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span> <span class="n">save_dir</span><span class="p">:</span><span class="nb">str</span><span class="p">):</span> 
+
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;This info loads all files containing age, gender, diagnosis and site for CMI dataset&quot;</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        path (str): path to covariates.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        DataFrame: Pandas dataframe containing age, gender, site and diagnosis for CMI dataset.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1">#Find &amp; concatenate all phenotype files to extract age and gender later</span>
+    <span class="n">search_pattern_pheno</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">base_path</span><span class="p">,</span> <span class="s2">&quot;HBN_R*_Pheno.csv&quot;</span><span class="p">)</span>
+    <span class="n">pheno_files</span> <span class="o">=</span> <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">search_pattern_pheno</span><span class="p">)</span>
+    <span class="n">pheno_dfs</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">file</span> <span class="ow">in</span> <span class="n">pheno_files</span><span class="p">:</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">file</span><span class="p">)</span>
+        <span class="n">pheno_dfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">df</span><span class="p">)</span>
+
+    <span class="n">full_pheno_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">pheno_dfs</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">full_pheno_df</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;EID&#39;</span><span class="p">:</span> <span class="s1">&#39;subject&#39;</span><span class="p">},</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">full_pheno_df</span><span class="p">[</span><span class="s1">&#39;subject&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;sub-&#39;</span> <span class="o">+</span> <span class="n">full_pheno_df</span><span class="p">[</span><span class="s1">&#39;subject&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+
+    <span class="c1"># site files</span>
+    <span class="n">site_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">base_path</span><span class="p">,</span> <span class="s2">&quot;Subject-Site_all_Releases.xlsx&quot;</span><span class="p">)</span>
+    <span class="n">site_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_excel</span><span class="p">(</span><span class="n">site_file</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;openpyxl&quot;</span><span class="p">)</span>
+
+    <span class="n">site_mapping</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="mf">0.0</span><span class="p">:</span> <span class="s2">&quot;CMI0&quot;</span><span class="p">,</span>
+        <span class="mf">1.0</span><span class="p">:</span> <span class="s2">&quot;CMI1&quot;</span><span class="p">,</span>
+        <span class="mf">2.0</span><span class="p">:</span> <span class="s2">&quot;CMI2&quot;</span><span class="p">,</span>
+        <span class="mf">3.0</span><span class="p">:</span> <span class="s2">&quot;CMI3&quot;</span><span class="p">,</span>
+        <span class="mf">4.0</span><span class="p">:</span> <span class="s2">&quot;CMI4&quot;</span><span class="p">,</span>
+        <span class="mf">5.0</span><span class="p">:</span> <span class="s2">&quot;CMI5&quot;</span>    
+    <span class="p">}</span>
+
+    <span class="n">site_df</span><span class="p">[</span><span class="s1">&#39;Study Site&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">site_df</span><span class="p">[</span><span class="s1">&#39;Study Site&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">site_mapping</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+
+    <span class="c1"># Keep only rows from pheno_df that match site_df R_number</span>
+    <span class="n">merged_pheno_site</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">site_df</span><span class="p">,</span> <span class="n">full_pheno_df</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="s2">&quot;subject&quot;</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s2">&quot;inner&quot;</span><span class="p">)</span>
+
+    <span class="c1">#Find cleaned diagnosis file</span>
+    <span class="n">search_pattern_diagnosis</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">base_path</span><span class="p">,</span> <span class="s2">&quot;cleaned_diagnosis.csv&quot;</span><span class="p">)</span>
+    <span class="n">diagnosis_files</span> <span class="o">=</span> <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">search_pattern_diagnosis</span><span class="p">)</span>
+    <span class="n">diagnosis_dfs</span> <span class="o">=</span> <span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">file</span><span class="p">)</span> <span class="k">for</span> <span class="n">file</span> <span class="ow">in</span> <span class="n">diagnosis_files</span><span class="p">]</span>
+    <span class="n">diagnosis_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">diagnosis_dfs</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1">#Merge the 3 dataframes </span>
+    <span class="n">final_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">merged_pheno_site</span><span class="p">,</span> <span class="n">diagnosis_df</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="s2">&quot;subject&quot;</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s2">&quot;inner&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># Ensure each subject appears only once (keep first occurrence)</span>
+    <span class="n">final_df</span> <span class="o">=</span> <span class="n">final_df</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;subject&#39;</span><span class="p">],</span> <span class="n">keep</span><span class="o">=</span><span class="s1">&#39;first&#39;</span><span class="p">)</span>
+
+    <span class="c1"># Save the final dataframe</span>
+    <span class="n">final_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">save_dir</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="load_CMI_data">
+<a class="viewcode-back" href="../../../meganorm.datasets.html#meganorm.datasets.CMI.load_CMI_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_CMI_data</span><span class="p">(</span><span class="n">feature_path</span><span class="p">,</span> <span class="n">covariates_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load CMI dataset</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        feature_path (str): Path to the the feature csv file.</span>
+<span class="sd">        covariates_path (str): path to the covariates tsv file.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        DataFrame: Pandas dataframe with CMI covariates and features.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+      
+    <span class="n">CMI_covariates</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">covariates_path</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">,</span> <span class="n">index_col</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>    
+    <span class="n">CMI_features</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">feature_path</span><span class="p">,</span> <span class="n">index_col</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">CMI_features</span><span class="o">.</span><span class="n">index</span> <span class="o">=</span> <span class="n">CMI_features</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;^sub-&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="n">regex</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">CMI_data</span> <span class="o">=</span> <span class="n">CMI_covariates</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">CMI_features</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s1">&#39;inner&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">CMI_data</span></div>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">input_base_path</span> <span class="o">=</span> <span class="s2">&quot;/home/meganorm-yverduyn/Dev/2_EXAMPLE_SUBJECTS_CMI&quot;</span>
+    <span class="n">output_base_path</span> <span class="o">=</span> <span class="s2">&quot;/home/meganorm-yverduyn/Dev/2_EXAMPLE_SUBJECTS_CMI/BIDS&quot;</span>
+    <span class="n">montage_path</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_CMI/info/GSN_HydroCel_129.sfp&quot;</span>
+    <span class="n">mne_bids_CMI</span><span class="p">(</span><span class="n">input_base_path</span><span class="p">,</span> <span class="n">output_base_path</span><span class="p">,</span> <span class="n">montage_path</span><span class="p">)</span>
+
+    <span class="n">base_path</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_CMI/info/&quot;</span>
+    <span class="n">save_dir</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_CMI/info/participants_info.csv&quot;</span>
+    <span class="n">load_covariates_CMI</span><span class="p">(</span><span class="n">base_path</span><span class="p">,</span> <span class="n">save_dir</span><span class="p">)</span>
+
+    <span class="n">input_path</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_CMI/Phenotypes/data-2025-01-28T08_15_39.544Z.csv&quot;</span>
+    <span class="n">save_path</span> <span class="o">=</span> <span class="s2">&quot;/project/meganorm/Data/EEG_CMI/info/cleaned_diagnosis.tsv&quot;</span>
+    <span class="n">clean_diagnosis</span><span class="p">(</span><span class="n">input_path</span><span class="p">,</span> <span class="n">save_path</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
