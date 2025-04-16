@@ -7,6 +7,7 @@ import pickle
 import argparse
 import pandas as pd
 import fooof as f
+from typing import Union
 # from layouts import load_specific_layout
 from meganorm.utils.IO import make_config
 from meganorm.layouts.layouts import load_specific_layout
@@ -146,52 +147,113 @@ def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
     return psd - 10**fm._ap_fit
 
 
-def abs_canonical_power(psd, freqs, fmin, fmax):
+def abs_canonical_power(psd: np.ndarray, freqs: np.ndarray, 
+                    fmin: Union[int, float], fmax : Union[int, float]) -> float:
     """
-    Calculate absolute canonical band power
+    Calculates absolute canonical band power from a power spectrum.
+
+    Args
+        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
+        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
+        fmin (int or float): Lower bound of the frequency band.
+        fmax (int or float): Upper bound of the frequency band.
+
+    Returns
+        float: Log-transformed absolute power in the specified frequency band.
     """
-    # Find indices of frequencies within the current band
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
-    # Integrate the power within the band on the flattened spectrum
     band_power = np.trapz(psd[band_indices], freqs[band_indices])
+    
     return np.log10(band_power)
 
 
-def rel_canonical_power(psd, freqs, fmin, fmax):
+def rel_canonical_power(psd: np.ndarray, freqs: np.ndarray,
+                        fmin: Union[int, float], fmax: Union[int, float]) -> float:
     """
-    Calculate relative canonical band power
+    Calculates relative canonical band power from a power spectrum.
+
+    Args
+        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
+        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
+        fmin (int or float): Lower bound of the frequency band.
+        fmax (int or float): Upper bound of the frequency band.
+
+    Returns
+        float: Relative power in the specified frequency band. Returns np.nan if total power is zero.
     """
-    # Find indices of frequencies within the current band
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
-    # Integrate the power within the band on the flattened spectrum
     band_power = np.trapz(psd[band_indices], freqs[band_indices])
     total_power = np.trapz(psd, freqs)
-    return band_power/total_power
+
+    if total_power == 0:
+        return np.nan
+
+    return band_power / total_power
 
 
 def abs_individual_power(psd, freqs, band_peaks, individualized_band_ranges, band_name):
+    """
+    Calculates absolute power in an individualized frequency band centered around the dominant peak.
 
+    Args:
+        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
+        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
+        band_peaks (list of tuples): List of peak tuples (frequency, power, width).
+        individualized_band_ranges (dict): Dictionary mapping band names to (lower_offset, upper_offset) in Hz.
+        band_name (str): Name of the frequency band to compute power for.
+
+    Returns:
+        float: Log-transformed absolute power in the individualized frequency band. Returns np.nan if no peaks are found.
+    """
+    if not band_peaks or band_name not in individualized_band_ranges:
+        return np.nan
+
+    # Find the dominant peak
     dominant_peak = max(band_peaks, key=lambda x: x[1])
-    # Define the range around the peak frequency and Find indices of frequencies within this range
-    peak_range_indices = np.logical_and(freqs >= dominant_peak[0] + individualized_band_ranges[band_name][0], 
-                                        freqs <= dominant_peak[0] + individualized_band_ranges[band_name][1])
-    
-    #  the power within the band on the flattened spectrum
+    peak_freq = dominant_peak[0]
+    lower_offset, upper_offset = individualized_band_ranges[band_name]
+
+    # Define the frequency range around the peak and find matching indices
+    peak_range_indices = np.logical_and(freqs >= peak_freq + lower_offset,
+                                        freqs <= peak_freq + upper_offset)
+
     band_power = np.trapz(psd[peak_range_indices], freqs[peak_range_indices])
     return np.log10(band_power)
 
 
 def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, band_name):
+    """
+    Calculates relative power in an individualized frequency band centered around the dominant peak.
 
+    Args:
+        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
+        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
+        band_peaks (list of tuples): List of peak tuples (frequency, power, width).
+        individualized_band_ranges (dict): Dictionary mapping band names to (lower_offset, upper_offset) in Hz.
+        band_name (str): Name of the frequency band to compute power for.
+
+    Returns:
+        float: Relative power in the individualized frequency band. Returns np.nan if total power is zero or input is invalid.
+    """
+    if not band_peaks or band_name not in individualized_band_ranges:
+        return np.nan
+
+    # Find the dominant peak
     dominant_peak = max(band_peaks, key=lambda x: x[1])
-    # Define the range around the peak frequency and Find indices of frequencies within this range
-    peak_range_indices = np.logical_and(freqs >= dominant_peak[0] + individualized_band_ranges[band_name][0], 
-                                        freqs <= dominant_peak[0] + individualized_band_ranges[band_name][1])
-    
-    #  the power within the band on the flattened spectrum
+    peak_freq = dominant_peak[0]
+    lower_offset, upper_offset = individualized_band_ranges[band_name]
+
+    # Define the range around the peak frequency
+    peak_range_indices = np.logical_and(freqs >= peak_freq + lower_offset,
+                                        freqs <= peak_freq + upper_offset)
+
     band_power = np.trapz(psd[peak_range_indices], freqs[peak_range_indices])
     total_power = np.trapz(psd, freqs)
-    return band_power/total_power
+
+    if total_power == 0:
+        return np.nan
+
+    return band_power / total_power
 
 
 def summarizeFeatures(df, extention, which_layout, which_sensor):
