@@ -255,8 +255,8 @@ def plot_age_hist(df, site_names, save_path,
     plt.tick_params(axis="both", labelsize=19)
     plt.xticks(list(range(lower_age_range, lower_age_range, step_size*2)))
     plt.ylabel("Count",  fontsize=25)
-    plt.savefig(os.path.join(save_path, "age_dis.svg"), format="svg", dpi=600, bbox_inches="tight")
-    plt.savefig(os.path.join(save_path, "age_dis.png"), format="png", dpi=600, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "age_hist.svg"), format="svg", dpi=600, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "age_hist.png"), format="png", dpi=600, bbox_inches="tight")
 
     
 
@@ -317,41 +317,6 @@ def plot_neurooscillochart(data, age_slices, save_path):
         plt.show()
         
 
-def plot_age_dist2(df, site_names, save_path, colors=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213', "Slategrey"]):
-    
-    bins = list(range(5, 90, 5))
-    ages = []
-
-    for counter in range(len(site_names)):
-        ages.append(df[df["site"]==counter]["age"].to_numpy()*100)
-    
-    plt.figure(figsize=(12, 7))
-    plt.hist(ages, bins=bins, color=colors, 
-             edgecolor="black", 
-             alpha=0.6, 
-             histtype="barstacked", 
-             rwidth=0.9,)
-    
-    # Remove the top and right spines
-    plt.gca().spines['top'].set_visible(False)
-    plt.gca().spines['right'].set_visible(False)
-
-    # Offset the bottom and left spines
-    plt.gca().spines['bottom'].set_position(('outward', 15))  #
-    plt.gca().spines['left'].set_position(('outward', 15))
-
-
-    plt.gca().xaxis.set_ticks_position('bottom')
-    plt.gca().yaxis.set_ticks_position('left')
-    plt.grid(axis="y", color = 'black', linestyle = '--')
-    plt.xlabel("Age (years)", fontsize=25)
-    plt.legend(site_names, prop={'size': 23}, loc='upper right')
-    plt.tick_params(axis="both", labelsize=19)
-    plt.xticks(bins)
-    plt.ylabel("Count",  fontsize=25)
-    plt.savefig(os.path.join(save_path, "age_dis.svg"), format="svg", dpi=600, bbox_inches="tight")
-    plt.savefig(os.path.join(save_path, "age_dis.png"), format="png", dpi=600, bbox_inches="tight")
-    plt.close()
 
     
 
@@ -802,41 +767,58 @@ def plot_nm_range_site2(processing_dir, data_dir, quantiles=[0.05, 0.25, 0.5, 0.
 
 
 
-def box_plot_auc(df, save_path):
+def box_plot_auc(df_AUCs, save_path, color="teal", showfliers=False, jitter=True):
+    """ ***
+    Creates a box plot with overlaid strip plot to visualize AUC distributions.
 
-    # Melt the DataFrame to long format for Seaborn
-    data_long = pd.melt(df)
+    Args:
+        df_AUCs (pd.DataFrame): DataFrame where each column represents AUCs of a model/condition.
+        save_path (str): Directory where the plot images will be saved.
+        color (str): Color for boxplot fill.
+        showfliers (bool): Whether to show outlier points in the boxplot.
+        jitter (bool): Whether to jitter the individual data points in strip plot.
 
+    Returns:
+        matplotlib.figure.Figure: The matplotlib figure object.
+    """
 
-    plt.figure(figsize=(6, 5))
-    # colors = ['#E6B213', 'sandybrown', '#E84653', 'lightseagreen']
-    sns.boxplot(x='variable', y='value', data=data_long, color="lightgray")#, palette=colors)
+    sns.set_theme(style="ticks", palette="pastel")
 
-    sns.stripplot(x='variable', y='value', data=data_long, color='black', marker='o', size=6, alpha=0.7, jitter=True)
+    os.makedirs(save_path, exist_ok=True)
 
-    means = df.mean(axis=0)
-    for i, mean in enumerate(means):
-        plt.text(i, mean, '', color='black', ha='center', va='center', fontsize=2)
+    data_long = pd.melt(df_AUCs)
 
+    fig = plt.figure(figsize=(6, 5))
+    sns.boxplot(x='variable', y='value', data=data_long, boxprops=dict(facecolor=color, alpha=0.7),  
+                showfliers=showfliers)
 
-    # Customize the plot
-    plt.xticks(fontsize=14)
-    plt.yticks(fontsize=14)
-    # plt.title('AUCs Across 10 Runs', fontsize=16)
-    plt.ylabel('AUC', fontsize=16)
+    sns.stripplot(x='variable', y='value', data=data_long,             
+                  color='black', 
+                  marker='o', 
+                  size=6, 
+                  alpha=0.6, 
+                  jitter=jitter)
+
+    sns.despine(offset=0, trim=True)
+
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=18)
+    plt.ylabel('AUC', fontsize=20)
     plt.xlabel("")
     plt.grid()
 
-
     plt.gca().spines["right"].set_visible(False)
     plt.gca().spines["top"].set_visible(False)
-    plt.gca().spines["left"].set_visible(False)
-    plt.gca().spines["bottom"].set_visible(False)
 
     plt.tight_layout()
-    # Show the plot
-    plt.savefig(os.path.join(save_path, "AUCs.svg"), dpi=600, format="svg")
 
+    # Save
+    fig_path_svg = os.path.join(save_path, "AUC_box_plot.svg")
+    fig_path_png = os.path.join(save_path, "AUC_box_plot.png")
+    fig.savefig(fig_path_svg, dpi=600, format="svg")
+    fig.savefig(fig_path_png, dpi=600, format="png")
+
+    return fig
 
 
 def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None):
