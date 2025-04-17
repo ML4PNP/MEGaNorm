@@ -260,13 +260,14 @@ def plot_comparison(
         ax.grid(True, linestyle="--", alpha=0.5)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(path, plot_type + "_metric_comparison.png"), dpi=300)
-
-
+    plt.savefig(os.path.join(path, plot_type + '_metric_comparison.png'), dpi=300)
+    
+    
+# ***
 def plot_age_hist(df, site_names, save_path, 
     lower_age_range=5, upper_age_range=90, step_size=5,
     colors=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213', "Slategrey"]):
-    """ ***
+    """ 
     Plots and saves a stacked histogram showing the age distribution across multiple sites.
 
     Args:
@@ -672,11 +673,11 @@ def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100, num_o
             x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path
         )
 
-def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
+def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
                         title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False, bio_name=None, save_path=""):
     """
     Plots a gauge chart based on quantile ranges with a threshold marker for the 0.5 percentile.
-
+    
     Parameters:
     - current_value (float): The current decimal value to display.
     - q1 (float): The 25th percentile value as a decimal.
@@ -689,173 +690,105 @@ def plot_quantile_gauge(current_value, q1, q3, percentile_5, percentile_95, perc
     - max_value (float): The maximum value for the gauge range (default is 1).
     - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
     """
-
+    current_value = round(current_value, 3)
+    
     if bio_name == "Gamma": max_value = 0.1
 
     if current_value < percentile_5:
-        value_color = "rgb(35, 36, 54)"  # Purple 
+        value_color = "rgb(8, 65, 92)"  # Purple 
     elif current_value < q1:
-        value_color = "rgb(54, 89, 194)"  # Gold 
+        value_color = "rgb(0, 191, 255)"  # Gold 
     elif current_value <= q3:
-        value_color = "rgb(192, 192, 192)"  # Green 
+        value_color = "rgb(129, 193, 75)"  # Green 
     elif current_value <= percentile_95:
-        value_color = "rgb(171, 30, 28)"  # Tomato red
+        value_color = "rgb(255, 201, 20)"  # Tomato red
     else:
-        value_color = "rgb(118, 13, 22)"  # Purple
+        value_color = "rgb(188, 44, 26)"  # Purple
 
     if show_legend:
         number_font_size = 75
         delta_font_size = 30
     else:
-        number_font_size = 150
-        delta_font_size = 50
-
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number+delta",
-            value=current_value,
-            number={
-                "font": {
-                    "size": number_font_size,
-                    "family": "Arial",
-                    "color": value_color,
-                }
+        number_font_size = 120
+        delta_font_size = 90
+        
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=current_value,
+        number={'font': {'size': number_font_size, 'family': 'Arial', 'color': value_color}},  
+        delta={'reference': percentile_50, 'position': "top", 'font': {'size': delta_font_size}},
+        gauge={
+            'axis': {
+                'range': [min_value, max_value],
+                'tickfont': {'size': 60, 'family': 'Arial', 'color': 'black'},
+                'showticklabels': True,
+                'tickwidth': 12,
+                'tickcolor': "black",
+                'tickvals': [round(min_value + i * (max_value - min_value) / 10, 2) for i in range(11)],  
             },
-            'bar': {'color': "rgb(128, 128, 128)"},  
+            'bar': {'color': "rgb(255, 255, 255)", 'line': {'color': "black", 'width': 3}},  
             'steps': [
-                {'range': [min_value, percentile_5], 'color': "rgb(35, 36, 54)"},  # Purple 
-                {'range': [percentile_5, q1], 'color': "rgb(54, 89, 194)"},  # Warm gold 
-                {'range': [q1, q3], 'color': "rgb(192, 192, 192)"},  # Forest green 
-                {'range': [q3, percentile_95], 'color': "rgb(171, 30, 28)"},  # Soft tomato red
-                {'range': [percentile_95, max_value], 'color': "rgb(118, 13, 22)"},  # dark Purple
+                {'range': [min_value, percentile_5], 'color': "rgb(8, 65, 92)"},  # Purple 
+                {'range': [percentile_5, q1], 'color': "rgb(0, 191, 255)"},  # Warm gold 
+                {'range': [q1, q3], 'color': "rgb(129, 193, 75)"},  # Forest green 
+                {'range': [q3, percentile_95], 'color': "rgb(255, 201, 20)"},  # Soft tomato red
+                {'range': [percentile_95, max_value], 'color': "rgb(188, 44, 26)"},  # dark Purple
             ],
             'threshold': {
                 'line': {'color': "black", 'width': 6},  # Black line for the 0.5th percentile marker
                 'thickness': 0.75,
                 'value': percentile_50, 
             },
-            gauge={
-                "axis": {
-                    "range": [min_value, max_value],
-                    "tickfont": {"size": 30, "family": "Arial", "color": "black"},
-                    "showticklabels": True,
-                    "tickwidth": 2,
-                    "tickcolor": "lightgrey",
-                    "tickvals": [
-                        round(min_value + i * (max_value - min_value) / 10, 2)
-                        for i in range(11)
-                    ],
-                },
-                "bar": {"color": "rgb(255, 69, 58)"},
-                "steps": [
-                    {
-                        "range": [min_value, percentile_5],
-                        "color": "rgba(115, 90, 63, 1)",
-                    },  # Purple
-                    {
-                        "range": [percentile_5, q1],
-                        "color": "rgba(255, 215, 0, 0.6)",
-                    },  # Warm gold
-                    {
-                        "range": [q1, q3],
-                        "color": "rgba(34, 139, 34, 0.7)",
-                    },  # Forest green
-                    {
-                        "range": [q3, percentile_95],
-                        "color": "rgba(255, 99, 71, 0.6)",
-                    },  # Soft tomato red
-                    {
-                        "range": [percentile_95, max_value],
-                        "color": "rgba(128, 0, 128, 0.9)",
-                    },  # dark Purple
-                ],
-                "threshold": {
-                    "line": {
-                        "color": "black",
-                        "width": 6,
-                    },  # Black line for the 0.5th percentile marker
-                    "thickness": 0.75,
-                    "value": percentile_50,
-                },
-            },
-            title={
-                "text": bio_name,
-                "font": {"size": 50, "family": "Arial", "color": "black"},
-            },
-        )
-    )
+        },
+        title={
+            'text': bio_name,
+            'font': {'size': 70, 'family': 'Arial', 'color': 'black'}
+        }
+    ))
 
     if show_legend:
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(35, 36, 54)"),
+                                 marker=dict(size=12, color="rgb(8, 65, 92)"),
                                  name="0-5th Percentile (Extremely Low)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(54, 89, 194)"),
+                                 marker=dict(size=12, color="rgb(0, 191, 255)"),
                                  name="5th-25th Percentile (Below Normal)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(192, 192, 192)"),
+                                 marker=dict(size=12, color="rgb(129, 193, 75)"),
                                  name="25th-75th Percentile (Normal)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(171, 30, 28)"),
+                                 marker=dict(size=12, color="rgb(255, 201, 20)"),
                                  name="75th-95th Percentile (Above Normal)"))
 
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(118, 13, 22)"),
+                                 marker=dict(size=12, color="rgb(188, 44, 26)"),
                                  name="95th-100th Percentile (Extremely High)"))
     
     # Update layout for better aesthetics
     fig.update_layout(
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        margin=dict(
-            t=50, b=100 if show_legend else 30, l=30, r=30
-        ),  # Adjust bottom margin for legend
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        margin=dict(t=50, b=100 if show_legend else 30, l=100, r=130),  # Adjust bottom margin for legend
         showlegend=show_legend,
-        width=1100,
-        height=700,
+        width=1000,
+        height=800,
         legend=dict(
-            orientation="h",  # Horizontal orientation for legend
-            yanchor="top",  # Align legend to top
-            y=-0.2,  # Place below the chart
-            xanchor="center",  # Center legend horizontally
-            x=0.5,  # Centered under the chart
-            font=dict(size=14),  # Set font size for readability
+            orientation="h",      
+            yanchor="top",        
+            y=-0.2,               
+            xanchor="center",     
+            x=0.5,                
+            font=dict(size=14)    
         ),
         xaxis=dict(visible=False),  # Hide x-axis
-        yaxis=dict(visible=False),  # Hide y-axis
+        yaxis=dict(visible=False)   # Hide y-axis   
     )
-
-    fig.write_image(os.path.join(save_path, f"{bio_name}.svg"))
-
-def plot_feature_scatter(df, feature_names, save_fig_path):
-    """
-    pltots the scatter plot of the specified features
-    """
-    import pandas as pd
-    import math
-
-    fig, ax = plt.subplots(math.ceil(len(feature_names) / 2), 2, figsize=(15, 10))
-    ax = ax.flatten()
-
-    for coutner, name in enumerate(feature_names):
-        sns.scatterplot(
-            data=df,
-            x="age",
-            y=name,
-            hue="site",
-            size=10,
-            ax=ax[coutner],
-            palette=["orange", "teal", "black"],
-            legend=False,
-        )
-        ax[coutner].set_title(name)
-
-        ax[coutner].set_xlabel("Age")
-    # ax[coutner].legend(["BTH", "CAMCAN", "NIMH"])
-    plt.savefig(save_fig_path, dpi=600)
+    plt.tight_layout()
+    fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.svg"))
+    fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.png"))
 
 
 def plot_nm_range_site2(
@@ -1003,8 +936,9 @@ def plot_nm_range_site2(
             )
 
 
+# ***
 def box_plot_auc(df_AUCs, save_path, color="teal", showfliers=False, jitter=True):
-    """ ***
+    """ 
     Creates a box plot with overlaid strip plot to visualize AUC distributions.
 
     Args:
@@ -1048,7 +982,6 @@ def box_plot_auc(df_AUCs, save_path, color="teal", showfliers=False, jitter=True
 
     plt.tight_layout()
 
-    # Save
     fig_path_svg = os.path.join(save_path, "AUC_box_plot.svg")
     fig_path_png = os.path.join(save_path, "AUC_box_plot.png")
     fig.savefig(fig_path_svg, dpi=600, format="svg")
@@ -1056,122 +989,81 @@ def box_plot_auc(df_AUCs, save_path, color="teal", showfliers=False, jitter=True
 
     return fig
 
-def z_scores_scatter_plot(X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None):
+# ***
+def joint_z_scores_scatter_plot(X, Y, bands_name, z_values = [0.674, 1.645], colors = ['#a0a0a0', '#202020'], save_path=None):
+    """
+    Creates a joint scatter plot of two z-scored features (e.g., neural bands), with visual cues for effect size and confidence.
 
-    plt.figure(figsize=(8, 8))
+    Args:
+        X (array-like): Z-scores for the x-axis (e.g., one frequency band).
+        Y (array-like): Z-scores for the y-axis (e.g., another frequency band).
+        bands_name (list[str]): Names of the bands being compared, e.g., ['alpha', 'beta'].
+        save_path (str, optional): Directory to save the plot. Saves SVG and PNG if provided.
 
-    plt.ylim((-4, 4))
-    plt.xlim((-4, 4))
+    Returns:
+        None. Displays and optionally saves the plot.
+    """
+    if X.ndim != 1 or Y.ndim != 1:
+        raise ValueError("X and Y must be 1-dimensional arrays.")
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError("X and Y must be the same length.")
+    if len(z_values) != len(colors):
+        raise ValueError("Length of 'z_values' and 'colors' must match.")
 
-    # Define the fixed order of labels and corresponding colors
-    order = [
-        (f"High {bands_name[1]} - Low {bands_name[0]}", "red"),
-        (f"High {bands_name[0]} - Low {bands_name[1]}", "purple"),
-        (f"High {bands_name[1]} - Normal {bands_name[0]}", "blue"),
-        (f"Normal {bands_name[0]} - Low {bands_name[1]}", "orange"),
-        (f"Normal {bands_name[1]} - High {bands_name[0]}", "green"),
-        (f"Normal {bands_name[1]} - Low {bands_name[0]}", "teal"),
-        (f"Low {bands_name[1]} - Low {bands_name[0]}", "pink"),
-        (f"High {bands_name[1]} - High {bands_name[0]}", "mediumvioletred"),
-        (f"Normal range", "black"),
-    ]
+    X = np.array(X)  
+    Y = np.array(Y)  
 
-    # Initialize lists for colors and labels
-    colors = []
-    labels = []
-
-    # Assign colors and labels based on conditions
-    for x, y in zip(X, Y):
-        match (x, y):
-            case (x, y) if y > thr and x < -thr:
-                colors.append("red")
-                labels.append("High beta - Low theta")
-            case (x, y) if y < -thr and x < -thr:
-                colors.append("pink")
-                labels.append("Low beta - Low theta")
-            case (x, y) if y < -thr and x > thr:
-                colors.append("purple")
-                labels.append("High theta - Low beta")
-            case (x, y) if y > thr and x > thr:
-                colors.append("mediumvioletred")
-                labels.append("High beta - High theta")
-            case (x, y) if y > thr and -thr < x < thr:
-                colors.append("blue")
-                labels.append("High beta - Normal theta")
-            case (x, y) if -thr < x < thr and y < -thr:
-                colors.append("orange")
-                labels.append("Normal theta - Low beta")
-            case (x, y) if -thr < y < thr and x > thr:
-                colors.append("olive")
-                labels.append("Normal beta - High theta")
-            case (x, y) if -thr < y < thr and x < -thr:
-                colors.append("teal")
-                labels.append("Normal beta - Low theta")
-            case _:
-                colors.append("black")
-                labels.append("Normal range")
-
-    # Create the legend handles in the correct order
-    handles = []
-    for label, color in order:
-        handles.append(
-            plt.Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="w",
-                markerfacecolor=color,
-                markersize=10,
-                label=label,
-            )
-        )
-
-    # Plot the scatter plot
-    plt.scatter(X, Y, color=colors)
-
-    # Add the gray region and lines
-    plt.fill_betweenx(
-        y=[-thr, thr], x1=-thr, x2=thr, color="gray", alpha=0.5, label=f"|z| < {thr}"
-    )
-    plt.hlines(
-        y=[-thr, thr],
-        xmin=-thr,
-        xmax=thr,
-        colors="black",
-        linestyles="--",
-        linewidth=1.5,
-    )
-    plt.vlines(
-        x=[-thr, thr],
-        ymin=-thr,
-        ymax=thr,
-        colors="black",
-        linestyles="--",
-        linewidth=1.5,
+    fig, ax = plt.subplots(figsize=(7, 6))
+    plt.xlim(-4.2, 4.)
+    plt.ylim(-4.2, 4.)
+    
+    sizes = 20 + (X - np.min(X)) / (np.max(X) - np.min(X)) * 500
+    scatter = ax.scatter(
+        X, Y, s=sizes, c=Y, cmap="inferno_r", edgecolor="black", alpha=0.8,
+        vmin=np.min(Y), vmax=np.max(Y)
     )
 
-    # Set axis ticks
-    ticks = [-3, -thr, 0, thr, 3]
-    plt.xticks(ticks)
-    plt.yticks(ticks)
+    # Color gradient bar to show Y (Beta) effect
+    sm = plt.cm.ScalarMappable(cmap="inferno_r", norm=plt.Normalize(vmin=np.min(Y), vmax=np.max(Y)))
+    sm.set_array([])
+    cbar_scatter = plt.colorbar(sm, ax=ax, fraction=0.05, pad=0.02)
+    cbar_scatter.set_label(f"{bands_name[1]} z-scores", fontsize=20)
+    cbar_scatter.ax.tick_params(labelsize=0, length=0)
 
-    # Labeling
-    plt.xlabel("Theta z-scores", fontsize=16)
-    plt.ylabel("Beta z-scores", fontsize=16)
+    ax.set_xlabel(f'{bands_name[0].capitalize()} z-scores', fontsize=22)
+    ax.set_ylabel(f'{bands_name[1].capitalize()} z-scores', fontsize=22)
 
-    # Style the plot
-    plt.grid(alpha=0.5)
-    plt.gca().spines["right"].set_visible(False)
-    plt.gca().spines["top"].set_visible(False)
-    plt.gca().spines["left"].set_visible(False)
-    plt.gca().spines["bottom"].set_visible(False)
+    # Remove unnecessary spines
+    ax.spines["right"].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["bottom"].set_position(('outward', 10))
+    ax.spines["left"].set_position(('outward', 10))
 
-    # Add the legend with the correct order
-    plt.legend(handles=handles, fontsize=13)
-
-    # Finalize and save the plot
+    # Draw square contour regions with sharp edges to show
+    # different centiles of variation
+    for i in range(len(z_values)):
+        bound = list(reversed(z_values))[i]
+        ax.add_patch(plt.Rectangle(
+            (-bound, -bound), 2*bound, 2*bound,
+            color=colors[i], alpha=0.4, ec=None
+        ))
+        ax.add_patch(plt.Rectangle(
+            (-bound, -bound), 2*bound, 2*bound,
+            fill=False, edgecolor='black', linewidth=3
+        ))
+        
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg")
+    ax.set_yticks([-4, -2, 0, 2, 4])
+    ax.tick_params(axis='both', labelsize=18)
+
+    if save_path:
+        plt.savefig(os.path.join(save_path, f"{bands_name[0]}_{bands_name[1]}_z_scores_scatter.svg"), dpi=600, format="svg")
+        plt.savefig(os.path.join(save_path, f"{bands_name[0]}_{bands_name[1]}_z_scores_scatter.png"), dpi=600, format="png")
+
+    plt.show()
+
+
+
 
 
 def z_scores_scatter_plot_continuum(
@@ -1482,25 +1374,35 @@ def plot_metrics(metrics_path, which_features, feature_new_name=[], save_path=No
         plt.close()
 
 
-def qq_plot(processing_dir, save_fig, label_dict):
-    plotkwargs = {"markerfacecolor": "black", "markeredgecolor": "black"}
+def qq_plot(processing_dir, save_fig, label_dict, colors):
+    
 
     with open(os.path.join(processing_dir, "Z_estimate.pkl"), "rb") as file:
         z_scores = pickle.load(file)
 
-    for key, value in label_dict.items():
-        plt.figure(figsize=(4, 4))
-        ax = plt.gca()
+    for indx, (key, value) in enumerate(label_dict.items()):
+
+        plotkwargs = {
+        "markerfacecolor": colors[indx], 
+        "markeredgecolor": colors[indx], 
+        "markersize": 8, 
+        "alpha": 0.6}
+        
+        plt.figure(figsize=(5, 5))
+        ax = plt.gca()  
 
         # Generate QQ plot without the line
         sm.qqplot(z_scores.iloc[:, value].to_numpy(), line=None, ax=ax, **plotkwargs)
 
         # Add a red 45-degree line manually
-        x = np.linspace(-3, 3, 100)
-        ax.plot(x, x, color="red", linewidth=2, linestyle="-", alpha=0.6)
+        x = np.linspace(-4, 4, 100)
+        ax.plot(x, x, color='black', linewidth=4, linestyle='--', alpha=1)
 
-        plt.ylim((-3, 3))
-        plt.xlim((-3, 3))
+        plt.ylabel("Sample quantiles", fontsize=25)
+        plt.xlabel("Theoretical quantiles", fontsize=25)
+
+        plt.ylim((-4, 4))
+        plt.xlim((-4, 4))
 
         # Customize spines
         ax.spines["right"].set_visible(False)
@@ -1508,25 +1410,17 @@ def qq_plot(processing_dir, save_fig, label_dict):
         ax.spines["bottom"].set_position(("outward", 10))
         ax.spines["left"].set_position(("outward", 10))
 
-        plt.grid()
+        plt.xticks(np.linspace(-4, 4, 5))
+        plt.yticks(np.linspace(-4, 4, 5))
+        plt.tick_params(axis='both', labelsize=25)
 
-        plt.xticks(np.linspace(-3, 3, 7))
-        plt.yticks(np.linspace(-3, 3, 7))
-        plt.tick_params(axis="both", labelsize=16)
-
-        plt.title(key.capitalize(), fontsize=16)
+        plt.title(key.capitalize(), fontsize=25)
+        plt.grid(True, axis='both', linestyle="--", color="gray", alpha=0.3)
         # Save the figure
         if save_fig is not None:
-            os.makedirs(save_fig, exist_ok=True)
-            plt.savefig(
-                os.path.join(save_fig, f"{key}_qqplot.png"),
-                dpi=300,
-                bbox_inches="tight",
-            )
-            plt.savefig(
-                os.path.join(save_fig, f"{key}_qqplot.pdf"),
-                dpi=300,
-                bbox_inches="tight",
-            )
 
-        plt.close()
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.svg"), dpi=300, bbox_inches='tight')
+        
+
+        plt.show()

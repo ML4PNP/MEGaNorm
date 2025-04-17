@@ -82,6 +82,7 @@ def parameterizePsd(psds, freqs, freqRangeLow=3, freqRangeHigh=40, min_peak_heig
 def psdParameterize(segments, freqRangeLow=3, freqRangeHigh=40, min_peak_height=0,
                     peak_threshold=2, sampling_rate=1000, psd_method="welch", psd_n_overlap=1, 
                     psd_n_fft=2, n_per_seg=2, peak_width_limits=[1, 12.0], aperiodic_mode="knee"):
+    
     """
     Runs the complete pipeline for spectral parameterization using FOOOF. 
     This includes computing the PSD and fitting FOOOF models for each segment/channel.

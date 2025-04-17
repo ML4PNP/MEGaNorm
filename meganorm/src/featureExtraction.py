@@ -18,11 +18,20 @@ def offset(fm: f.FOOOF) -> float:
     """
     Extract the offset parameter from the aperiodic component of a FOOOF model.
 
-    Args:
-        fm (f.FOOOF): A FOOOF model object that has been fit to data and contains aperiodic parameters.
+    Parameters
+    ----------
+    fm : f.FOOOF
+        A FOOOF model object that has been fit to data and contains aperiodic parameters.
 
-    Returns:
-        (float): The offset value, which is the first element of the aperiodic parameters.
+    Returns
+    -------
+    float
+        The offset value, which is the first element of the aperiodic parameters.
+
+    Raises
+    ------
+    TypeError
+        Expected a FOOOF model instance.
     """
     if not isinstance(fm, f.FOOOF):
         raise TypeError("Expected a FOOOF model instance.")
@@ -34,12 +43,22 @@ def exponent(fm:f.FOOOF, aperiodic_mode:str) -> float:
     """
     Extract the exponent value from the aperiodic component of a FOOOF model, based on the specified mode.
 
-    Args
-        fm (f.FOOOF): A FOOOF model object that has been fit to data and contains aperiodic parameters.
-        aperiodic_mode (str): The mode to extract the exponent value for. Must be one of ['knee', 'fixed'].
+    Parameters
+    ----------
+    fm : f.FOOOF
+        A FOOOF model object that has been fit to data and contains aperiodic parameters.
+    aperiodic_mode : str
+        The aperiodic mode that has been used to fit the model. Must be one of ['knee', 'fixed'].
 
     Returns
-        (float): The exponent value corresponding to the specified mode ('knee' or 'fixed').
+    -------
+    float
+        (float): The exponent value corresponding to the specified mode ('knee' or 'fixed')
+
+    Raises
+    ------
+    ValueError
+        Unknown aperiodic_mode; Expected 'knee' or 'fixed'.
     """
     if aperiodic_mode == "knee": 
         exponent_index = 2 
