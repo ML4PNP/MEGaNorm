@@ -1,45 +1,75 @@
 import mne_bids
 import glob
-import shutil
 import os
 import mne
 from pathlib import Path
 import scipy
 import numpy as np
 import pandas as pd
-import re
 import numpy as np
 import pandas as pd
 from meganorm.utils.EEGlab import read_raw_eeglab
 
 
-def mne_bids_CMI(input_base_path, output_base_path, montage_path):
+def mne_bids_HBN(input_base_path, output_base_path, montage_path):
     """
-    This code converges the CMI dataset into BIDS format.
-    Meanwhile, it defines channels on nek and chin as misc channels and channels around the eyes as eog channels
+    This function converges the HBN dataset .mat files into BIDS format.
+
+    It reads EEG recordings from the HBN dataset, adds additional metadata such as 
+    channel types and annotations, and writes the data into BIDS-compliant format using `mne-bids`.
+
+    Channels on the neck and chin are classified as 'misc', and those close to the eyes as 'eog'. 
+    The function also applies a custom montage, sets Cz as the reference electrode, and embeds event 
+    annotations into the raw EEG data.
+
+
+    Parameters
+    ----------
+    input_base_path : str
+        Path to the base directory containing the HBN dataset
+    output_base_path : str
+        Directory where the converted BIDS dataset will be saved
+    montage_path : _type_
+        Path to the custom montage file to be used for setting EEG channel locations
+
+    Returns
+    -------
+    None
+        This function does not return any value. The output is saved to the specified output directory
+
+    Notes
+    -----
+    - The input `.mat` files are expected to follow the structure: `*/subject/session/EEG/raw/mat_format/RestingState.mat`.
+    - The sampling frequency is extracted directly from the `.mat` file.
+    - Events are extracted from the EEG structure and converted into MNE annotations.
+    - The following channels are treated specially:
+        - Misc (neck and chin): E48, E49, E56, E63, E68, E73, E81, E88, E94, E99, E107, E113, E119
+        - EOG (eyes): E8, E14, E17, E21, E25, E128, E127, E126, E125
     """
 
     # Ensure output directory exists
     if not os.path.exists(output_base_path):
         os.makedirs(output_base_path)
 
+    # Use glob to find all RestingState.mat files in raw/mat_format folder
     search_pattern = os.path.join(
         input_base_path, "*/*/EEG/raw/mat_format/RestingState.mat"
     )
     raw_mat_path = glob.glob(
         search_pattern
-    )  # Use glob to find all RestingState.mat files in raw/mat_format folder
+    )  
 
     # Loop through all found .mat files
     for mat_path in raw_mat_path:
         try:
+            # Extract subject number from the file path
             subject_id = Path(mat_path).parts[
                 -5
-            ]  # Extract subject number from the file path
+            ]  
             print(subject_id)
 
             # Read the .mat file & save the mat_file to extract needed info later on
-            raw = read_raw_eeglab(mat_path)
+            raw = read_raw_eeglab(mat_path) 
             mat_data = scipy.io.loadmat(mat_path)
 
             #### ADD extra information, that is not in the raw object yet ####
@@ -151,7 +181,30 @@ def mne_bids_CMI(input_base_path, output_base_path, montage_path):
     return None
 
 
-def define_eog_ecg_channels_CMI(input_base_path):
+def define_eog_ecg_channels_HBN(input_base_path):
+    """
+    This function updates the channel types for the HBN dataset EEG channel TSV files.
+    Note that this function is designed only for the eyesclosed trials. This eyes closed file is created by using the separate_eyes_open_close_eeglab function from utils.io 
+
+    Parameters
+    ----------
+    input_base_path : str
+        Path to the directory containing BIDS-formatted EEG channel TSV files. It should include 
+        folders structured like `sub-*/eeg/*_task-eyesclosed_channels.tsv`.
+
+    Returns
+    -------
+    None
+        The function modifies channel TSV files in-place and does not return any value.
+
+    Notes
+    -----
+    - Channels related to the eyes are labeled as "EOG":
+        E8, E14, E17, E21, E25, E128, E127, E126, E125
+    - Channels on the neck and chin are labeled as "misc":
+        E48, E49, E56, E63, E68, E73, E81, E88, E94, E99, E107, E113, E119
+    - All other channels retain their original type(EEG). 
+    """    
 
     search_pattern = os.path.join(
         input_base_path, "*/eeg/*_task-eyesclosed_channels.tsv"
@@ -203,6 +256,23 @@ def define_eog_ecg_channels_CMI(input_base_path):
 
 
 def determine_final_diagnosis(row):
+    """
+    This functions determines the final diagnosis label for a given participant. 
+    Only confirmed diagnosis are kept, otherwise No Diagnosis Given, Diagnosis not confirmed or No info about confirmation is returned.
+    If none of the conditions are met, nan is returned
+
+    Parameters
+    ----------
+    row : pandas.Series
+        A row from a pandas DataFrame representing a single participant. Must contain the 
+        following keys: 'NoDX', 'DX_01_Sub', and 'DX_01_Confirmed'
+
+    Returns
+    -------
+    str or float
+        A string representing the participant's diagnosis status
+    """
+
     if row["NoDX"] == 1 and row["DX_01_Sub"] == "No Diagnosis Given":
         return "No Diagnosis Given"
     elif row["NoDX"] == 2 and row["DX_01_Confirmed"] == 1:
@@ -218,15 +288,32 @@ def determine_final_diagnosis(row):
 
 
 def clean_diagnosis(input_path, save_path):
+    """
+    This function loads the HBN phenotype file, extracts and renames colums related to clinician consensus diagnoses, and determines the final diagnosis for 
+    each subject using the `determine_final_diagnosis` function. The cleaned dataset 
+    is saved as a new CSV file.
+
+    Parameters
+    ----------
+    input_path : str
+        Path to the raw phenotype CSV file containing subject diagnosis information.
+    save_path :  str
+        Path where the cleaned and processed CSV file will be saved.
+    """
+    
+
     # Load phenotype file
     file = input_path
     df = pd.read_csv(file)
 
     subject_id_column = df.columns[0]
-    diagnosis_given = df.columns[156]
+    diagnosis_given = "Diagnosis_ClinicianConsensus,NoDX"
 
     # only keep columns of interest
     columns_to_keep = [subject_id_column, diagnosis_given]
+    required_columns = set(columns_to_keep)
+    assert required_columns.issubset(df.columns), "Missing expected columns in input CSV"
+
     for i in range(1, 2):
         prefix = f"Diagnosis_ClinicianConsensus,DX_{i:02d}"
         columns_to_keep.extend(
@@ -252,14 +339,18 @@ def clean_diagnosis(input_path, save_path):
     final_df.to_csv(newfile, index=False)
 
 
-def load_covariates_CMI(base_path: str, save_dir: str):
-    """This info loads all files containing age, gender, diagnosis and site for CMI dataset"
+def load_covariates_HBN(base_path: str, save_dir: str):
+    """This info loads all files containing age, gender, diagnosis and site for HBN dataset"
+    This function uses the pheno and site files that were available on the HBN website without the need for a data usage agreement
+    It assumes that the pheno information is store in "HBN_R*_Pheno.csv" for each release and that the site 
+    information is stored in one file "Subject-Site_all_Releases.xlsx" containing site info of all releases
 
-    Args:
-        path (str): path to covariates.
-
-    Returns:
-        DataFrame: Pandas dataframe containing age, gender, site and diagnosis for CMI dataset.
+    Parameters
+    ----------
+    base_path : str
+        The file path where all files containing age, gender, diagnosis and site for HBN dataset can be found
+    save_dir : str
+         DataFrame: Pandas dataframe containing age, gender, site and diagnosis for HBN dataset.
     """
 
     # Find & concatenate all phenotype files to extract age and gender later
@@ -280,12 +371,12 @@ def load_covariates_CMI(base_path: str, save_dir: str):
     site_df = pd.read_excel(site_file, engine="openpyxl")
 
     site_mapping = {
-        0.0: "CMI0",
-        1.0: "CMI1",
-        2.0: "CMI2",
-        3.0: "CMI3",
-        4.0: "CMI4",
-        5.0: "CMI5",
+        0.0: "HBN0",
+        1.0: "HBN1",
+        2.0: "HBN2",
+        3.0: "HBN3",
+        4.0: "HBN4",
+        5.0: "HBN5",
     }
 
     site_df["Study Site"] = site_df["Study Site"].map(site_mapping).astype(str)
@@ -309,36 +400,37 @@ def load_covariates_CMI(base_path: str, save_dir: str):
     final_df.to_csv(save_dir, index=False)
 
 
-def load_CMI_data(feature_path, covariates_path):
-    """Load CMI dataset
-
-    Args:
-        feature_path (str): Path to the the feature csv file.
-        covariates_path (str): path to the covariates tsv file.
-
-    Returns:
-        DataFrame: Pandas dataframe with CMI covariates and features.
+def load_HBN_data(feature_path, covariates_path):
     """
+    Load and merge HBN feature and covariate data.
 
-    CMI_covariates = pd.read_csv(covariates_path, sep="\t", index_col=0)
-    CMI_features = pd.read_csv(feature_path, index_col=0)
-    CMI_features.index = CMI_features.index.str.replace("^sub-", "", regex=True)
-    CMI_data = CMI_covariates.join(CMI_features, how="inner")
-    return CMI_data
+    This function reads in phenotype covariates and extracted features for participants 
+    in the HBN dataset, aligns them by subject ID, and returns 
+    a merged DataFrame containing both sets of information.
 
+    Parameters
+    ----------
+    feature_path : str
+        Path to the CSV file containing extracted features. The index should include subject IDs,
+        typically prefixed with "sub-".
+    covariates_path : str
+        Path to the TSV file containing subjects covariates. The first column
+        should correspond to subject IDs.
 
-if __name__ == "__main__":
-    input_base_path = "/home/meganorm-yverduyn/Dev/2_EXAMPLE_SUBJECTS_CMI"
-    output_base_path = "/home/meganorm-yverduyn/Dev/2_EXAMPLE_SUBJECTS_CMI/BIDS"
-    montage_path = "/project/meganorm/Data/EEG_CMI/info/GSN_HydroCel_129.sfp"
-    mne_bids_CMI(input_base_path, output_base_path, montage_path)
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame resulting from the inner join of covariates and features,
+        indexed by subject ID (without the "sub-" prefix).
 
-    base_path = "/project/meganorm/Data/EEG_CMI/info/"
-    save_dir = "/project/meganorm/Data/EEG_CMI/info/participants_info.csv"
-    load_covariates_CMI(base_path, save_dir)
+    Notes
+    -----
+    - The subject IDs in the `HBN_features` file are stripped of the "sub-" prefix before merging.
 
-    input_path = (
-        "/project/meganorm/Data/EEG_CMI/Phenotypes/data-2025-01-28T08_15_39.544Z.csv"
-    )
-    save_path = "/project/meganorm/Data/EEG_CMI/info/cleaned_diagnosis.tsv"
-    clean_diagnosis(input_path, save_path)
+    """
+    HBN_covariates = pd.read_csv(covariates_path, sep="\t", index_col=0)
+    HBN_features = pd.read_csv(feature_path, index_col=0)
+    #remove sub- so that subjectIDs match format of subject IDs in covariate file (without Sub)
+    HBN_features.index = HBN_features.index.str.replace("^sub-", "", regex=True)
+    HBN_data = HBN_covariates.join(HBN_features, how="inner")
+    return HBN_data
