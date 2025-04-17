@@ -277,18 +277,30 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
         summrized_df[which_layout] = df.mean(axis=1)
 
     else:
-        modality = [s_type for s_type, if_alculate in which_sensor.items() if if_alculate][0]
-        
-        layout_name = extention.upper() + "_" + modality.upper() + "_" + which_layout.upper()
+        modality = [
+            s_type for s_type, if_alculate in which_sensor.items() if if_alculate
+        ][0]
+
+        layout_name = (
+            extention.upper() + "_" + modality.upper() + "_" + which_layout.upper()
+        )
         layout = load_specific_layout(extention.upper(), layout_name)
-        
+
         for parcel_name, channels_list in layout.items():
             summrized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
-    
+
     return summrized_df
 
 
-def psd_ratio(psd, freqs, freqRangeNumerator:float, freqRangeDenominator:float, channelNames:str, name:str, psdType:str):
+def psd_ratio(
+    psd,
+    freqs,
+    freqRangeNumerator: float,
+    freqRangeDenominator: float,
+    channelNames: str,
+    name: str,
+    psdType: str,
+):
     """
     Calculates the ratio of power in two frequency bands (numerator/denominator) in the power spectral density (PSD).
     
@@ -308,13 +320,15 @@ def psd_ratio(psd, freqs, freqRangeNumerator:float, freqRangeDenominator:float, 
     """
 
     # Numerator
-    bandIndices = np.logical_and(freqs >= freqRangeNumerator[0] ,
-                                freqs <= freqRangeNumerator[1])
+    bandIndices = np.logical_and(
+        freqs >= freqRangeNumerator[0], freqs <= freqRangeNumerator[1]
+    )
     powerNumerator = np.trapz(psd[bandIndices], freqs[bandIndices])
 
     # Denominator
-    bandIndices = np.logical_and(freqs >= freqRangeDenominator[0] ,
-                                freqs <= freqRangeDenominator[1])
+    bandIndices = np.logical_and(
+        freqs >= freqRangeDenominator[0], freqs <= freqRangeDenominator[1]
+    )
     powerDenominator = np.trapz(psd[bandIndices], freqs[bandIndices])
 
     # ratio
@@ -415,7 +429,7 @@ def feature_extract(subjectId: str,
         pd.DataFrame: A DataFrame containing extracted features for each channel and band.
     """
 
-    # Store features in a pandas DataFrame with channel names as columns 
+    # Store features in a pandas DataFrame with channel names as columns
     # and feature names as the index,
     feature_container = create_feature_container(feature_categories, freq_bands, channel_names)
 
@@ -426,27 +440,32 @@ def feature_extract(subjectId: str,
 
         # fooof fitness
         # TODO, this needs to go out of feature exctraction
-        r_squared = fm.r_squared_ 
-        if r_squared < min_r_squared: continue
+        r_squared = fm.r_squared_
+        if r_squared < min_r_squared:
+            continue
 
         # offset ==================================
         if feature_categories["Offset"]:
             feature_arr = offset(fm)
-            feature_container = add_feature(feature_container, feature_arr, "Offset", channel_name, "")
+            feature_container = add_feature(
+                feature_container, feature_arr, "Offset", channel_name, ""
+            )
         # Exponent ==================================
         if feature_categories["Exponent"]:
             feature_arr = exponent(fm, aperiodic_mode)
-            feature_container = add_feature(feature_container, feature_arr, "Exponent", channel_name, "")
-        
+            feature_container = add_feature(
+                feature_container, feature_arr, "Exponent", channel_name, ""
+            )
+
         original_psd = psds[channel_num, :]
         # isolate periodic parts of signals
         flattened_psd = np.asarray(isolate_periodic(fm, original_psd))
-        
+
         # whenever aperidic activity is higher than periodic activity
         # => set the preiodic acitivity to zero
         flattened_psd = np.array(list(map(lambda x: max(0, x), flattened_psd)))
 
-        #Loop through each frequency band
+        # Loop through each frequency band
         for band_name, (fmin, fmax) in freq_bands.items():
 
             # Peak Features ==================================
@@ -454,135 +473,224 @@ def feature_extract(subjectId: str,
 
             if feature_categories["Peak_Center"]:
                 feature_arr = peak_center(band_peaks)
-                feature_container = add_feature(feature_container, feature_arr, "Peak_Center", channel_name, band_name)
+                feature_container = add_feature(
+                    feature_container,
+                    feature_arr,
+                    "Peak_Center",
+                    channel_name,
+                    band_name,
+                )
 
             if feature_categories["Peak_Power"]:
                 feature_arr = peak_power(band_peaks)
-                feature_container = add_feature(feature_container, feature_arr, "Peak_Power", channel_name, band_name)
+                feature_container = add_feature(
+                    feature_container,
+                    feature_arr,
+                    "Peak_Power",
+                    channel_name,
+                    band_name,
+                )
 
             if feature_categories["Peak_Width"]:
                 feature_arr = peak_width(band_peaks)
-                feature_container = add_feature(feature_container, feature_arr, "Peak_Width", channel_name, band_name)
+                feature_container = add_feature(
+                    feature_container,
+                    feature_arr,
+                    "Peak_Width",
+                    channel_name,
+                    band_name,
+                )
 
             # Adjusted absolute canonical power ==================================
             if feature_categories["Adjusted_Canonical_Absolute_Power"]:
-                feature_arr = abs_canonical_power(psd=flattened_psd, freqs=freqs, fmin=fmin, fmax=fmax)
-                feature_container = add_feature(feature_container, feature_arr, "Adjusted_Canonical_Absolute_Power", channel_name, band_name)
+                feature_arr = abs_canonical_power(
+                    psd=flattened_psd, freqs=freqs, fmin=fmin, fmax=fmax
+                )
+                feature_container = add_feature(
+                    feature_container,
+                    feature_arr,
+                    "Adjusted_Canonical_Absolute_Power",
+                    channel_name,
+                    band_name,
+                )
 
             # Adjusted relative canonical power ==================================
             if feature_categories["Adjusted_Canonical_Relative_Power"]:
-                feature_arr = rel_canonical_power(psd=flattened_psd, freqs=freqs, fmin=fmin, fmax=fmax)
-                feature_container = add_feature(feature_container, feature_arr, "Adjusted_Canonical_Relative_Power", channel_name, band_name)
+                feature_arr = rel_canonical_power(
+                    psd=flattened_psd, freqs=freqs, fmin=fmin, fmax=fmax
+                )
+                feature_container = add_feature(
+                    feature_container,
+                    feature_arr,
+                    "Adjusted_Canonical_Relative_Power",
+                    channel_name,
+                    band_name,
+                )
 
             # OriginalPSD absolute canonical power ==================================
             if feature_categories["OriginalPSD_Canonical_Absolute_Power"]:
-                feature_arr = abs_canonical_power(psd=original_psd, freqs=freqs, fmin=fmin, fmax=fmax)
-                feature_container = add_feature(feature_container, feature_arr, "OriginalPSD_Canonical_Absolute_Power", channel_name, band_name)
-                
+                feature_arr = abs_canonical_power(
+                    psd=original_psd, freqs=freqs, fmin=fmin, fmax=fmax
+                )
+                feature_container = add_feature(
+                    feature_container,
+                    feature_arr,
+                    "OriginalPSD_Canonical_Absolute_Power",
+                    channel_name,
+                    band_name,
+                )
+
             # OriginalPSD relative canonical power ==================================
             if feature_categories["OriginalPSD_Canonical_Relative_Power"]:
-                feature_arr = rel_canonical_power(psd=original_psd, freqs=freqs, fmin=fmin, fmax=fmax)
-                feature_container = add_feature(feature_container, feature_arr, "OriginalPSD_Canonical_Relative_Power", channel_name, band_name)
+                feature_arr = rel_canonical_power(
+                    psd=original_psd, freqs=freqs, fmin=fmin, fmax=fmax
+                )
+                feature_container = add_feature(
+                    feature_container,
+                    feature_arr,
+                    "OriginalPSD_Canonical_Relative_Power",
+                    channel_name,
+                    band_name,
+                )
 
             if band_name != "Broadband" and band_peaks:
 
                 # Adjusted absolute Relative power ==================================
                 if feature_categories["Adjusted_Individualized_Absolute_Power"]:
-                    feature_arr = abs_individual_power(psd=flattened_psd, freqs=freqs, band_peaks=band_peaks, 
-                                individualized_band_ranges=individualized_band_ranges, band_name=band_name)  
-                    feature_container = add_feature(feature_container, feature_arr, "Adjusted_Individualized_Absolute_Power", channel_name, band_name)
+                    feature_arr = abs_individual_power(
+                        psd=flattened_psd,
+                        freqs=freqs,
+                        band_peaks=band_peaks,
+                        individualized_band_ranges=individualized_band_ranges,
+                        band_name=band_name,
+                    )
+                    feature_container = add_feature(
+                        feature_container,
+                        feature_arr,
+                        "Adjusted_Individualized_Absolute_Power",
+                        channel_name,
+                        band_name,
+                    )
 
                 # Adjusted relative Relative power ==================================
                 if feature_categories["Adjusted_Individualized_Relative_Power"]:
-                    feature_arr = rel_individual_power(psd=flattened_psd, freqs=freqs, band_peaks=band_peaks, 
-                                individualized_band_ranges=individualized_band_ranges, band_name=band_name)  
-                    feature_container = add_feature(feature_container, feature_arr, "Adjusted_Individualized_Relative_Power", channel_name, band_name)
-                
+                    feature_arr = rel_individual_power(
+                        psd=flattened_psd,
+                        freqs=freqs,
+                        band_peaks=band_peaks,
+                        individualized_band_ranges=individualized_band_ranges,
+                        band_name=band_name,
+                    )
+                    feature_container = add_feature(
+                        feature_container,
+                        feature_arr,
+                        "Adjusted_Individualized_Relative_Power",
+                        channel_name,
+                        band_name,
+                    )
+
                 # OriginalPSD absolute Relative power ==================================
                 if feature_categories["OriginalPSD_Individualized_Absolute_Power"]:
-                    feature_arr = abs_individual_power(psd=original_psd, freqs=freqs, band_peaks=band_peaks, 
-                                individualized_band_ranges=individualized_band_ranges, band_name=band_name)    
-                    feature_container = add_feature(feature_container, feature_arr, "OriginalPSD_Individualized_Absolute_Power", channel_name, band_name)
-     
+                    feature_arr = abs_individual_power(
+                        psd=original_psd,
+                        freqs=freqs,
+                        band_peaks=band_peaks,
+                        individualized_band_ranges=individualized_band_ranges,
+                        band_name=band_name,
+                    )
+                    feature_container = add_feature(
+                        feature_container,
+                        feature_arr,
+                        "OriginalPSD_Individualized_Absolute_Power",
+                        channel_name,
+                        band_name,
+                    )
+
                 # OriginalPSD relative Relative power ==================================
                 if feature_categories["OriginalPSD_Individualized_Relative_Power"]:
-                    feature_arr = rel_individual_power(psd=original_psd, freqs=freqs, band_peaks=band_peaks, 
-                                individualized_band_ranges=individualized_band_ranges, band_name=band_name)
-                    feature_container = add_feature(feature_container, feature_arr, "OriginalPSD_Individualized_Relative_Power", channel_name, band_name)
+                    feature_arr = rel_individual_power(
+                        psd=original_psd,
+                        freqs=freqs,
+                        band_peaks=band_peaks,
+                        individualized_band_ranges=individualized_band_ranges,
+                        band_name=band_name,
+                    )
+                    feature_container = add_feature(
+                        feature_container,
+                        feature_arr,
+                        "OriginalPSD_Individualized_Relative_Power",
+                        channel_name,
+                        band_name,
+                    )
 
-    # # feature summarization ================================================================ 
+    # # feature summarization ================================================================
     if which_layout:
-        feature_container = summarizeFeatures(df=feature_container, extention=extention,
-                                            which_layout=which_layout, which_sensor=which_sensor)
+        feature_container = summarizeFeatures(
+            df=feature_container,
+            extention=extention,
+            which_layout=which_layout,
+            which_sensor=which_sensor,
+        )
 
     # Flatten the DataFrame and create neww column names
-    final_df = pd.DataFrame(feature_container.values.flatten()).T 
-    final_df.columns = [f"{index}_{col}" for index in feature_container.index for col in feature_container.columns]
+    final_df = pd.DataFrame(feature_container.values.flatten()).T
+    final_df.columns = [
+        f"{index}_{col}"
+        for index in feature_container.index
+        for col in feature_container.columns
+    ]
 
     final_df.index = [subjectId]
-    
+
     return final_df
-    
-
-
-
-
 
 
 if __name__ == "__main__":
 
-
-
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("dir", type=str,
-            help="data directory (pickle format)")
-    parser.add_argument("savePath", type=str,
-            help="where to save data")
-	# optional arguments
-    parser.add_argument("--configs", type=str, default=None,
-        help="Address of configs json file")
-    
+    parser.add_argument("dir", type=str, help="data directory (pickle format)")
+    parser.add_argument("savePath", type=str, help="where to save data")
+    # optional arguments
+    parser.add_argument(
+        "--configs", type=str, default=None, help="Address of configs json file"
+    )
+
     args = parser.parse_args()
-
-
-
 
     with open(args.dir, "rb") as fooofFile:
         counter = 0
         while True:
-            try: pickle.load(fooofFile) ; counter += 1
-            except: break
+            try:
+                pickle.load(fooofFile)
+                counter += 1
+            except:
+                break
 
     # Loading configs
     if args.configs is not None:
-        with open(args.configs, 'r') as f:
+        with open(args.configs, "r") as f:
             configs = json.load(f)
-    else: configs = make_config()
-        
-    
-
+    else:
+        configs = make_config()
 
     with open(args.dir, "rb") as fooofFile:
-    
+
         for j in tqdm.tqdm(range(counter)):
-            
-            subjectId, (fmGroup, psds, freqs) = next(iter(pickle.load(fooofFile).items()))
 
+            subjectId, (fmGroup, psds, freqs) = next(
+                iter(pickle.load(fooofFile).items())
+            )
 
-            features = featureExtract(subjectId=subjectId,
-                                    fmGroup=fmGroup,
-                                    psds=psds,
-                                    freqs=freqs,
-                                    freq_bands=configs["freq_bands"],
-                                    channelNames=configs['ch_names'],
-                                    bandSubRanges=configs["bandSubRanges"],
-                                    featureCategories=configs["featureCategories"])  
+            features = featureExtract(
+                subjectId=subjectId,
+                fmGroup=fmGroup,
+                psds=psds,
+                freqs=freqs,
+                freq_bands=configs["freq_bands"],
+                channelNames=configs["ch_names"],
+                bandSubRanges=configs["bandSubRanges"],
+                featureCategories=configs["featureCategories"],
+            )
 
-            features.to_csv(f"{subjectId}.csv")          
-            
-    
-    
-
-    
-
+            features.to_csv(f"{subjectId}.csv")

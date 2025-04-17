@@ -8,7 +8,8 @@ import numpy as np
 import argparse
 from glob import glob
 import warnings
-warnings.filterwarnings('ignore')
+
+warnings.filterwarnings("ignore")
 from mne.preprocessing import find_bad_channels_maxwell
 
 
@@ -137,11 +138,10 @@ def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000,
                                 random_state=42,
                                 verbose=False)
     ica.fit(data, verbose=False, picks=["eeg", "meg"])
-    
-    ecg_indices, _ = ica.find_bads_ecg(data, 
-                                       method="correlation", 
-                                       threshold=auto_ica_corr_thr,
-                                       measure='correlation')
+
+    ecg_indices, _ = ica.find_bads_ecg(
+        data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
+    )
 
     ica.exclude = ecg_indices
     ica.apply(data, verbose=False)
@@ -149,27 +149,41 @@ def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000,
     return data
 
 
-def AutoIca_with_IcaLabel(data, physiological_noise_type, n_components=30, ica_max_iter=1000, IcaMethod="infomax", iclabel_thr=0.8):
+def AutoIca_with_IcaLabel(
+    data,
+    physiological_noise_type,
+    n_components=30,
+    ica_max_iter=1000,
+    IcaMethod="infomax",
+    iclabel_thr=0.8,
+):
 
-    if physiological_noise_type == "ecg": physiological_noise_type = "heart beat"
-    if physiological_noise_type == "eog": physiological_noise_type = "eye blink"
+    if physiological_noise_type == "ecg":
+        physiological_noise_type = "heart beat"
+    if physiological_noise_type == "eog":
+        physiological_noise_type = "eye blink"
 
-    #fit ICA
-    ica = mne.preprocessing.ICA(n_components=n_components, 
-                                max_iter=ica_max_iter, 
-                                method=IcaMethod, 
-                                random_state=42, 
-                                fit_params=dict(extended=True),
-                                verbose=False) #fit_params=dict(extended=True) bc icalabel is trained with this
+    # fit ICA
+    ica = mne.preprocessing.ICA(
+        n_components=n_components,
+        max_iter=ica_max_iter,
+        method=IcaMethod,
+        random_state=42,
+        fit_params=dict(extended=True),
+        verbose=False,
+    )  # fit_params=dict(extended=True) bc icalabel is trained with this
     ica.fit(data, verbose=False, picks=["eeg"])
 
-    #apply ICLabel
-    labels = label_components(data, ica, method='iclabel')
+    # apply ICLabel
+    labels = label_components(data, ica, method="iclabel")
 
-    #Identify and exclude artifact components based on probability threshold of being an artifact
+    # Identify and exclude artifact components based on probability threshold of being an artifact
     bad_components = []
-    for idx, label in enumerate(labels['labels']):
-        if label==physiological_noise_type and labels['y_pred_proba'][idx] > iclabel_thr:
+    for idx, label in enumerate(labels["labels"]):
+        if (
+            label == physiological_noise_type
+            and labels["y_pred_proba"][idx] > iclabel_thr
+        ):
             bad_components.append(idx)
 
     print("Bad Components identified by ICALabel:", bad_components)
@@ -177,7 +191,7 @@ def AutoIca_with_IcaLabel(data, physiological_noise_type, n_components=30, ica_m
     ica.apply(data, verbose=False)
 
     return data
-     
+
 
 def segment_epoch(data, tmin, tmax, sampling_rate, segmentsLength, overlap):
     """
@@ -212,9 +226,17 @@ def segment_epoch(data, tmin, tmax, sampling_rate, segmentsLength, overlap):
     return segments
 
 
-def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold, mag_flat_threshold, 
-              grad_flat_threshold, eeg_flat_threshold, which_sensor):
-     
+def drop_bads(
+    segments,
+    mag_var_threshold,
+    grad_var_threshold,
+    eeg_var_threshold,
+    mag_flat_threshold,
+    grad_flat_threshold,
+    eeg_flat_threshold,
+    which_sensor,
+):
+
     if which_sensor["meg"]:
         reject_criteria = dict(mag=mag_var_threshold, grad=grad_var_threshold)
         flat_criteria = dict(mag=mag_flat_threshold, grad=grad_flat_threshold)
@@ -231,8 +253,10 @@ def drop_bads(segments, mag_var_threshold, grad_var_threshold, eeg_var_threshold
         reject_criteria = dict(eeg=eeg_var_threshold)
         flat_criteria = dict(eeg=eeg_flat_threshold)
 
-    segments.drop_bad(reject=reject_criteria, flat=flat_criteria) ##CHANGE!!! but figure out var threshold
-        
+    segments.drop_bad(
+        reject=reject_criteria, flat=flat_criteria
+    )  ##CHANGE!!! but figure out var threshold
+
     return segments
 
 
@@ -269,11 +293,19 @@ def preprocess(data, which_sensor: dict, resampling_rate=None, digital_filter=Tr
 
 
     # since pick_channels can not seperate mag and grad signals
-    if not (which_sensor['meg'] or which_sensor['eeg']):
-        if not which_sensor['mag']:
-            mag_channels = [ch for ch, ch_type in zip(data.ch_names, data.get_channel_types()) if ch_type == 'mag']
-        elif not which_sensor['grad']:
-            mag_channels = [ch for ch, ch_type in zip(data.ch_names, data.get_channel_types()) if ch_type == 'grad']
+    if not (which_sensor["meg"] or which_sensor["eeg"]):
+        if not which_sensor["mag"]:
+            mag_channels = [
+                ch
+                for ch, ch_type in zip(data.ch_names, data.get_channel_types())
+                if ch_type == "mag"
+            ]
+        elif not which_sensor["grad"]:
+            mag_channels = [
+                ch
+                for ch, ch_type in zip(data.ch_names, data.get_channel_types())
+                if ch_type == "grad"
+            ]
         data.drop_channels(mag_channels)
 
     channel_types = set(data.get_channel_types())
@@ -285,106 +317,124 @@ def preprocess(data, which_sensor: dict, resampling_rate=None, digital_filter=Tr
         data.resample(resampling_rate, verbose=False, n_jobs=-1)
         sampling_rate = data.info["sfreq"]
 
-    data.notch_filter(freqs=np.arange(power_line_freq, 4*power_line_freq+1, power_line_freq),
-                    n_jobs=-1)
-    
-    if digital_filter:
-        data.filter(l_freq=cutoffFreqLow, 
-                    h_freq=cutoffFreqHigh, 
-                    n_jobs=-1, 
-                    verbose=False)
+    data.notch_filter(
+        freqs=np.arange(power_line_freq, 4 * power_line_freq + 1, power_line_freq),
+        n_jobs=-1,
+    )
 
-    #rereference
-    if which_sensor['eeg'] and rereference_method:
+    if digital_filter:
+        data.filter(
+            l_freq=cutoffFreqLow, h_freq=cutoffFreqHigh, n_jobs=-1, verbose=False
+        )
+
+    # rereference
+    if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
 
-    ICA_flag = True #initialize flag
+    ICA_flag = True  # initialize flag
 
-    physiological_electrods = {channel: channel in channel_types for channel in ["ecg", "eog"]}
+    physiological_electrods = {
+        channel: channel in channel_types for channel in ["ecg", "eog"]
+    }
 
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
 
-        if which_sensor['meg']: # ======================================================================
+        if which_sensor[
+            "meg"
+        ]:  # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data, _ = auto_ica(data=data, 
-                            n_components=n_component, 
-                            ica_max_iter=ica_max_iter,
-                            IcaMethod = IcaMethod,
-                            which_sensor=which_sensor,
-                            physiological_sensor=phys_activity_type,
-                            auto_ica_corr_thr=auto_ica_corr_thr)
+                data, _ = auto_ica(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    physiological_sensor=phys_activity_type,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
             # 2
-            elif not if_elec_exist and apply_ica and phys_activity_type=="ecg":
-                data = auto_ica_with_mean(data=data, 
-                                    n_components=n_component, 
-                                    ica_max_iter=ica_max_iter,
-                                    IcaMethod = IcaMethod,
-                                    which_sensor=which_sensor,
-                                    auto_ica_corr_thr=auto_ica_corr_thr)
+            elif not if_elec_exist and apply_ica and phys_activity_type == "ecg":
+                data = auto_ica_with_mean(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
 
-        if which_sensor['eeg']: # ======================================================================
+        if which_sensor[
+            "eeg"
+        ]:  # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data, ICA_flag = auto_ica(data=data, 
-                            n_components=n_component, 
-                            ica_max_iter=ica_max_iter,
-                            IcaMethod = IcaMethod,
-                            which_sensor=which_sensor,
-                            physiological_sensor=phys_activity_type,
-                            auto_ica_corr_thr=auto_ica_corr_thr)
+                data, ICA_flag = auto_ica(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    physiological_sensor=phys_activity_type,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
             # 2
-            elif not if_elec_exist and apply_ica and ICA_flag: 
-                data = AutoIca_with_IcaLabel(data = data, 
-                                        n_components=n_component, 
-                                        ica_max_iter=ica_max_iter, 
-                                        IcaMethod=IcaMethod,
-                                        iclabel_thr=auto_ica_corr_thr,
-                                        physiological_noise_type=phys_activity_type) 
+            elif not if_elec_exist and apply_ica and ICA_flag:
+                data = AutoIca_with_IcaLabel(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    iclabel_thr=auto_ica_corr_thr,
+                    physiological_noise_type=phys_activity_type,
+                )
 
-    data = data.pick_types(meg = which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"], 
-                            eeg = which_sensor["eeg"],
-                            ref_meg = False,
-                            eog = False,
-                            ecg = False)
-    
+    data = data.pick_types(
+        meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
+        eeg=which_sensor["eeg"],
+        ref_meg=False,
+        eog=False,
+        ecg=False,
+    )
+
     return data, data.info["ch_names"], int(sampling_rate)
 
-    
-    
+
 if __name__ == "__main__":
-   
-	parser = argparse.ArgumentParser()
-	# positional Arguments (remove --)
-	parser.add_argument("dir", 
-				help="Address to your data")
-	parser.add_argument("saveDir",
-				help="Address to where save the result")
-	# optional arguments
-	parser.add_argument("--configs", type=str, default=None,
-		help="Address of configs json file")
 
-	args = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    # positional Arguments (remove --)
+    parser.add_argument("dir", help="Address to your data")
+    parser.add_argument("saveDir", help="Address to where save the result")
+    # optional arguments
+    parser.add_argument(
+        "--configs", type=str, default=None, help="Address of configs json file"
+    )
 
-	# Loading configs
-	if args.configs is not None:
-		with open(args.configs, 'r') as f:
-			configs = json.load(f)
-	else: configs = make_config()
+    args = parser.parse_args()
 
-	dataPaths = glob(args.dir)
-	# loop over all of data 
-	for count, subjectPath in enumerate(tqdm.tqdm(dataPaths[:])):
+    # Loading configs
+    if args.configs is not None:
+        with open(args.configs, "r") as f:
+            configs = json.load(f)
+    else:
+        configs = make_config()
 
-		subID = subjectPath.split("/")[-1] 
+    dataPaths = glob(args.dir)
+    # loop over all of data
+    for count, subjectPath in enumerate(tqdm.tqdm(dataPaths[:])):
 
-		filteredData = preprocess(subjectPath=subjectPath,
-								fs=configs["fs"],
-								n_component=configs["n_component"],
-								maxIter=configs["maxIter"],
-								IcaMethod=configs["IcaMethod"],
-								cutoffFreqLow=configs["cutoffFreqLow"],
-								cutoffFreqHigh=configs["cutoffFreqHigh"],
-								sensorType=configs["sensorType"])
-		
-		filteredData.save(f'{args.saveDir}/{subID}.fif', overwrite=True)
+        subID = subjectPath.split("/")[-1]
+
+        filteredData = preprocess(
+            subjectPath=subjectPath,
+            fs=configs["fs"],
+            n_component=configs["n_component"],
+            maxIter=configs["maxIter"],
+            IcaMethod=configs["IcaMethod"],
+            cutoffFreqLow=configs["cutoffFreqLow"],
+            cutoffFreqHigh=configs["cutoffFreqHigh"],
+            sensorType=configs["sensorType"],
+        )
+
+        filteredData.save(f"{args.saveDir}/{subID}.fif", overwrite=True)

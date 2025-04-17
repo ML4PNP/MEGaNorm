@@ -333,6 +333,7 @@ def read_raw_eeglab(
         verbose=verbose,
     )
 
+
 @fill_doc
 class RawEEGLAB(BaseRaw):
     r"""Raw object from EEGLAB .set file.
@@ -375,7 +376,7 @@ class RawEEGLAB(BaseRaw):
     ):
         input_fname = str(_check_fname(input_fname, "read", True, "input_fname"))
         eeg = _check_load_mat(input_fname, uint16_codec)
-        
+
         last_samps = [eeg.pnts - 1]
         info, eeg_montage, _ = _get_info(eeg, eog=eog, montage_units=montage_units)
 
@@ -418,15 +419,15 @@ class RawEEGLAB(BaseRaw):
             )
 
         # create event_ch from annotations
-        #annot = read_annotations(input_fname, uint16_codec=uint16_codec)
-        #self.set_annotations(annot)
-        #_check_boundary(annot, None)
+        # annot = read_annotations(input_fname, uint16_codec=uint16_codec)
+        # self.set_annotations(annot)
+        # _check_boundary(annot, None)
 
         _set_dig_montage_in_init(self, eeg_montage)
 
-        #latencies = np.round(annot.onset * self.info["sfreq"])
-        #_check_latencies(latencies)
-        
+        # latencies = np.round(annot.onset * self.info["sfreq"])
+        # _check_latencies(latencies)
+
 
 def _check_boundary(annot, event_id):
     if event_id is None:
@@ -454,15 +455,16 @@ def _check_latencies(latencies):
             "the very beginning of your EEGLAB file can be safely dropped "
             "(e.g., because they are boundary events)."
         )
-        
+
+
 def _dol_to_lod(dol):
     """Convert a dict of lists to a list of dicts."""
     return [
         {key: dol[key][ii] for key in dol.keys()}
         for ii in range(len(dol[list(dol.keys())[0]]))
     ]
-    
-    
+
+
 def _todict_from_np_struct(data):  # taken from pymatreader.utils
     data_dict = {}
 
@@ -484,6 +486,7 @@ def _todict_from_np_struct(data):  # taken from pymatreader.utils
 
     return data_dict
 
+
 def _handle_scipy_ndarray(data):  # taken from pymatreader.utils
     if data.dtype == np.dtype("object") and not isinstance(data, MatlabFunction):
         as_list = []
@@ -498,6 +501,7 @@ def _handle_scipy_ndarray(data):  # taken from pymatreader.utils
         data = np.array(data)
 
     return data
+
 
 def _check_for_scipy_mat_struct(data):  # taken from pymatreader.utils
     """Convert all scipy.io.matlab.mio5_params.mat_struct elements."""
@@ -517,6 +521,7 @@ def _check_for_scipy_mat_struct(data):  # taken from pymatreader.utils
 
     return data
 
+
 def _readmat(fname, uint16_codec=None):
     try:
         read_mat = _import_pymatreader_funcs("EEGLAB I/O")
@@ -525,7 +530,8 @@ def _readmat(fname, uint16_codec=None):
         return _check_for_scipy_mat_struct(eeg)
     else:
         return read_mat(fname, uint16_codec=uint16_codec)
-    
+
+
 def _check_load_mat(fname, uint16_codec=None):
     """Check if the mat struct contains 'EEG'."""
     eeg = _readmat(fname, uint16_codec=uint16_codec)

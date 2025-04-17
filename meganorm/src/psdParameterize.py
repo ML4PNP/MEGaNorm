@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -10,7 +9,8 @@ import fooof as f
 from meganorm.utils.IO import make_config, storeFooofModels
 
 import warnings
-warnings.filterwarnings('ignore')
+
+warnings.filterwarnings("ignore")
 
 
 def computePsd(segments, freqRangeLow=3, freqRangeHigh=40, sampling_rate=1000, psdMethod="welch", 
@@ -119,15 +119,17 @@ def psdParameterize(segments, freqRangeLow=3, freqRangeHigh=40, min_peak_height=
                             psd_n_fft=psd_n_fft,
                             n_per_seg=n_per_seg)
 
-    # parametrizing neural spectrum        
-    fooofModels, psds, freqs = parameterizePsd(psds=psds, 
-                                            freqs=freqs, 
-                                            freqRangeLow=freqRangeLow, 
-                                            freqRangeHigh=freqRangeHigh, 
-                                            min_peak_height=min_peak_height,
-                                            peak_threshold=peak_threshold,
-                                            peak_width_limits=peak_width_limits,
-                                            aperiodic_mode=aperiodic_mode)
+    # parametrizing neural spectrum
+    fooofModels, psds, freqs = parameterizePsd(
+        psds=psds,
+        freqs=freqs,
+        freqRangeLow=freqRangeLow,
+        freqRangeHigh=freqRangeHigh,
+        min_peak_height=min_peak_height,
+        peak_threshold=peak_threshold,
+        peak_width_limits=peak_width_limits,
+        aperiodic_mode=aperiodic_mode,
+    )
 
     return fooofModels, psds, freqs
         
@@ -139,13 +141,14 @@ if __name__ == "__main__":
     parser.add_argument("dir", help="Address to your data")
     parser.add_argument("saveDir", help="Address to save your data")
     # optional arguments
-    parser.add_argument("--configs", type=str, default=None,
-        help="Address of configs json file")
+    parser.add_argument(
+        "--configs", type=str, default=None, help="Address of configs json file"
+    )
     args = parser.parse_args()
 
     # Loading configs
     if args.configs is not None:
-        with open(args.configs, 'r') as f:
+        with open(args.configs, "r") as f:
             configs = json.load(f)
     else: configs = make_config()
 
@@ -153,7 +156,7 @@ if __name__ == "__main__":
 
     for count, subjPath in enumerate(tqdm(dataPaths[:])):
 
-        subjId = subjPath.split("/")[-1][:-4] 
+        subjId = subjPath.split("/")[-1][:-4]
 
         # read the data
         data = mne.io.read_raw_fif(subjPath,
@@ -178,23 +181,4 @@ if __name__ == "__main__":
                                         peak_width_limits = configs["peak_width_limits"])
 
         # save the results
-        storeFooofModels(configs["savePath"], 
-                        subjId, 
-                        fooofModels,
-                        psds,
-                        freqs)
-
-     
-
-
-
-
-
-
-
-
-
-
-
-
-
+        storeFooofModels(configs["savePath"], subjId, fooofModels, psds, freqs)
