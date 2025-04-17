@@ -1,7 +1,6 @@
 import os
 import glob
 from pathlib import Path
-import scipy
 import mne
 import mne_bids
 import pandas as pd
