@@ -7,6 +7,7 @@ import pickle
 import argparse
 import pandas as pd
 import fooof as f
+from typing import Dict, List
 from typing import Union
 # from layouts import load_specific_layout
 from meganorm.utils.IO import make_config
@@ -53,7 +54,7 @@ def exponent(fm:f.FOOOF, aperiodic_mode:str) -> float:
     Returns
     -------
     float
-        (float): The exponent value corresponding to the specified mode ('knee' or 'fixed')
+        The exponent value corresponding to the specified mode ('knee' or 'fixed')
 
     Raises
     ------
@@ -72,17 +73,23 @@ def exponent(fm:f.FOOOF, aperiodic_mode:str) -> float:
 
 def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, float]) -> list:
     """
-    Find peaks in a specified frequency band from the peak parameters of a FOOOF model.
+    Find peaks in a specified frequency band (determined by fmin and fmax) from the peak parameters of a FOOOF model.
 
-    Args
-        fm (f.FOOOF): A FOOOF model object that contains peak parameters.
-        fmin (int or float): The minimum frequency of the band.
-        fmax (int or float): The maximum frequency of the band.
+    Parameters
+    ----------
+    fm : f.FOOOF
+        A FOOOF model object that contains peak parameters.
+    fmin : Union[int, float]
+        The minimum frequency of the band.
+    fmax : Union[int, float]
+        The maximum frequency of the band.
 
     Returns
-        list: A list of peaks that lie within the specified frequency band. Each peak is represented as a tuple.
+    -------
+    list  
+        A list of tuples where each tuple represents a peak. In the tuples, the first element is the 
+        frequency of the corresponding peak, the second element is the peak value (power), and the third element is the width of the peak.
     """
-
     peaks = fm.get_params('peak_params')
     
     # filter peaks: check for NaNs and then within thee frequency band
@@ -96,14 +103,18 @@ def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, flo
 
 def peak_center(band_peaks:list):
     """
-    Returns the frequency of the dominant peak from a list of band peaks.
+    Returns the frequency of the center of a dominant peak.
 
-    Args
-        band_peaks (list): A list of tuples where each tuple represents a peak.
-                                     The first element is the frequency and the second element is the peak value.
-
+    Parameters
+    ----------
+    band_peaks : list
+        A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
+        function. In the tuples, the first element is the frequency, the second element is the peak value, 
+        and the third element is the width of the dominant peak.
     Returns
-        float: The frequency of the dominant peak, or np.nan if the list is empty.
+    -------
+    float
+        The frequency of the dominant peak, or np.nan if the list is empty.
     """
     if not band_peaks:
         return np.nan
@@ -117,15 +128,19 @@ def peak_center(band_peaks:list):
 
 def peak_power(band_peaks:list):
     """
-    Returns the power of the dominant peak from a list of band peaks.
+    Returns the power of the center of a dominant peak from a list of peaks.
 
-    Args
-        band_peaks (list of tuples): A list of tuples where each tuple represents a peak.
-                                     The first element is the frequency and the second element is the peak value
-                                     (e.g., power, amplitude, or another relevant measure).
+    Parameters
+    ----------
+    band_peaks : list
+        A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
+        function. In the tuples, the first element is the frequency, the second element is the peak value, 
+        and the third element is the width of the dominant peak.
 
     Returns
-        float: The power of the dominant peak, or np.nan if the list is empty.
+    -------
+    float
+        The power of the dominant peak, or np.nan if the list is empty.
     """
     if not band_peaks:
         return np.nan
@@ -136,14 +151,18 @@ def peak_power(band_peaks:list):
 
 def peak_width(band_peaks:list):
     """
-    Returns the width of the dominant peak from a list of band peaks.
+    Returns the width of the dominant peak from a list of peaks.
 
-    Args
-        band_peaks (list of tuples): A list of tuples where each tuple represents a peak.
-                                     The elements are (frequency, power, width).
+    Parameters
+    ----------
+    band_peaks : A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
+                function. In the tuples, the first element is the frequency, the second 
+                element is the peak value, and the third element is the width of the dominant peak.
 
     Returns
-        float: The width of the dominant peak, or np.nan if the list is empty.
+    -------
+    float
+        The width of the dominant peak, or np.nan if the list is empty.
     """
     if not band_peaks:
         return np.nan
@@ -156,12 +175,17 @@ def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
     """
     Isolates the periodic component of the power spectrum by subtracting the aperiodic fit.
 
-    Args
-        fm (f.FOOOF): A FOOOF model object that contains the aperiodic fit.
-        psd (np.ndarray): A 1D array of the original power spectrum in linear scale.
+    Parameters
+    ----------
+    fm : f.FOOOF
+        An already fitted FOOOF model object.
+    psd : np.ndarray
+        Original power spectrum in linear scale.
 
     Returns
-        np.ndarray: A 1D array of the peridic component of the power spectrum.
+    -------
+    np.ndarray
+        A 1D array of the peridic component of the power spectrum.
     """
     return psd - 10**fm._ap_fit
 
@@ -169,17 +193,30 @@ def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
 def abs_canonical_power(psd: np.ndarray, freqs: np.ndarray, 
                     fmin: Union[int, float], fmax : Union[int, float]) -> float:
     """
-    Calculates absolute canonical band power from a power spectrum.
+    Calculates absolute canonical power of a frequency band from a power spectrum density.
 
-    Args
-        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
-        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
-        fmin (int or float): Lower bound of the frequency band.
-        fmax (int or float): Upper bound of the frequency band.
+    Parameters
+    ----------
+    psd : np.ndarray
+        Power spectral density values (in linear scale).
+    freqs : np.ndarray
+        A 1D array of frequency values that were used to compute the PSD.
+    fmin : Union[int, float]
+        Lower bound of the frequency band
+    fmax : Union[int, float]
+        Upper bound of the frequency band.
 
     Returns
-        float: Log-transformed absolute power in the specified frequency band.
+    -------
+    float
+        Log-transformed absolute power in the specified frequency band.
+
+    Notes
+    -------
+    'psd' can be both original PSD or periodic PSD.
     """
+
+
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
     band_power = np.trapz(psd[band_indices], freqs[band_indices])
     
@@ -189,17 +226,29 @@ def abs_canonical_power(psd: np.ndarray, freqs: np.ndarray,
 def rel_canonical_power(psd: np.ndarray, freqs: np.ndarray,
                         fmin: Union[int, float], fmax: Union[int, float]) -> float:
     """
-    Calculates relative canonical band power from a power spectrum.
+    Calculates relative canonical power of a frequency band from a power spectrum density.
 
-    Args
-        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
-        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
-        fmin (int or float): Lower bound of the frequency band.
-        fmax (int or float): Upper bound of the frequency band.
+    Parameters
+    ----------
+    psd : np.ndarray
+        Power spectral density values (in linear scale).
+    freqs : np.ndarray
+        A 1D array of frequency values that were used to compute the PSD.
+    fmin : Union[int, float]
+        Lower bound of the frequency band.
+    fmax : Union[int, float]
+        Upper bound of the frequency band.
 
     Returns
-        float: Relative power in the specified frequency band. Returns np.nan if total power is zero.
+    -------
+    float
+        Relative power in the specified frequency band. Returns np.nan if total power is zero.
+
+    Notes
+    -------
+    'psd' can be both original PSD or periodic PSD.
     """
+
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
     band_power = np.trapz(psd[band_indices], freqs[band_indices])
     total_power = np.trapz(psd, freqs)
@@ -211,19 +260,31 @@ def rel_canonical_power(psd: np.ndarray, freqs: np.ndarray,
 
 
 def abs_individual_power(psd, freqs, band_peaks, individualized_band_ranges, band_name):
-    """
-    Calculates absolute power in an individualized frequency band centered around the dominant peak.
+    """Calculates absolute power in an individualized frequency band centered around the dominant peak.
 
-    Args:
-        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
-        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
-        band_peaks (list of tuples): List of peak tuples (frequency, power, width).
-        individualized_band_ranges (dict): Dictionary mapping band names to (lower_offset, upper_offset) in Hz.
-        band_name (str): Name of the frequency band to compute power for.
+    Parameters
+    ----------
+    psd : np.ndarray
+        Power spectral density values (in linear scale).
+    freqs : np.ndarray
+        A 1D array of frequency values that were used to compute the PSD.
+    band_peaks : list
+        List of peak tuples (frequency, power, width).
+    individualized_band_ranges : dict
+        Dictionary mapping band names to (lower_offset, upper_offset) in Hz.
+    band_name : str
+         Name of the frequency band to compute power for.
 
-    Returns:
-        float: Log-transformed absolute power in the individualized frequency band. Returns np.nan if no peaks are found.
+    Returns
+    -------
+    float
+        Log-transformed absolute power in the individualized frequency band. Returns np.nan if no peaks are found.
+
+    Notes
+    -------
+    'psd' can be both original PSD or periodic PSD.
     """
+
     if not band_peaks or band_name not in individualized_band_ranges:
         return np.nan
 
@@ -244,16 +305,29 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     """
     Calculates relative power in an individualized frequency band centered around the dominant peak.
 
-    Args:
-        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
-        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
-        band_peaks (list of tuples): List of peak tuples (frequency, power, width).
-        individualized_band_ranges (dict): Dictionary mapping band names to (lower_offset, upper_offset) in Hz.
-        band_name (str): Name of the frequency band to compute power for.
+    Parameters
+    ----------
+    psd : np.ndarray
+        Power spectral density values (in linear scale).
+    freqs : list
+        List of peak tuples (frequency, power, width)
+    band_peaks : list
+        List of peak tuples (frequency, power, width)
+    individualized_band_ranges : dict
+        Dictionary mapping band names to (lower_offset, upper_offset) in Hz.
+    band_name : str
+        Name of the frequency band to compute power for.
 
-    Returns:
-        float: Relative power in the individualized frequency band. Returns np.nan if total power is zero or input is invalid.
+    Returns
+    -------
+    float
+        Relative power in the individualized frequency band. Returns np.nan if total power is zero or input is invalid.
+
+    Notes
+    -------
+    'psd' can be both original PSD or periodic PSD.
     """
+
     if not band_peaks or band_name not in individualized_band_ranges:
         return np.nan
 
@@ -277,16 +351,41 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
 
 def summarizeFeatures(df, extention, which_layout, which_sensor):
     """
-    Averages features across channels according to the specified sensor layout.
+    Summarizes a feature DataFrame by averaging channels based on a specified sensor layout.
 
-    Args:
-        df (pd.DataFrame): A DataFrame where each column is a channel and each row is a sample.
-        extension (str): Dataset or subject-specific prefix to construct layout names.
-        which_layout (str): Name of the sensor layout to summarize ('all' for global average).
-        which_sensor (dict): Dictionary indicating sensor modality to use (e.g., {'meg': True, 'eeg': False}).
+    This function computes the mean of selected channels (e.g., MEG, EEG) across predefined regions or 
+    parcels, as specified in a sensor layout dictionary. It returns a new DataFrame where each column 
+    represents the average signal for a region or for the whole brain, depending on the layout.
 
-    Returns:
-        pd.DataFrame: A new DataFrame with features averaged by layout or parcel.
+    Example layout for regional parcellation:
+        "FIF_MEG_LOBE": {
+            "MAG_frontal_left": ["MEG0121", "MEG0341", "MEG0311", "MEG0321", ...],
+            "MAG_frontal_right": ["MEG1411", "MEG1221", "MEG1211", "MEG1231", ...]
+        }
+
+    Example layout for whole-brain averaging:
+        "FIF_MAG_ALL": {
+            "MAG_ALL": ["MEG0121", "MEG0341", "MEG0311", ...]
+        }
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame where each column represents a channel and each row a sample.
+    extention : str
+        The extension of subject's recording like FIF or DS. This will be used to read
+        the layout file (e.g., FIF.json) from the layout directory. 
+    which_layout : str
+        Name of the sensor layout to use for averaging; 'all' for global averaging and 'lobe'
+        for averaging across lobes.
+    which_sensor : dict
+        Dictionary specifying which modality to include (e.g., {'meg': True, 'eeg': False}).
+
+    Returns
+    -------
+    pd.DataFrame
+        A new DataFrame with features averaged by layout. Columns represent the parcells and
+        rows represent subject
     """
     df.dropna(axis=0, how="all", inplace=True)
     summrized_df = pd.DataFrame(index=df.index)
@@ -322,22 +421,33 @@ def psd_ratio(
 ):
     """
     Calculates the ratio of power in two frequency bands (numerator/denominator) in the power spectral density (PSD).
-    
-    Args:
-        psd (np.ndarray): A 1D array of power spectral density values (in linear scale).
-        freqs (np.ndarray): A 1D array of frequency values corresponding to the PSD.
-        freqRangeNumerator (tuple): A tuple (min_freq, max_freq) representing the numerator frequency range.
-        freqRangeDenominator (tuple): A tuple (min_freq, max_freq) representing the denominator frequency range.
-        channelNames (str): Name of the channel for which the ratio is calculated.
-        name (str): Descriptive name for the output feature.
-        psdType (str): Type of the PSD (e.g., 'power', 'spectrum').
 
-    Returns:
-        Tuple[List[float], List[str]]: A tuple containing:
-            - A list with the computed PSD ratio (log of numerator/denominator)
-            - A list with the generated feature name
+    Parameters
+    ----------
+    psd : np.ndarray
+        A 1D array of power spectral density values (in linear scale).
+    freqs : np.ndarray
+        A 1D array of frequency values corresponding to the PSD.
+    freqRangeNumerator : tuple
+        A tuple (min_freq, max_freq) representing the numerator frequency range.
+    freqRangeDenominator : tuple
+        A tuple (min_freq, max_freq) representing the denominator frequency range.
+    channelNames : str
+        Name of the channel for which the ratio is calculated.
+    name : str
+        Descriptive name for the output feature.
+    psdType : str
+        Type of the PSD (e.g., 'power', 'spectrum').
+
+    Returns
+    -------
+    list
+        A list with the computed PSD ratio (log of numerator/denominator)
+    list
+        A list with the generated feature name
+
     """
-
+    # TODO check this function, seems incorrect
     # Numerator
     bandIndices = np.logical_and(
         freqs >= freqRangeNumerator[0], freqs <= freqRangeNumerator[1]
@@ -362,14 +472,20 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
     Creates a DataFrame to store features for each channel, with feature names corresponding to 
     the specified categories and frequency bands.
 
-    Args:
-        feature_categories (dict): Dictionary with feature names as keys and booleans indicating 
-                                    whether the feature should be calculated.
-        freq_bands (list): List of frequency bands (e.g., ['theta', 'alpha', 'beta']).
-        channel_names (list): List of channel names (e.g., ['ch1', 'ch2', 'ch3']).
+    Parameters
+    ----------
+    feature_categories : dict
+        Dictionary with feature names as keys and booleans indicating 
+        whether the feature should be calculated.
+    freq_bands : list
+        List of frequency bands (e.g., ['theta', 'alpha', 'beta']).
+    channel_names : list
+        List of channel names (e.g., ['ch1', 'ch2', 'ch3']).
 
-    Returns:
-        pd.DataFrame: A DataFrame with feature names as rows and channels as columns.
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with feature names as rows and channels as columns.
     """
     # TODO if band_name != "broadband" although not necessary because we fill the
     # data frame with name (df.at())
@@ -413,7 +529,7 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
     return feature_container
 
 def feature_extract(subjectId: str, 
-                    fmGroup: Any, 
+                    fmGroup: f.fooof, 
                     psds: np.ndarray, 
                     feature_categories: Dict[str, bool], 
                     freqs: np.ndarray, 
@@ -426,27 +542,53 @@ def feature_extract(subjectId: str,
                     aperiodic_mode: str, 
                     min_r_squared: float) -> pd.DataFrame:
     """
-    Extract features from fooof results for a set of channels.
+    Extract features from fitted fooof models.
 
-    Args:
-        subjectId (str): Subject identifier.
-        fmGroup (Any): Group of FOOOF models, where each channel has a corresponding FOOOF object.
-        psds (np.ndarray): Original power spectral density (not flattened).
-        feature_categories (dict): A dictionary with feature names as keys and booleans indicating 
-                                   whether the feature should be calculated.
-        freqs (np.ndarray): Frequency values corresponding to each power value in psds.
-        freq_bands (dict): Dictionary mapping band names to tuples of (fmin, fmax).
-        channel_names (list): List of channel names.
-        individualized_band_ranges (dict): Dictionary of individualized frequency ranges for each band.
-        extention (str): The extension type for layout.
-        which_layout (str): The layout to use for summarization.
-        which_sensor (dict): Dictionary indicating whether each sensor should be included.
-        aperiodic_mode (str): Aperiodic mode for the FOOOF model.
-        min_r_squared (float): Minimum acceptable r-squared value for model fitting.
+    Parameters
+    ----------
+    subjectId : str
+        Subject identifier.
+    fmGroup : f.fooof
+        Group of FOOOF models, where each channel has a corresponding FOOOF object.
+    psds : np.ndarray
+        Original power spectral density (not flattened).
+    feature_categories : Dict[str, bool]
+        A dictionary with feature names as keys and booleans indicating 
+        whether the feature should be calculated.
+    freqs : np.ndarray
+        Frequency values corresponding to each power value in psds.
+    freq_bands : Dict[str, tuple]
+        _description_
+    channel_names : List[str]
+        List of channel names.
+    individualized_band_ranges : Dict[str, tuple]
+        Dictionary of individualized frequency ranges for each band.
+    extention : str
+        The extension of subject's recording like FIF or DS. This will be used to read
+        the layout file (e.g., FIF.json) from the layout directory. 
+    which_layout : str
+        Name of the sensor layout to use for averaging; 'all' for global averaging and 'lobe'
+        for averaging across lobes.
+    which_sensor : Dict[str, bool]
+        Dictionary specifying which modality to include (e.g., {'meg': True, 'eeg': False}).
+    aperiodic_mode : str
+        Aperiodic mode for the FOOOF model. It must be either 'knee' or 'fixed'.
+    min_r_squared : float
+        Minimum acceptable r-squared value for model fitting. This will be used to exclude
+        those fitted fooof models (for channels) that did not have R squared higher than this 
+        threshold.
 
-    Returns:
-        pd.DataFrame: A DataFrame containing extracted features for each channel and band.
-    """
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing extracted features for each channel and band.
+    """    
+    if aperiodic_mode not in ["knee", "fixed"]:
+        raise ValueError(f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'.")
+    if not isinstance(fmGroup, f.FOOOF):
+        raise TypeError("Expected a FOOOF model instance.")
+    if not 0<=min_r_squared<=1:
+        raise ValueError("Minimum R squared should be between zero and 1")
 
     # Store features in a pandas DataFrame with channel names as columns
     # and feature names as the index,
@@ -663,53 +805,3 @@ def feature_extract(subjectId: str,
 
     return final_df
 
-
-if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("dir", type=str, help="data directory (pickle format)")
-    parser.add_argument("savePath", type=str, help="where to save data")
-    # optional arguments
-    parser.add_argument(
-        "--configs", type=str, default=None, help="Address of configs json file"
-    )
-
-    args = parser.parse_args()
-
-    with open(args.dir, "rb") as fooofFile:
-        counter = 0
-        while True:
-            try:
-                pickle.load(fooofFile)
-                counter += 1
-            except:
-                break
-
-    # Loading configs
-    if args.configs is not None:
-        with open(args.configs, "r") as f:
-            configs = json.load(f)
-    else:
-        configs = make_config()
-
-    with open(args.dir, "rb") as fooofFile:
-
-        for j in tqdm.tqdm(range(counter)):
-
-            subjectId, (fmGroup, psds, freqs) = next(
-                iter(pickle.load(fooofFile).items())
-            )
-
-            features = featureExtract(
-                subjectId=subjectId,
-                fmGroup=fmGroup,
-                psds=psds,
-                freqs=freqs,
-                freq_bands=configs["freq_bands"],
-                channelNames=configs["ch_names"],
-                bandSubRanges=configs["bandSubRanges"],
-                featureCategories=configs["featureCategories"],
-            )
-
-            features.to_csv(f"{subjectId}.csv")
