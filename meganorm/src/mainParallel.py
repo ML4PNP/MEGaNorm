@@ -5,25 +5,69 @@ import sys
 import mne
 import pandas as pd
 import glob
-
-# Add utils folder to the system path
-# parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# config_path = os.path.join(parent_dir, 'utils')
-# sys.path.append(config_path)
-
 from meganorm.utils.IO import make_config, storeFooofModels
 from meganorm.src.psdParameterize import psdParameterize
 from meganorm.src.preprocess import preprocess, segment_epoch, drop_bads
 from meganorm.src.featureExtraction import feature_extract
 
 
-def mainParallel(*args):
+def main(*args):
+    """
+    Main function for running a complete spectral feature extraction pipeline in both serialized and
+    parallelized workflows.
 
+    This function reads MEG/EEG data and apply preprocessing, segmentation, PSD computation,
+    FOOOF-based spectral parameterization and feature extraction. The final features are 
+    saved to disk as a CSV file.
+
+    Positional Arguments (from command line)
+    ----------------------------------------
+    dir : str
+        Path to the raw data file or directory containing MEG/EEG recordings.
+        Supports wildcards for batch processing.
+    saveDir : str
+        Directory where the extracted features will be saved.
+    subject : str
+        Participant ID used for file naming and internal tracking.
+
+    Optional Arguments
+    ------------------
+    --configs : str, optional
+        Path to a JSON configuration file that defines all preprocessing, segmentation,
+        PSD, and FOOOF parameters. If not provided, a default configuration is generated.
+
+    Workflow Overview
+    -----------------
+    1. Parses input arguments and configuration file (if provided).
+    2. Loads raw MEG/EEG data.
+    3. Applies channel type mapping and montage setup (for EEG).
+    4. Preprocesses data using ICA, filtering, and re-referencing as specified.
+    5. Segments the data into epochs for further analysis.
+    6. Computes Power Spectral Density (PSD) for each channel.
+    7. Fits FOOOF models to the PSD to separate aperiodic and periodic components.
+    8. Extracts spectral features across predefined frequency bands and saves them as a CSV.
+
+    Notes
+    -----
+    - Designed to run in both serial and parallel setups (e.g., SLURM, multiprocessing).
+    - Includes robust handling of missing montages and channel info.
+    - Ensures compatibility with multiple MEG/EEG acquisition formats.
+
+    Raises
+    ------
+    FileNotFoundError
+        If montage or channel information is required but missing.
+    ValueError
+        If an unsupported sensor type or PSD method is specified in configs.
+    RuntimeError
+        If data loading fails for unsupported or corrupted formats.
+    """
     parser = argparse.ArgumentParser()
     # positional Arguments
     parser.add_argument("dir", type=str, help="Address to your data")
     parser.add_argument("saveDir", type=str, help="where to save extracted features")
     parser.add_argument("subject", type=str, help="participant ID")
+    # optional Arguments
     parser.add_argument(
         "--configs", type=str, default=None, help="Address of configs json file"
     )
@@ -200,4 +244,4 @@ if __name__ == "__main__":
     # command = python src/mainParallel.py /project/meganorm/Data/MOUS/sub-A2021/meg/sub-A2021_task-rest_meg.ds /home/meganorm-mznasrabadi/MEGaNorm/tests sub-A2021
     # command = python src/mainParallel.py /project/meganorm/Data/BTNRH/CAMCAN/BIDS_data/sub-CC221828/meg/sub-CC221828_task-rest_meg.fif /home/meganorm-mznasrabadi/MEGaNorm/tests
 
-    mainParallel(sys.argv[1:])
+    main(sys.argv[1:])
