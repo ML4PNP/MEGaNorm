@@ -1,17 +1,29 @@
 import os
 import glob
 from pathlib import Path
-import scipy
 import mne
 import mne_bids
 import pandas as pd
 
-# from utils.IO import separate_eyes_open_close_eeglab
-
 
 def preprocess_events_file(file_path):
     """
-    Preprocesses the events CSV file to remove repeated headers but keeps the first header.
+    Preprocess the events CSV file by removing repeated header rows while retaining the first.
+
+    This function cleans exported EEG event files that may contain duplicated header lines (e.g., `"type","latency","urevent",`). 
+    It keeps the first header line, removes all subsequent duplicate headers, and writes the 
+    cleaned data to a new file.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the raw events CSV file that needs preprocessing.
+
+    Returns
+    -------
+    str
+        Path to the cleaned CSV file. The cleaned file is saved at the same location with
+        "_cleaned.csv" appended to the original file name.
     """
     clean_lines = []
     header_found = False  # Track if header is already added
@@ -37,7 +49,33 @@ def preprocess_events_file(file_path):
 
 def mne_bids_MIPDB(input_base_path, output_base_path, montage_path):
     """
-    This code converges the MIPDB csv files into an mne raw object and then into BIDS format.
+    This function converges the MIPDB dataset .csv files into BIDS format.
+    
+    This function processes EEG recordings from the MIPDB dataset that are stored in CSV files.
+    It converts them into MNE Raw objects, applies channel mappings and a custom montage, 
+    sets specific channel types (e.g., 'eog', 'misc'), embeds event annotations, 
+    and saves the data in BIDS-compliant format using the `mne-bids` library.
+
+    Parameters
+    ----------
+    input_base_path : str
+        Path to the base directory containing the raw MIPDB dataset
+    output_base_path : str
+        Directory where the converted BIDS dataset will be saved
+    montage_path : _type_
+        Path to the custom montage file to be used for setting EEG channel locations
+
+    Returns
+    -------
+    None
+        This function does not return any value. The output is saved to the specified output directory
+
+    Notes
+    -----
+    - Raw EEG recordings are expected in CSV format, with filenames ending in `001.csv` and corresponding event files ending in in `001_events.csv`
+    - The following channels are treated specially:
+        - Misc (neck and chin): E48, E49, E56, E63, E68, E73, E81, E88, E94, E99, E107, E113, E119
+        - EOG (eyes): E8, E14, E17, E21, E25, E128, E127, E126, E125
     """
 
     # Ensure output directory exists
@@ -165,28 +203,3 @@ def mne_bids_MIPDB(input_base_path, output_base_path, montage_path):
         )
 
     return None
-
-
-if __name__ == "__main__":
-
-    # Convert to bids
-
-    input_base_path1 = "/project/meganorm/Data/EEG_MIPDB/EEG/"  # Final
-    output_base_path1 = "/project/meganorm/Data/EEG_MIPDB/EEG_BIDS/"  # Final
-
-    # input_base_path1 = "/home/meganorm-yverduyn/Dev/MIPDB/EEG"
-    # output_base_path1 = "/home/meganorm-yverduyn/Dev/MIPDB/EEG_BIDS"
-    montage_path = "/project/meganorm/Data/EEG_MIPDB/info/GSN_HydroCel_129.sfp"
-    mne_bids_MIPDB(input_base_path1, output_base_path1, montage_path)
-
-    # Separate eyes closed and open trials
-
-    # input_base_path = "/project/meganorm/Data/EEG_MIPDB/EEG_BIDS/"
-    # output_base_path = "/project/meganorm/Data/EEG_MIPDB/EEG_BIDS/"
-
-# input_base_path2 = "/home/meganorm-yverduyn/Dev/MIPDB/EEG_BIDS"
-# output_base_path2 = "/home/meganorm-yverduyn/Dev/MIPDB/EEG_BIDS"
-# annotation_description_open = "20"
-# annotation_description_close = "30"
-
-# separate_eyes_open_close_eeglab(input_base_path2, output_base_path2, annotation_description_open, annotation_description_close, trim_before=5, trim_after=5)
