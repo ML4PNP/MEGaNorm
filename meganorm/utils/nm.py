@@ -13,6 +13,7 @@ from scipy.stats import skew, kurtosis
 from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
 from meganorm.plots.plots import KDE_plot
+from sklearn.model_selection import train_test_split
 
 
 def hbr_data_split(
@@ -25,26 +26,72 @@ def hbr_data_split(
     drop_nans=False,
     random_seed="23d",
     prefix="",
+    stratification_columns=["site", "sex"]
 ):
-    """Utility function for splitting data into training, validation and test sets
-    before HBR normative modeling. The sets are save as picke file in the specified
-    save path.
+    """
+    Splits a given DataFrame into training, validation, and test sets for HBR normative modeling,
+    while considering stratification based on specified categorical columns. The data is saved as 
+    pickled files for normative modeling (PCNToolkit requires paths to the files).
 
-    Args:
-        data (DataFrame): Panda dataframe of data created for example using "load_camcan_data"
-        function.
-        save_path (str): Path to save the results.
-        covariates (list, optional): List of covariates. Defaults to ['age'].
-        batch_effects (list, optional): Used for deciding batch effects in HBR model.
-        Defaults to None for no batch effect.
-        train_split (float, optional): train set split ratio. Defaults to 0.5.
-        validation_split (_type_, optional): If not None will be used for validation set
-        split ratio. Defaults to None.
-        drop_nans (boolean, optional): If True, drops columns with missing values. Defaults to False.
-        random_seed (int, optional): Random seed in the splitting data. Defaults to 42.
+    Parameters
+    ----------
+    data : pd.DataFrame
+        A Pandas DataFrame containing the data to be split. Typically created using functions like "load_camcan_data".
+    
+    save_path : str
+        Path where the resulting training, validation, and test sets will be saved as pickled files.
 
-    Returns:
-        The number of biomarkers.
+    covariates : list of str, optional, default=["age"]
+        List of covariates to be used in the analysis (default is `["age"]`).
+
+    batch_effects : list of str, optional, default=None
+        List of batch effects to be accounted for in the HBR model. Default is `None`.
+
+    train_split : float, optional, default=0.5
+        Proportion of the data to be used for training (default is 0.5).
+
+    validation_split : float, optional, default=None
+        Proportion of the training data to be used for validation (default is `None`, meaning no validation set is created).
+
+    drop_nans : bool, optional, default=False
+        If `True`, rows with missing values are dropped (default is `False`).
+
+    random_seed : int or str, optional, default="23d"
+        Seed for random number generation to ensure reproducibility (default is `23d`).
+
+    prefix : str, optional, default=""
+        Prefix to be added to the filenames when saving the pickled data (default is `""`).
+
+    stratification_columns : list of str, optional, default=["site", "sex"]
+        List of categorical columns used for stratification during splitting (default is `["site", "sex"]`).
+
+    Returns
+    -------
+    list of str
+        A list of biomarker names (columns in the target `y` DataFrame), which represent the dependent 
+        variables for the HBR normative modeling.
+
+    Notes
+    -----
+    The function performs the following steps:
+        - Drops any rows with missing values if `drop_nans=True`.
+        - Creates a new column "combination" based on the specified stratification columns.
+        - Splits the data into training, validation (optional), and test sets while preserving the stratification.
+        - Saves the resulting splits (`x_train`, `y_train`, `b_train`, etc.) as pickled files in the specified `save_path`.
+        - Saves the random seed used for splitting into a separate pickled file.
+        - Returns the names of the biomarkers (columns in `y_train`).
+    
+    Example
+    -------
+    biomarker_names = hbr_data_split(
+        data=df, 
+        save_path="./data_split/",
+        covariates=["age", "sex"],
+        batch_effects=["site"],
+        train_split=0.7,
+        validation_split=0.2,
+        random_seed=42
+    )
     """
     np.random.seed(random_seed)
     os.makedirs(save_path, exist_ok=True)
@@ -52,119 +99,94 @@ def hbr_data_split(
     if drop_nans:
         data = data.dropna(axis=0)
 
-    x_train_all, y_train_all, b_train_all = [], [], []
-    x_val_all, y_val_all, b_val_all = [], [], []
-    x_test_all, y_test_all, b_test_all = [], [], []
+    data["combination"] = data[stratification_columns].astype(str).agg("_".join, axis=1)
+    train_df, test_df = train_test_split(data, stratify=data['combination'], test_size=train_split, random_state=random_seed)
 
-    ## Looping through sites to split the data in a stratified way
-    for uniques_site in data.site.unique():
+    if validation_split:
+        train_df, val_df = train_test_split(train_df, stratify=data["combination"], test_size=validation_split, random_state=random_seed)
 
-        data_site = data[data.site == uniques_site]
+    # train ********
+    x_train = train_df.loc[:, covariates]
+    b_train = (
+        train_df.loc[:, batch_effects]
+        if batch_effects is not None
+        else pd.DataFrame(
+            np.zeros([x_train.shape[0], 1], dtype=int),
+            index=x_train.index,
+            columns=["site"],
+        )
+    )
+    y_train = (
+        train_df.drop(columns=covariates + batch_effects + ["combination", "diganosis"], errors="ignore")
+        if batch_effects is not None
+        else train_df.drop(columns=covariates + ["combination", "diganosis"], errors="ignore")
+    )
 
-        rand_idx = np.random.permutation(data_site.shape[0])
 
-        train_num = np.round(train_split * data_site.shape[0]).astype(int)
+    # test ********
+    x_test = test_df.loc[:, covariates]
+    b_test = (
+        test_df.loc[:, batch_effects]
+        if batch_effects is not None
+        else pd.DataFrame(
+            np.zeros([x_test.shape[0], 1], dtype=int),
+            index=x_test.index,
+            columns=["site"],
+        )
+    )
+    y_test = (
+        test_df.drop(columns=covariates + batch_effects + ["combination", "diganosis"], errors="ignore")
+        if batch_effects is not None
+        else test_df.drop(columns=covariates + ["combination", "diganosis"], errors="ignore")
+    )
 
-        train_set = data_site.iloc[rand_idx[0:train_num]]
-        x_train = train_set.loc[:, covariates]
-        b_train = (
-            train_set.loc[:, batch_effects]
+
+    # validation ********
+    if validation_split:
+        x_val = val_df.loc[:, covariates]
+        b_val = (
+            val_df.loc[:, batch_effects]
             if batch_effects is not None
             else pd.DataFrame(
-                np.zeros([x_train.shape[0], 1], dtype=int),
-                index=x_train.index,
+                np.zeros([x_val.shape[0], 1], dtype=int),
+                index=x_val.index,
                 columns=["site"],
             )
         )
-        y_train = (
-            train_set.drop(columns=covariates + batch_effects)
+        y_val = (
+            val_df.drop(columns=covariates + batch_effects + ["combination", "diganosis"], errors="ignore")
             if batch_effects is not None
-            else train_set.drop(columns=covariates)
-        )
-        x_train_all.append(x_train), y_train_all.append(y_train), b_train_all.append(
-            b_train
-        )
-
-        if validation_split is not None:
-            validation_num = np.round(validation_split * data_site.shape[0]).astype(int)
-            validation_set = data_site.iloc[
-                rand_idx[train_num : train_num + validation_num]
-            ]
-            x_val = validation_set.loc[:, covariates]
-            b_val = (
-                validation_set.loc[:, batch_effects]
-                if batch_effects is not None
-                else pd.DataFrame(
-                    np.zeros([x_val.shape[0], 1], dtype=int),
-                    index=x_val.index,
-                    columns=["site"],
-                )
-            )
-            y_val = (
-                validation_set.drop(columns=covariates + batch_effects)
-                if batch_effects is not None
-                else validation_set.drop(columns=covariates)
-            )
-            x_val_all.append(x_val), y_val_all.append(y_val), b_val_all.append(b_val)
-
-            test_set = data_site.iloc[rand_idx[train_num + validation_num :]]
-        else:
-            validation_set = None
-            test_set = data_site.iloc[rand_idx[train_num:]]
-
-        x_test = test_set.loc[:, covariates]
-        b_test = (
-            test_set.loc[:, batch_effects]
-            if batch_effects is not None
-            else pd.DataFrame(
-                np.zeros([x_test.shape[0], 1], dtype=int),
-                index=x_test.index,
-                columns=["site"],
-            )
-        )
-        y_test = (
-            test_set.drop(columns=covariates + batch_effects)
-            if batch_effects is not None
-            else test_set.drop(columns=covariates)
-        )
-        x_test_all.append(x_test), y_test_all.append(y_test), b_test_all.append(b_test)
+            else val_df.drop(columns=covariates + ["combination", "diganosis"], errors="ignore"))
 
     # train
-    pd.concat(x_train_all, axis=0).to_pickle(
-        os.path.join(save_path, prefix + "x_train.pkl")
-    )
-    pd.concat(y_train_all, axis=0).to_pickle(
-        os.path.join(save_path, prefix + "y_train.pkl")
-    )
-    pd.concat(b_train_all, axis=0).to_pickle(
-        os.path.join(save_path, prefix + "b_train.pkl")
-    )
+    x_train.to_pickle(
+        os.path.join(save_path, prefix + "x_train.pkl"))
+    y_train.to_pickle(
+        os.path.join(save_path, prefix + "y_train.pkl"))
+    b_train.to_pickle(
+        os.path.join(save_path, prefix + "b_train.pkl"))
     # validation
-    if validation_split is not None:
-        pd.concat(x_val_all, axis=0).to_pickle(
-            os.path.join(save_path, prefix + "x_val.pkl")
-        )
-        pd.concat(y_val_all, axis=0).to_pickle(
-            os.path.join(save_path, prefix + "y_val.pkl")
-        )
-        pd.concat(b_val_all, axis=0).to_pickle(
-            os.path.join(save_path, prefix + "b_val.pkl")
-        )
+    if validation_split:
+        x_val.to_pickle(
+            os.path.join(save_path, prefix + "x_val.pkl"))
+        y_val.to_pickle(
+            os.path.join(save_path, prefix + "y_val.pkl"))
+        b_val.to_pickle(
+            os.path.join(save_path, prefix + "b_val.pkl"))
     # test
-    pd.concat(x_test_all, axis=0).to_pickle(
-        os.path.join(save_path, prefix + "x_test.pkl")
-    )
-    pd.concat(y_test_all, axis=0).to_pickle(
-        os.path.join(save_path, prefix + "y_test.pkl")
-    )
-    pd.concat(b_test_all, axis=0).to_pickle(
-        os.path.join(save_path, prefix + "b_test.pkl")
-    )
+    x_test.to_pickle(
+        os.path.join(save_path, prefix + "x_test.pkl"))
+    y_test.to_pickle(
+        os.path.join(save_path, prefix + "y_test.pkl"))
+    b_test.to_pickle(
+        os.path.join(save_path, prefix + "b_test.pkl"))
 
     with open(os.path.join(save_path, prefix + "random_seed.pkl"), "wb") as file:
         pickle.dump({"random_seed": random_seed}, file)
 
-    return y_test.shape[1]
+    biomarker_name = y_train.columns
+    return biomarker_name.tolist()
+
 
 
 def mace(
