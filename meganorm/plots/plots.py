@@ -79,7 +79,7 @@ def plot_nm_range(
     parallel=True,
     save_plot=True,
     outputsuffix="estimate",
-):
+    ):
     """Function to plot notmative ranges. This function assumes only gender as batch effect
     stored in the first column of batch effect array.
 
@@ -213,8 +213,7 @@ def plot_comparison(
     hbr_configs,
     biomarker_num,
     metrics=["Rho", "SMSE", "MSLL", "MACE"],
-    plot_type="boxplot",
-):
+    plot_type="boxplot"):
 
     results = {
         metric: np.zeros([biomarker_num, len(hbr_configs.keys())]) for metric in metrics
