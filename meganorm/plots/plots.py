@@ -1373,9 +1373,48 @@ def plot_metrics(metrics_path, which_features, feature_new_name=[], save_path=No
         plt.close()
 
 
-def qq_plot(processing_dir, save_fig, label_dict, colors):
-    
+def qq_plot(processing_dir, 
+    save_fig, 
+    label_dict, 
+    colors,
+    markersize: int = 8,
+    alpha: float = 0.6,
+    lower_lim: float = -4.0,
+    upper_lim: float = 4.0
+    ):
+    """
+    Generate QQ plots of Z-score estimates for different biomarkers.
 
+    This function reads a pickle file containing Z-score estimates,
+    generates QQ plots comparing sample quantiles to theoretical quantiles
+    for each specified marker, and optionally saves the plots to disk.
+
+    Parameters
+    ----------
+    processing_dir : str
+        Path to the directory containing the 'Z_estimate.pkl' file.
+    save_fig : str or None
+        Directory to save generated plots. If None, plots are not saved.
+    label_dict : dict
+        Dictionary mapping column index to their corresponding column name (biomarker name).
+    colors : list of str
+        List of color codes (e.g., hex or named colors) to use for each QQ plot marker.
+        Should be the same length as `label_dict`.
+    markersize : int, optional
+        Size of the plot markers. Default is 8.
+    alpha : float, optional
+        Transparency level of the markers, between 0 (transparent) and 1 (opaque). Default is 0.6.
+    lower_lim : float, optional
+        Lower limit for both axes in the QQ plot. Default is -4.0.
+    upper_lim : float, optional
+        Upper limit for both axes in the QQ plot. Default is 4.0.
+
+    Returns
+    -------
+    None
+        Displays and optionally saves the QQ plots for each dataset in `label_dict`.
+
+    """
     with open(os.path.join(processing_dir, "Z_estimate.pkl"), "rb") as file:
         z_scores = pickle.load(file)
 
@@ -1384,33 +1423,38 @@ def qq_plot(processing_dir, save_fig, label_dict, colors):
         plotkwargs = {
         "markerfacecolor": colors[indx], 
         "markeredgecolor": colors[indx], 
-        "markersize": 8, 
-        "alpha": 0.6}
+        "markersize": markersize, 
+        "alpha": alpha}
         
         plt.figure(figsize=(5, 5))
         ax = plt.gca()  
 
         # Generate QQ plot without the line
-        sm.qqplot(z_scores.iloc[:, value].to_numpy(), line=None, ax=ax, **plotkwargs)
+        sm.qqplot(
+            z_scores.iloc[:, value].to_numpy(), 
+            line=None, 
+            ax=ax, 
+            **plotkwargs
+        )
 
         # Add a red 45-degree line manually
-        x = np.linspace(-4, 4, 100)
+        x = np.linspace(lower_lim, upper_lim, 100)
         ax.plot(x, x, color='black', linewidth=4, linestyle='--', alpha=1)
 
         plt.ylabel("Sample quantiles", fontsize=25)
         plt.xlabel("Theoretical quantiles", fontsize=25)
 
-        plt.ylim((-4, 4))
-        plt.xlim((-4, 4))
+        plt.ylim((lower_lim, upper_lim))
+        plt.xlim((lower_lim, upper_lim))
 
         # Customize spines
         ax.spines["right"].set_visible(False)
         ax.spines["top"].set_visible(False)
-        ax.spines["bottom"].set_position(("outward", 10))
-        ax.spines["left"].set_position(("outward", 10))
+        ax.spines["bottom"].set_position(('outward', 10))
+        ax.spines["left"].set_position(('outward', 10))
 
-        plt.xticks(np.linspace(-4, 4, 5))
-        plt.yticks(np.linspace(-4, 4, 5))
+        plt.xticks(np.linspace(lower_lim, upper_lim, 5))
+        plt.yticks(np.linspace(lower_lim, upper_lim, 5))
         plt.tick_params(axis='both', labelsize=25)
 
         plt.title(key.capitalize(), fontsize=25)
@@ -1418,8 +1462,8 @@ def qq_plot(processing_dir, save_fig, label_dict, colors):
         # Save the figure
         if save_fig is not None:
 
-            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.png"), dpi=300, bbox_inches='tight')
-            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.svg"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.png"), dpi=600, bbox_inches='tight')
+            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.svg"), dpi=600, bbox_inches='tight')
         
 
         plt.show()
