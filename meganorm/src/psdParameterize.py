@@ -14,10 +14,10 @@ warnings.filterwarnings("ignore")
 
 
 def computePsd(segments, 
-               freqRangeLow=3, 
-               freqRangeHigh=40, 
+               freq_range_low=3, 
+               freq_range_high=40, 
                sampling_rate=1000, 
-               psdMethod="welch", 
+               psd_method="welch", 
                psd_n_overlap=1, 
                psd_n_fft=2, 
                n_per_seg=2
@@ -29,13 +29,13 @@ def computePsd(segments,
     ----------
     segments : mne.Epochs
         Segmented data for which PSD will be computed.
-    freqRangeLow : int
+    freq_range_low : int
         Lower frequency bound for PSD calculation (Hz).
-    freqRangeHigh : int
+    freq_range_high : int
         Upper frequency bound for PSD calculation (Hz).
     sampling_rate : int
         Sampling rate of the data (Hz).
-    psdMethod : str
+    psd_method : str
         Method for computing the PSD. Default is "welch".
     psd_n_overlap : int
         Overlap between segments (in seconds) for PSD calculation.
@@ -54,9 +54,9 @@ def computePsd(segments,
 
     
     psds, freqs = segments.compute_psd( 
-                    method=psdMethod,
-                    fmin=freqRangeLow,
-                    fmax=freqRangeHigh,
+                    method=psd_method,
+                    fmin=freq_range_low,
+                    fmax=freq_range_high,
                     n_jobs=-1,
                     average="mean",
                     n_overlap=psd_n_overlap * sampling_rate, 
@@ -69,8 +69,8 @@ def computePsd(segments,
 
 def parameterizePsd(psds, 
                     freqs, 
-                    freqRangeLow=3, 
-                    freqRangeHigh=40, 
+                    freq_range_low=3, 
+                    freq_range_high=40, 
                     min_peak_height=0,
                     peak_threshold=2, 
                     peak_width_limits=[1, 12.0], 
@@ -86,9 +86,9 @@ def parameterizePsd(psds,
         Power spectral density values.
     freqs : np.ndarray
         Frequency values corresponding to the PSD.
-    freqRangeLow : int
+    freq_range_low : int
         Lower frequency bound for the FOOOF model (Hz).
-    freqRangeHigh : int
+    freq_range_high : int
         Upper frequency bound for the FOOOF model (Hz).
     min_peak_height : float
         Minimum height of peaks to be considered in the FOOOF model.
@@ -115,15 +115,15 @@ def parameterizePsd(psds,
                                 min_peak_height=min_peak_height, 
                                 peak_threshold=peak_threshold, 
                                 aperiodic_mode=aperiodic_mode)
-    fooofModels.fit(freqs, psds, [freqRangeLow, freqRangeHigh], n_jobs=-1)
+    fooofModels.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=-1)
 
     return fooofModels, psds, freqs
 
 
 def psdParameterize(
     segments,
-    freqRangeLow=3,
-    freqRangeHigh=40,
+    freq_range_low=3,
+    freq_range_high=40,
     min_peak_height=0,
     peak_threshold=2,
     sampling_rate=1000,
@@ -142,9 +142,9 @@ def psdParameterize(
     ----------
     segments : mne.Epochs
         Epoched MNE object containing segmented data.
-    freqRangeLow : float
+    freq_range_low : float
         Lower bound of frequency range for PSD and FOOOF (Hz).
-    freqRangeHigh : float
+    freq_range_high : float
         Upper bound of frequency range for PSD and FOOOF (Hz).
     min_peak_height : float
         Minimum height of peaks to be detected by FOOOF.
@@ -192,8 +192,8 @@ def psdParameterize(
 
     psds, freqs = computePsd(
         segments=segments,
-        freqRangeLow=freqRangeLow,
-        freqRangeHigh=freqRangeHigh,
+        freq_range_low=freq_range_low,
+        freq_range_high=freq_range_high,
         sampling_rate=sampling_rate,
         psd_method=psd_method,
         psd_n_overlap=psd_n_overlap,
@@ -204,8 +204,8 @@ def psdParameterize(
     fooofModels, psds, freqs = parameterizePsd(
         psds=psds,
         freqs=freqs,
-        freqRangeLow=freqRangeLow,
-        freqRangeHigh=freqRangeHigh,
+        freq_range_low=freq_range_low,
+        freq_range_high=freq_range_high,
         min_peak_height=min_peak_height,
         peak_threshold=peak_threshold,
         peak_width_limits=peak_width_limits,
