@@ -1319,60 +1319,136 @@ def z_scores_quadrant_contour_plot(
 
     plt.show()
 
+# ***
+def plot_metrics(
+    metrics_path: str,
+    which_biomarkers: list,
+    biomarkers_new_name: list = None,
+    colors: list = None,
+    save_path: str = None,
+    x_limits: dict = None
+):
+    """
+    Plots statistical distributions of metrics across multiple biomarkers and models.
 
-def plot_metrics(metrics_path, which_features, feature_new_name=[], save_path=None):
+    This function generates a series of kernel density estimate (KDE) plots for a specified set of biomarkers
+    and their associated metrics (e.g., MACE, skewness, kurtosis, W). The plots are arranged in a grid with one 
+    row for each biomarker and one column for each metric. The plots can be saved in SVG and PNG formats.
+
+    Parameters
+    ----------
+    metrics_path : str
+        The file path to the pickle file containing the aggregated metrics data (e.g., the output from
+        `aggregate_metrics_across_runs` function).
+    which_biomarkers : list of str
+        A list of biomarker names for which to generate the plots. These biomarkers should match the keys
+        in the aggregated metrics data.
+    biomarkers_new_name : list of str, optional
+        A list of new names to assign to the biomarkers in the plot. The length of this list must match the
+        number of biomarkers in `which_biomarkers`. If not provided, the original names are used.
+    colors : list of str, optional
+        A list of colors to use for the KDE plots. Each color corresponds to a different biomarker in the
+        `which_biomarkers` list. If not provided, default pastel colors are used.
+    save_path : str, optional
+        The directory path where the generated plots will be saved. If not provided, the plots will not be saved.
+    x_limits : dict, optional
+        A dictionary specifying the x-axis limits for each metric. The dictionary should have metric names as keys 
+        (e.g., 'MACE', 'skewness', 'kurtosis', 'W') and each value should be a tuple with the min and max 
+        x-axis values (e.g., `{"MACE": (0, 10)}`). If not provided, the x-axis limits are automatically adjusted 
+        based on the data.
+
+    Returns
+    -------
+    None
+        The function does not return any value. It directly generates the plots and saves them to the specified 
+        `save_path` if provided.
+
+    Notes
+    -----
+    - The function uses seaborn's `kdeplot` to generate KDE plots for each biomarker and metric combination.
+    - The y-axis is hidden for all subplots, and the x-axis ticks are removed for all but the last row of subplots.
+    - The plot titles display the metric name (e.g., 'MACE', 'skewness') at the top of each column, and the 
+      biomarker names are shown on the left of each row.
+    - The function supports KDE plotting for different metrics and can clip the x-axis limits based on the provided 
+      `x_limits` dictionary.
+    - If `save_path` is provided, the plots are saved in both SVG and PNG formats with high resolution (600 dpi).
+    
+    Example
+    -------
+    plot_metrics(
+        metrics_path='/path/to/metrics.pkl',
+        which_biomarkers=['biomarker_1', 'biomarker_2'],
+        biomarkers_new_name=['New_Biomarker_1', 'New_Biomarker_2'],
+        colors=['red', 'blue'],
+        save_path='/path/to/save/plots',
+        x_limits={'MACE': (0, 10), 'skewness': (-2, 2)}
+    )
+    """
     with open(metrics_path, "rb") as file:
         metrics_dic = pickle.load(file)
+    
+    # TODO: remove this one
+    ordered_metrics = ['MACE', "W", "skewness", "kurtosis"]
+    metrics_dic = {k: metrics_dic[k] for k in ordered_metrics}
 
-    for metric in metrics_dic.keys():
-        df_temp = pd.DataFrame(metrics_dic.get(metric)).loc[:, which_features]
-        df_temp.columns = feature_new_name
-        df_temp = df_temp.melt(var_name="Variable", value_name="Value")
+    number_of_metrics = len(metrics_dic.keys()) 
+    number_of_models = len(which_biomarkers)  
 
-        sns.set_theme(style="ticks", palette="pastel")
+    fig, axes = plt.subplots(number_of_models, number_of_metrics, figsize=(11, 10))
+    for ax in np.ravel(axes):
+        ax.grid(True, axis='x', linestyle='--', color='gray', alpha=0.5)
 
-        sns.boxplot(
-            x="Variable",
-            y="Value",
-            data=df_temp,
-            boxprops=dict(facecolor="dimgrey", alpha=0.7),
-            showfliers=False,
-        )
+    sns.set_theme(style="ticks", palette="pastel")
+    
+    for col_idx, (metric, data) in enumerate(metrics_dic.items()):
 
-        sns.stripplot(
-            x="Variable",
-            y="Value",
-            data=df_temp,
-            color="black",
-            marker="o",
-            size=6,
-            alpha=0.5,
-            jitter=True,
-        )
+        # to select a subset of biomarkers when necessary
+        df_temp = pd.DataFrame(data).loc[:, which_biomarkers]
+        # If user wants to assign new names to the biomarkers
+        if biomarkers_new_name:
+            df_temp.columns = biomarkers_new_name  
+        
+        for row_idx, model in enumerate(df_temp.columns):
 
-        # Set the y-axis to scientific notation
-        ax = plt.gca()
-        ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
-        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+            ax = axes[row_idx, col_idx] 
+            values = df_temp[model] 
 
-        # Move the scale to the top left
-        ax.yaxis.get_offset_text().set_position((-0.1, 1.05))
+            if colors:
+                sns.kdeplot(values, ax=ax, fill=True, color=colors[row_idx], alpha=0.6)
+            else:
+                sns.kdeplot(values, ax=ax, fill=True, alpha=0.6)
 
-        sns.despine(offset=0, trim=True)
-        plt.ylabel(metric.title())
+            sns.rugplot(values, ax=ax, color="black", height=0.1)
+            
+            if x_limits:
+                if metric == "MACE":
+                    ax.set_xlim(x_limits.get("MACE")[0], x_limits.get("MACE")[1])
+                if metric == "skewness":
+                    ax.set_xlim(x_limits.get("skewness")[0], x_limits.get("skewness")[1])
+                if metric == "kurtosis":
+                    ax.set_xlim(x_limits.get("kurtosis")[0], x_limits.get("kurtosis")[1])
+                if metric == "W":
+                    ax.set_xlim(x_limits.get("W")[0], x_limits.get("W")[1])
 
+            ax.set_yticks([])
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+
+            ax.set_title(f"{metric.capitalize()}", fontsize=20) if row_idx == 0 else ax.set_title("")
+            ax.set_ylabel(biomarkers_new_name[row_idx].capitalize(), fontsize=20) if col_idx == 0 else ax.set_ylabel("") 
+            ax.set_xlabel("")
+            ax.tick_params(axis="both", labelsize=16)
+            
+            if row_idx != number_of_models-1: ax.set_xticklabels([]) 
+
+        plt.tight_layout(h_pad=0.01)
         if save_path is not None:
-            os.makedirs(save_path, exist_ok=True)
-            plt.savefig(
-                os.path.join(save_path, f"{metric}_metric.svg"), dpi=600, format="svg"
-            )
-            plt.savefig(
-                os.path.join(save_path, f"{metric}_metric.png"), dpi=600, format="png"
-            )
-
-        plt.close()
+            plt.savefig(os.path.join(save_path, "metric.svg"), dpi=600, format="svg")
+            plt.savefig(os.path.join(save_path, "metric.png"), dpi=600, format="png")
 
 
+# ***
 def qq_plot(processing_dir, 
     save_fig, 
     label_dict, 
