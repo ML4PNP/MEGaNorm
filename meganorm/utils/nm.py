@@ -786,66 +786,136 @@ def abnormal_probability(
 
 
 def aggregate_metrics_across_runs(
-    path,
-    method_name,
-    biomarker_names,
-    valcovfile_path,
-    valrespfile_path,
-    valbefile,
-    metrics=["skewness", "kurtosis", "W", "MACE"],
-    num_runs=10,
-    quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
-    outputsuffix="estimate",
-    zscore_clipping_value=8,
+    path: str,
+    method_name: str,
+    biomarker_names: list,
+    valcovfile_path: str,
+    valrespfile_path: str,  # Corrected semicolon to colon
+    valbefile: str,
+    metrics: list = ["skewness", "kurtosis", "W", "MACE"],
+    num_runs: int = 10,
+    quantiles: list = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
+    outputsuffix: str = "estimate",
+    zscore_clipping_value: float = 8.0,
 ):
+    """
+    Aggregates statistical metrics across multiple runs for given biomarkers.
 
-    # index_labels = [metric + "_" + biomarker_name for metric in metrics for biomarker_name in biomarker_names]
-    # df = pd.DataFrame(index=index_labels, columns=list(range(10)))
+    This function evaluates and aggregates 4 statistical metrics, namely skewness, kurtosis, mean absolute
+    centiles error (MACE), and W, for a set of biomarkers across multiple runs. The resulting data can be
+    used later for plotting. See also: `plot_metrics()`.
+
+    Parameters
+    ----------
+    path : str
+        The directory path containing the individual run folders.
+    method_name : str
+        The name of the method folder within each run's directory. Since different HBR configurations can
+        be saved in each run directory, method_name should be specified.
+    biomarker_names : list of str
+        A list of biomarker names for which metrics are to be calculated.
+    valcovfile_path : str
+        The file path to the validation covariance matrix.
+    valrespfile_path : str
+        The file path to the validation response file.
+    valbefile : str
+        The file path to the validation bivariate evaluation file.
+    metrics : list of str, optional
+        A list of metrics to compute for each biomarker. Options include "skewness", "kurtosis", "W", and "MACE".
+        Default is ["skewness", "kurtosis", "W", "MACE"].
+    num_runs : int, optional
+        The number of runs to aggregate metrics across. Default is 10.
+    quantiles : list of float, optional
+        A list of quantiles to use for MACE evaluation. Default is [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99].
+        This tells the function to calculate MACE for these centiles.
+    outputsuffix : str, optional
+        The suffix to append to output files (e.g., for naming model outputs). Default is "estimate".
+    zscore_clipping_value : float, optional
+        The maximum z-score value for clipping. Any z-score above this threshold will be clipped to this value. Default is 8.0.
+        This is due to the sensitivity of kurtosis to noise. Given that |z| > 8 is almost as equal as |z| = 8, we clip them to 8.
+
+    Returns
+    -------
+    data : dict
+        A dictionary where keys are the metric names (e.g., "skewness", "kurtosis", "W", "MACE") and values 
+        are dictionaries with biomarker names as keys and lists of aggregated metric values across runs as values.
+
+    Notes
+    -----
+    The function performs z-score clipping to limit extreme values, applies the skewness and kurtosis calculations,
+    evaluates MACE using the provided validation data, and computes the W statistic for the test data.
+
+    Example
+    -------
+    data = aggregate_metrics_across_runs(
+        path='/path/to/runs',
+        method_name='method_A',
+        biomarker_names=['biomarker_1', 'biomarker_2'],
+        valcovfile_path='/path/to/valcovfile',
+        valrespfile_path='/path/to/valrespfile',
+        valbefile='/path/to/valbefile',
+        metrics=['MACE', 'W'],
+        num_runs=5
+    )
+    """
+    # Check if all requested metrics are supported
+    for elem in metrics:
+        if elem not in ["skewness", "kurtosis", "W", "MACE"]:
+            raise ValueError(f"{elem} is not supported. Supported metrics include 'skewness', 'kurtosis', 'W', 'MACE'.")
+
     data = {
         metric: {biomarker_name: [] for biomarker_name in biomarker_names}
         for metric in metrics
     }
 
+    # Loop through each run
     for run in range(num_runs):
-
         run_path = path.replace("Run_0", f"Run_{run}")
-        with open(os.path.join(run_path, method_name, "Z_estimate.pkl"), "rb") as file:
+        valcovfile_path = valcovfile_path.replace("Run_0", f"Run_{run}")
+        valrespfile_path = valrespfile_path.replace("Run_0", f"Run_{run}")
+        valbefile = valbefile.replace("Run_0", f"Run_{run}")
+
+        # Load z-scores for the current run
+        temp_path = os.path.join(run_path, method_name, "Z_estimate.pkl")
+        with open(temp_path, "rb") as file:
             z_scores = pickle.load(file)
 
-            # clipping
-            z_scores = z_scores.applymap(
-                lambda x: zscore_clipping_value if abs(x) > zscore_clipping_value else x
-            )
+        # Apply z-score clipping
+        z_scores = z_scores.applymap(
+            lambda x: zscore_clipping_value if abs(x) > zscore_clipping_value else x
+        )
 
-            for metric in metrics:
-                values = []
+        # Evaluate metrics for the current run
+        for metric in metrics:
+            values = []
 
-                if metric == "MACE":
-                    for ind in range(len(biomarker_names)):
-                        values.append(
-                            evaluate_mace(
-                                os.path.join(run_path, method_name, "Models"),
-                                valcovfile_path,
-                                valrespfile_path,
-                                valbefile,
-                                model_id=ind,
-                                quantiles=quantiles,
-                                outputsuffix=outputsuffix,
-                            )
+            if metric == "MACE":
+                for ind in range(len(biomarker_names)):
+                    values.append(
+                        evaluate_mace(
+                            os.path.join(run_path, method_name, "Models"),
+                            valcovfile_path,
+                            valrespfile_path,
+                            valbefile,
+                            model_id=ind,
+                            quantiles=quantiles,
+                            outputsuffix=outputsuffix,
                         )
+                    )
 
-                if metric == "W":
-                    with open(os.path.join(run_path, "x_test.pkl"), "rb") as file:
-                        cov = pickle.load(file)
-                    values.extend(shapiro_stat(z_scores, cov))
+            if metric == "W":
+                with open(os.path.join(run_path, "x_test.pkl"), "rb") as file:
+                    cov = pickle.load(file)
+                values.extend(shapiro_stat(z_scores, cov))
 
-                if metric == "skewness":
-                    values.extend(skew(z_scores))
+            if metric == "skewness":
+                values.extend(skew(z_scores))
 
-                if metric == "kurtosis":
-                    values.extend(kurtosis(z_scores))
+            if metric == "kurtosis":
+                values.extend(kurtosis(z_scores))
 
-                for counter, name in enumerate(biomarker_names):
-                    data[metric][name].append(values[counter])
+            # Store values in the data dictionary for each biomarker
+            for counter, name in enumerate(biomarker_names):
+                data[metric][name].append(values[counter])
 
     return data
