@@ -528,8 +528,8 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
 
     return feature_container
 
-def feature_extract(subjectId: str, 
-                    fmGroup: f.fooof, 
+def feature_extract(subject_id: str, 
+                    fmGroup: f.FOOOF, 
                     psds: np.ndarray, 
                     feature_categories: Dict[str, bool], 
                     freqs: np.ndarray, 
@@ -546,9 +546,9 @@ def feature_extract(subjectId: str,
 
     Parameters
     ----------
-    subjectId : str
+    subject_id : str
         Subject identifier.
-    fmGroup : f.fooof
+    fmGroup : f.FOOOF
         Group of FOOOF models, where each channel has a corresponding FOOOF object.
     psds : np.ndarray
         Original power spectral density (not flattened).
@@ -801,7 +801,7 @@ def feature_extract(subjectId: str,
         for col in feature_container.columns
     ]
 
-    final_df.index = [subjectId]
+    final_df.index = [subject_id]
 
     return final_df
 
