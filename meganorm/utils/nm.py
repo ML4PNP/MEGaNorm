@@ -688,8 +688,42 @@ def kfold_split(
 
 
 def prepare_prediction_data(
-    data, save_path, covariates=["age"], batch_effects=None, drop_nans=False, prefix=""
-):
+    data: pd.DataFrame,
+    save_path: str,
+    covariates: list[str] = ["age"],
+    batch_effects: list[str] = None,
+    drop_nans: bool = False,
+    prefix: str = ""
+) -> None:
+    """
+    Prepares and saves test data (covariates, batch effects, and targets) 
+    for normative model prediction.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Input dataframe containing covariates, batch effects, and target biomarkers.
+    save_path : str
+        Directory to save the output .pkl files.
+    covariates : list of str, optional
+        List of column names to be used as covariates (default is ["age"]).
+    batch_effects : list of str, optional
+        List of column names to be treated as batch effects. If None, a dummy batch column is used.
+    drop_nans : bool, optional
+        Whether to drop rows containing NaN values (default is False).
+    prefix : str, optional
+        Prefix for the saved .pkl file names (default is "").
+
+    Saves
+    -----
+    - {prefix}x_test.pkl : Covariates.
+    - {prefix}y_test.pkl : Target values (biomarkers).
+    - {prefix}b_test.pkl : Batch effects or dummy batch variable.
+
+    Returns
+    -------
+    None
+    """
 
     os.makedirs(save_path, exist_ok=True)
 
