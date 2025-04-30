@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import scipy.stats as st
 import seaborn as sns
 import pandas as pd
+from typing import Union
 import plotly.graph_objects as go
 import matplotlib.ticker as mticker
 from scipy.stats import chi2
@@ -651,6 +652,7 @@ def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percenti
     fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.svg"))
     fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.png"))
 
+
 # ***
 def plot_nm_range_site(
     processing_dir,
@@ -856,146 +858,115 @@ def box_plot_auc(
         plt.savefig(os.path.join(save_path, "AUCs.svg"), dpi=600, format="svg")
         plt.savefig(os.path.join(save_path, "AUCs.png"), dpi=600, format="png")
 
+
 # ***
-def joint_z_scores_scatter_plot(X, Y, bands_name, z_values = [0.674, 1.645], colors = ['#a0a0a0', '#202020'], save_path=None):
+def z_scores_scatter_plot(
+    X,
+    Y,
+    bands_name=["Theta", "Beta"],
+    lower_lim: float = -4.0,
+    upper_lim: float = 4.0,
+    ticks: list = None,
+    box_z_values: list = [0.674, 1.645],
+    box_colors: list = ['#a0a0a0', '#202020'],
+    save_path: str = None
+):
     """
-    Creates a joint scatter plot of two z-scored features (e.g., neural bands), with visual cues for effect size and confidence.
+    Creates a 2D scatter plot of z-scores between two bands (e.g., Theta and Beta),
+    with overlaid contour boxes representing specific z-score boundaries.
 
-    Args:
-        X (array-like): Z-scores for the x-axis (e.g., one frequency band).
-        Y (array-like): Z-scores for the y-axis (e.g., another frequency band).
-        bands_name (list[str]): Names of the bands being compared, e.g., ['alpha', 'beta'].
-        save_path (str, optional): Directory to save the plot. Saves SVG and PNG if provided.
+    Parameters
+    ----------
+    X : array-like
+        Z-scores for the x-axis (e.g., Theta band).
+    Y : array-like
+        Z-scores for the y-axis (e.g., Beta band).
+    bands_name : list of str, optional
+        Names of the bands to label the axes and colorbar. Default is ['Theta', 'Beta'].
+    lower_lim : float, optional
+        Lower axis limit for both x and y. Default is -4.0.
+    upper_lim : float, optional
+        Upper axis limit for both x and y. Default is 4.0.
+    ticks : list, optional
+        Custom tick locations for both axes. If None, default ticks are used.
+    box_z_values : list of float, optional
+        List of z-score thresholds to draw square boundary boxes. Must match `box_colors`.
+    box_colors : list of str, optional
+        List of colors for each corresponding `box_z_value`. Must match in length.
+    save_path : str, optional
+        Directory to save the plot as SVG and PNG. If None, the plot is not saved.
 
-    Returns:
-        None. Displays and optionally saves the plot.
+    Raises
+    ------
+    ValueError
+        If `box_z_values` and `box_colors` are not of equal length.
     """
-    if X.ndim != 1 or Y.ndim != 1:
-        raise ValueError("X and Y must be 1-dimensional arrays.")
-    if X.shape[0] != Y.shape[0]:
-        raise ValueError("X and Y must be the same length.")
-    if len(z_values) != len(colors):
-        raise ValueError("Length of 'z_values' and 'colors' must match.")
 
-    X = np.array(X)  
-    Y = np.array(Y)  
+    if len(box_z_values) != len(box_colors):
+        raise ValueError("Length of 'box_z_values' and 'box_colors' must be equal.")
+
+    X = np.asarray(X)
+    Y = np.asarray(Y)
 
     fig, ax = plt.subplots(figsize=(7, 6))
-    plt.xlim(-4.2, 4.)
-    plt.ylim(-4.2, 4.)
-    
+    ax.set_xlim(lower_lim, upper_lim)
+    ax.set_ylim(lower_lim, upper_lim)
+
+    # Compute point sizes relative to X values
     sizes = 20 + (X - np.min(X)) / (np.max(X) - np.min(X)) * 500
+
+    # Scatter plot (size ~ X, color ~ Y)
     scatter = ax.scatter(
         X, Y, s=sizes, c=Y, cmap="inferno_r", edgecolor="black", alpha=0.8,
         vmin=np.min(Y), vmax=np.max(Y)
     )
 
-    # Color gradient bar to show Y (Beta) effect
+    # Colorbar
     sm = plt.cm.ScalarMappable(cmap="inferno_r", norm=plt.Normalize(vmin=np.min(Y), vmax=np.max(Y)))
     sm.set_array([])
-    cbar_scatter = plt.colorbar(sm, ax=ax, fraction=0.05, pad=0.02)
-    cbar_scatter.set_label(f"{bands_name[1]} z-scores", fontsize=20)
-    cbar_scatter.ax.tick_params(labelsize=0, length=0)
+    cbar = plt.colorbar(sm, ax=ax, fraction=0.05, pad=0.02)
+    cbar.set_label(f"{bands_name[1].capitalize()} z-scores", fontsize=20)
+    cbar.ax.tick_params(labelsize=0, length=0)
 
-    ax.set_xlabel(f'{bands_name[0].capitalize()} z-scores', fontsize=22)
-    ax.set_ylabel(f'{bands_name[1].capitalize()} z-scores', fontsize=22)
+    # Axis labels
+    ax.set_xlabel(f"{bands_name[0].capitalize()} z-scores", fontsize=22)
+    ax.set_ylabel(f"{bands_name[1].capitalize()} z-scores", fontsize=22)
 
-    # Remove unnecessary spines
+    # Clean up spines
     ax.spines["right"].set_visible(False)
     ax.spines["top"].set_visible(False)
     ax.spines["bottom"].set_position(('outward', 10))
     ax.spines["left"].set_position(('outward', 10))
 
-    # Draw square contour regions with sharp edges to show
-    # different centiles of variation
-    for i in range(len(z_values)):
-        bound = list(reversed(z_values))[i]
+    # Draw filled boxes and borders
+    for i in range(len(box_z_values)):
+        bound = list(reversed(box_z_values))[i]
         ax.add_patch(plt.Rectangle(
-            (-bound, -bound), 2*bound, 2*bound,
-            color=colors[i], alpha=0.4, ec=None
+            (-bound, -bound), 2 * bound, 2 * bound,
+            color=box_colors[i], alpha=0.4, ec=None
         ))
         ax.add_patch(plt.Rectangle(
-            (-bound, -bound), 2*bound, 2*bound,
+            (-bound, -bound), 2 * bound, 2 * bound,
             fill=False, edgecolor='black', linewidth=3
         ))
-        
-    plt.tight_layout()
-    ax.set_yticks([-4, -2, 0, 2, 4])
+
+    # Axis ticks
+    if ticks:
+        ax.set_xticks(ticks)
+        ax.set_yticks(ticks)
+    else:
+        ax.set_xticks([-4, -2, 0, 2, 4])
+        ax.set_yticks([-4, -2, 0, 2, 4])
     ax.tick_params(axis='both', labelsize=18)
 
-    if save_path:
-        plt.savefig(os.path.join(save_path, f"{bands_name[0]}_{bands_name[1]}_z_scores_scatter.svg"), dpi=600, format="svg")
-        plt.savefig(os.path.join(save_path, f"{bands_name[0]}_{bands_name[1]}_z_scores_scatter.png"), dpi=600, format="png")
-
-    plt.show()
-
-
-def z_scores_scatter_plot_continuum(
-    X, Y, bands_name=["theta", "beta"], thr=0.68, save_path=None
-):
-    plt.figure(figsize=(10, 8))
-
-    plt.ylim((-4, 4))
-    plt.xlim((-4, 4))
-
-    # Define a continuous color scale using the magnitude of X and Y
-    color_values = np.sqrt(
-        np.array(X) ** 2 + np.array(Y) ** 2
-    )  # Using Euclidean distance
-
-    # Normalize the color scale from 0-3.5 to improve contrast
-    norm = mcolors.Normalize(vmin=0, vmax=3.5)
-
-    # Create scatter plot with a colormap
-    scatter = plt.scatter(
-        X,
-        Y,
-        c=color_values,
-        cmap="coolwarm",
-        norm=norm,
-        edgecolors="black",
-        linewidth=0.2,
-    )
-
-    # Add the gray region and lines
-    plt.fill_betweenx(
-        y=[-thr, thr], x1=-thr, x2=thr, color="gray", alpha=0.5, label=f"|z| < {thr}"
-    )
-    plt.hlines(
-        y=[-thr, thr], xmin=-4, xmax=4, colors="black", linestyles="--", linewidth=1.5
-    )
-    plt.vlines(
-        x=[-thr, thr], ymin=-4, ymax=4, colors="black", linestyles="--", linewidth=1.5
-    )
-
-    # Set axis ticks
-    ticks = [-3, -thr, 0, thr, 3]
-    plt.xticks(ticks)
-    plt.yticks(ticks)
-
-    # Labeling
-    plt.xlabel(f"{bands_name[0]} z-scores", fontsize=16)
-    plt.ylabel(f"{bands_name[1]} z-scores", fontsize=16)
-
-    # Style the plot
-    plt.grid(alpha=0.5)
-    plt.gca().spines["right"].set_visible(False)
-    plt.gca().spines["top"].set_visible(False)
-    plt.gca().spines["left"].set_visible(False)
-    plt.gca().spines["bottom"].set_visible(False)
-
-    # Add colorbar
-    cbar = plt.colorbar(scatter)
-    cbar.set_label("Magnitude of z-scores")
-
-    # Finalize and save the plot
     plt.tight_layout()
-    if save_path:
-        plt.savefig(
-            os.path.join(save_path, "z_scores_scatter.svg"), dpi=600, format="svg"
-        )
 
-    plt.show()
+    # Save if path is specified
+    if save_path:
+        os.makedirs(save_path, exist_ok=True)
+        base_name = f"{bands_name[0].capitalize()}_{bands_name[1].capitalize()}_z_scores_scatter"
+        plt.savefig(os.path.join(save_path, f"{base_name}.svg"), dpi=600, format="svg")
+        plt.savefig(os.path.join(save_path, f"{base_name}.png"), dpi=600, format="png")
 
 
 def z_scores_contour_plot(
@@ -1080,109 +1051,6 @@ def z_scores_contour_plot(
 
     plt.show()
 
-
-def z_scores_quadrant_contour_plot(
-    X, Y, bands_name, percentiles=[0.05, 0.25, 0.50, 0.75, 0.95], save_path=None
-):
-    # Convert data to a Pandas DataFrame
-    data = pd.DataFrame({"X": X, "Y": Y})
-
-    # Compute magnitude of Z-scores, the higher magnitude, the darker colour
-    data["Magnitude"] = np.sqrt(data["X"] ** 2 + data["Y"] ** 2)
-
-    # Assign quadrants
-    conditions = [
-        (data["X"] >= 0) & (data["Y"] >= 0),
-        (data["X"] < 0) & (data["Y"] >= 0),
-        (data["X"] < 0) & (data["Y"] < 0),
-        (data["X"] >= 0) & (data["Y"] < 0),
-    ]
-    choices = ["Q1", "Q2", "Q3", "Q4"]
-    data["Quadrant"] = np.select(conditions, choices)
-
-    # Define quadrant colormaps
-    quadrant_cmaps = {
-        "Q1": plt.cm.Reds,
-        "Q2": plt.cm.YlGn,
-        "Q3": plt.cm.GnBu,
-        "Q4": plt.cm.RdPu,
-    }
-
-    # Set Fixed Color Normalization Range (-3.5 to 3.5)
-    norm = plt.Normalize(vmin=0, vmax=3.5)
-
-    # figure
-    fig, ax = plt.subplots(figsize=(8, 8))
-
-    # Contour plot for threshold
-    delta = 0.025
-    x = np.arange(-4.0, 4.0, delta)
-    y = np.arange(-4.0, 4.0, delta)
-    xx, yy = np.meshgrid(x, y)
-    Z_magnitude = np.sqrt(xx**2 + yy**2)
-
-    # Compute contour levels
-    # Compute Mahalanobis distances for each percentile, bc multivariate normal distribution
-    # bivariate normal distribution, the Mahalanobis distance follows a chi-squared distribution with 2 degrees of freedom
-    thr = [np.sqrt(chi2.ppf(p, df=2)) for p in percentiles]
-    levels = thr
-
-    contour = ax.contour(
-        xx,
-        yy,
-        Z_magnitude,
-        levels=levels,
-        colors="black",
-        linewidths=2,
-        linestyles="dashed",
-    )
-
-    # Labels
-    percentile_labels = [f"{int(p * 100)}th" for p in percentiles]
-    fmt = {
-        thr[i]: percentile_labels[i] for i in range(len(thr))
-    }  # Map contour levels to labels
-    ax.clabel(contour, fmt=fmt, fontsize=10)
-
-    # Ensure each quadrant gets visible coolours depending on mgnitude
-    for quadrant, cmap in quadrant_cmaps.items():
-        subset = data[data["Quadrant"] == quadrant]
-
-        if not subset.empty:
-            colors = cmap(norm(subset["Magnitude"]))
-            # Scatter plot
-            ax.scatter(
-                subset["X"],
-                subset["Y"],
-                color=colors,
-                edgecolors="black",
-                linewidth=0.3,
-                alpha=0.9,
-                s=50,
-            )
-
-    # Axis settings
-    ax.set_xlim(-4, 4)
-    ax.set_ylim(-4, 4)
-    ticks = [-3, -2, -1, 0, 1, 2, 3]
-    plt.xticks(ticks)
-    plt.yticks(ticks)
-    ax.grid(alpha=0.5)
-    ax.spines["right"].set_visible(False)
-    ax.spines["top"].set_visible(False)
-
-    # Labels & Title
-    plt.xlabel(f"{bands_name[0]} z-scores", fontsize=16)
-    plt.ylabel(f"{bands_name[1]} z-scores", fontsize=16)
-    ax.set_title("Z-scores contour plot", fontsize=18)
-
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(
-            os.path.join(save_path, "z_scores_contour_plot.svg"), dpi=600, format="svg"
-        )
-
-    plt.show()
 
 # ***
 def plot_metrics(
