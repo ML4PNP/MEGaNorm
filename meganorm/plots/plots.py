@@ -328,7 +328,6 @@ def plot_age_hist(df, site_names, save_path,
     plt.savefig(os.path.join(save_path, "age_hist.svg"), format="svg", dpi=600, bbox_inches="tight")
     plt.savefig(os.path.join(save_path, "age_hist.png"), format="png", dpi=600, bbox_inches="tight")
 
-    
 
 def plot_neurooscillochart(data, age_slices, save_path):
 
@@ -396,7 +395,6 @@ def plot_neurooscillochart(data, age_slices, save_path):
     else:
         plt.show()
         
-
 
 def plot_growthchart(age_vector, centiles_matrix, cut=0, idp="", save_path=None):
     """Plots growth chart for two sexes.
@@ -535,6 +533,7 @@ def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100, num_o
             x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path
         )
 
+
 def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
                         title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False, bio_name=None, save_path=""):
     """
@@ -652,7 +651,7 @@ def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percenti
     fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.svg"))
     fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.png"))
 
-
+# ***
 def plot_nm_range_site(
     processing_dir,
     data_dir,
@@ -780,57 +779,82 @@ def plot_nm_range_site(
 
 
 # ***
-def box_plot_auc(df_AUCs, save_path, color="teal", showfliers=False, jitter=True):
-    """ 
-    Creates a box plot with overlaid strip plot to visualize AUC distributions.
+def box_plot_auc(
+    df: pd.DataFrame,
+    save_path: str,
+    color: Union[str, list] = "teal",
+    alpha: float = 0.7,
+    biomarkers_new_name: list = None
+):
+    """
+    Creates and saves a boxplot with stripplot overlay showing AUC values for different biomarkers.
+    Supports transparency (`alpha`) and individual colors per biomarker.
 
-    Args:
-        df_AUCs (pd.DataFrame): DataFrame where each column represents AUCs of a model/condition.
-        save_path (str): Directory where the plot images will be saved.
-        color (str): Color for boxplot fill.
-        showfliers (bool): Whether to show outlier points in the boxplot.
-        jitter (bool): Whether to jitter the individual data points in strip plot.
-
-    Returns:
-        matplotlib.figure.Figure: The matplotlib figure object.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame where each column represents a biomarker and each row an AUC value.
+    save_path : str
+        Directory to save the output plots.
+    color : str or list of str
+        Color for the boxes. If a list, must match number of biomarkers.
+    alpha : float
+        Transparency of the box colors (0 to 1).
+    biomarkers_new_name : list, optional
+        New labels for the biomarkers (x-axis). Must match number of columns.
     """
 
-    sns.set_theme(style="ticks", palette="pastel")
+    if biomarkers_new_name:
+        if len(biomarkers_new_name) != len(df.columns):
+            raise ValueError("Length of 'biomarkers_new_name' must match number of columns in df.")
+        df.columns = biomarkers_new_name
 
-    os.makedirs(save_path, exist_ok=True)
+    data_long = pd.melt(df)
 
-    data_long = pd.melt(df_AUCs)
+    if isinstance(color, str):
+        palette = [color] * len(df.columns)
+    elif isinstance(color, list):
+        if len(color) != len(df.columns):
+            raise ValueError("If 'color' is a list, it must match the number of biomarkers.")
+        palette = color
+    else:
+        raise TypeError("'color' must be a string or a list of strings.")
 
-    fig = plt.figure(figsize=(6, 5))
-    sns.boxplot(x='variable', y='value', data=data_long, boxprops=dict(facecolor=color, alpha=0.7),  
-                showfliers=showfliers)
+    sns.set_theme(style="ticks")
+    plt.figure(figsize=(6, 5))
+    ax = sns.boxplot(x='variable', y='value', data=data_long, palette=palette, showfliers=False)
 
-    sns.stripplot(x='variable', y='value', data=data_long,             
-                  color='black', 
-                  marker='o', 
-                  size=6, 
-                  alpha=0.6, 
-                  jitter=jitter)
+    # Apply alpha to each PathPatch (box area)
+    num_boxes = len(df.columns)
+    for i, patch in enumerate(ax.patches[:num_boxes]):
+        patch.set_facecolor(palette[i])
+        patch.set_alpha(alpha)
+        patch.set_edgecolor("black")
+        patch.set_linewidth(1.5)
+
+    # Add stripplot
+    sns.stripplot(
+        x='variable',
+        y='value',
+        data=data_long,
+        color='black',
+        size=6,
+        alpha=0.6,
+        jitter=True
+    )
 
     sns.despine(offset=0, trim=True)
-
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=18)
-    plt.ylabel('AUC', fontsize=20)
+    plt.ylabel("AUC", fontsize=20)
     plt.xlabel("")
-    plt.grid()
-
-    plt.gca().spines["right"].set_visible(False)
-    plt.gca().spines["top"].set_visible(False)
-
+    plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
     plt.tight_layout()
 
-    fig_path_svg = os.path.join(save_path, "AUC_box_plot.svg")
-    fig_path_png = os.path.join(save_path, "AUC_box_plot.png")
-    fig.savefig(fig_path_svg, dpi=600, format="svg")
-    fig.savefig(fig_path_png, dpi=600, format="png")
-
-    return fig
+    if save_path:
+        os.makedirs(save_path, exist_ok=True)
+        plt.savefig(os.path.join(save_path, "AUCs.svg"), dpi=600, format="svg")
+        plt.savefig(os.path.join(save_path, "AUCs.png"), dpi=600, format="png")
 
 # ***
 def joint_z_scores_scatter_plot(X, Y, bands_name, z_values = [0.674, 1.645], colors = ['#a0a0a0', '#202020'], save_path=None):
@@ -904,9 +928,6 @@ def joint_z_scores_scatter_plot(X, Y, bands_name, z_values = [0.674, 1.645], col
         plt.savefig(os.path.join(save_path, f"{bands_name[0]}_{bands_name[1]}_z_scores_scatter.png"), dpi=600, format="png")
 
     plt.show()
-
-
-
 
 
 def z_scores_scatter_plot_continuum(

@@ -15,7 +15,7 @@ from scipy.stats import false_discovery_control
 from meganorm.plots.plots import KDE_plot
 from sklearn.model_selection import train_test_split
 
-
+#**
 def hbr_data_split(
     data,
     save_path,
@@ -493,7 +493,7 @@ def shapiro_stat(z_scores, covariates, n_bins=10):
 
     return test_statistics.mean(axis=0)
 
-
+#**
 def estimate_centiles(
     processing_dir,
     bio_num,
@@ -592,7 +592,6 @@ def estimate_centiles(
     return q
 
 
-
 def saving(data, path, counter, tag, split):
     fold_path = os.path.join(path, f"{tag}_fold_{counter}_{split}.pkl")
     data.to_pickle(fold_path)
@@ -686,7 +685,7 @@ def kfold_split(
 
     return folds_path
 
-
+#**
 def prepare_prediction_data(
     data: pd.DataFrame,
     save_path: str,
@@ -791,45 +790,81 @@ def cal_stats_for_gauge(q_path, features, site_id, gender_id, age, num_of_datase
         statistics[features[ind]].extend(biomarker_stats)
     return statistics
 
-
+#**
 def abnormal_probability(
-    processing_dir, nm_processing_dir, site_id, n_permutation=1000
+    processing_dir: str,
+    nm_processing_dir: str,
+    n_permutation: int = 1000,
+    site_id: int = None,
+    healthy_data_prefix: str = "",
+    patient_data_prefix: str = ""
 ):
+    """
+    Computes the abnormality probability index for both control and patient groups
+    based on z-scores from normative modeling. Then calculates the AUC between 
+    these two groups and estimates the statistical significance of AUC values using 
+    permutation testing. Finally, it applies false discovery rate (FDR) correction 
+    to the p-values.
 
-    with open(os.path.join(processing_dir, "Z_clinicalpredict.pkl"), "rb") as file:
+    Parameters
+    ----------
+    processing_dir : str
+        Path to the directory containing z-score files.
+    nm_processing_dir : str
+        Path to normative modeling directory containing batch info.
+    n_permutation : int, optional
+        Number of permutations for statistical testing (default is 1000).
+    site_id : int, optional
+        If provided, filters both healthy and patient data by this site ID.
+    healthy_data_prefix : str, optional
+        Prefix used for healthy subject files (e.g., 'control').
+    patient_data_prefix : str, optional
+        Prefix used for patient subject files (e.g., 'patient').
+
+    Returns
+    -------
+    p_val : np.ndarray
+        Adjusted p-values for each biomarker based on FDR correction.
+    auc : np.ndarray
+        AUC values comparing abnormal probability between groups.
+    """
+    
+    # Load z-scores
+    with open(os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb") as file:
         z_patient = pickle.load(file)
-
-    with open(os.path.join(processing_dir, "Z_estimate.pkl"), "rb") as file:
+    with open(os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb") as file:
         z_healthy = pickle.load(file)
 
-    with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
-        b_healthy = pickle.load(file)
+    # Filter by site if specified
+    if site_id is not None:
+        # Control group
+        with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
+            b_healthy = pickle.load(file)
+        z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
 
-    z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
+        # Patient group
+        with open(os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb") as file:
+            b_patient = pickle.load(file)
+        z_patient = z_patient.iloc[np.where(b_patient["site"] == site_id)[0], :]
 
-    # z_patient = pd.concat([z_patient, np.sqrt((z_patient.iloc[:, [0, 1, 2, 3]]**2).mean(axis=1))], axis=1)
-    # z_healthy = pd.concat([z_healthy, np.sqrt((z_healthy.iloc[:, [0, 1, 2, 3]]**2).mean(axis=1))], axis=1)
-
+    # Convert z-scores to abnormal probabilities
     p_patient = z_to_abnormal_p(z_patient)
     p_healthy = z_to_abnormal_p(z_healthy)
 
-    p_patient = np.hstack(
-        [p_patient, p_patient[:, [0, 2, 3]].mean(axis=1).reshape(-1, 1)]
-    )
-    p_healthy = np.hstack(
-        [p_healthy, p_healthy[:, [0, 2, 3]].mean(axis=1).reshape(-1, 1)]
-    )
-
+    # Combine for AUC analysis
     p = np.concatenate([p_patient, p_healthy])
+    # Assign 0 to control group and 1 to patient group as label
     labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
 
+    # Compute AUC and p-values
     auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
 
+    # FDR correction
     p_val = false_discovery_control(p_val)
 
     return p_val, auc
 
-
+#**
 def aggregate_metrics_across_runs(
     path: str,
     method_name: str,
