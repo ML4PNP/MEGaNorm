@@ -498,88 +498,99 @@ def estimate_centiles(
     processing_dir,
     bio_num,
     quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
-    batch_map={0: {"Male": 0, "Female": 1}, 1: {"CAMCAN": 0, "BTNRH": 1}},
-    age_range=[0, 100],
+    batch_sizes=[2, 6],  # e.g., 2 sexes, 2 sites
+    age_range=(0, 100),
     point_num=100,
     outputsuffix="estimate",
     save=True,
 ):
+    """
+    Estimate centile curves using a normative model for synthetic subjects across batch combinations.
 
+    Parameters
+    ----------
+    processing_dir : str
+        Path to the normative modeling output directory.
+    bio_num : int
+        Number of biomarkers or target variables (i.e., number of models to load).
+    quantiles : list of float, optional
+        List of quantiles to estimate (default is [0.05, 0.25, 0.5, 0.75, 0.95]).
+    batch_sizes : list of int, optional
+        List indicating number of levels for each batch variable.
+        Example: [2, 2] for two binary batch variables (e.g., sex and site).
+    age_range : tuple of float, optional
+        Age range over which to generate synthetic samples (default is (0, 100)).
+    point_num : int, optional
+        Number of age points per batch combination (default is 100).
+    outputsuffix : str, optional
+        Suffix used when loading model output files (default is 'estimate').
+    save : bool, optional
+        If True, saves the estimated quantiles and synthetic inputs to disk (default is True).
+
+    Returns
+    -------
+    q : np.ndarray
+        Estimated quantile array of shape (N, Q, B) where:
+        - N is the number of synthetic points,
+        - Q is the number of quantiles,
+        - B is the number of biomarkers.
+    """
     z_scores = st.norm.ppf(quantiles)
 
-    group_sizes = [len(batch_map[key].items()) for key in batch_map.keys()]
-    ranges = [range(size) for size in group_sizes]
-    combinations = list(itertools.product(*ranges))
-    batch_effects = np.array(
-        [combination for combination in combinations for _ in range(point_num)]
-    )
-    synthetic_X = np.vstack(
-        [
-            np.linspace(age_range[0], age_range[1], point_num)[:, np.newaxis]
-            for i in range(np.product(group_sizes))
-        ]
-    )
+    # Generate all combinations of batch levels
+    combinations = list(itertools.product(*[range(size) for size in batch_sizes]))
 
-    meta_data = pickle.load(
-        open(
-            os.path.join(processing_dir, "batch_" + str(1), "Models/meta_data.md"), "rb"
-        )
-    )
+    # Construct synthetic inputs
+    batch_effects = np.repeat(combinations, point_num, axis=0)
+    synthetic_X = np.vstack([
+        np.linspace(age_range[0], age_range[1], point_num)[:, np.newaxis]
+        for _ in range(len(combinations))
+    ])
 
-    if len(meta_data["scaler_cov"]) > 0:
+    # Load input scaler from first model
+    meta_path = os.path.join(processing_dir, "batch_1", "Models", "meta_data.md")
+    with open(meta_path, "rb") as f:
+        meta_data = pickle.load(f)
+
+    if meta_data.get("scaler_cov"):
         in_scaler = meta_data["scaler_cov"][0]
         scaled_synthetic_X = in_scaler.transform(synthetic_X)
     else:
-        in_scaler = None
-        scaled_synthetic_X = synthetic_X / 100
+        scaled_synthetic_X = synthetic_X / 100  # fallback assumption
 
-    q = np.zeros([scaled_synthetic_X.shape[0], len(quantiles), bio_num])
+    q = np.zeros((scaled_synthetic_X.shape[0], len(quantiles), bio_num))
 
     for model_id in range(bio_num):
+        model_path = os.path.join(processing_dir, f"batch_{model_id + 1}", "Models")
 
-        meta_data = pickle.load(
-            open(
-                os.path.join(
-                    processing_dir, "batch_" + str(model_id + 1), "Models/meta_data.md"
-                ),
-                "rb",
-            )
-        )
-        nm = pickle.load(
-            open(
-                os.path.join(
-                    processing_dir,
-                    "batch_" + str(model_id + 1),
-                    "Models/NM_0_0_" + outputsuffix + ".pkl",
-                ),
-                "rb",
-            )
-        )
+        with open(os.path.join(model_path, "meta_data.md"), "rb") as f:
+            meta_data = pickle.load(f)
+
+        with open(os.path.join(model_path, f"NM_0_0_{outputsuffix}.pkl"), "rb") as f:
+            nm = pickle.load(f)
+
         q[:, :, model_id] = nm.get_mcmc_quantiles(
             scaled_synthetic_X, batch_effects, z_scores=z_scores
         ).T
 
-        if len(meta_data["scaler_resp"]) > 0:
+        if meta_data.get("scaler_resp"):
             out_scaler = meta_data["scaler_resp"][0]
             for i in range(len(z_scores)):
                 q[:, i, model_id] = out_scaler.inverse_transform(q[:, i, model_id])
 
-        print(f"Quantiles for model {model_id} are estimated.")
+        print(f"Quantiles for model {model_id} estimated.")
 
     if save:
-        with open(
-            os.path.join(processing_dir, "Quantiles_" + outputsuffix + ".pkl"), "wb"
-        ) as file:
-            pickle.dump(
-                {
-                    "quantiles": q,
-                    "synthetic_X": synthetic_X,
-                    "batch_effects": batch_effects,
-                },
-                file,
-            )
+        out_path = os.path.join(processing_dir, f"Quantiles_{outputsuffix}.pkl")
+        with open(out_path, "wb") as f:
+            pickle.dump({
+                "quantiles": q,
+                "synthetic_X": synthetic_X,
+                "batch_effects": np.array(batch_effects)
+            }, f)
 
     return q
+
 
 
 def saving(data, path, counter, tag, split):

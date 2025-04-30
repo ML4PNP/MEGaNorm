@@ -398,143 +398,6 @@ def plot_neurooscillochart(data, age_slices, save_path):
         
 
 
-    
-
-def plot_nm_range_site(
-    processing_dir,
-    data_dir,
-    quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
-    save_plot=True,
-    outputsuffix="estimate",
-    experiment_id=0,
-    batch_curve={0: ["Male", "Female"]},
-    batch_marker={1: ["CAMCAN", "BTNRH"]},
-):
-    """Function to plot notmative ranges. This function assumes only gender as batch effect
-    stored in the first column of batch effect array.
-
-    Args:
-        processing_dir (str): Path to normative modeling processing directory.
-        quantiles (list, optional): Plotted centiles. Defaults to [0.05, 0.25, 0.5, 0.75, 0.95].
-        ind (int, optional): Index of target biomarker to plot. Defaults to 0.
-        parallel (bool, optional): Is parallel NM used to estimate the model?. Defaults to True.
-        save_plot (bool, optional): Save the plot?. Defaults to True.
-        outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
-    """
-
-    z_scores = st.norm.ppf(quantiles)
-    testrespfile_path = os.path.join(data_dir, "y_test.pkl")
-    testcovfile_path = os.path.join(data_dir, "x_test.pkl")
-    tsbefile = os.path.join(data_dir, "b_test.pkl")
-    quantiles_path = os.path.join(processing_dir, "Quantiles_" + outputsuffix + ".pkl")
-
-    X_test = pickle.load(open(testcovfile_path, "rb")).to_numpy(float)
-    be_test = pickle.load(open(tsbefile, "rb")).to_numpy(float)
-    Y_test = pickle.load(open(testrespfile_path, "rb"))
-    temp = pickle.load(open(quantiles_path, "rb"))
-    q = temp["quantiles"]
-    synthetic_X = temp["synthetic_X"]
-    quantiles_be = temp["batch_effects"]
-
-    X_test = X_test * 100
-
-    colors = ["#00BFFF", "#FF69B4"]
-
-    curve_indx = list(batch_curve.keys())[0]
-    hue_indx = list(batch_marker.keys())[0]
-
-    for ind in range(q.shape[2]):
-
-        bio_name = Y_test.columns[ind]
-        y_test = Y_test.to_numpy(float)[:, ind : ind + 1]
-
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6), sharex=True, sharey=True)
-
-        for be1 in list(np.unique(be_test[:, curve_indx])):
-
-            # Male
-            ts_idx = np.logical_and(
-                be_test[:, curve_indx] == be1, be_test[:, hue_indx] == 0
-            )
-            ax.scatter(
-                X_test[ts_idx],
-                y_test[ts_idx],
-                s=35,
-                alpha=0.6,
-                label=[*batch_curve.values()][0][int(be1)]
-                + " "
-                + [*batch_marker.values()][0][0],
-                color=colors[int(be1)],
-                marker="o",
-            )
-            # Female
-            ts_idx = np.logical_and(
-                be_test[:, curve_indx] == be1, be_test[:, hue_indx] == 1
-            )
-            ax.scatter(
-                X_test[ts_idx],
-                y_test[ts_idx],
-                s=35,
-                alpha=0.6,
-                label=[*batch_curve.values()][0][int(be1)]
-                + " "
-                + [*batch_marker.values()][0][1],
-                color=colors[int(be1)],
-                marker="^",
-            )
-
-            q_idx = np.logical_and(
-                quantiles_be[:, curve_indx] == be1, quantiles_be[:, hue_indx] == 0
-            )  # only for males
-            for i, v in enumerate(z_scores):
-                if v == 0:
-                    thickness = 3
-                    linestyle = "-"
-                else:
-                    linestyle = "--"
-                    thickness = 1
-
-                y = q[q_idx, i : i + 1, ind]
-
-                ax.plot(
-                    synthetic_X[q_idx],
-                    y,
-                    linewidth=thickness,
-                    linestyle=linestyle,
-                    alpha=0.9,
-                    color=colors[int(be1)],
-                )
-                if be1 == 0:
-                    plt.annotate(
-                        str(int(quantiles[i] * 100)) + "%",
-                        xy=(synthetic_X[-1], y[-1]),
-                        xytext=(synthetic_X[-1] + 0.6, y[-1]),
-                        ha="left",
-                        va="center",
-                        fontsize=14,
-                    )
-            ax.grid(True, linewidth=0.5, alpha=0.5, linestyle="--")
-            ax.set_ylabel(bio_name.replace("_", " "), fontsize=10)
-            ax.set_xlabel("Age", fontsize=16)
-            ax.tick_params(axis="both", which="major", labelsize=14)
-
-        for spine in ax.spines.values():
-            spine.set_visible(False)
-
-        ax.legend()
-        plt.tight_layout()
-
-        if save_plot:
-            save_path = os.path.join(
-                processing_dir, f"Figures_experiment{experiment_id}"
-            )
-            if not os.path.isdir(save_path):
-                os.makedirs(save_path)
-            plt.savefig(
-                os.path.join(save_path, str(ind) + "_" + bio_name + ".png"), dpi=300
-            )
-
-
 def plot_growthchart(age_vector, centiles_matrix, cut=0, idp="", save_path=None):
     """Plots growth chart for two sexes.
 
@@ -790,149 +653,130 @@ def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percenti
     fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.png"))
 
 
-def plot_nm_range_site2(
+def plot_nm_range_site(
     processing_dir,
     data_dir,
     quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
     save_plot=True,
     outputsuffix="estimate",
     experiment_id=0,
-    batch_curve={"sex": ["Male", "Female"]},
-    batch_marker={"site": ["BTH", "Cam-Can", "NIMH", "OMEGA", "HCP", "MOUS"]},
-    new_names=["Theta", "Alpha", "Beta", "Gamma"],
-    colors=["#006685", "#591154", "#E84653", "black", "#E6B213", "Slategrey"],
+    batch_curve={0: ["Male", "Female"]},
+    batch_marker={1: ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
+    new_names=['Theta', 'Alpha', 'Beta', 'Gamma'],
+    colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "Slategrey"]
 ):
-    """Function to plot notmative ranges. This function assumes only gender as batch effect
-    stored in the first column of batch effect array.
-
-    Args:
-        processing_dir (str): Path to normative modeling processing directory.
-        quantiles (list, optional): Plotted centiles. Defaults to [0.05, 0.25, 0.5, 0.75, 0.95].
-        ind (int, optional): Index of target biomarker to plot. Defaults to 0.
-        parallel (bool, optional): Is parallel NM used to estimate the model?. Defaults to True.
-        save_plot (bool, optional): Save the plot?. Defaults to True.
-        outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
     """
-    matplotlib.rcParams["pdf.fonttype"] = 42
+    Plot normative centile ranges with batch curves and test data overlaid.
+
+    Parameters
+    ----------
+    processing_dir : str
+        Path to the normative modeling processing directory.
+    data_dir : str
+        Path to the directory containing test data (x_test, y_test, b_test).
+    quantiles : list of float
+        List of quantiles to plot.
+    save_plot : bool
+        Whether to save the output plots.
+    outputsuffix : str
+        Suffix used in quantile file naming.
+    experiment_id : int
+        ID for saving plots under specific experiment folder.
+    batch_curve : dict
+        Dictionary with key as curve batch index, and value as list of category labels (e.g., {0: ["Male", "Female"]}).
+    batch_marker : dict
+        Dictionary with key as marker batch index, and value as list of category labels.
+    new_names : list of str
+        Names of biomarkers for plot titles/labels.
+    colors : list of str
+        List of colors corresponding to batch_marker levels.
+    """
+    matplotlib.rcParams['pdf.fonttype'] = 42
+
+    # Load data
+    x_test = pickle.load(open(os.path.join(data_dir, 'x_test.pkl'), 'rb')).to_numpy(float)
+    y_test_df = pickle.load(open(os.path.join(data_dir, 'y_test.pkl'), 'rb'))
+    b_test = pickle.load(open(os.path.join(data_dir, 'b_test.pkl'), 'rb')).to_numpy(float)
+
+    temp = pickle.load(open(os.path.join(processing_dir, f'Quantiles_{outputsuffix}.pkl'), 'rb'))
+    q = temp['quantiles']
+    synthetic_X = temp['synthetic_X']
+    quantiles_be = temp['batch_effects']
+
+    # Convert age values to original space
+    x_test *= 100
+
+    # Identify batch indices
+    curve_idx = list(batch_curve.keys())[0]
+    marker_idx = list(batch_marker.keys())[0]
+    curve_labels = batch_curve[curve_idx]
+    marker_labels = batch_marker[marker_idx]
 
     z_scores = st.norm.ppf(quantiles)
-    # paths
-    testrespfile_path = os.path.join(data_dir, "y_test.pkl")
-    testcovfile_path = os.path.join(data_dir, "x_test.pkl")
-    tsbefile = os.path.join(data_dir, "b_test.pkl")
-    quantiles_path = os.path.join(processing_dir, "Quantiles_" + outputsuffix + ".pkl")
-    # reading the paths
-    X_test = pickle.load(open(testcovfile_path, "rb")).to_numpy(float)
-    be_test = pickle.load(open(tsbefile, "rb"))
-    Y_test = pickle.load(open(testrespfile_path, "rb"))
-    temp = pickle.load(open(quantiles_path, "rb"))
-
-    q = temp["quantiles"]
-    synthetic_X = temp["synthetic_X"]
-    quantiles_be = temp["batch_effects"]
-    # converting age values to original space
-    X_test = X_test * 100
-
     markers = ["o", "^"]
-    curves_colors = ["#6E750E", "#A9561E"]
-    curve_indx = int(np.where(be_test.columns == list(batch_curve.keys())[0])[0])
-    hue_indx = int(np.where(be_test.columns == list(batch_marker.keys())[0])[0])
-
-    be_test = be_test.to_numpy(float)
+    curve_colors = ["#6E750E", "#A9561E"]
 
     num_biomarkers = q.shape[2]
+
     for ind in range(num_biomarkers):
-        bio_name = Y_test.columns[ind]
-        y_test = Y_test[[bio_name]].to_numpy(float)
+        bio_name = y_test_df.columns[ind]
+        y_test = y_test_df[[bio_name]].to_numpy(float)
 
-        # fig, ax = plt.subplots(1,1, figsize=(8,6), sharex=True, sharey=True)
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6), sharex=True, sharey=True)
+        fig, ax = plt.subplots(figsize=(8, 6), sharex=True, sharey=True)
 
-        for unique_hue in np.unique(be_test[:, hue_indx]).tolist():
-
-            # Extract all male and female subjects and use different
-            # markers for them
-            for unique_marker in np.unique(be_test[:, curve_indx]).tolist():
-
-                ts_idx = np.logical_and(
-                    be_test[:, hue_indx] == unique_hue,
-                    be_test[:, curve_indx] == unique_marker,
-                )
+        # Scatter test data
+        for m in np.unique(b_test[:, marker_idx]):
+            for c in np.unique(b_test[:, curve_idx]):
+                ts_idx = np.logical_and(b_test[:, marker_idx] == m, b_test[:, curve_idx] == c)
 
                 ax.scatter(
-                    X_test[ts_idx],
+                    x_test[ts_idx],
                     y_test[ts_idx],
                     s=35,
                     alpha=0.6,
-                    label=(
-                        [*batch_curve.values()][0][int(unique_marker)]
-                        + " "
-                        + [*batch_marker.values()][0][int(unique_hue)]
-                    ),
-                    color=colors[int(unique_hue)],
-                    marker=markers[int(unique_marker)],
+                    label=f"{curve_labels[int(c)]} {marker_labels[int(m)]}",
+                    color=colors[int(m)],
+                    marker=markers[int(c)],
+                    edgecolors='none'
                 )
 
-        for unique_marker in np.unique(be_test[:, curve_indx]).tolist():
-            q_idx = np.where(quantiles_be[:, curve_indx] == unique_marker)[
-                0
-            ]  # only for males
+        # Plot quantile curves
+        for c in np.unique(b_test[:, curve_idx]):
+            q_idx = np.where(quantiles_be[:, curve_idx] == c)[0]
 
             for i, v in enumerate(z_scores):
+                linestyle = "-" if v == 0 else "--"
+                thickness = 3 if v == 0 else 1
 
-                if v == 0:
-                    thickness = 3
-                    linestyle = "-"
-                else:
-                    linestyle = "--"
-                    thickness = 1
-
-                x = np.asarray(synthetic_X[q_idx]).flatten()
-                x = np.mean(x.reshape(-1, 100), axis=0)
-
-                y = q[q_idx, i : i + 1, ind]
-                y = np.asarray(y).flatten()
-                y = np.mean(y.reshape(-1, 100), axis=0)
+                x = synthetic_X[q_idx].reshape(-1, 100).mean(axis=0)
+                y = q[q_idx, i:i+1, ind].reshape(-1, 100).mean(axis=0)
 
                 ax.plot(
-                    x.tolist(),
-                    y.tolist(),
+                    x.tolist(), y.tolist(),
                     linewidth=thickness,
                     linestyle=linestyle,
-                    alpha=1,
-                    color=curves_colors[int(unique_marker)],
+                    color=curve_colors[int(c)],
+                    alpha=1
                 )
 
-            ax.grid(True, linewidth=0.5, alpha=0.5, linestyle="--")
-            ax.set_ylabel(f"{new_names[ind]} (proportion)", fontsize=16)
-            ax.set_xlabel("Age (years)", fontsize=16)
-            ax.tick_params(axis="both", which="major", labelsize=14)
+        # Formatting
+        ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
+        ax.set_ylabel(new_names[ind], fontsize=25)
+        ax.set_xlabel('Age (years)', fontsize=25)
+        ax.tick_params(axis='both', which='major', labelsize=22)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
-            ax.set_xlim(0, 48)
+        if ind + 1 == num_biomarkers:
+            ax.legend(loc="upper right", prop={'size': 17}, ncol=2)
 
-            for spine in ax.spines.values():
-                spine.set_visible(False)
-
-            if ind + 1 == num_biomarkers:
-                ax.legend(loc="upper right", prop={"size": 14})
-            plt.tight_layout()
+        plt.tight_layout()
 
         if save_plot:
-            save_path = os.path.join(
-                processing_dir, f"Figures_experiment{experiment_id}"
-            )
-            if not os.path.isdir(save_path):
-                os.makedirs(save_path)
-            plt.savefig(
-                os.path.join(save_path, str(ind) + "_" + bio_name + ".svg"),
-                dpi=300,
-                format="svg",
-            )
-            plt.savefig(
-                os.path.join(save_path, str(ind) + "_" + bio_name + ".png"),
-                dpi=300,
-                format="png",
-            )
+            save_path = os.path.join(processing_dir, f'Figures_experiment{experiment_id}')
+            os.makedirs(save_path, exist_ok=True)
+            plt.savefig(os.path.join(save_path, f"{ind}_{bio_name}.svg"), dpi=300)
+            plt.savefig(os.path.join(save_path, f"{ind}_{bio_name}.png"), dpi=300)
 
 
 # ***
