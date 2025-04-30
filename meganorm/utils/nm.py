@@ -752,42 +752,68 @@ def prepare_prediction_data(
     return None
 
 
-def cal_stats_for_gauge(q_path, features, site_id, gender_id, age, num_of_datasets):
+def cal_stats_for_INOCs(
+    q_path: str,
+    features: list,
+    site_id: int,
+    sex_id: int,
+    age: float,
+    num_of_datasets: int,
+    num_points: int = 100
+) -> dict:
+    """
+    Calculates population statistics (centiles of variation) give a subject age, sex and site.
+
+    Parameters
+    ----------
+    q_path : str
+        Path to the pickled file containing 'quantiles', 'synthetic_X', and 'batch_effects'.
+    features : list of str
+        List of biomarker feature names.
+    site_id : int
+        Index representing the participant's site. If 0 or False, averages across all sites.
+    sex_id : int
+        Index representing the participant's sex.
+    age : float
+        Age of the participant.
+    num_of_datasets : int
+        Number of datasets used to generate quantiles.
+    num_points : int, optional
+        Number of points for synthetic X axis (default is 100).
+
+    Returns
+    -------
+    dict
+        Dictionary mapping each feature to a list of statistics across quantiles at the given age.
+    """
 
     q = pickle.load(open(q_path, "rb"))
+    
     quantiles = q["quantiles"]
-    synthetic_X = (
-        q["synthetic_X"].reshape(10, 100).mean(axis=0)
-    )  # since Xs are repeated !
-    b = q["batch_effects"]
+    synthetic_X = q["synthetic_X"].reshape(num_of_datasets * 2, num_points).mean(axis=0)
+    batch_effects = q["batch_effects"]
 
     statistics = {feature: [] for feature in features}
-    for ind in range(len(features)):
 
+    for marker_idx, feature in enumerate(features):
         biomarker_stats = []
-        for quantile_id in range(quantiles.shape[1]):
 
-            if (
-                not site_id
-            ):  # if not any specific site, average between all sites (batch effect)
-                data = quantiles[b[:, 0] == gender_id, quantile_id, ind : ind + 1]
-                data = data.reshape(num_of_datasets, 100, 1)
-                data = data.mean(axis=0)
-            if site_id:
-                data = quantiles[
-                    np.logical_and(b[:, 0] == gender_id, b[:, 1] == site_id),
-                    quantile_id,
-                    ind : ind + 1,
-                ]
+        for quantile_idx in range(quantiles.shape[1]):
+            if not site_id:
+                mask = batch_effects[:, 0] == sex_id
+            else:
+                mask = np.logical_and(batch_effects[:, 0] == sex_id, batch_effects[:, 1] == site_id)
 
-            data = data.squeeze()
+            data = quantiles[mask, quantile_idx, marker_idx]
+            if not site_id:
+                data = data.reshape(num_of_datasets, num_points).mean(axis=0)
 
-            closest_x = min(synthetic_X, key=lambda x: abs(x - age))
-            age_bin_ind = np.where(synthetic_X == closest_x)[0][0]
+            # Find closest age bin
+            age_bin_idx = np.argmin(np.abs(synthetic_X - age))
+            biomarker_stats.append(data[age_bin_idx])
 
-            biomarker_stats.append(data[age_bin_ind])
+        statistics[feature] = biomarker_stats
 
-        statistics[features[ind]].extend(biomarker_stats)
     return statistics
 
 #**

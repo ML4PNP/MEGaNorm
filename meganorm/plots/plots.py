@@ -535,50 +535,80 @@ def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100, num_o
         )
 
 
-def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percentile_95, percentile_50, 
-                        title="Quantile-Based Gauge", min_value=0, max_value=1, show_legend=False, bio_name=None, save_path=""):
+def plot_INOCs(
+    sub_index, current_value, q1, q3, percentile_5, percentile_95, percentile_50,
+    title="Quantile-Based Gauge", min_value=0, max_value=1,
+    show_legend=False, bio_name=None, save_path=None
+):
     """
-    Plots a gauge chart based on quantile ranges with a threshold marker for the 0.5 percentile.
-    
-    Parameters:
-    - current_value (float): The current decimal value to display.
-    - q1 (float): The 25th percentile value as a decimal.
-    - q3 (float): The 75th percentile value as a decimal.
-    - percentile_5 (float): The 5th percentile value as a decimal.
-    - percentile_95 (float): The 95th percentile value as a decimal.
-    - percentile_50 (float): The 0.5 percentile value as a decimal, marked by a threshold line.
-    - title (str): The title of the gauge chart.
-    - min_value (float): The minimum value for the gauge range (default is 0).
-    - max_value (float): The maximum value for the gauge range (default is 1).
-    - show_legend (bool): Whether to display the legend with color-coded ranges (default is False).
+    Plots INOCs showing where a biomarker value falls within population quantiles.
+
+    Parameters
+    ----------
+    sub_index : int or str
+        Unique identifier for the subject (used for file naming).
+    current_value : float
+        Current observed biomarker value.
+    q1 : float
+        25th percentile value.
+    q3 : float
+        75th percentile value.
+    percentile_5 : float
+        5th percentile value.
+    percentile_95 : float
+        95th percentile value.
+    percentile_50 : float
+        50th percentile (median) value. Used as reference for delta.
+    title : str, optional
+        Title for the gauge plot. Default is "Quantile-Based Gauge".
+    min_value : float, optional
+        Minimum value of the gauge range. Default is 0.
+    max_value : float, optional
+        Maximum value of the gauge range. Default is 1.
+    show_legend : bool, optional
+        Whether to display the legend. Default is False.
+    bio_name : str or None, optional
+        Name of the biomarker (used in title and file naming).
+    save_path : str or None, optional
+        Directory to save the output images. If None, the plot is not saved.
+
+    Returns
+    -------
+    None
+        Displays and optionally saves a gauge chart indicating where the current
+        biomarker value lies within the distribution.
     """
     current_value = round(current_value, 3)
-    
-    if bio_name == "Gamma": max_value = 0.1
+    if bio_name == "Gamma":
+        max_value = 0.1
 
+    # Determine color based on value position
     if current_value < percentile_5:
-        value_color = "rgb(8, 65, 92)"  # Purple 
+        value_color = "rgb(8, 65, 92)"  # Extremely low
     elif current_value < q1:
-        value_color = "rgb(0, 191, 255)"  # Gold 
+        value_color = "rgb(0, 191, 255)"  # Below normal
     elif current_value <= q3:
-        value_color = "rgb(129, 193, 75)"  # Green 
+        value_color = "rgb(129, 193, 75)"  # Normal
     elif current_value <= percentile_95:
-        value_color = "rgb(255, 201, 20)"  # Tomato red
+        value_color = "rgb(255, 201, 20)"  # Above normal
     else:
-        value_color = "rgb(188, 44, 26)"  # Purple
+        value_color = "rgb(188, 44, 26)"  # Extremely high
 
-    if show_legend:
-        number_font_size = 75
-        delta_font_size = 30
-    else:
-        number_font_size = 120
-        delta_font_size = 90
-        
+    number_font_size = 75 if show_legend else 120
+    delta_font_size = 30 if show_legend else 90
+
     fig = go.Figure(go.Indicator(
         mode="gauge+number+delta",
         value=current_value,
-        number={'font': {'size': number_font_size, 'family': 'Arial', 'color': value_color}},  
-        delta={'reference': percentile_50, 'position': "top", 'font': {'size': delta_font_size}},
+        number={
+            'font': {'size': number_font_size, 'family': 'Arial', 'color': value_color}
+        },
+        delta={
+            'reference': percentile_50,
+            'position': "top",
+            'font': {'size': delta_font_size},
+            'valueformat': ".3f"
+        },
         gauge={
             'axis': {
                 'range': [min_value, max_value],
@@ -586,20 +616,20 @@ def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percenti
                 'showticklabels': True,
                 'tickwidth': 12,
                 'tickcolor': "black",
-                'tickvals': [round(min_value + i * (max_value - min_value) / 10, 2) for i in range(11)],  
+                'tickvals': [round(min_value + i * (max_value - min_value) / 10, 2) for i in range(11)],
             },
-            'bar': {'color': "rgb(255, 255, 255)", 'line': {'color': "black", 'width': 3}},  
+            'bar': {'color': "rgb(255, 255, 255)", 'line': {'color': "black", 'width': 3}},
             'steps': [
-                {'range': [min_value, percentile_5], 'color': "rgb(8, 65, 92)"},  # Purple 
-                {'range': [percentile_5, q1], 'color': "rgb(0, 191, 255)"},  # Warm gold 
-                {'range': [q1, q3], 'color': "rgb(129, 193, 75)"},  # Forest green 
-                {'range': [q3, percentile_95], 'color': "rgb(255, 201, 20)"},  # Soft tomato red
-                {'range': [percentile_95, max_value], 'color': "rgb(188, 44, 26)"},  # dark Purple
+                {'range': [min_value, percentile_5], 'color': "rgb(8, 65, 92)"},
+                {'range': [percentile_5, q1], 'color': "rgb(0, 191, 255)"},
+                {'range': [q1, q3], 'color': "rgb(129, 193, 75)"},
+                {'range': [q3, percentile_95], 'color': "rgb(255, 201, 20)"},
+                {'range': [percentile_95, max_value], 'color': "rgb(188, 44, 26)"},
             ],
             'threshold': {
-                'line': {'color': "black", 'width': 6},  # Black line for the 0.5th percentile marker
+                'line': {'color': "black", 'width': 6},
                 'thickness': 0.75,
-                'value': percentile_50, 
+                'value': percentile_50,
             },
         },
         title={
@@ -608,50 +638,47 @@ def plot_quantile_gauge(sub_index, current_value, q1, q3, percentile_5, percenti
         }
     ))
 
+    # Legend (as fake traces)
     if show_legend:
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(8, 65, 92)"),
-                                 name="0-5th Percentile (Extremely Low)"))
+        colors = [
+            ("rgb(8, 65, 92)", "0-5th Percentile (Extremely Low)"),
+            ("rgb(0, 191, 255)", "5th-25th Percentile (Below Normal)"),
+            ("rgb(129, 193, 75)", "25th-75th Percentile (Normal)"),
+            ("rgb(255, 201, 20)", "75th-95th Percentile (Above Normal)"),
+            ("rgb(188, 44, 26)", "95th-100th Percentile (Extremely High)")
+        ]
+        for color, label in colors:
+            fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                     marker=dict(size=12, color=color), name=label))
 
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(0, 191, 255)"),
-                                 name="5th-25th Percentile (Below Normal)"))
-
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(129, 193, 75)"),
-                                 name="25th-75th Percentile (Normal)"))
-
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(255, 201, 20)"),
-                                 name="75th-95th Percentile (Above Normal)"))
-
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                                 marker=dict(size=12, color="rgb(188, 44, 26)"),
-                                 name="95th-100th Percentile (Extremely High)"))
-    
-    # Update layout for better aesthetics
     fig.update_layout(
         paper_bgcolor='white',
         plot_bgcolor='white',
-        margin=dict(t=50, b=100 if show_legend else 30, l=100, r=130),  # Adjust bottom margin for legend
+        margin=dict(t=50, b=100 if show_legend else 30, l=100, r=130),
         showlegend=show_legend,
         width=1000,
         height=800,
         legend=dict(
-            orientation="h",      
-            yanchor="top",        
-            y=-0.2,               
-            xanchor="center",     
-            x=0.5,                
-            font=dict(size=14)    
+            orientation="h",
+            yanchor="top",
+            y=-0.2,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=14)
         ),
-        xaxis=dict(visible=False),  # Hide x-axis
-        yaxis=dict(visible=False)   # Hide y-axis   
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False)
     )
-    plt.tight_layout()
-    fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.svg"))
-    fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.png"))
 
+    plt.tight_layout()
+
+    # Save if a valid path is provided
+    if save_path:
+        os.makedirs(save_path, exist_ok=True)
+        fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.svg"))
+        fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.png"))
+
+    plt.show()
 
 # ***
 def plot_nm_range_site(
