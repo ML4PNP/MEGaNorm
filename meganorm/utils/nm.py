@@ -187,7 +187,7 @@ def hbr_data_split(
     biomarker_name = y_train.columns
     return biomarker_name.tolist()
 
-
+#**
 def evaluate_mace(
     model_path,
     X_path,
@@ -199,7 +199,49 @@ def evaluate_mace(
     plot=False,
     outputsuffix="ms",
 ):
+    """
+    Evaluate model calibration using the Mean Absolute Calibration Error (MACE) metric.
 
+    This function computes MACE by comparing model-predicted quantiles with the 
+    empirical distribution of outcomes across batch groups. Optionally, it plots a 
+    reliability diagram to visually assess calibration performance.
+
+    Parameters
+    ----------
+    model_path : str
+        Path to the directory containing the saved model and its metadata.
+    X_path : str
+        Path to the test covariates (.pkl file), expected as a pandas DataFrame.
+    y_path : str
+        Path to the true test responses (.pkl file), expected as a pandas DataFrame.
+    be_path : str
+        Path to the batch effect file (.pkl file), with each column as a batch dimension.
+    save_path : str, optional
+        Directory to save the reliability diagram if `plot` is True. Required when plotting.
+    model_id : int, optional
+        Index of the model (biomarker) to evaluate. Corresponds to index X in 'NM_0_X_<suffix>.pkl'.
+    quantiles : list of float, optional
+        Quantiles to use for computing calibration (default: [0.05, 0.25, 0.5, 0.75, 0.95]).
+    plot : bool, optional
+        Whether to generate and save a reliability diagram (default: False).
+    outputsuffix : str, optional
+        Suffix of the saved model filename (default: "ms").
+
+    Returns
+    -------
+    float
+        Mean absolute calibration error (MACE) across all batches and batch IDs.
+
+    Notes
+    -----
+    - This function assumes all inputs are pickled files in the expected format.
+    - Empirical quantiles are computed within each batch group and compared to the target quantiles.
+    - Plotting requires `matplotlib` and `seaborn`.
+    - Input file formats:
+        - `X_path`: shape (n_samples, n_features)
+        - `y_path`: shape (n_samples, n_outputs)
+        - `be_path`: shape (n_samples, n_batch_dims)
+    """
     nm = pickle.load(
         open(
             os.path.join(
