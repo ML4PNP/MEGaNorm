@@ -458,17 +458,39 @@ def calculate_oscilochart(
 
     return oscilogram, age_slices
 
-
+#**
 def shapiro_stat(z_scores, covariates, n_bins=10):
-    """Perform Shapiro-Wilk test for normality on z-scores in bins of covariates.
+    """
+    Computes Shapiro-Wilk test statistics for z-scores stratified by covariate bins.
 
-    Args:
-        z_scores (numpy.ndarray): n by p matrix of z-scores (n subjects, p measures)
-        covariates (numpy.ndarray): n by 1 matrix of covariates (n subjects)
-        n_bins (int, optional): Number of bins to slice the covariates into (default is 10)
+    The z-scores are grouped into bins based on the values of the covariate, and the 
+    Shapiro-Wilk test for normality is applied within each bin for every feature. 
+    The function returns the average Shapiro-Wilk statistic across all bins for each biomarker.
 
-    Returns:
-        numpy.ndarray: a p vector of Shapiro-Wilk test statistics for eaxh measure
+    Parameters
+    ----------
+    z_scores : numpy.ndarray
+        A 2D array of shape (n_samples, n_features) containing the z-scores 
+        for each subject and feature.
+    covariates : numpy.ndarray
+        A 1D or 2D array of shape (n_samples,) or (n_samples, 1) containing the covariate 
+        values used for binning.
+    n_bins : int, optional
+        The number of equal-width bins to divide the covariate range into. Default is 10.
+
+    Returns
+    -------
+    numpy.ndarray
+        A 1D array of length `n_features`, where each element is the mean 
+        Shapiro-Wilk test statistic across bins for the corresponding feature. 
+        NaN is returned for bins with fewer than 3 samples.
+
+    Notes
+    -----
+    - The Shapiro-Wilk test is only performed for bins with at least 3 samples. 
+      Bins with fewer samples contribute NaN to the average.
+    - The output values range from 0 to 1, where values closer to 1 suggest better 
+      adherence to a normal distribution.
     """
 
     z_scores = np.asarray(z_scores)
@@ -751,7 +773,7 @@ def prepare_prediction_data(
 
     return None
 
-
+#**
 def cal_stats_for_INOCs(
     q_path: str,
     features: list,
