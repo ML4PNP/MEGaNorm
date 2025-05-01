@@ -189,62 +189,6 @@ def hbr_data_split(
 
 
 
-def mace(
-    nm, x_test, y_test, be_test, quantiles=[0.05, 0.25, 0.5, 0.75, 0.95], plot=False
-):
-
-    z_scores = st.norm.ppf(quantiles)
-    batch_ids = np.unique(be_test)
-    batch_mace = np.zeros(
-        [
-            len(batch_ids),
-        ]
-    )
-    empirical_quantiles = []
-
-    for b, batch_id in enumerate(batch_ids):
-        model_be = np.repeat(
-            np.array([[batch_id]]), x_test[be_test == batch_id, :].shape[0]
-        )
-        mcmc_quantiles = nm.get_mcmc_quantiles(
-            x_test[be_test == batch_id, :], model_be, z_scores=z_scores
-        ).T
-        empirical_quantiles.append(
-            (mcmc_quantiles >= y_test[be_test == batch_id, 0:1]).mean(axis=0)
-        )
-        batch_mace[b] = np.abs((np.array(quantiles) - empirical_quantiles[b])).mean()
-
-    if plot:
-        plt.figure(figsize=(10, 6))
-        sns.set_context("notebook", font_scale=2)
-        sns.lineplot(
-            x=quantiles,
-            y=quantiles,
-            color="magenta",
-            linestyle="--",
-            linewidth=3,
-            label="ideal",
-        )
-        for b, batch_id in enumerate(batch_ids):
-            sns.lineplot(
-                x=quantiles,
-                y=empirical_quantiles[b],
-                color="black",
-                linestyle="dashdot",
-                linewidth=3,
-                label=f"observed {b}",
-            )
-            sns.scatterplot(
-                x=quantiles, y=empirical_quantiles[b], marker="o", s=150, alpha=0.5
-            )
-        plt.legend()
-        plt.xlabel("True Quantile")
-        plt.ylabel("Empirical Quantile")
-        _ = plt.title("Reliability diagram")
-
-    return batch_mace.mean()
-
-
 def evaluate_mace(
     model_path,
     X_path,
