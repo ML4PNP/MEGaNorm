@@ -3,7 +3,7 @@ import statsmodels.api as sm
 import matplotlib
 import pickle
 import numpy as np
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import ListedColormap
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import scipy.stats as st
@@ -11,7 +11,6 @@ import seaborn as sns
 import pandas as pd
 from typing import Union
 import plotly.graph_objects as go
-import matplotlib.ticker as mticker
 from scipy.stats import chi2
 
 
@@ -153,60 +152,6 @@ def plot_nm_range(
         )
 
 
-def plot_comparison(
-    path,
-    hbr_configs,
-    biomarker_num,
-    metrics=["Rho", "SMSE", "MSLL", "MACE"],
-    plot_type="boxplot"):
-
-    results = {
-        metric: np.zeros([biomarker_num, len(hbr_configs.keys())]) for metric in metrics
-    }
-
-    for m, method in enumerate(hbr_configs.keys()):
-        for metric in metrics:
-            with open(
-                os.path.join(path, method, metric + "_estimate.pkl"), "rb"
-            ) as file:
-                temp = pickle.load(file)
-            results[metric][:, m] = temp.squeeze()
-
-    methods = hbr_configs.keys()
-    fig, axs = plt.subplots(2, 2, figsize=(15, 10))
-    axs = axs.flatten()
-
-    index = np.arange(len(methods))
-
-    for ax, (metric_name, values) in zip(axs, results.items()):
-
-        if plot_type == "boxplot":
-            ax.boxplot(values, positions=index, notch=True, showfliers=False)
-        elif plot_type == "violin":
-            violin_parts = ax.violinplot(
-                values, index, showmedians=True, showextrema=False
-            )
-
-            for partname in ["cmedians"]:
-                vp = violin_parts[partname]
-                vp.set_edgecolor("black")
-                vp.set_linewidth(1)
-
-            # Make the violin body blue with a red border:
-            for vp in violin_parts["bodies"]:
-                vp.set_facecolor("#929591")
-                vp.set_edgecolor("#000000")
-                vp.set_alpha(1)
-
-        ax.set_title(f"{metric_name} Comparison", fontsize=14)
-        ax.set_xticks(index)
-        ax.set_xticklabels(methods, rotation=45, ha="right", fontsize=12)
-        ax.grid(True, linestyle="--", alpha=0.5)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(path, plot_type + '_metric_comparison.png'), dpi=300)
-    
-    
 # ***
 def plot_age_hist(df, site_names, save_path, 
     lower_age_range=5, upper_age_range=90, step_size=5,
@@ -351,29 +296,42 @@ def plot_PNOCs(data, age_slices, save_path):
         plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.svg'), dpi=600)
     else:
         plt.show()
-        
-
-def plot_growthchart(age_vector, centiles_matrix, cut=0, idp="", save_path=None):
-    """Plots growth chart for two sexes.
-
-    Args:
-        age_vector (numpy.ndarray): A 1D array representing the age values.
-        centiles_matrix (numpy.ndarray): A 3D array of shape (age_vector.shape[0], 5, 2) where
-                                    the second dimension represents the 5 centiles and
-                                    the third dimension represents the 2 sexes (0 for male, 1 for female).
-        cut (int, optional): The cutting age for the younger population. Defaults to 0.
-        idp (str, optional): IDP name. Defaults to ''.
-        save_path (str, optional): If not None saves the plot to the path. Defaults to None.
+ 
+# ***    
+def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None, colors=None, centiles_name=['5th', '25th', '50th', '75th', '95th']):
     """
+    Plot a growth chart for a given IDP, visualizing centile curves for males and females.
 
-    colors = {
-        "male": ["#0a2f66", "#0d3a99", "#1350d0", "#4b71db", "#8195e6"],
-        "female": ["#b30059", "#cc0066", "#e60073", "#ff3399", "#ff66b2"],
-    }
+    Parameters
+    ----------
+    age_vector : numpy.ndarray
+        1D array of age values.
+    centiles_matrix : numpy.ndarray
+        3D array (n_ages, n_centiles, n_sexes), with centiles along axis 1.
+    cut : int, optional
+        Age cutoff to compress ages above using a linear transform.
+    idp : str, optional
+        Biomarker or phenotype name for labeling.
+    save_path : str, optional
+        Directory to save plot. If None, displays plot.
+    colors : dict, optional
+        Dictionary with 'male' and 'female' keys and color lists.
+    centiles_name : list of str, optional
+        Labels for each centile curve.
+
+    Returns
+    -------
+    None
+    """
+    if colors is None:
+        colors = {
+            'male': ['#4c061d', '#662333', '#803449', '#993d5e', '#b34e74'],
+            'female': ['#FF6F00', '#FF8C1A', '#FFA726', '#FFB74D', '#FFD54F']
+        }
 
     min_age = age_vector.min()
     max_age = age_vector.max()
-
+    
     def age_transform(age):  # Age transformation based on cut
         if age < cut:
             return age
@@ -382,113 +340,105 @@ def plot_growthchart(age_vector, centiles_matrix, cut=0, idp="", save_path=None)
 
     transformed_age = np.array([age_transform(age) for age in age_vector])
 
-    fig, axes = plt.subplots(1, 2, figsize=(24, 10), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(24, 8), sharey=True)
 
-    genders = ["male", "female"]
+    genders = ['male', 'female']
 
     for j, gender in enumerate(genders):
-        for i in range(5):
-            linestyle = "-" if i in [1, 2, 3] else "--"
+        for i in range(len(centiles_name)):
+            linestyle = '-' if i in [1,2,3] else '--'
             linewidth = 5 if i == 2 else (3 if i in [1, 3] else 2)
-            axes[j].plot(
-                transformed_age,
-                centiles_matrix[:, i, j],
-                label=f"{[5, 25, 50, 75, 95][i]}th Percentile",
-                linestyle=linestyle,
-                color=colors[gender][i],
-                linewidth=linewidth,
-                alpha=1 if i == 2 else 0.8,
-            )
-
-        axes[j].fill_between(
-            transformed_age,
-            centiles_matrix[:, 0, j],
-            centiles_matrix[:, 4, j],
-            color=colors[gender][2],
-            alpha=0.1,
-        )
-        axes[j].fill_between(
-            transformed_age,
-            centiles_matrix[:, 1, j],
-            centiles_matrix[:, 3, j],
-            color=colors[gender][2],
-            alpha=0.1,
-        )
-
-        transformed_ticks = [
-            age_transform(age)
-            for age in np.concatenate(
-                (
-                    np.arange(min_age, cut + 1, 2, dtype=int),
-                    np.arange(np.ceil((cut + 1) / 10) * 10, max_age + 1, 10, dtype=int),
-                )
-            )
-        ]
+            axes[j].plot(transformed_age, centiles_matrix[:, i, j], label=f'{centiles_name[i]} Percentile', 
+                         linestyle=linestyle, color=colors[gender][i], linewidth=linewidth, alpha=1 if i == 2 else 0.8)
+        
+        axes[j].fill_between(transformed_age, centiles_matrix[:, 0, j], centiles_matrix[:, 4, j], 
+                             color=colors[gender][2], alpha=0.2)
+        axes[j].fill_between(transformed_age, centiles_matrix[:, 1, j], centiles_matrix[:, 3, j], 
+                             color=colors[gender][2], alpha=0.2)
+        
+        transformed_ticks = [age_transform(age) for age in np.concatenate((np.arange(min_age, cut+1, 2, dtype=int), 
+                                                                           np.arange(np.ceil((cut+1)/10)*10, max_age+1, 10, dtype=int)))]
         axes[j].set_xticks(transformed_ticks)
         axes[j].set_xticklabels(np.concatenate((np.arange(min_age, cut+1, 2, dtype=int), 
-                                                np.arange(np.ceil((cut+1)/10)*10, max_age+1, 10, dtype=int))), fontsize=22)
-        axes[j].tick_params(axis='y', labelsize=22)
-        axes[j].grid(True, which='both', linestyle='--', linewidth=2, alpha=0.85)
+                                                np.arange(np.ceil((cut+1)/10)*10, max_age+1, 10, dtype=int))), fontsize=37)
+        axes[j].tick_params(axis='both', labelsize=45)
+        axes[j].grid(True, which='both', linestyle='--', linewidth=2, alpha=0.95)
         axes[j].spines['top'].set_visible(False)
         axes[j].spines['right'].set_visible(False)
         # axes[j].set_xlabel('Age (years)', fontsize=28)
         
-        #axes[j].legend(loc='upper left', fontsize=20)
 
-        # axes[j].legend(loc='upper left', fontsize=20)
-
-        for i, label in enumerate(["5th", "25th", "50th", "75th", "95th"]):
-            axes[j].annotate(
-                label,
-                xy=(transformed_age[-1], centiles_matrix[-1, i, j]),
-                xytext=(8, 0),
-                textcoords="offset points",
-                fontsize=18,
-                color=colors[gender][i],
-                fontweight="bold",
-            )
-
-        # axes[j].axvline(x=age_transform(cut), color='k', linestyle='--', linewidth=2, alpha=0.5)
+        for i, label in enumerate(centiles_name):
+            axes[j].annotate(label, xy=(transformed_age[-1], centiles_matrix[-1, i, j]),
+                             xytext=(8, 0), textcoords='offset points', fontsize=46, color=colors[gender][i], fontweight='bold')
 
     axes[0].set_ylabel(idp, fontsize=28)
     # axes[0].set_title("Males", fontsize=28)
     # axes[1].set_title("Females", fontsize=28)
 
     plt.tight_layout(pad=2)
-
+    
     if save_path is not None:
         plt.savefig(os.path.join(save_path, idp.replace(" ", "_") + '_growthchart.svg'), dpi=600)
 
-
-def plot_growthcharts(path, idp_indices, idp_names, site=1, point_num=100, num_of_sites=None):
-    """Plotting growth charts for multiple idps.
-
-    Args:
-        path (string): Path to processing directory in which the quantiles are saved.
-        idp_indices (list): A list of IDP indices.
-        idp_names (list): A list of IDP names corresponding to IDP indices.
-        site (int, optional): The site id to plot. Defaults to 0.
-        point_num (int, optional): Number of points used in creating the synthetic X. Defaults to 100.
-        num_of_sites: number of sites (used for averaging)
+# ***
+def plot_growthcharts(path, 
+                      model_indices: list, 
+                      biomarker_names: list, 
+                      site: int = None, 
+                      point_num: int = 100, 
+                      number_of_sexs: int = 2, 
+                      num_of_sites: int = None,
+                      centiles_name: list = ['5th', '25th', '50th', '75th', '95th'],
+                      colors: dict = None):
     """
+    Generate and save growth charts for multiple biomarkers using precomputed quantile estimates.
 
-    temp = pickle.load(open(os.path.join(path, "Quantiles_estimate.pkl"), "rb"))
+    Parameters
+    ----------
+    path : str
+        Directory containing 'Quantiles_estimate.pkl'.
+    model_indices : list of int
+        Indices of the models/biomarkers to plot.
+    biomarker_names : list of str
+        Descriptive names matching model_indices.
+    site : int, optional
+        If specified, selects only data from this site. Not yet implemented.
+    point_num : int, optional
+        Number of synthetic X points to use (default 100).
+    number_of_sexs : int, optional
+        Number of sexes (default 2).
+    num_of_sites : int, optional
+        If averaging across sites, specify how many.
+    centiles_name : list of str
+        Labels for centiles (e.g., ['5th', ..., '95th']).
+    colors : dict, optional
+        Color dictionary with 'male' and 'female' keys.
 
-    q = temp["quantiles"]
-    x = temp["synthetic_X"]
-    b = temp["batch_effects"]
+    Returns
+    -------
+    None
+    """
+    
+    temp = pickle.load(open(os.path.join(path, 'Quantiles_estimate.pkl'),'rb'))
 
-    for i, idp in enumerate(idp_indices):
+    q = temp['quantiles']
+    x = temp['synthetic_X']
+    b = temp['batch_effects']
+
+    for i, idp in enumerate(model_indices):
         
-        print(q.shape)
-        data = np.concatenate([q[b[:,0]== 0,:,idp:idp+1], 
-                            q[b[:,0]== 1,:,idp:idp+1]], axis=2)
-        data = data.reshape(num_of_sites, 100, 5, 2) 
-        data = data.mean(axis=0)
+        if not site:
+            data = np.concatenate([q[b[:,0]== 0,:,idp:idp+1], 
+                                q[b[:,0]== 1,:,idp:idp+1]], axis=2)
+            data = data.reshape(num_of_sites, point_num, len(centiles_name), number_of_sexs) 
+            data = data.mean(axis=0)
+        if site:
+            raise ValueError(f"still not implmented")
+            #TODO
 
-        plot_growthchart(
-            x[0:point_num].squeeze(), data, cut=0, idp=idp_names[i], save_path=path
-        )
+        plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=biomarker_names[i], save_path=path, centiles_name=centiles_name, colors=colors)
+
 
 # ***
 def plot_INOCs(
@@ -635,6 +585,7 @@ def plot_INOCs(
         fig.write_image(os.path.join(save_path, f"{sub_index}_{bio_name}.png"))
 
     plt.show()
+
 
 # ***
 def plot_nm_range_site(
