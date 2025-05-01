@@ -15,62 +15,6 @@ import matplotlib.ticker as mticker
 from scipy.stats import chi2
 
 
-def KDE_plot(data, experiments, metric, xlim="auto", fontsize=24):
-    # Create the data
-    sns.set_theme(style="white", rc={"axes.facecolor": (0, 0, 0, 0)})
-    g = []
-    x = data
-    x_min = np.min(x)
-    x_max = np.max(x)
-    for i in range(len(experiments)):
-        for j in range(data.shape[1]):
-            g.append(experiments[i])
-    df = pd.DataFrame(dict(x=x.ravel(), g=g))
-
-    # Initialize the FacetGrid object
-    pal = sns.cubehelix_palette(10, rot=-0.25, light=0.7)
-    g = sns.FacetGrid(df, row="g", hue="g", aspect=15, height=0.5, palette=pal)
-
-    # Draw the densities in a few steps
-    g.map(sns.kdeplot, "x", clip_on=False, shade=True, alpha=1, lw=1.5, bw=0.2)
-    g.map(sns.kdeplot, "x", clip_on=False, color="w", lw=2, bw=0.2)
-    g.map(plt.axhline, y=0, lw=2, clip_on=False)
-
-    # Define and use a simple function to label the plot in axes coordinates
-    def label_KDE(x, color, label):
-        ax = plt.gca()
-        ax.text(
-            0,
-            0.2,
-            label,
-            fontweight="bold",
-            color=color,
-            ha="left",
-            va="center",
-            transform=ax.transAxes,
-            fontsize=fontsize,
-        )
-        ax.plot([x.median(), x.median()], [0, 10], c="w")
-        if xlim == "auto":
-            ax.set_xlim([x_min - 0.05, x_max])
-        else:
-            ax.set_xlim([xlim[0], xlim[1]])
-        plt.xticks(fontsize=fontsize)
-
-    plt.yticks(fontsize=fontsize)
-    g.map(label_KDE, "x")
-
-    # Set the subplots to overlap
-    g.figure.subplots_adjust(hspace=-0.25)
-
-    # Remove axes details that don't play well with overlap
-    g.set_titles("")
-    g.set(yticks=[])
-    g.set_xlabels(metric.upper(), fontsize=fontsize)
-    g.set_ylabels("")
-    g.despine(bottom=True, left=True)
-
-
 def plot_nm_range(
     processing_dir,
     data_dir,
@@ -329,7 +273,7 @@ def plot_age_hist(df, site_names, save_path,
     plt.savefig(os.path.join(save_path, "age_hist.svg"), format="svg", dpi=600, bbox_inches="tight")
     plt.savefig(os.path.join(save_path, "age_hist.png"), format="png", dpi=600, bbox_inches="tight")
 
-
+# ***
 def plot_PNOCs(data, age_slices, save_path):
     """    
     Plots the Chrono-NeuroOscilloChart to visualize the contribution of the i-th
