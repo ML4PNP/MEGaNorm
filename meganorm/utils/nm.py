@@ -188,7 +188,6 @@ def hbr_data_split(
     return biomarker_name.tolist()
 
 
-
 def evaluate_mace(
     model_path,
     X_path,
@@ -284,58 +283,6 @@ def evaluate_mace(
         plt.savefig(os.path.join(save_path, "MACE_" + str(model_id) + ".png"), dpi=300)
 
     return batch_mace.mean()
-
-
-def model_quantile_evaluation(
-    configs,
-    save_path,
-    valcovfile_path,
-    valrespfile_path,
-    valbefile,
-    bio_num,
-    plot=True,
-    outputsuffix="ms",
-    quantiles=[0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
-):
-
-    mace = np.zeros([len(configs.keys()), bio_num])
-    best_models = []
-
-    for c, config in enumerate(configs.keys()):
-        for ind in range(bio_num):
-            mace[c, ind] = evaluate_mace(
-                os.path.join(save_path, config, "Models"),
-                valcovfile_path,
-                valrespfile_path,
-                valbefile,
-                model_id=ind,
-                quantiles=quantiles,
-                outputsuffix=outputsuffix,
-            )
-            print(f"Config:{config}, id:{ind}")
-
-        with open(
-            os.path.join(save_path, config, "MACE_" + outputsuffix + ".pkl"), "wb"
-        ) as file:
-            pickle.dump(mace[c, :].T, file)
-
-    for ind in range(bio_num):
-        best_models.append(list(configs.keys())[np.argmin(mace[:, ind])])
-
-    bio_ids = dict()
-    for model in np.unique(best_models):
-        bio_ids[model] = np.where(np.array(best_models) == model)[0]
-
-    with open(os.path.join(save_path, "model_selection_results.pkl"), "wb") as file:
-        pickle.dump(
-            {"best_models": best_models, "bio_ids": bio_ids, "mace": mace}, file
-        )
-
-    if plot:
-        KDE_plot(mace, list(configs.keys()), "MACE")
-        plt.savefig(os.path.join(save_path, "model_comparison_mace.png"), dpi=600)
-
-    return mace, best_models, bio_ids
 
 
 def calculate_oscilochart(
