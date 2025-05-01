@@ -896,8 +896,7 @@ def z_scores_scatter_plot(
     ticks: list = None,
     box_z_values: list = [0.674, 1.645],
     box_colors: list = ['#a0a0a0', '#202020'],
-    save_path: str = None
-):
+    save_path: str = None):
     """
     Creates a 2D scatter plot of z-scores between two bands (e.g., Theta and Beta),
     with overlaid contour boxes representing specific z-score boundaries.
@@ -997,8 +996,7 @@ def z_scores_scatter_plot(
 
 
 def z_scores_contour_plot(
-    X, Y, bands_name, percentiles=[0.05, 0.25, 0.50, 0.75, 0.95], save_path=None
-):
+    X, Y, bands_name, percentiles=[0.05, 0.25, 0.50, 0.75, 0.95], save_path=None):
     "scatterplot of patient Z-scores with 75th, and 95th percentile"
 
     # define range from -4 to 4
@@ -1304,7 +1302,7 @@ def qq_plot(processing_dir,
 
         plt.show()
 
-
+# ***
 def plot_extreme_deviation(
     base_path: str,
     len_runs: int,
@@ -1313,8 +1311,11 @@ def plot_extreme_deviation(
     healthy_prefix: str,
     patient_prefix: str,
     legend: list,
+    method: str,
     site_id: list = None,
-    new_col_name: list = None
+    new_col_name: list = None,
+    y_upper_lim :float = 15,
+    y_lower_lim : float = 0
 ):
     """
     Computes and plots the percentage of subjects with extreme Z-scores 
@@ -1339,10 +1340,14 @@ def plot_extreme_deviation(
         Filename prefix for patient Z-score data (e.g., 'patient').
     legend : list of str
         Legend labels to display in the plots for the healthy and patient groups.
+    method : str
+        Subfolder name inside each run directory where Z-score files are located.
     site_id : list of str, optional
         List of site IDs to filter participants by. If None, all participants are used.
     new_col_name : list of str, optional
         Optional list of new column names to rename the Z-score DataFrames.
+    y_lower_lim : float, optional
+        Lower limit for the y-axis in the plot. Default is 0.
 
     Returns
     -------
@@ -1355,96 +1360,85 @@ def plot_extreme_deviation(
     df_p_neg : pandas.DataFrame
         DataFrame of negative extreme deviation proportions for the patient group across runs.
     """
-
     df_c_pos, df_p_pos = pd.DataFrame(), pd.DataFrame()
     df_c_neg, df_p_neg = pd.DataFrame(), pd.DataFrame()
 
     for run_num in range(len_runs):
-        processing_dir_ = base_path.replace("Run_0", f"Run_{run_num}")
+        run_dir = base_path.replace("Run_0", f"Run_{run_num}")
 
-        # Load data
-        with open(os.path.join(processing_dir_, method, f"Z_{patient_prefix}.pkl"), "rb") as file:
-            z_scores_p = pickle.load(file)
-        with open(os.path.join(processing_dir_, method, f"Z_{healthy_prefix}.pkl"), "rb") as file:
-            z_scores_c = pickle.load(file)
+        # Load Z-score data
+        with open(os.path.join(run_dir, method, f"Z_{patient_prefix}.pkl"), "rb") as f:
+            z_p = pickle.load(f)
+        with open(os.path.join(run_dir, method, f"Z_{healthy_prefix}.pkl"), "rb") as f:
+            z_c = pickle.load(f)
 
         if new_col_name:
-            z_scores_p.columns = new_col_name
-            z_scores_c.columns = new_col_name
+            z_p.columns = new_col_name
+            z_c.columns = new_col_name
 
-        with open(os.path.join(processing_dir_, "b_test.pkl"), "rb") as file:
-            b_test_c = pickle.load(file)
-        z_scores_c.index = b_test_c.index
+        # Load metadata
+        with open(os.path.join(run_dir, "b_test.pkl"), "rb") as f:
+            b_c = pickle.load(f)
+        z_c.index = b_c.index
 
-        with open(os.path.join(processing_dir_, f"{patient_prefix}_b_test.pkl"), "rb") as file:
-            b_test_p = pickle.load(file)
-        z_scores_p.index = b_test_p.index
+        with open(os.path.join(run_dir, f"{patient_prefix}_b_test.pkl"), "rb") as f:
+            b_p = pickle.load(f)
+        z_p.index = b_p.index
 
         if site_id:
-            z_scores_c = z_scores_c[b_test_c["site"].isin(site_id)]
-            z_scores_p = z_scores_p[b_test_p["site"].isin(site_id)]
+            z_c = z_c[b_c["site"].isin(site_id)]
+            z_p = z_p[b_p["site"].isin(site_id)]
 
-        for i in range(z_scores_c.shape[1]):
-            col_name = z_scores_c.columns[i]
+        # Compute extremes
+        for col in z_c.columns:
+            pos_c = z_c[z_c[col] > 2]
+            neg_c = z_c[z_c[col] < -2]
+            df_c_pos.loc[run_num, col] = (pos_c.shape[0] / z_c.shape[0]) * 100
+            df_c_neg.loc[run_num, col] = (neg_c.shape[0] / z_c.shape[0]) * 100
 
-            pos_c = z_scores_c[z_scores_c.iloc[:, i] > 2]
-            neg_c = z_scores_c[z_scores_c.iloc[:, i] < -2]
+        for col in z_p.columns:
+            pos_p = z_p[z_p[col] > 2]
+            neg_p = z_p[z_p[col] < -2]
+            df_p_pos.loc[run_num, col] = (pos_p.shape[0] / z_p.shape[0]) * 100
+            df_p_neg.loc[run_num, col] = (neg_p.shape[0] / z_p.shape[0]) * 100
 
-            df_c_pos.loc[run_num, col_name] = (pos_c.shape[0] / z_scores_c.shape[0]) * 100
-            df_c_neg.loc[run_num, col_name] = (neg_c.shape[0] / z_scores_c.shape[0]) * 100
+    def plot_bar(df_h, df_p, suffix, ylabel, legend_labels):
+        means_h = df_h.mean()
+        means_p = df_p.mean()
+        ci_h = df_h.std() / np.sqrt(len(df_h)) * 1.96
+        ci_p = df_p.std() / np.sqrt(len(df_p)) * 1.96
 
-        for i in range(z_scores_p.shape[1]):
-            col_name = z_scores_p.columns[i]
-
-            pos_p = z_scores_p[z_scores_p.iloc[:, i] > 2]
-            neg_p = z_scores_p[z_scores_p.iloc[:, i] < -2]
-
-            df_p_pos.loc[run_num, col_name] = (pos_p.shape[0] / z_scores_p.shape[0]) * 100
-            df_p_neg.loc[run_num, col_name] = (neg_p.shape[0] / z_scores_p.shape[0]) * 100
-
-    def plot_(df_c, df_p, save_path, mode_suffix, legend_labels):
-        means_c = df_c.mean(axis=0).values  
-        means_p = df_p.mean(axis=0).values  
-
-        stds_c = df_c.std(axis=0) / np.sqrt(len(df_c))
-        stds_p = df_p.std(axis=0) / np.sqrt(len(df_p))
-
-        stds_c *= 1.96  # 95% CI
-        stds_p *= 1.96
-
-        columns = df_p.columns
-        x = np.arange(len(columns))
+        x = np.arange(len(means_h))
         width = 0.3
 
         fig, ax = plt.subplots(figsize=(6, 4))
+        ax.bar(x - width / 2, means_h, yerr=ci_h, label=legend_labels[0],
+               color="tomato", width=width, capsize=4, alpha=0.8)
+        ax.bar(x + width / 2, means_p, yerr=ci_p, label=legend_labels[1],
+               color="darkslategray", width=width, capsize=4, alpha=0.8)
 
-        ax.bar(x - width/2, means_c, yerr=stds_c, width=width,
-               label=legend_labels[0], color="tomato", capsize=5, alpha=0.8)
-
-        ax.bar(x + width/2, means_p, yerr=stds_p, width=width,
-               label=legend_labels[1], color="darkslategray", capsize=5, alpha=0.8)
-
-        ax.spines["right"].set_visible(False)
-        ax.spines["top"].set_visible(False)
-        ax.spines["bottom"].set_position(('outward', 10))
-        ax.spines["left"].set_position(('outward', 10))
-
-        ax.tick_params(axis='y', labelsize=14)
-        ax.set_ylabel("Proportion (%)", fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=14)
         ax.set_xticks(x)
-        ax.set_xticklabels(columns, fontsize=14, rotation=45, ha="right")
-        if mode_suffix == "negative":
-            ax.legend(fontsize=16)
-        plt.grid(axis="y")
-        ax.set_ylim(0, 15)
+        ax.set_xticklabels(means_h.index, fontsize=12, rotation=45, ha="right")
+        if suffix == "positive":
+            ax.legend(fontsize=12)
+        ax.set_ylim(y_lower_lim, y_upper_lim)
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["bottom"].set_position(("outward", 5))
+        ax.spines["left"].set_position(("outward", 5))
+        ax.tick_params(axis='y', labelsize=12)
+        ax.grid(axis="y")
 
         plt.tight_layout()
-        plt.savefig(os.path.join(save_path, f"extreme_{mode}_{mode_suffix}_dev.svg"), dpi=600)
-        plt.savefig(os.path.join(save_path, f"extreme_{mode}_{mode_suffix}_dev.png"), dpi=600)
+        plt.savefig(os.path.join(save_path, f"extreme_{mode}_{suffix}_dev.svg"), dpi=600)
+        plt.savefig(os.path.join(save_path, f"extreme_{mode}_{suffix}_dev.png"), dpi=600)
         plt.show()
 
-    # Generate plots
-    plot_(df_c_pos, df_p_pos, save_path, "positive", legend)
-    plot_(df_c_neg, df_p_neg, save_path, "negative", legend)
+    # Plot and save
+    plot_bar(df_c_pos, df_p_pos, "positive", "Percentage", legend)
+    plot_bar(df_c_neg, df_p_neg, "negative", "Percentage", legend)
 
     return df_c_pos, df_p_pos, df_c_neg, df_p_neg
+
