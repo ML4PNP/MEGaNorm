@@ -326,16 +326,68 @@ def evaluate_mace(
 
     return batch_mace.mean()
 
-
-def calculate_oscilochart(
+#**
+def calculate_PNOCs(
     quantiles_path,
     gender_ids,
     frequency_band_model_ids,
     quantile_id=2,
     site_id=None,
     point_num=100,
+    sex_batch_ind = 0,
+    site_batch_ind =1, 
+    num_of_sexs = 2,
+    num_of_datasets = None,
     age_slices=None,
 ):
+    """
+    Prepares the data required for the `plot_PNOCs` function.
+
+    This function slices the covariate into multiple bins and calculates the mean and 
+    standard deviation of each frequency band across the population for both sexes.
+
+    Parameters
+    ----------
+    quantiles_path : str
+        Path to a pickle file containing the keys: 'quantiles', 'synthetic_X', and 'batch_effects'.
+    gender_ids : dict
+        Dictionary mapping gender labels (e.g., {"male": 0, "female": 1}) to their batch indices.
+    frequency_band_model_ids : dict
+        Dictionary mapping frequency band names (e.g., {"alpha": 0, "beta": 1}) to model indices.
+    quantile_id : int, optional
+        Index of the quantile to use from the loaded quantiles array (default is 2). This number
+        corresponds to the ith element of the computed percentiles. If the computed percentiles
+        were [0.05, 0.25, 0.5, 0.75, 0.95], then 'quantile_id=2' corresponds to 0.5.
+    site_id : int, optional
+        Site ID to condition the P-NOCs on. If None, PNOCs from all sites are averaged (default is None).
+    point_num : int, optional
+        Number of synthetic data points used in deriving quantiles (default is 100).
+    sex_batch_ind : int, optional
+        Index in the batch array corresponding to sex (default is 0).
+    site_batch_ind : int, optional
+        Index in the batch array corresponding to site (default is 1).
+    num_of_sexs : int, optional
+        Number of sex categories (default is 2).
+    num_of_datasets : int, optional
+        Number of datasets used in data aggregation (required if `site_id` is None).
+    age_slices : array-like of int, optional
+        Array of starting ages to define age bins. If None, defaults to `np.arange(5, 80, 5)`.
+
+    Returns
+    -------
+    oscilogram : dict
+        Nested dictionary with structure: oscilogram[gender][frequency_band] = list of [mean, std] 
+        values for each age slice.
+    age_slices : numpy.ndarray
+        Array of age slice start values used for binning.
+
+    Notes
+    -----
+    - The input pickle file must contain:
+        - 'quantiles': array of shape (n_samples, n_quantiles, n_models)
+        - 'synthetic_X': array of age values of shape (n_samples, 1)
+        - 'batch_effects': array of shape (n_samples, n_batch_dims)
+    """
 
     if age_slices is None:
         age_slices = np.arange(5, 80, 5)
@@ -356,23 +408,23 @@ def calculate_oscilochart(
         if site_id is None:
             data = np.concatenate(
                 [
-                    q[b[:, 0] == 0, quantile_id, model_id : model_id + 1],
-                    q[b[:, 0] == 1, quantile_id, model_id : model_id + 1],
+                    q[b[:, sex_batch_ind] == 0, quantile_id, model_id : model_id + 1],
+                    q[b[:, sex_batch_ind] == 1, quantile_id, model_id : model_id + 1],
                 ],
                 axis=1,
             )
-            data = data.reshape(5, 100, 2)
+            data = data.reshape(num_of_datasets, point_num, num_of_sexs)
             data = data.mean(axis=0)
         else:
             data = np.concatenate(
                 [
                     q[
-                        np.logical_and(b[:, 0] == 0, b[:, 1] == site_id),
+                        np.logical_and(b[:, sex_batch_ind] == 0, b[:, site_batch_ind] == site_id),
                         quantile_id,
                         model_id : model_id + 1,
                     ],
                     q[
-                        np.logical_and(b[:, 0] == 1, b[:, 1] == site_id),
+                        np.logical_and(b[:, sex_batch_ind] == 1, b[:, site_batch_ind] == site_id),
                         quantile_id,
                         model_id : model_id + 1,
                     ],
@@ -384,7 +436,7 @@ def calculate_oscilochart(
             batch_id = gender_ids[gender]
             oscilogram[gender][fb] = []
             for slice in age_slices:
-                d = data[np.logical_and(x >= slice, x < slice + 5), batch_id]
+                d = data[np.logical_and(x >= slice, x < slice + int(age_slices[1]-age_slices[0])), batch_id]
                 m = np.mean(d)
                 s = np.std(d)
                 oscilogram[gender][fb].append([m, s])

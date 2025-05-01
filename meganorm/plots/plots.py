@@ -330,69 +330,81 @@ def plot_age_hist(df, site_names, save_path,
     plt.savefig(os.path.join(save_path, "age_hist.png"), format="png", dpi=600, bbox_inches="tight")
 
 
-def plot_neurooscillochart(data, age_slices, save_path):
+def plot_PNOCs(data, age_slices, save_path):
+    """    
+    Plots the Chrono-NeuroOscilloChart to visualize the contribution of the i-th
+    centiles of each frequency bands to the overal power across brain.
 
+    This function generates two bar plots (for males and females) showing the mean 
+    activity (in percentage) and corresponding 95% confidence intervals for multiple
+    frequency bands across age bins. The result is either saved as an SVG or shown interactively.
+
+    Parameters
+    ----------
+    data : dict
+        Nested dictionary structured as data[gender][frequency_band] = list of [mean, std],
+        where each inner list represents one age slice.
+    age_slices : list or array-like of int
+        Starting values of age bins used for labeling the x-axis (e.g., [5, 10, 15, ..., 75]).
+    save_path : str or None
+        Path to save the resulting SVG plot. If None, the plot is displayed instead.
+
+    Returns
+    -------
+    None
+
+    """
     # Age ranges
     ages = [f"{i}-{i+5}" for i in age_slices]
-
+    
     sns.set_theme(style="whitegrid")
-
+    
     fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
-
-    def plot_gender_data(ax, gender_data, title, legend=True, colors=None):
-
-        means = {k: [item[0] * 100 for item in v] for k, v in gender_data.items()}
-        stds = {k: [item[1] * 100 * 1.96 for item in v] for k, v in gender_data.items()}
-
+    
+    def plot_gender_data(ax, gender_data, title, legend=False, colors=None):
+        
+        means = {k: [item[0] * 100 for item in v] for k, v in gender_data.items()}  
+        stds = {k: [item[1] * 100 * 1.96 for item in v] for k, v in gender_data.items()}  
+        
         df_means = pd.DataFrame(means, index=ages)
         df_stds = pd.DataFrame(stds, index=ages)
-
+  
         my_cmap = ListedColormap(colors, name="my_cmap")
-
-        bar_plot = df_means.plot(
-            kind="bar",
-            yerr=df_stds,
-            capsize=4,
-            stacked=True,
-            ax=ax,
-            alpha=0.7,
-            colormap=my_cmap,
-        )
+        
+        bar_plot = df_means.plot(kind='bar', yerr=df_stds, capsize=4, stacked=True, ax=ax, alpha=0.6, 
+                                 colormap=my_cmap)
         for p in bar_plot.patches:
             width, height = p.get_width(), p.get_height()
             x, y = p.get_xy()
-            bar_plot.text(
-                x + width / 2,
-                y + height / 2 + 2,
-                f"{height:.0f}%",
-                ha="center",
-                va="center",
-                fontsize=14,
-            )
+            bar_plot.text(x + width / 2, 
+                          y + height / 2 + 2, 
+                          f'{height:.0f}%', 
+                          ha='center', 
+                          va='center', fontsize=14)
         ax.set_title(title, fontsize=18)
         ax.set_xlabel('Age ranges (years)', fontsize=16)
         if legend:
-            ax.legend(loc="upper right", bbox_to_anchor=(1.1, 1))
-        else:
+            ax.legend(loc='upper right', bbox_to_anchor=(1.1,1))  
+        else:    
             ax.get_legend().remove()
             
         ax.grid(True, axis='y', linestyle='--', linewidth=0.5)
         ax.grid(False, axis='x')  
-        ax.tick_params(axis='x', labelsize=14)
+        ax.tick_params(axis='x', labelsize=20)
         ax.set_yticklabels([])  
     
     plot_gender_data(axes[0], data['Male'], "Males' Chrono-NeuroOscilloChart", 
-                     colors= ['lightgrey', 'gray', 'dimgrey', 'lightslategray'])
+                     colors= ["orange", "teal", "olive", "tomato"])
     
     plot_gender_data(axes[1], data['Female'], "Females' Chrono-NeuroOscilloChart", legend=False, 
-                     colors=['lightgrey', 'gray', 'dimgrey', 'lightslategray'])
+                     colors=["orange", "teal", "olive", "tomato"])
     
     axes[1].set_xlabel('Age ranges (years)', fontsize=14)
     plt.xticks(rotation=45)
     plt.tight_layout()
-
+    
     if save_path is not None:
-        plt.savefig(os.path.join(save_path, "Chrono-NeuroOscilloChart.svg"), dpi=600)
+        plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.svg'), dpi=600)
     else:
         plt.show()
         
