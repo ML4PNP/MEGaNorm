@@ -13,22 +13,21 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     """
-    Identifies the independent components that their correlation with physiological 
-    signals (e.g., ECG or EOG) is higher than a threshold.
+    Identifies independent components that their correlation with physiological 
+    signals (ECG or EOG) is higher than a threshold.
 
     Parameters
     ----------
     ica : object
-        The fitted ICA object.
+        The fitted ICA object using MNE.
     data : mne.io.Raw
         The raw MEG/EEG data used to extract independent components.
     physiological_signal : np.ndarray
-        The physiological signal (e.g., ECG or EOG) to compare with independent componentss.
+        The physiological signal (ECG or EOG) to compare with independent componentss.
     auto_ica_corr_thr : float
-        Pearson correlation Threshold (between 0 and 1) for accepting a component as
+        Pearson correlation threshold (between 0 and 1) for accepting a component as
         noise.
 
     Returns
@@ -52,14 +51,12 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     return componentIndx
 
 
-
-
 def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000, 
              IcaMethod="fastica", which_sensor={"meg": True, "eeg": True}, 
              auto_ica_corr_thr=0.9):
     """
     Performs automated ICA for artifact removal by identifying components that
-    correlate highly with physiological signals (e.g., ECG or EOG) which is
+    correlate highly with physiological signals (ECG or EOG) which is
     determined by 'auto_ica_corr_thr'.
 
     Parameters
@@ -67,7 +64,7 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000,
     data : mne.io.Raw
         Raw MEG/EEG data.
     physiological_sensor : str
-        Name of the physiological sensor (e.g., 'ECG' or 'EOG').
+        Name of the physiological sensor ('ECG' or 'EOG').
     n_components : int or float
         Number of ICA components to retain.
     ica_max_iter : int
@@ -82,11 +79,10 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000,
 
     Returns
     -------
-    tuple
-        data : mne.io.Raw
-            Raw data with bad ICA components removed (in-place modification).
-        ICA_flag : bool
-            True if no bad components were found, False otherwise.
+    data : mne.io.Raw
+        Raw data with bad ICA components removed (in-place modification).
+    ICA_flag : bool
+        True if no bad components were found, False otherwise.
     """
     # Get physiological signal
     physiological_signal = data.copy().pick(picks=physiological_sensor).get_data()
@@ -127,7 +123,6 @@ def auto_ica(data, physiological_sensor, n_components=30, ica_max_iter=1000,
         ICA_flag = True
 
     return data, ICA_flag
-
 
 
 def auto_ica_with_mean(data, n_components=30, ica_max_iter=1000, 
@@ -272,46 +267,12 @@ def segment_epoch(data:mne.io.Raw, tmin:float, tmax:float, sampling_rate:float, 
     return segments
 
 
-def drop_bads(
-    segments,
-    mag_var_threshold,
-    grad_var_threshold,
-    eeg_var_threshold,
-    mag_flat_threshold,
-    grad_flat_threshold,
-    eeg_flat_threshold,
-    which_sensor,
-):
-
-    if which_sensor["meg"]:
-        reject_criteria = dict(mag=mag_var_threshold, grad=grad_var_threshold)
-        flat_criteria = dict(mag=mag_flat_threshold, grad=grad_flat_threshold)
-
-    if which_sensor["mag"]:
-        reject_criteria = dict(mag=mag_var_threshold)
-        flat_criteria = dict(mag=mag_flat_threshold)
-
-    if which_sensor["grad"]:
-        reject_criteria = dict(grad=grad_var_threshold)
-        flat_criteria = dict(grad=grad_flat_threshold)
-
-    if which_sensor["eeg"]:
-        reject_criteria = dict(eeg=eeg_var_threshold)
-        flat_criteria = dict(eeg=eeg_flat_threshold)
-
-    segments.drop_bad(
-        reject=reject_criteria, flat=flat_criteria
-    )  ##CHANGE!!! but figure out var threshold
-
-    return segments
-
-
 def preprocess(data, which_sensor: dict, resampling_rate: int = 1000, digital_filter=True,
                rereference_method="average", n_component: int = 30, ica_max_iter: int = 800,
                IcaMethod: str = "fastica", cutoffFreqLow: int = 1, cutoffFreqHigh: int = 45,
                apply_ica=True, power_line_freq: int = 60, auto_ica_corr_thr: float = 0.9):
     """
-    Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing,
+    Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
     ICA for artifact removal, and optional downsampling.
 
     Parameters
