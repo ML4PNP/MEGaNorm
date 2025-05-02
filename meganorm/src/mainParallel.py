@@ -7,7 +7,7 @@ import pandas as pd
 import glob
 from meganorm.utils.IO import make_config, storeFooofModels
 from meganorm.src.psdParameterize import psdParameterize
-from meganorm.src.preprocess import preprocess, segment_epoch, drop_bads
+from meganorm.src.preprocess import preprocess, segment_epoch, drop_bads, drop_noisy_meg_channels
 from meganorm.src.featureExtraction import feature_extract
 
 
@@ -88,15 +88,12 @@ def main(*args):
     paths = list(filter(lambda x: len(x), paths))
     path = paths[0]
 
+    # Extracting file format (extention) for loading layout
     extention = path[0].split(".")[-1]
     if "4D" in path[0]:
         extention = "BTI"  # TODO: you need to change this
 
-    # Task
-    task = path.split("/")[-1].split("_")[-2]
-
     # read the data ====================================================================
-
     try:
         data = mne.io.read_raw(path, verbose=False, preload=True)
     except:
@@ -107,11 +104,14 @@ def main(*args):
             preload=True,
         )
 
+    # TODO for Ymkem pls make this as function ******************************************
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
         power_line_freq = 60
 
     if configs["which_sensor"] == "eeg":
+        # Task
+        task = path.split("/")[-1].split("_")[-2]
         base_dir = os.path.dirname(path)
         subID = args.subject
         search_pattern = os.path.join(base_dir, f"**_{task}_channels.tsv")
@@ -149,17 +149,16 @@ def main(*args):
                 print(
                     "Continuing without a montage. This may raise issues for ICA label."
                 )
+    #************************************************************************************************
 
-    which_sensor = {
-        "meg": False,
-        "mag": False,
-        "grad": False,
-        "eeg": False,
-        "opm": False,
-    }
-    for key, values in which_sensor.items():
-        if key == configs["which_sensor"]:
-            which_sensor[key] = True
+
+    # drop noisy channels for MEG==============================================================
+    if configs["which_sensor"] in ["meg", "grad", "mag"]:
+        data = drop_noisy_meg_channels(data, subID, args, configs)
+    
+    which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
+    which_sensor[configs.get("which_sensor")] = True
+
 
     # preproces ========================================================================
     filtered_data, channel_names, sampling_rate = preprocess(
@@ -203,13 +202,13 @@ def main(*args):
         segments=segments,
         sampling_rate=sampling_rate,
         # psd parameters
-        psdMethod=configs["psd_method"],
+        psd_method=configs["psd_method"],
         psd_n_overlap=configs["psd_n_overlap"],
         psd_n_fft=configs["psd_n_fft"],
         n_per_seg=configs["psd_n_per_seg"],
         # fooof parameters
-        freqRangeLow=configs["fooof_freqRangeLow"],
-        freqRangeHigh=configs["fooof_freqRangeHigh"],
+        freq_range_low=configs["fooof_freq_range_low"],
+        freq_range_high=configs["fooof_freq_range_how"],
         min_peak_height=configs["fooof_min_peak_height"],
         peak_threshold=configs["fooof_peak_threshold"],
         peak_width_limits=configs["fooof_peak_width_limits"],
@@ -221,7 +220,7 @@ def main(*args):
 
     # # feature extraction ==================================================================
     features = feature_extract(
-        subjectId=subID,
+        subject_id=subID,
         fmGroup=fmGroup,
         psds=psds,
         freqs=freqs,
@@ -241,7 +240,5 @@ def main(*args):
 
 if __name__ == "__main__":
 
-    # command = python src/mainParallel.py /project/meganorm/Data/MOUS/sub-A2021/meg/sub-A2021_task-rest_meg.ds /home/meganorm-mznasrabadi/MEGaNorm/tests sub-A2021
-    # command = python src/mainParallel.py /project/meganorm/Data/BTNRH/CAMCAN/BIDS_data/sub-CC221828/meg/sub-CC221828_task-rest_meg.fif /home/meganorm-mznasrabadi/MEGaNorm/tests
 
     main(sys.argv[1:])
