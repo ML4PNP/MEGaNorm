@@ -7,6 +7,7 @@ import json
 import numpy as np
 import argparse
 from glob import glob
+from typing import Any, Dict
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -470,3 +471,62 @@ def preprocess(data, which_sensor: dict, resampling_rate: int = 1000, digital_fi
     return data, data.info["ch_names"], int(sampling_rate)
 
 
+def drop_noisy_meg_channels(data: Any, subID: str, args: Any, configs: Dict[str, str]) -> Any:
+    """
+    Identifies and removes noisy or flat MEG/EEG channels using Maxwell filtering,
+    and logs the number of dropped channels for each subject.
+
+    Parameters
+    ----------
+    data : instance of `mne.io.Raw`
+        The MEG/EEG recording to process.
+
+    subID : str
+        Identifier for the subject, used in naming the log file.
+
+    args : argparse.Namespace or similar
+        Object containing runtime arguments, including 'saveDir'.
+
+    configs : dict
+        Configuration dictionary containing:
+            - 'which_sensor': one of {"meg", "mag", "grad", "eeg", "opm"}
+
+    Returns
+    -------
+    data_cleaned : instance of `mne.io.Raw`
+        The cleaned data with noisy/flat channels removed.
+
+    Notes
+    -----
+    If Maxwell filtering has already been applied (e.g., SSS step),
+    the function will skip bad channel detection and proceed to drop
+    previously marked bad channels.
+
+    The number of dropped channels is saved to a JSON log file in
+    a directory derived from `args.saveDir`, replacing 'temp' with
+    'log_droped_channels'.
+    """
+    which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
+    which_sensor[configs.get("which_sensor")] = True
+
+    try:
+        auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
+            data, return_scores=False, verbose=True, coord_frame="meg"
+        )
+        data.info["bads"] += auto_noisy_chs + auto_flat_chs
+
+    except RuntimeError as e:
+        if "Maxwell filtering SSS step has already been applied" in str(e):
+            print("Skipping: SSS already applied.")
+        else:
+            raise
+
+    # Always proceed to log and drop marked bads
+    droped_ch_len = len(data.info["bads"])
+    log_path = args.saveDir.replace('temp', 'log_droped_channels')
+
+    os.makedirs(log_path, exist_ok=True)
+    with open(os.path.join(log_path, f"{subID}.json"), "w") as file:
+        json.dump(droped_ch_len, file)
+
+    return data.copy().drop_channels(data.info["bads"])
