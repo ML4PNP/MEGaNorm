@@ -496,7 +496,36 @@ def separate_patient_data(df, diagnosis: list):
 
 
 def merge_datasets_with_glob(datasets):
+    """
+    Merges file paths across multiple datasets using glob pattern matching.
 
+    This function walks through the provided datasets' base directories to find 
+    subject folders and file paths matching a specified task and file ending. It 
+    creates a dictionary mapping each subject to a glob pattern that can be used 
+    to aggregate files across multiple runs or sessions.
+
+    Parameters
+    ----------
+    datasets : dict
+        Dictionary where each key is a dataset name, and each value is a dictionary 
+        with the following keys:
+            - "base_dir" (str): Base directory containing subject subdirectories.
+            - "task" (str): Task keyword to search for in filenames.
+            - "ending" (str): File ending (e.g., '.nii.gz') to filter relevant files.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping subject IDs to a glob-style path string that aggregates 
+        all matching files for that subject. Only subjects with at least one matched 
+        file are included.
+
+    Notes
+    -----
+    This function is designed to assist in scenarios where each subject may have 
+    multiple files (e.g., different runs or sessions), and the goal is to create 
+    a single pattern that can be used to load all related files for a subject.
+    """
     subjects = {}
 
     for dataset_name, dataset_info in datasets.items():
@@ -528,22 +557,5 @@ def merge_datasets_with_glob(datasets):
     # different run
     subjects = dict(filter(lambda item: item[1], subjects.items()))
     subjects = {key: join_with_star(value) for key, value in subjects.items()}
-
-    # 	paths = args.dir.split("*")
-    # paths = list(filter(lambda x: len(x), paths))
-    # # read the data ====================================================================
-    # for path_counter, path in enumerate(paths):
-    # 	if path_counter == 0:
-    # 		data = mne.io.read_raw(path, verbose=False, preload=True)
-    # 		dev_head_t_ref = data.info['dev_head_t']
-    # 	else:
-    # 		new_data = mne.io.read_raw(path, verbose=False, preload=True)
-    # 		new_data = mne.preprocessing.maxwell_filter(
-    # 												new_data,
-    # 												origin=(0,0,0),
-    # 												coord_frame='head',
-    # 												destination=dev_head_t_ref
-    # 												)
-    # 		data = mne.concatenate_raws([data, new_data])
 
     return subjects
