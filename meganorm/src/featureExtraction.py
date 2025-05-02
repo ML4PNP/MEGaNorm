@@ -42,7 +42,7 @@ def offset(fm: f.FOOOF) -> float:
 
 def exponent(fm:f.FOOOF, aperiodic_mode:str) -> float:
     """
-    Extract the exponent value from the aperiodic component of a FOOOF model, based on the specified mode.
+    Extract the exponent value from the aperiodic component of a FOOOF model.
 
     Parameters
     ----------
@@ -80,9 +80,9 @@ def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, flo
     fm : f.FOOOF
         A FOOOF model object that contains peak parameters.
     fmin : Union[int, float]
-        The minimum frequency of the band.
+        The lower frequency of the band.
     fmax : Union[int, float]
-        The maximum frequency of the band.
+        The upper frequency of the band.
 
     Returns
     -------
@@ -173,7 +173,8 @@ def peak_width(band_peaks:list):
 
 def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
     """
-    Isolates the periodic component of the power spectrum by subtracting the aperiodic fit.
+    Isolates the periodic component of the power spectrum by subtracting the aperiodic fit
+    from the original pwer spectrum density.
 
     Parameters
     ----------
@@ -193,7 +194,7 @@ def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
 def abs_canonical_power(psd: np.ndarray, freqs: np.ndarray, 
                     fmin: Union[int, float], fmax : Union[int, float]) -> float:
     """
-    Calculates absolute canonical power of a frequency band from a power spectrum density.
+    Calculates absolute canonical power of a frequency band from a power spectrum density (PSD).
 
     Parameters
     ----------
@@ -353,9 +354,14 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
     """
     Summarizes a feature DataFrame by averaging channels based on a specified sensor layout.
 
-    This function computes the mean of selected channels (e.g., MEG, EEG) across predefined regions or 
-    parcels, as specified in a sensor layout dictionary. It returns a new DataFrame where each column 
-    represents the average signal for a region or for the whole brain, depending on the layout.
+    Since sensor positions may differ across datasets recorded with different MEG hardware systems,
+    this function enables consistent feature extraction by averaging signals across the whole brain 
+    or predefined brain regions (e.g., lobes).
+
+    The function computes the mean of selected channels (e.g., MEG, EEG) according to a layout 
+    specified in a JSON file. The layout file is selected based on the recording extension 
+    (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional (lobe-level) 
+    parcellation.
 
     Example layout for regional parcellation:
         "FIF_MEG_LOBE": {
@@ -368,24 +374,25 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
             "MAG_ALL": ["MEG0121", "MEG0341", "MEG0311", ...]
         }
 
+    Layout files must be stored in a dedicated layout directory and named based on the recording 
+    extension (e.g., 'FIF.json'). The appropriate key in the JSON (e.g., 'FIF_MEG_LOBE') is constructed 
+    using `extention`, `which_layout`, and `which_sensor`.
+
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame where each column represents a channel and each row a sample.
+        A DataFrame where each column represents a channel and each row a sample (subject or epoch).
     extention : str
-        The extension of subject's recording like FIF or DS. This will be used to read
-        the layout file (e.g., FIF.json) from the layout directory. 
+        The recording file type (e.g., 'FIF', 'DS'). Used to locate the correct layout file.
     which_layout : str
-        Name of the sensor layout to use for averaging; 'all' for global averaging and 'lobe'
-        for averaging across lobes.
+        Layout type to use: 'all' for global averaging or 'lobe' for region-based averaging.
     which_sensor : dict
-        Dictionary specifying which modality to include (e.g., {'meg': True, 'eeg': False}).
+        Dictionary indicating which sensor modalities to include (e.g., {'meg': True, 'eeg': False}).
 
     Returns
     -------
     pd.DataFrame
-        A new DataFrame with features averaged by layout. Columns represent the parcells and
-        rows represent subject
+        A new DataFrame where columns represent averaged parcels and rows represent samples.
     """
     df.dropna(axis=0, how="all", inplace=True)
     summrized_df = pd.DataFrame(index=df.index)
@@ -511,17 +518,29 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
 
 def add_feature(feature_container, feature_arr, feature_name, channel_name, band_name):
     """
-    Adds a feature to the feature container (DataFrame) for a specific channel and frequency band.
+    Add a feature value to the feature container for a specific channel and frequency band.
 
-    Args:
-        feature_container (pd.DataFrame): DataFrame where features are stored, with rows as feature names and columns as channels.
-        feature_arr (np.ndarray): Array of feature values to add to the DataFrame.
-        feature_name (str): The name of the feature to add.
-        channel_name (str): The name of the channel to assign the feature value.
-        band_name (str): The frequency band name to append to the feature name.
+    This function appends a feature to a DataFrame by assigning a value (e.g., from an array) 
+    to a row labeled with the combined feature and band name, and a column labeled with the 
+    channel name.
 
-    Returns:
-        pd.DataFrame: The updated feature container with the added feature.
+    Parameters
+    ----------
+    feature_container : pd.DataFrame
+        DataFrame used to store features, where rows represent feature names and columns represent channels.
+    feature_arr : np.ndarray
+        Array containing the feature value(s) to add.
+    feature_name : str
+        Name of the feature (e.g., 'RelativePower_').
+    channel_name : str
+        Name of the channel (e.g., 'MEG0121') to which the feature value should be assigned.
+    band_name : str
+        Frequency band to append to the feature name (e.g., 'Alpha').
+
+    Returns
+    -------
+    pd.DataFrame
+        Updated DataFrame with the new feature added.
     """
     feature_name = feature_name + band_name
     feature_container.at[feature_name, channel_name] = feature_arr
@@ -542,47 +561,65 @@ def feature_extract(subject_id: str,
                     aperiodic_mode: str, 
                     min_r_squared: float) -> pd.DataFrame:
     """
-    Extract features from fitted fooof models.
+    Extract features from FOOOF models for each channel and frequency band.
+
+    This function computes various features from FOOOF models for each channel, 
+    based on specified frequency bands. Features such as offset, exponent, peak 
+    characteristics, and canonical power are calculated and stored in a DataFrame.
 
     Parameters
     ----------
     subject_id : str
-        Subject identifier.
+        The unique identifier for the subject whose data is being processed.
     fmGroup : f.FOOOF
-        Group of FOOOF models, where each channel has a corresponding FOOOF object.
+        Group of FOOOF models, where each model corresponds to a channel and 
+        its power spectral data.
     psds : np.ndarray
-        Original power spectral density (not flattened).
+        Original power spectral density values, with shape (n_channels, n_freqs).
     feature_categories : Dict[str, bool]
-        A dictionary with feature names as keys and booleans indicating 
-        whether the feature should be calculated.
+        A dictionary where keys are feature names (e.g., 'Offset', 'Exponent') and values are 
+        booleans indicating whether to compute the feature.
     freqs : np.ndarray
-        Frequency values corresponding to each power value in psds.
+        Frequency values corresponding to the power values in the `psds` array.
     freq_bands : Dict[str, tuple]
-        _description_
+        Dictionary mapping frequency band names (e.g., 'Alpha', 'Beta') to their 
+        corresponding frequency ranges (min_freq, max_freq).
     channel_names : List[str]
-        List of channel names.
+        List of channel names corresponding to the rows of the `psds` array.
     individualized_band_ranges : Dict[str, tuple]
-        Dictionary of individualized frequency ranges for each band.
+        A dictionary mapping band names to individualized frequency ranges, which may differ 
+        across subjects or datasets.
     extention : str
-        The extension of subject's recording like FIF or DS. This will be used to read
-        the layout file (e.g., FIF.json) from the layout directory. 
+        The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the 
+        appropriate layout file from the layout directory.
     which_layout : str
-        Name of the sensor layout to use for averaging; 'all' for global averaging and 'lobe'
-        for averaging across lobes.
+        Specifies the sensor layout for feature averaging, either 'all' for global averaging 
+        or 'lobe' for averaging within lobes.
     which_sensor : Dict[str, bool]
-        Dictionary specifying which modality to include (e.g., {'meg': True, 'eeg': False}).
+        A dictionary indicating which modalities (e.g., 'meg', 'eeg') should be included 
+        in the feature extraction.
     aperiodic_mode : str
-        Aperiodic mode for the FOOOF model. It must be either 'knee' or 'fixed'.
+        Defines the aperiodic component fitting mode for FOOOF. Options are 'knee' or 'fixed'.
     min_r_squared : float
-        Minimum acceptable r-squared value for model fitting. This will be used to exclude
-        those fitted fooof models (for channels) that did not have R squared higher than this 
-        threshold.
+        Minimum acceptable R-squared value for FOOOF model fitting. Channels with 
+        R-squared values below this threshold are excluded.
 
     Returns
     -------
     pd.DataFrame
-        A DataFrame containing extracted features for each channel and band.
-    """    
+        A DataFrame with features extracted for each channel and frequency band. The 
+        DataFrame has features as rows and channels (and frequency bands) as columns.
+
+    Raises
+    ------
+    ValueError
+        If `aperiodic_mode` is not 'knee' or 'fixed'.
+    TypeError
+        If `fmGroup` is not an instance of f.FOOOF.
+    ValueError
+        If `min_r_squared` is not between 0 and 1.
+    """
+ 
     if aperiodic_mode not in ["knee", "fixed"]:
         raise ValueError(f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'.")
     if not isinstance(fmGroup, f.FOOOF):
