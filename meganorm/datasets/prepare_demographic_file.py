@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 
 
 def make_demo_file_bids(
