@@ -7,12 +7,9 @@ import seaborn as sns
 import scipy.stats as st
 from scipy.stats import shapiro
 import itertools
-from sklearn.model_selection import StratifiedKFold
-import shutil
 from scipy.stats import skew, kurtosis
 from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
-from meganorm.plots.plots import KDE_plot
 from sklearn.model_selection import train_test_split
 
 #**
@@ -597,7 +594,6 @@ def estimate_centiles(
             }, f)
 
     return q
-
 
 #**
 def prepare_prediction_data(
