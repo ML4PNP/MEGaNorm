@@ -7,60 +7,60 @@ import pandas as pd
 import glob
 from meganorm.utils.IO import make_config, storeFooofModels
 from meganorm.src.psdParameterize import psdParameterize
-from meganorm.src.preprocess import preprocess, segment_epoch, drop_bads, drop_noisy_meg_channels
+from meganorm.src.preprocess import preprocess, segment_epoch, drop_noisy_meg_channels
 from meganorm.src.featureExtraction import feature_extract
 
 
 def main(*args):
     """
-    Main function for running a complete spectral feature extraction pipeline in both serialized and
-    parallelized workflows.
+    Main function for running a complete spectral feature extraction pipeline 
+    using serialized or parallelized workflows.
 
-    This function reads MEG/EEG data and apply preprocessing, segmentation, PSD computation,
-    FOOOF-based spectral parameterization and feature extraction. The final features are 
-    saved to disk as a CSV file.
+    This function processes raw MEG/EEG recordings through a pipeline that includes 
+    preprocessing, segmentation, PSD computation, spectral parameterization using FOOOF, 
+    and feature extraction. The resulting features are saved to a CSV file.
 
     Positional Arguments (from command line)
     ----------------------------------------
     dir : str
-        Path to the raw data file or directory containing MEG/EEG recordings.
-        Supports wildcards for batch processing.
+        Path to the raw MEG/EEG data file or directory.
     saveDir : str
         Directory where the extracted features will be saved.
     subject : str
-        Participant ID used for file naming and internal tracking.
+        Subject or participant identifier used for file naming and tracking.
 
     Optional Arguments
     ------------------
     --configs : str, optional
-        Path to a JSON configuration file that defines all preprocessing, segmentation,
-        PSD, and FOOOF parameters. If not provided, a default configuration is generated.
+        Path to a JSON configuration file specifying preprocessing, segmentation, 
+        PSD, and FOOOF parameters. If not provided, a default configuration is used.
 
     Workflow Overview
     -----------------
-    1. Parses input arguments and configuration file (if provided).
-    2. Loads raw MEG/EEG data.
-    3. Applies channel type mapping and montage setup (for EEG).
-    4. Preprocesses data using ICA, filtering, and re-referencing as specified.
-    5. Segments the data into epochs for further analysis.
-    6. Computes Power Spectral Density (PSD) for each channel.
-    7. Fits FOOOF models to the PSD to separate aperiodic and periodic components.
-    8. Extracts spectral features across predefined frequency bands and saves them as a CSV.
+    1. Loads raw MEG/EEG data.
+    2. Applies channel type mapping and sets EEG montage (if applicable).
+    3. Removes bad channels using Maxwell filtering (for MEG).
+    4. Applies preprocessing steps such as bandpass filtering and ICA.
+    5. Segments the continuous data into epochs.
+    6. Computes the Power Spectral Density (PSD) for each epoch and channel.
+    7. Fits FOOOF models to each PSD to decompose into periodic and aperiodic components.
+    8. Extracts spectral features across predefined frequency bands.
+    9. Saves the extracted features as a CSV file to the specified output directory.
 
     Notes
     -----
-    - Designed to run in both serial and parallel setups (e.g., SLURM, multiprocessing).
-    - Includes robust handling of missing montages and channel info.
-    - Ensures compatibility with multiple MEG/EEG acquisition formats.
+    - Supports both EEG and MEG modalities.
+    - Compatible with various MEG/EEG file formats supported by MNE.
+    - Can be run in serial mode or in parallel environments (e.g., SLURM-based clusters).
 
     Raises
     ------
     FileNotFoundError
-        If montage or channel information is required but missing.
+        If required montage or channel information is missing.
     ValueError
-        If an unsupported sensor type or PSD method is specified in configs.
+        If an unsupported sensor type or PSD method is defined in the configuration.
     RuntimeError
-        If data loading fails for unsupported or corrupted formats.
+        If data loading fails due to unsupported or corrupted formats.
     """
     parser = argparse.ArgumentParser()
     # positional Arguments
@@ -104,11 +104,11 @@ def main(*args):
             preload=True,
         )
 
-    # TODO for Ymkem pls make this as function ******************************************
+    
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
         power_line_freq = 60
-
+    # TODO for Ymkem pls make this as function ******************************************
     if configs["which_sensor"] == "eeg":
         # Task
         task = path.split("/")[-1].split("_")[-2]
@@ -186,16 +186,6 @@ def main(*args):
         segmentsLength=configs["segments_length"],
         overlap=configs["segments_overlap"],
     )
-
-    # drop bad channels ================================================================
-    # segments = drop_bads(segments = segments,
-    # 					mag_var_threshold = configs["mag_var_threshold"],
-    # 					grad_var_threshold = configs["grad_var_threshold"],
-    # 					eeg_var_threshold = configs["eeg_var_threshold"],
-    # 					mag_flat_threshold = configs["mag_flat_threshold"],
-    # 					grad_flat_threshold = configs["grad_flat_threshold"],
-    # 					eeg_flat_threshold = configs["eeg_flat_threshold"],
-    # 					which_sensor = which_sensor)
 
     # fooof analysis ====================================================================
     fmGroup, psds, freqs = psdParameterize(
