@@ -501,7 +501,7 @@ def plot_nm_ranges_with_marker(
     data_dir,
     quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
     save_plot=True,
-    outputsuffix="",
+    suffix="",
     batch_curve={0: ["Male", "Female"]},
     batch_marker={1: ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
     new_names=['Theta', 'Alpha', 'Beta', 'Gamma'],
@@ -518,14 +518,14 @@ def plot_nm_ranges_with_marker(
     Parameters
     ----------
     processing_dir : str
-        Path to the directory containing normative model outputs (e.g., Quantiles_<outputsuffix>.pkl).
+        Path to the directory containing normative model outputs (e.g., Quantiles_<suffix>.pkl).
     data_dir : str
         Path to the directory containing test data files (`x_test.pkl`, `y_test.pkl`, and `b_test.pkl`).
     quantiles : list of float, optional
         List of quantile levels to plot (default is [0.05, 0.25, 0.5, 0.75, 0.95]).
     save_plot : bool, optional
         Whether to save the generated plots to disk (default is True).
-    outputsuffix : str, optional
+    suffix : str, optional
         Suffix to identify which Quantiles_<suffix>.pkl file to load in `processing_dir`.
     batch_curve : dict
         Dictionary mapping the index used for curve stratification (e.g., sex) to a list of labels.
@@ -552,7 +552,7 @@ def plot_nm_ranges_with_marker(
     y_test_df = pickle.load(open(os.path.join(data_dir, 'y_test.pkl'), 'rb'))
     b_test = pickle.load(open(os.path.join(data_dir, 'b_test.pkl'), 'rb')).to_numpy(float)
 
-    temp = pickle.load(open(os.path.join(processing_dir, f'Quantiles_{outputsuffix}.pkl'), 'rb'))
+    temp = pickle.load(open(os.path.join(processing_dir, f'Quantiles_{suffix}.pkl'), 'rb'))
     q = temp['quantiles']
     synthetic_X = temp['synthetic_X']
     quantiles_be = temp['batch_effects']
@@ -934,6 +934,8 @@ def plot_metrics(
     ----------
     metrics_path : list of str
         List of file paths to pickle files containing aggregated metrics.
+        If you want to compare multiple models, you can pass multiple paths in a list
+        to plot them together. Otherwise, one single path in a list is enough.
     which_biomarkers : list of str
         Biomarker names to include in the plots.
     biomarkers_new_name : list of str, optional
@@ -1038,6 +1040,8 @@ def qq_plot(
     ----------
     processing_dir : list of str
         List of directories containing Z-score pickle files (`Z_<prefix>.pkl`).
+        To compare multiple models, provide multiple file paths in the list.
+        To plot results from a single model, provide a list containing one path.
     save_fig : str or None
         Directory where generated plots will be saved. If None, plots are not saved.
     label_dict : dict
@@ -1270,3 +1274,118 @@ def plot_extreme_deviation(
 
     return df_c_pos, df_p_pos, df_c_neg, df_p_neg
 
+
+def plot_site_diff(
+    processing_dir,
+    data_dir,
+    save_dir,
+    which_quantile=2,
+    suffix='estimate',
+    batch_curve={"sex": ["Male", "Female"]},
+    batch_marker={"site": ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
+    new_names=['Theta', 'Alpha', 'Beta', 'Gamma'],
+    colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "Slategrey"],
+    num_point=100,
+    age_normalizer=100
+):
+    """
+    Plot particular centile (determined by 'which_quantile') across sites for each biomarker.
+    This function shows site differences at 'which_quantile' centile.
+
+    Parameters
+    ----------
+    processing_dir : str
+        Path to the directory containing normative model output files (e.g., quantile predictions).
+    data_dir : str
+        Path to the directory containing test set covariates, responses, and batch effect files.
+    save_dir : bool, optional
+        If not none, saves the generated plots to the this directory.
+    which_quantile : int, optional
+        Index of the quantile to plot (e.g., 2 for 50th centile in a list like [0.05, 0.25, 0.5, 0.75, 0.95]).
+    suffix : str, optional
+        Suffix of the saved quantile identifying which output file to use. Default is 'estimate'.
+    experiment_id : int, optional
+        An integer identifier used to separate outputs from different experiments. Default is 0.
+    batch_curve : dict, optional
+        Dictionary specifying the batch effect (e.g., {"sex": ["Male", "Female"]}) used to filter data 
+        before plotting. Only the first listed group is used (e.g., "Male").
+    batch_marker : dict, optional
+        Dictionary specifying the batch variable to distinguish site-specific curves 
+        (e.g., {"site": ["BTH", "Cam-Can", ...]}).
+    new_names : list of str, optional
+        Descriptive names of biomarkers to use for axis labeling. Length must match number of biomarkers.
+    colors : list of str, optional
+        List of color values corresponding to the number of sites being plotted. Must match `batch_marker`.
+    num_point : int, optional
+        Number of synthetic age points per site used in the model predictions. Default is 100.
+    age_normalizer : float, optional
+        Value used to rescale normalized age data back to the original scale. Default is 100.
+
+    Returns
+    -------
+    None
+        This function produces matplotlib figures showing site-specific trajectories of model-predicted 
+        quantiles for each biomarker. If `save_plot` is True, plots are saved as both SVG and PNG files 
+        in the specified output directory.
+    """
+
+    matplotlib.rcParams['pdf.fonttype'] = 42
+
+    # Load required data
+    X_test = pickle.load(open(os.path.join(data_dir, 'x_test.pkl'), 'rb')).to_numpy(float) * age_normalizer
+    Y_test = pickle.load(open(os.path.join(data_dir, 'y_test.pkl'), 'rb'))
+    be_test_df = pickle.load(open(os.path.join(data_dir, 'b_test.pkl'), 'rb'))
+    quantiles_data = pickle.load(open(os.path.join(processing_dir, f'Quantiles_{suffix}.pkl'), 'rb'))
+
+    q = quantiles_data['quantiles']
+    synthetic_X = quantiles_data['synthetic_X']
+    quantiles_be = quantiles_data['batch_effects']
+
+    be_test = be_test_df.to_numpy(float)
+    curve_col = list(batch_curve.keys())[0]
+    marker_col = list(batch_marker.keys())[0]
+
+    curve_indx = be_test_df.columns.get_loc(curve_col)
+    marker_values = batch_marker[marker_col]
+
+    num_biomarkers = q.shape[2]
+    num_sites = len(marker_values)
+
+    if num_sites > len(colors):
+        raise ValueError("Not enough colors provided for the number of sites.")
+
+    for biomarker_idx in range(num_biomarkers):
+        biomarker_name = Y_test.columns[biomarker_idx]
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        # Filter by selected batch effect (e.g., only males)
+        selected_indices = np.where(quantiles_be[:, curve_indx] == 0)[0]
+
+        # Reshape data
+        x_vals = np.asarray(synthetic_X[selected_indices]).reshape(-1, num_point)
+        y_vals = q[selected_indices, which_quantile, biomarker_idx].reshape(-1, num_point)
+
+        y_mean = np.mean(y_vals, axis=0)
+
+        for site_idx in range(num_sites):
+            ax.plot(x_vals[site_idx], y_vals[site_idx],
+                    linewidth=3, linestyle='-', alpha=0.8, color=colors[site_idx],
+                    label=marker_values[site_idx])
+
+        ax.plot(x_vals[0], y_mean, linestyle='--', linewidth=2, alpha=0.8, color='blue', label='Site mean')
+
+        ax.set_xlabel("Age (years)", fontsize=20)
+        ax.set_ylabel(new_names[biomarker_idx], fontsize=20)
+        ax.tick_params(axis='both', labelsize=16)
+        ax.grid(True, linewidth=0.5, alpha=0.5, linestyle='--')
+        ax.legend(fontsize=14)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        plt.tight_layout()
+
+        if save_dir:
+            os.makedirs(os.path.join(save_dir, "site_diff"), exist_ok=True)
+            fname_base = f"{biomarker_idx}_{biomarker_name}_site_diff"
+            fig.savefig(os.path.join(save_dir, fname_base + ".svg"), dpi=600)
+            fig.savefig(os.path.join(save_dir, fname_base + ".png"), dpi=600)
