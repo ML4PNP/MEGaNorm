@@ -23,7 +23,7 @@ def plot_age_hist(
     upper_age_range=90,
     step_size=5,
     colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "slategrey"]
-):
+)->None:
     """
     Plot and save a stacked histogram of age distributions across sites.
 
@@ -52,6 +52,10 @@ def plot_age_hist(
     ------
     Exception
         If the number of colors is less than the number of site names.
+
+    Returns
+    -------
+    None
 
     Saves
     -----
@@ -96,30 +100,47 @@ def plot_age_hist(
 
 
 # ***
-def plot_PNOCs(data, age_slices, save_path):
-    """    
-    Plots the population-level NeuroOscilloChart (PNOCS) to visualize the contribution of the i-th
-    centiles of each frequency bands to the overal power with aging.
+def plot_PNOCs(data: dict, age_slices: list, save_path: str) -> None:
+    """
+    Generate and save population-level NeuroOscilloCharts (PNOCs) showing age-related changes 
+    in frequency band contributions to overall neural power for males and females.
 
-    This function generates two bar plots (for males and females) showing the mean 
-    activity (in percentage) and corresponding 95% confidence intervals for four
-    frequency bands across age bins. The figure is saved as an SVG.
+    This function creates stacked bar plots for each gender, visualizing the relative 
+    contributions (as percentages) of four frequency bands across defined age bins. 
+    Mean values and 95% confidence intervals (approximated as 1.96 * std) are displayed. 
+    The resulting figure is saved in SVG and PNG formats if a `save_path` is provided.
 
     Parameters
     ----------
     data : dict
-        Nested dictionary structured as data[gender][frequency_band] = list of [mean, std],
-        where each inner list represents one age slice.
-    age_slices : list or array-like of int
-        Starting values of age bins used for labeling the x-axis (e.g., [5, 10, 15, ..., 75]).
+        A nested dictionary of the form:
+        {
+            'Male': {
+                'delta': list of [mean, std],
+                'theta': list of [mean, std],
+                ...
+            },
+            'Female': {
+                ...
+            }
+        }
+        Each list should have one [mean, std] pair per age slice. This can be calculated using
+        meganorm.nm.calculate_PNOCs function.
+
+    age_slices : list of int
+        List of starting ages for each 5-year bin used as x-axis labels (e.g., [5, 10, 15, ..., 75]).
+
     save_path : str or None
-        Path to save the resulting SVG plot. If None, the plot is displayed instead.
+        Directory path to save the generated figure. If None, the plot is not saved to disk.
 
     Returns
     -------
     None
-
+        Displays the plot and, if `save_path` is not None, saves the following files:
+        - 'Chrono-NeuroOscilloChart.svg'
+        - 'Chrono-NeuroOscilloChart.png'
     """
+
     # Age ranges
     ages = [f"{i}-{i+5}" for i in age_slices]
     
@@ -172,34 +193,42 @@ def plot_PNOCs(data, age_slices, save_path):
     if save_path is not None:
         plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.svg'), dpi=600)
         plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.png'), dpi=600)
-    else:
-        plt.show()
+    plt.show()
  
 # ***    
 def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None, colors=None, centiles_name=['5th', '25th', '50th', '75th', '95th']):
     """
-    Plot a growth chart for a given f-IDP, visualizing centile of variations for males and females.
+    Plot a growth chart for a given f-IDP, showing centile trajectories by sex across age.
+
+    This function generates a two-panel plot (males and females), visualizing centile curves
+    over age for a given imaging-derived phenotype (IDP). Optional age compression above a 
+    specified cutoff is applied for better visualization. Shaded regions denote inter-centile 
+    ranges (5th–95th and 25th–75th).
 
     Parameters
     ----------
     age_vector : numpy.ndarray
-        1D array of age values.
+        1D array of age values corresponding to the centile data.
     centiles_matrix : numpy.ndarray
-        3D array (n_ages, n_centiles, n_sexes), with centiles along axis 1.
+        3D array of shape (n_ages, n_centiles, 2), where axis 2 indexes sex 
+        (0 = male, 1 = female), and axis 1 contains ordered centiles.
     cut : int, optional
-        Age cutoff to compress ages above using a linear transform.
+        Age cutoff after which ages are compressed for visualization (default is 0, no compression).
     idp : str, optional
-        Biomarker or phenotype name for labeling.
-    save_path : str, optional
-        Directory to save plot. If None, displays plot.
+        Name of the biomarker or phenotype to be displayed as the y-axis label and used in the filename.
+    save_path : str or None, optional
+        If specified, saves the figure as an SVG file in the given directory. If None, only displays the plot.
     colors : dict, optional
-        Dictionary with 'male' and 'female' keys and color lists.
+        Dictionary with 'male' and 'female' keys, each mapping to a list of color hex codes
+        for the centile lines. If None, a default color scheme is used.
     centiles_name : list of str, optional
-        Labels for each centile curve.
+        List of string labels for each centile (e.g., ['5th', '25th', '50th', '75th', '95th']).
 
     Returns
     -------
     None
+        Displays the plot and, if `save_path` is provided, saves the following file:
+        - '<idp>_growthchart.svg'
     """
     if colors is None:
         colors = {
@@ -320,20 +349,20 @@ def plot_growthcharts(path,
 
 # ***
 def plot_INOCs(
-    sub_index, current_value, q1, q3, percentile_5, percentile_95, percentile_50,
+    sub_index, observed_value, q1, q3, percentile_5, percentile_95, percentile_50,
     title="Quantile-Based Gauge", min_value=0, max_value=1,
     show_legend=False, bio_name=None, save_path=None
 ):
     """
-    Plots population-level NeuroOscilloChart (INOCs) showing where an individual's 
+    Plots individual-level NeuroOscilloChart (INOCs) showing where an individual's 
     measurements stands in relation to the corresponding population.
 
     Parameters
     ----------
     sub_index : int or str
         Unique identifier for the subject (used for file naming).
-    current_value : float
-        Current observed biomarker value.
+    observed_value : float
+        Observed biomarker value.
     q1 : float
         25th percentile value.
     q3 : float
@@ -363,18 +392,18 @@ def plot_INOCs(
         Displays and optionally saves a gauge chart indicating where the current
         biomarker value lies within the distribution.
     """
-    current_value = round(current_value, 3)
+    observed_value = round(observed_value, 3)
     if bio_name == "Gamma":
         max_value = 0.1
 
     # Determine color based on value position
-    if current_value < percentile_5:
+    if observed_value < percentile_5:
         value_color = "rgb(8, 65, 92)"  # Extremely low
-    elif current_value < q1:
+    elif observed_value < q1:
         value_color = "rgb(0, 191, 255)"  # Below normal
-    elif current_value <= q3:
+    elif observed_value <= q3:
         value_color = "rgb(129, 193, 75)"  # Normal
-    elif current_value <= percentile_95:
+    elif observed_value <= percentile_95:
         value_color = "rgb(255, 201, 20)"  # Above normal
     else:
         value_color = "rgb(188, 44, 26)"  # Extremely high
@@ -384,7 +413,7 @@ def plot_INOCs(
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number+delta",
-        value=current_value,
+        value=observed_value,
         number={
             'font': {'size': number_font_size, 'family': 'Arial', 'color': value_color}
         },
@@ -467,43 +496,54 @@ def plot_INOCs(
 
 
 # ***
-def plot_nm_range_site(
+def plot_nm_ranges_with_marker(
     processing_dir,
     data_dir,
     quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
     save_plot=True,
-    outputsuffix="estimate",
-    experiment_id=0,
+    outputsuffix="",
     batch_curve={0: ["Male", "Female"]},
     batch_marker={1: ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
     new_names=['Theta', 'Alpha', 'Beta', 'Gamma'],
     colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "Slategrey"]
 ):
     """
-    Plot normative centile ranges with batch curves and test data overlaid.
+    Plot normative centile curves and overlay test sample data with marker-based group labels.
+
+    This function visualizes normative model quantiles (e.g., 5th, 25th, 50th, 75th, 95th) across age
+    for multiple biomarkers, averaged across sites and stratified by a curve batch (e.g., sex).
+    Test data is overlaid as scatter points, grouped by an independent batch (e.g., acquisition site),
+    with customizable colors and markers. One plot is produced per biomarker.
 
     Parameters
     ----------
     processing_dir : str
-        Path to the normative modeling processing directory.
+        Path to the directory containing normative model outputs (e.g., Quantiles_<outputsuffix>.pkl).
     data_dir : str
-        Path to the directory containing test data (x_test, y_test, b_test).
-    quantiles : list of float
-        List of quantiles to plot.
-    save_plot : bool
-        Whether to save the output plots.
-    outputsuffix : str
-        Suffix used in quantile file naming.
-    experiment_id : int
-        ID for saving plots under specific experiment folder.
+        Path to the directory containing test data files (`x_test.pkl`, `y_test.pkl`, and `b_test.pkl`).
+    quantiles : list of float, optional
+        List of quantile levels to plot (default is [0.05, 0.25, 0.5, 0.75, 0.95]).
+    save_plot : bool, optional
+        Whether to save the generated plots to disk (default is True).
+    outputsuffix : str, optional
+        Suffix to identify which Quantiles_<suffix>.pkl file to load in `processing_dir`.
     batch_curve : dict
-        Dictionary with key as curve batch index, and value as list of category labels (e.g., {0: ["Male", "Female"]}).
+        Dictionary mapping the index used for curve stratification (e.g., sex) to a list of labels.
+        Example: {0: ["Male", "Female"]}.
     batch_marker : dict
-        Dictionary with key as marker batch index, and value as list of category labels.
-    new_names : list of str
-        Names of biomarkers for plot titles/labels.
-    colors : list of str
-        List of colors corresponding to batch_marker levels.
+        Dictionary mapping the index used for marker-based grouping (e.g., site) to a list of labels.
+        Example: {1: ['BTH', 'Cam-Can', "NIMH", ...]}.
+    new_names : list of str, optional
+        List of strings used as display names for each biomarker plotted (default is ['Theta', 'Alpha', ...]).
+    colors : list of str, optional
+        List of hex color codes used for marker groups defined in `batch_marker`.
+
+    Returns
+    -------
+    None
+        Displays the plots for each biomarker. If `save_plot` is True, saves each plot to:
+        - <processing_dir>/Figures_experiment/{biomarker}.svg
+        - <processing_dir>/Figures_experiment/{biomarker}.png
     """
     matplotlib.rcParams['pdf.fonttype'] = 42
 
@@ -587,7 +627,7 @@ def plot_nm_range_site(
         plt.tight_layout()
 
         if save_plot:
-            save_path = os.path.join(processing_dir, f'Figures_experiment{experiment_id}')
+            save_path = os.path.join(processing_dir, 'Figures_experiment')
             os.makedirs(save_path, exist_ok=True)
             plt.savefig(os.path.join(save_path, f"{ind}_{bio_name}.svg"), dpi=300)
             plt.savefig(os.path.join(save_path, f"{ind}_{bio_name}.png"), dpi=300)
@@ -600,27 +640,34 @@ def box_plot_auc(
     color: Union[str, list] = "teal",
     alpha: float = 0.7,
     biomarkers_new_name: list = None
-):
+) -> None:
     """
     Creates and saves a boxplot with stripplot overlay showing AUC values for different biomarkers.
-    Supports transparency (`alpha`) ad individual colors per biomarker.
 
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame where each column represents a biomarker and each row an AUC value. These AUCs are
-        computed from running normative models multiple times.
+        A DataFrame where each column corresponds to a biomarker, and each row is an AUC value 
+        from a model run.
     save_path : str
-        Directory to save the output plots.
-    color : str or list of str
-        Color for the boxes. If a list, must match number of biomarkers. If a string, a single color
-        will be used for all boxes.
-    alpha : float
-        Transparency of the box colors (0 to 1).
-    biomarkers_new_name : list, optional
-        New labels for the biomarkers (x-axis). Must match number of columns.
-    """
+        Directory path where the resulting plots will be saved. The function creates the 
+        directory if it doesn't exist.
+    color : str or list of str, optional
+        Color(s) for the boxplots. If a single string, the same color is used for all boxes.
+        If a list, its length must match the number of biomarkers.
+    alpha : float, optional
+        Transparency of the box colors (0.0 to 1.0). Default is 0.7.
+    biomarkers_new_name : list of str, optional
+        If provided, replaces the default column names (biomarker names) with these labels
+        for display on the x-axis. Must be the same length as the number of DataFrame columns.
 
+    Returns
+    -------
+    None
+        The function saves the following plots in `save_path`:
+        - AUCs.svg (SVG format)
+        - AUCs.png (SVG format)
+    """
     if biomarkers_new_name:
         if len(biomarkers_new_name) != len(df.columns):
             raise ValueError("Length of 'biomarkers_new_name' must match number of columns in df.")
@@ -703,20 +750,25 @@ def z_scores_scatter_plot(
     upper_lim : float, optional
         Upper limit for both axes. Default is 4.0.
     ticks : list of float, optional
-        Custom tick positions for both axes. If None, defaults are used.
+        Custom tick positions for both axes. If None, ticks are automatically determined.
     box_z_values : list of float, optional
-        List of z-score thresholds at which to draw square boundary boxes.
-        Must be the same length as `box_colors`. Default is [0.674, 1.645].
+        Z-score thresholds at which to draw square boundary boxes. Each value defines a 
+        centered square extending from -z to +z on both axes. Must be the same length as `box_colors`.
     box_colors : list of str, optional
-        List of colors for the boundary boxes corresponding to each `box_z_value`.
-        Must match the length of `box_z_values`. Default is ['#a0a0a0', '#202020'].
+        Colors of the square boundary boxes. Must match the length of `box_z_values`.
     save_path : str, optional
-        If provided, saves the plot as 'z_scores_plot.svg' and 'z_scores_plot.png' in the specified directory.
+        Directory path to save the plot. If provided, saves the figure as 
+        'z_scores_plot.svg' and 'z_scores_plot.png'.
+
+    Returns
+    -------
+    None
+        The plot is shown or saved depending on the `save_path` argument.
 
     Raises
     ------
     ValueError
-        If `box_z_values` and `box_colors` are not of equal length.
+        If `box_z_values` and `box_colors` are not the same length.
     """
     if len(box_z_values) != len(box_colors):
         raise ValueError("Length of 'box_z_values' and 'box_colors' must be equal.")
@@ -956,7 +1008,7 @@ def plot_metrics(
             else:
                 sns.kdeplot(values, ax=ax, fill=True, alpha=0.6)
 
-            sns.rugplot(values, ax=ax, color="black", height=0.1)
+            sns.rugplot(values, ax=ax, color="black", height=0.07)
             
             if x_limits:
                 if metric == "MACE":
@@ -987,7 +1039,8 @@ def plot_metrics(
 
 
 # ***
-def qq_plot(processing_dir, 
+def qq_plot(
+    processing_dir, 
     save_fig, 
     label_dict, 
     colors,
@@ -996,90 +1049,109 @@ def qq_plot(processing_dir,
     lower_lim: float = -4.0,
     upper_lim: float = 4.0,
     prefix: str = "estimate"
-    ):
+):
     """
-    Generate QQ plots for estimated Z-scores across biomarkers.
+    Generate QQ plots for estimated Z-scores across multiple biomarkers.
 
-    This function reads a pickle file containing Z-score estimates,
-    generates QQ plots comparing estimated quantiles to theoretical quantiles
-    for each specified marker, and optionally saves the plots to disk.
+    This function loads Z-score data from multiple directories and creates QQ plots
+    comparing the sample quantiles to the theoretical quantiles. Each directory should
+    contain a pickle file with Z-score data, named using the provided prefix.
+    One QQ plot is generated per biomarker (as specified in `label_dict`).
 
     Parameters
     ----------
-    processing_dir : str
-        Path to the directory containing the 'Z_estimate.pkl' file.
+    processing_dir : list of str
+        List of directories containing Z-score pickle files (`Z_<prefix>.pkl`).
     save_fig : str or None
-        Directory to save generated plots. If None, plots are not saved.
+        Directory where generated plots will be saved. If None, plots are not saved.
     label_dict : dict
-        Dictionary mapping column index to their corresponding column name (biomarker name).
+        Dictionary mapping biomarker names (str) to column indices (int) in the Z-score DataFrames.
     colors : list of str
-        List of color codes (e.g., hex or named colors) to use for each QQ plot marker.
-        Should be the same length as `label_dict`.
+        List of color codes for each dataset, used for plotting.
+        Must be at least as long as the number of entries in `processing_dir`.
     markersize : int, optional
         Size of the plot markers. Default is 8.
     alpha : float, optional
-        Transparency level of the markers, between 0 (transparent) and 1 (opaque). Default is 0.6.
+        Transparency level of the markers (0.0 to 1.0). Default is 0.6.
     lower_lim : float, optional
-        Lower limit for both axes in the QQ plot. Default is -4.0.
+        Lower bound for both x and y axes in the QQ plot. Default is -4.0.
     upper_lim : float, optional
-        Upper limit for both axes in the QQ plot. Default is 4.0.
+        Upper bound for both x and y axes in the QQ plot. Default is 4.0.
+    prefix : str, optional
+        Prefix used in the Z-score pickle file name (e.g., "Z_<prefix>.pkl"). Default is "estimate".
 
     Returns
     -------
     None
-        Displays and optionally saves the QQ plots for each dataset in `label_dict`.
+        This function does not return any values. It generates and optionally saves plots.
 
+    Raises
+    ------
+    ValueError
+        If `processing_dir` is not a list of strings or if `colors` has fewer elements than `processing_dir`.
+    FileNotFoundError
+        If a required Z-score pickle file is missing in any specified directory.
     """
-    with open(os.path.join(processing_dir, f"Z_{prefix}.pkl"), "rb") as file:
-        z_scores = pickle.load(file)
+    if not isinstance(processing_dir, list) or not all(isinstance(p, str) for p in processing_dir):
+        raise ValueError("processing_dir must be a list of strings (paths).")
+    
+    if len(colors) < len(processing_dir):
+        raise ValueError("Not enough colors provided for the number of directories.")
 
-    for indx, (key, value) in enumerate(label_dict.items()):
+    z_scores_dict = {}
+    for path in processing_dir:
+        file_path = os.path.join(path, f"Z_{prefix}.pkl")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Missing file: {file_path}")
+        with open(file_path, "rb") as f:
+            z_scores_dict[path] = pickle.load(f)
 
-        plotkwargs = {
-        "markerfacecolor": colors[indx], 
-        "markeredgecolor": colors[indx], 
-        "markersize": markersize, 
-        "alpha": alpha}
-        
+    for label_name, col_index in label_dict.items():
         plt.figure(figsize=(5, 5))
-        ax = plt.gca()  
+        ax = plt.gca()
 
-        # Generate QQ plot without the line
-        sm.qqplot(
-            z_scores.iloc[:, value].to_numpy(), 
-            line=None, 
-            ax=ax, 
-            **plotkwargs
-        )
-
-        # Add a red 45-degree line manually
+        # Plot theoretical line once per figure
         x = np.linspace(lower_lim, upper_lim, 100)
-        ax.plot(x, x, color='black', linewidth=4, linestyle='--', alpha=1)
+        ax.plot(x, x, color='black', linewidth=2, linestyle='--', alpha=0.9)
 
-        plt.ylabel("Sample quantiles", fontsize=25)
-        plt.xlabel("Theoretical quantiles", fontsize=25)
+        # Plot each dataset's QQ points
+        for idx, (path, z_scores) in enumerate(z_scores_dict.items()):
+            plotkwargs = {
+                "markerfacecolor": colors[idx],
+                "markeredgecolor": colors[idx],
+                "markersize": markersize,
+                "alpha": alpha
+            }
 
-        plt.ylim((lower_lim, upper_lim))
-        plt.xlim((lower_lim, upper_lim))
+            sm.qqplot(
+                z_scores.iloc[:, col_index].to_numpy(), 
+                line=None, 
+                ax=ax, 
+                **plotkwargs
+            )
 
-        # Customize spines
+        # Styling
+        ax.set_xlim(lower_lim, upper_lim)
+        ax.set_ylim(lower_lim, upper_lim)
+        ax.set_xlabel("Theoretical quantiles", fontsize=22)
+        ax.set_ylabel("Sample quantiles", fontsize=22)
+        ax.set_title(label_name.capitalize(), fontsize=22)
+
         ax.spines["right"].set_visible(False)
         ax.spines["top"].set_visible(False)
         ax.spines["bottom"].set_position(('outward', 10))
         ax.spines["left"].set_position(('outward', 10))
 
-        plt.xticks(np.linspace(lower_lim, upper_lim, 5))
-        plt.yticks(np.linspace(lower_lim, upper_lim, 5))
-        plt.tick_params(axis='both', labelsize=25)
+        plt.xticks(np.linspace(lower_lim, upper_lim, 5), fontsize=19)
+        plt.yticks(np.linspace(lower_lim, upper_lim, 5), fontsize=19)
+        plt.grid(True, linestyle="--", color="gray", alpha=0.4)
 
-        plt.title(key.capitalize(), fontsize=25)
-        plt.grid(True, axis='both', linestyle="--", color="gray", alpha=0.3)
-        # Save the figure
-        if save_fig is not None:
+        # Save if needed
+        if save_fig:
+            os.makedirs(save_fig, exist_ok=True)
+            plt.savefig(os.path.join(save_fig, f"{label_name}_qqplot.png"), dpi=600, bbox_inches='tight')
+            plt.savefig(os.path.join(save_fig, f"{label_name}_qqplot.svg"), dpi=600, bbox_inches='tight')
 
-            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.png"), dpi=600, bbox_inches='tight')
-            plt.savefig(os.path.join(save_fig, f"{key}_qqplot.svg"), dpi=600, bbox_inches='tight')
-        
         plt.show()
 
 
