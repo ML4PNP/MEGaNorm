@@ -195,11 +195,6 @@ def plot_age_hist(
     -----
     age_hist.svg : SVG format plot saved in `save_path`.
     age_hist.png : PNG format plot saved in `save_path`.
-
-    Notes
-    -----
-    - Ages are multiplied by 100 before plotting, which may be unintended unless `age` is normalized (e.g., 0.23 → 23 years).
-    - The x-axis ticks may be incorrectly defined due to using `range(lower_age_range, lower_age_range, step_size*2)`.
     """
     if len(site_names) > len(colors):
         raise Exception("The number of colors is less than site_names, please specify a longer list of colors.")
@@ -232,8 +227,8 @@ def plot_age_hist(
     plt.xlabel("Age (years)", fontsize=25)
     plt.legend(site_names, prop={'size': 23}, loc='upper right')
     plt.tick_params(axis="both", labelsize=19)
-    plt.xticks(list(range(lower_age_range, lower_age_range, step_size*2)))
-    plt.ylabel("Count",  fontsize=25)
+    plt.xticks(list(range(lower_age_range, upper_age_range, step_size*2)))
+    plt.ylabel("Count", fontsize=25)
     plt.savefig(os.path.join(save_path, "age_hist.svg"), format="svg", dpi=600, bbox_inches="tight")
     plt.savefig(os.path.join(save_path, "age_hist.png"), format="png", dpi=600, bbox_inches="tight")
 
