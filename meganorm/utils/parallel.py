@@ -7,14 +7,18 @@ import pandas as pd
 
 
 def progress_bar(current, total, bar_length=20):
-    """Displays or updates a console progress bar.
-
-    Args:
-        current (int): Current progress (must be between 0 and total).
-        total (int): Total steps for complete progress.
-        bar_length (int, optional): Character length of the bar. Defaults to 20.
     """
+    Displays or updates a console progress bar.
 
+    Parameters
+    ----------
+    current : int
+        The current progress (must be between 0 and total).
+    total : int
+        The total steps for complete progress.
+    bar_length : int, optional
+        The character length of the progress bar. Default is 20.
+    """
     fraction = current / total
     arrow = int(fraction * bar_length - 1) * ">" + ">"
     padding = (bar_length - len(arrow)) * " "
@@ -39,25 +43,39 @@ def sbatchfile(
     batch_file_name="batch_job",
     with_config=True,
 ):
-    """_summary_
-
-    Args:
-        mainParallel_path (str): Path to the mainParallel.py file.
-        bash_file_path (str): Path to save the create batch job file.
-        log_path (str, optional): _description_. Defaults to None.
-        module (str, optional): _description_. Defaults to 'mne'.
-        time (str, optional): _description_. Defaults to '1:00:00'.
-        memory (str, optional): _description_. Defaults to '20GB'.
-        partition (str, optional): _description_. Defaults to 'normal'.
-        core (int, optional): _description_. Defaults to 1.
-        node (int, optional): _description_. Defaults to 1.
-        batch_file_name (str, optional): _description_. Defaults to 'batch_job'.
-        with_config (boolean, optional): _description_. Defaults to True.
-
-    Returns:
-        _type_: _description_
     """
+    Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
 
+    Parameters
+    ----------
+    mainParallel_path : str
+        Path to the `mainParallel.py` script that will be executed in the batch job.
+    bash_file_path : str
+        Path where the generated batch job file will be saved.
+    log_path : str, optional
+        Path to the log file where output from the job will be saved. Default is None.
+    module : str, optional
+        The module to load in the batch job environment. Default is 'mne'.
+    time : str, optional
+        Maximum wall time for the job (format: HH:MM:SS). Default is '1:00:00'.
+    memory : str, optional
+        Amount of memory allocated for the job (e.g., '20GB'). Default is '20GB'.
+    partition : str, optional
+        The partition or queue to submit the job to. Default is 'normal'.
+    core : int, optional
+        Number of CPU cores to allocate for the job. Default is 1.
+    node : int, optional
+        Number of nodes to request for the job. Default is 1.
+    batch_file_name : str, optional
+        Name for the generated batch job file. Default is 'batch_job'.
+    with_config : bool, optional
+        Whether to include the configuration in the batch file. Default is True.
+
+    Returns
+    -------
+    None
+        This function generates a batch script file and saves it to the specified path.
+    """
     sbatch_init = "#!/bin/bash\n"
     sbatch_nodes = "#SBATCH -N " + str(node) + "\n"
     sbatch_tasks = "#SBATCH -c " + str(core) + "\n"
@@ -124,21 +142,34 @@ def submit_jobs(
     job_configs=None,
     progress=False,
 ):
-    """Submits jobs for each subject to the Slurm cluster.
-
-    Args:
-        mainParallel_path (string): Path to the mainParallel.py.
-        bash_file_path (string): Path to save the batch bash file.
-        subjects (dict): A dictionary of subject names (key) and paths (values).
-        temp_path (string): Path for saving temporary files.
-        config_file (string): Path to the json config file. Defaults to None.
-        job_configs (dictionary, optional): Dictionary of job configurations. Defaults to None.
-        progress (bool, optional): Show the progress bar or not. Defaults to False.
-
-    Returns:
-        string: The start time for the batch job submission.
     """
+    Submits jobs for each subject to the SLURM cluster for parallel execution.
 
+    Parameters
+    ----------
+    mainParallel_path : str
+        Path to the `mainParallel.py` script that will be executed in the batch job.
+    bash_file_path : str
+        Path where the generated batch job file will be saved.
+    subjects : dict
+        A dictionary of subject names (keys) and their corresponding paths (values). 
+        Each subject will have a job submitted to the cluster.
+    temp_path : str
+        Path where temporary files will be stored.
+    config_file : str, optional
+        Path to a JSON configuration file. If provided, this will be passed to the batch job.
+        Default is None.
+    job_configs : dict, optional
+        Dictionary containing job-specific configurations (e.g., memory, time, partition).
+        Defaults to None, in which case default configurations will be used.
+    progress : bool, optional
+        Whether to show a progress bar during job submission. Default is False.
+
+    Returns
+    -------
+    str
+        The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
+    """
     if not os.path.isdir(temp_path):
         os.makedirs(temp_path)
 
@@ -194,17 +225,24 @@ def submit_jobs(
 
 
 def check_jobs_status(username, start_time, delay=20):
-    """Checks the status of submitted jobs.
-
-    Args:
-        username (string): Slurm username.
-        start_time (string): The start time for the batch job submission (see submit_jobs).
-        delay (int, optional): The delay in seconds for checks. Defaults to 20.
-
-    Returns:
-        list: List of failed job names.
     """
+    Checks the status of submitted jobs to the SLURM cluster.
 
+    Parameters
+    ----------
+    username : str
+        The SLURM username used to check the status of the jobs.
+    start_time : str
+        The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
+        This is used to identify the specific set of jobs submitted in the `submit_jobs` function.
+    delay : int, optional
+        The delay, in seconds, between each check of job status. Default is 20 seconds.
+
+    Returns
+    -------
+    list
+        A list of names of jobs that have failed.
+    """
     n = 1
     while n > 0:
         job_counts, failed_job_names = check_user_jobs(username, start_time)
@@ -221,17 +259,26 @@ def check_jobs_status(username, start_time, delay=20):
 
 
 def check_user_jobs(username, start_time):
-    """_ Utility function for counting the jobs with different stata.
-
-    Args:
-        username (string): Slurm username.
-        start_time (string): The start time for the batch job submission (see submit_jobs).
-
-    Returns:
-        status_counts (dict): Dictionary of different job stata counts
-        failed_jobs (list): list of failed jobs.
     """
+    Utility function for counting the status of jobs submitted to the SLURM scheduler.
 
+    Parameters
+    ----------
+    username : str
+        The SLURM username used to check the status of the jobs.
+    start_time : str
+        The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
+        This is used to filter the jobs that were submitted after the specified start time.
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - status_counts : dict
+            A dictionary with counts of jobs in various states (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
+        - failed_jobs : list
+            A list of job names that have failed.
+    """
     try:
         # Format the current datetime to match Slurm's expected format
         end_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -295,14 +342,26 @@ def check_user_jobs(username, start_time):
 
 
 def collect_results(target_dir, subjects, temp_path, file_name="features", clean=True):
-    """Collects and merges the results of all jobs.
+    """
+    Collects and merges the results of all jobs into a single file.
 
-    Args:
-        target_dir (str): Target directory path to save the collected results.
-        subjects (dict): dict of subject names and paths.
-        temp_path (str): Path to the temp directory.
-        file_name (str, optional): The file name for the collected results. Defaults to 'features'.
-        clean (bool, optional): Whether to clean the temporary files or not. Defaults to True.
+    Parameters
+    ----------
+    target_dir : str
+        Path to the target directory where the merged results will be saved.
+    subjects : dict
+        A dictionary with subject names as keys and their corresponding file paths as values.
+    temp_path : str
+        Path to the temporary directory where individual subject result files are stored.
+    file_name : str, optional
+        The name of the file where the merged results will be saved. Default is 'features'.
+    clean : bool, optional
+        Whether to remove the temporary files after merging the results. Default is True.
+
+    Returns
+    -------
+    None
+        This function does not return anything but writes the merged results to a CSV file in the target directory.
     """
 
     if not os.path.isdir(target_dir):
@@ -333,7 +392,37 @@ def auto_parallel_feature_extraction(
     auto_collect=True,
     max_try=3,
 ):
+    """
+    Automatically submits, monitors, and reruns jobs for feature extraction on multiple subjects, 
+    and collects the results.
 
+    Parameters
+    ----------
+    mainParallel_path : str
+        Path to the `mainParallel.py` script that will be executed in parallel for each subject.
+    features_dir : str
+        Path to the directory where the feature extraction results and temporary files will be saved.
+    subjects : dict
+        A dictionary of subject names (keys) and their corresponding file paths (values).
+    job_configs : dict
+        Dictionary containing job configuration settings (e.g., memory, time, partition, etc.).
+    config_file : str
+        Path to a JSON configuration file containing additional settings for the feature extraction jobs.
+    username : str, optional
+        The SLURM username. If not provided, it will be fetched from the environment. Default is None.
+    auto_rerun : bool, optional
+        Whether to automatically rerun failed jobs. Default is True.
+    auto_collect : bool, optional
+        Whether to automatically collect and merge results after job completion. Default is True.
+    max_try : int, optional
+        The maximum number of retry attempts for failed jobs. Default is 3.
+
+    Returns
+    -------
+    list
+        A list of failed jobs after all attempts. If no jobs failed, the list will be empty.
+
+    """
     features_temp_path = os.path.join(features_dir, "temp")
 
     if username is None:
