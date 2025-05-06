@@ -921,121 +921,97 @@ def z_scores_contour_plot(
 
 # ***
 def plot_metrics(
-    metrics_path: str,
+    metrics_path: list,
     which_biomarkers: list,
     biomarkers_new_name: list = None,
     colors: list = None,
     save_path: str = None,
-    x_limits: dict = None
 ):
     """
-    Plots density distributions of metrics across multiple biomarkers and models.
-
-    This function generates a series of kernel density estimate (KDE) plots for a specified set of biomarkers
-    and their associated metrics (e.g., MACE, skewness, kurtosis, W). The plots are arranged in a grid with one 
-    row for each biomarker and one column for each metric. The plots can be saved in SVG and PNG formats.
+    Plots KDE distributions of metrics across biomarkers and models.
 
     Parameters
     ----------
-    metrics_path : str
-        The file path to the pickle file containing the aggregated metrics data (e.g., the output from
-        `aggregate_metrics_across_runs` function).
+    metrics_path : list of str
+        List of file paths to pickle files containing aggregated metrics.
     which_biomarkers : list of str
-        A list of biomarker names for which to generate the plots. These biomarkers should match the keys
-        in the aggregated metrics data.
+        Biomarker names to include in the plots.
     biomarkers_new_name : list of str, optional
-        A list of new names to assign to the biomarkers in the plot. The length of this list must match the
-        number of biomarkers in `which_biomarkers`. If not provided, the original names are used.
+        New names for the biomarkers (for labeling). Must match length of which_biomarkers.
     colors : list of str, optional
-        A list of colors to use for the KDE plots. Each color corresponds to a different biomarker in the
-        `which_biomarkers` list. If not provided, default pastel colors are used.
+        Colors for each metrics_path (used in KDE plots).
     save_path : str, optional
-        The directory path where the generated plots will be saved. If not provided, the plots will not be saved.
-    x_limits : dict, optional
-        A dictionary specifying the x-axis limits for each metric. The dictionary should have metric names as keys 
-        (e.g., 'MACE', 'skewness', 'kurtosis', 'W') and each value should be a tuple with the min and max 
-        x-axis values (e.g., `{"MACE": (0, 10)}`). If not provided, the x-axis limits are automatically adjusted 
-        based on the data.
+        Directory to save the plots. If None, plots will not be saved.
 
     Returns
     -------
     None
-        The function does not return any value. It directly generates the plots and saves them to the specified 
-        `save_path` if provided.
-    
-    Example
-    -------
-    plot_metrics(
-        metrics_path='/path/to/metrics.pkl',
-        which_biomarkers=['biomarker_1', 'biomarker_2'],
-        biomarkers_new_name=['New_Biomarker_1', 'New_Biomarker_2'],
-        colors=['red', 'blue'],
-        save_path='/path/to/save/plots',
-        x_limits={'MACE': (0, 0.0), 'skewness': (-2, 2)}
-    )
     """
-    with open(metrics_path, "rb") as file:
-        metrics_dic = pickle.load(file)
-    
-    # TODO: remove this one
-    ordered_metrics = ['MACE', "W", "skewness", "kurtosis"]
-    metrics_dic = {k: metrics_dic[k] for k in ordered_metrics}
-
-    number_of_metrics = len(metrics_dic.keys()) 
-    number_of_models = len(which_biomarkers)  
-
-    fig, axes = plt.subplots(number_of_models, number_of_metrics, figsize=(11, 10))
-    for ax in np.ravel(axes):
-        ax.grid(True, axis='x', linestyle='--', color='gray', alpha=0.5)
 
     sns.set_theme(style="ticks", palette="pastel")
-    
-    for col_idx, (metric, data) in enumerate(metrics_dic.items()):
 
-        # to select a subset of biomarkers when necessary
-        df_temp = pd.DataFrame(data).loc[:, which_biomarkers]
-        # If user wants to assign new names to the biomarkers
-        if biomarkers_new_name:
-            df_temp.columns = biomarkers_new_name  
-        
-        for row_idx, model in enumerate(df_temp.columns):
+    ordered_metrics = ['MACE', 'W', 'skewness', 'kurtosis']
+    n_rows = len(which_biomarkers)
+    n_cols = len(ordered_metrics)
+    fig, ax = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows), squeeze=False)
 
-            ax = axes[row_idx, col_idx] 
-            values = df_temp[model] 
+    for i, path in enumerate(metrics_path):
+        with open(path, "rb") as file:
+            metrics_dic = pickle.load(file)
 
-            if colors:
-                sns.kdeplot(values, ax=ax, fill=True, color=colors[row_idx], alpha=0.6)
+        # Keep only the ordered metrics
+        metrics_dic = {k: metrics_dic[k] for k in ordered_metrics if k in metrics_dic}
+
+        for col_idx, metric in enumerate(ordered_metrics):
+            if metric not in metrics_dic:
+                continue
+
+            # Subset and rename biomarker columns
+            df_temp = pd.DataFrame(metrics_dic[metric])[which_biomarkers]
+            if biomarkers_new_name:
+                df_temp.columns = biomarkers_new_name
             else:
-                sns.kdeplot(values, ax=ax, fill=True, alpha=0.6)
+                biomarkers_new_name = which_biomarkers
 
-            sns.rugplot(values, ax=ax, color="black", height=0.07)
-            
-            if x_limits:
-                if metric == "MACE":
-                    ax.set_xlim(x_limits.get("MACE")[0], x_limits.get("MACE")[1])
-                if metric == "skewness":
-                    ax.set_xlim(x_limits.get("skewness")[0], x_limits.get("skewness")[1])
-                if metric == "kurtosis":
-                    ax.set_xlim(x_limits.get("kurtosis")[0], x_limits.get("kurtosis")[1])
-                if metric == "W":
-                    ax.set_xlim(x_limits.get("W")[0], x_limits.get("W")[1])
+            for row_idx, biomarker in enumerate(df_temp.columns):
+                values = df_temp[biomarker]
+                current_ax = ax[row_idx, col_idx]
 
-            ax.set_yticks([])
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_visible(False)
+                if colors:
+                    sns.kdeplot(values, ax=current_ax, fill=True, color=colors[i], alpha=0.6)
+                else:
+                    sns.kdeplot(values, ax=current_ax, fill=True, alpha=0.6)
 
-            ax.set_title(f"{metric.capitalize()}", fontsize=20) if row_idx == 0 else ax.set_title("")
-            ax.set_ylabel(biomarkers_new_name[row_idx].capitalize(), fontsize=20) if col_idx == 0 else ax.set_ylabel("") 
-            ax.set_xlabel("")
-            ax.tick_params(axis="both", labelsize=16)
-            
-            if row_idx != number_of_models-1: ax.set_xticklabels([]) 
+                sns.rugplot(values, ax=current_ax, color="black", height=0.05)
 
-        plt.tight_layout(h_pad=0.01)
-        if save_path is not None:
-            plt.savefig(os.path.join(save_path, "metric.svg"), dpi=600, format="svg")
-            plt.savefig(os.path.join(save_path, "metric.png"), dpi=600, format="png")
+
+                current_ax.set_yticks([])
+                current_ax.spines['top'].set_visible(False)
+                current_ax.spines['right'].set_visible(False)
+                current_ax.spines['left'].set_visible(False)
+
+                # Set titles and labels only on first row/col
+                if row_idx == 0:
+                    current_ax.set_title(metric.capitalize(), fontsize=14)
+                else:
+                    current_ax.set_title("")
+
+                if col_idx == 0:
+                    current_ax.set_ylabel(biomarker.capitalize(), fontsize=14)
+                else:
+                    current_ax.set_ylabel("")
+
+                current_ax.set_xlabel("")
+                current_ax.tick_params(axis="both", labelsize=20)
+
+    plt.tight_layout(h_pad=1.5, w_pad=1.0)
+
+    if save_path:
+        os.makedirs(save_path, exist_ok=True)
+        plt.savefig(os.path.join(save_path, "metric.svg"), dpi=600, format="svg")
+        plt.savefig(os.path.join(save_path, "metric.png"), dpi=600, format="png")
+
+    plt.show()
 
 
 # ***
