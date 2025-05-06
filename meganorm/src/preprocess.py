@@ -1,11 +1,8 @@
 import os
-import sys
 import mne
 from mne_icalabel import label_components
-import tqdm
 import json
 import numpy as np
-import argparse
 from glob import glob
 from typing import Any, Dict
 
@@ -220,7 +217,12 @@ def AutoIca_with_IcaLabel(
     return data
 
 
-def segment_epoch(data:mne.io.Raw, tmin:float, tmax:float, sampling_rate:float, segmentsLength:float, overlap:float):
+def segment_epoch(data:mne.io.Raw, 
+                tmin:float, 
+                tmax:float, 
+                sampling_rate:float, 
+                segmentsLength:float, 
+                overlap:float):
     """
     Segments continuous raw data into epochs of fixed length.
 
