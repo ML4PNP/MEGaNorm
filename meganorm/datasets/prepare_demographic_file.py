@@ -17,7 +17,7 @@ def make_demo_file_bids(
     file_dir : str
         Path to the input demographic file (supports CSV, TSV, or XLSX).
     save_dir : str
-        Path where the BIDS-formatted participant file will be saved (as TSV).
+        Path where the BIDS-formatted demographic file will be saved (as TSV).
     id_col : int
         Column index containing the participant ID.
     age_col : int
