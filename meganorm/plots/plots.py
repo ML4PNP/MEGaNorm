@@ -14,144 +14,6 @@ import plotly.graph_objects as go
 from scipy.stats import chi2
 
 
-def plot_nm_range(
-    processing_dir,
-    data_dir,
-    quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
-    age_range=[15, 90],
-    ind=0,
-    parallel=True,
-    save_plot=True,
-    outputsuffix="estimate",
-    ):
-    """Function to plot notmative ranges. This function assumes only gender as batch effect
-    stored in the first column of batch effect array.
-
-    Args:
-        processing_dir (str): Path to normative modeling processing directory.
-        quantiles (list, optional): Plotted centiles. Defaults to [0.05, 0.25, 0.5, 0.75, 0.95].
-        ind (int, optional): Index of target biomarker to plot. Defaults to 0.
-        parallel (bool, optional): Is parallel NM used to estimate the model?. Defaults to True.
-        save_plot (bool, optional): Save the plot?. Defaults to True.
-        outputsuffix (str, optional): outputsuffix in normative modeling. Defaults to 'estimate'.
-    """
-
-    z_scores = st.norm.ppf(quantiles)
-    testrespfile_path = os.path.join(data_dir, "y_test.pkl")
-    testcovfile_path = os.path.join(data_dir, "x_test.pkl")
-    tsbefile = os.path.join(data_dir, "b_test.pkl")
-
-    if parallel:
-        nm = pickle.load(
-            open(
-                os.path.join(
-                    processing_dir,
-                    "batch_" + str(ind + 1),
-                    "Models/NM_0_0_" + outputsuffix + ".pkl",
-                ),
-                "rb",
-            )
-        )
-        meta_data = pickle.load(
-            open(
-                os.path.join(
-                    processing_dir, "batch_" + str(ind + 1), "Models/meta_data.md"
-                ),
-                "rb",
-            )
-        )
-        in_scaler = meta_data["scaler_cov"][0]
-        out_scaler = meta_data["scaler_resp"][0]
-    else:
-        nm = pickle.load(
-            open(
-                os.path.join(
-                    processing_dir,
-                    "Models/NM_0_" + str(ind) + "_" + outputsuffix + ".pkl",
-                ),
-                "rb",
-            )
-        )
-        meta_data = pickle.load(
-            open(os.path.join(processing_dir, "Models/meta_data.md"), "rb")
-        )
-        in_scaler = meta_data["scaler_cov"][ind][0]
-        out_scaler = meta_data["scaler_resp"][ind][0]
-
-    synthetic_X = np.linspace(age_range[0], age_range[1], 200)[
-        :, np.newaxis
-    ]  # Truncated
-
-    X_test = pickle.load(open(testcovfile_path, "rb")).to_numpy(float)
-    be_test = pickle.load(open(tsbefile, "rb")).to_numpy(float)
-    Y_test = pickle.load(open(testrespfile_path, "rb"))
-    bio_name = Y_test.columns[ind]
-    Y_test = Y_test.to_numpy(float)[:, ind : ind + 1]
-
-    fig, ax = plt.subplots(1, 1, figsize=(8, 6), sharex=True, sharey=True)
-
-    colors = ["#00BFFF", "#FF69B4"]
-    labels = ["Males", "Females"]  # assumes 0 for males and 1 for females
-
-    for be1 in list(np.unique(be_test[:, 0])):
-        model_be = np.repeat(np.array([[be1]]), synthetic_X.shape[0], axis=0)
-        q = nm.get_mcmc_quantiles(
-            in_scaler.transform(synthetic_X), model_be, z_scores=z_scores
-        )
-        ts_idx = be_test[:, 0] == be1
-        ax.scatter(
-            X_test[ts_idx],
-            Y_test[ts_idx],
-            s=15,
-            alpha=0.6,
-            label=labels[int(be1)],
-            color=colors[int(be1)],
-        )
-        for i, v in enumerate(z_scores):
-            if v == 0:
-                thickness = 3
-                linestyle = "-"
-            else:
-                linestyle = "--"
-                thickness = 1
-            y = out_scaler.inverse_transform(q[i, :]).T
-            ax.plot(
-                synthetic_X,
-                y,
-                linewidth=thickness,
-                linestyle=linestyle,
-                alpha=0.9,
-                color=colors[int(be1)],
-            )
-            if be1 == 0:
-                plt.annotate(
-                    str(int(quantiles[i] * 100)) + "%",
-                    xy=(synthetic_X[-1], y[-1]),
-                    xytext=(synthetic_X[-1] + 0.6, y[-1]),
-                    ha="left",
-                    va="center",
-                    fontsize=14,
-                )
-        ax.grid(True, linewidth=0.5, alpha=0.5, linestyle="--")
-        ax.set_ylabel(bio_name.replace("_", " "), fontsize=10)
-        ax.set_xlabel("Age", fontsize=16)
-        ax.tick_params(axis="both", which="major", labelsize=14)
-
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-
-    ax.legend()
-    plt.tight_layout()
-
-    if save_plot:
-        save_path = os.path.join(processing_dir, "Figures")
-        if not os.path.isdir(save_path):
-            os.makedirs(save_path)
-        plt.savefig(
-            os.path.join(save_path, str(ind) + "_" + bio_name + ".png"), dpi=300
-        )
-
-
 # ***
 def plot_age_hist(
     df,
@@ -236,12 +98,12 @@ def plot_age_hist(
 # ***
 def plot_PNOCs(data, age_slices, save_path):
     """    
-    Plots the Chrono-NeuroOscilloChart to visualize the contribution of the i-th
-    centiles of each frequency bands to the overal power across brain.
+    Plots the population-level NeuroOscilloChart (PNOCS) to visualize the contribution of the i-th
+    centiles of each frequency bands to the overal power with aging.
 
     This function generates two bar plots (for males and females) showing the mean 
-    activity (in percentage) and corresponding 95% confidence intervals for multiple
-    frequency bands across age bins. The result is either saved as an SVG or shown interactively.
+    activity (in percentage) and corresponding 95% confidence intervals for four
+    frequency bands across age bins. The figure is saved as an SVG.
 
     Parameters
     ----------
@@ -309,13 +171,14 @@ def plot_PNOCs(data, age_slices, save_path):
     
     if save_path is not None:
         plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.svg'), dpi=600)
+        plt.savefig(os.path.join(save_path, 'Chrono-NeuroOscilloChart.png'), dpi=600)
     else:
         plt.show()
  
 # ***    
 def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None, colors=None, centiles_name=['5th', '25th', '50th', '75th', '95th']):
     """
-    Plot a growth chart for a given IDP, visualizing centile curves for males and females.
+    Plot a growth chart for a given f-IDP, visualizing centile of variations for males and females.
 
     Parameters
     ----------
@@ -462,7 +325,8 @@ def plot_INOCs(
     show_legend=False, bio_name=None, save_path=None
 ):
     """
-    Plots INOCs showing where a biomarker value falls within population quantiles.
+    Plots population-level NeuroOscilloChart (INOCs) showing where an individual's 
+    measurements stands in relation to the corresponding population.
 
     Parameters
     ----------
@@ -739,16 +603,18 @@ def box_plot_auc(
 ):
     """
     Creates and saves a boxplot with stripplot overlay showing AUC values for different biomarkers.
-    Supports transparency (`alpha`) and individual colors per biomarker.
+    Supports transparency (`alpha`) ad individual colors per biomarker.
 
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame where each column represents a biomarker and each row an AUC value.
+        DataFrame where each column represents a biomarker and each row an AUC value. These AUCs are
+        computed from running normative models multiple times.
     save_path : str
         Directory to save the output plots.
     color : str or list of str
-        Color for the boxes. If a list, must match number of biomarkers.
+        Color for the boxes. If a list, must match number of biomarkers. If a string, a single color
+        will be used for all boxes.
     alpha : float
         Transparency of the box colors (0 to 1).
     biomarkers_new_name : list, optional
@@ -818,38 +684,40 @@ def z_scores_scatter_plot(
     ticks: list = None,
     box_z_values: list = [0.674, 1.645],
     box_colors: list = ['#a0a0a0', '#202020'],
-    save_path: str = None):
+    save_path: str = None
+):
     """
-    Creates a 2D scatter plot of z-scores between two bands (e.g., Theta and Beta),
-    with overlaid contour boxes representing specific z-score boundaries.
+    Generates a 2D scatter plot of z-scores between two frequency bands, with optional 
+    contour boxes highlighting specific z-score thresholds.
 
     Parameters
     ----------
     X : array-like
-        Z-scores for the x-axis (e.g., Theta band).
+        Z-score values for the x-axis (e.g., corresponding to the first frequency band).
     Y : array-like
-        Z-scores for the y-axis (e.g., Beta band).
+        Z-score values for the y-axis (e.g., corresponding to the second frequency band).
     bands_name : list of str, optional
-        Names of the bands to label the axes and colorbar. Default is ['Theta', 'Beta'].
+        Names of the two frequency bands to label the x and y axes. Default is ['Theta', 'Beta'].
     lower_lim : float, optional
-        Lower axis limit for both x and y. Default is -4.0.
+        Lower limit for both axes. Default is -4.0.
     upper_lim : float, optional
-        Upper axis limit for both x and y. Default is 4.0.
-    ticks : list, optional
-        Custom tick locations for both axes. If None, default ticks are used.
+        Upper limit for both axes. Default is 4.0.
+    ticks : list of float, optional
+        Custom tick positions for both axes. If None, defaults are used.
     box_z_values : list of float, optional
-        List of z-score thresholds to draw square boundary boxes. Must match `box_colors`.
+        List of z-score thresholds at which to draw square boundary boxes.
+        Must be the same length as `box_colors`. Default is [0.674, 1.645].
     box_colors : list of str, optional
-        List of colors for each corresponding `box_z_value`. Must match in length.
+        List of colors for the boundary boxes corresponding to each `box_z_value`.
+        Must match the length of `box_z_values`. Default is ['#a0a0a0', '#202020'].
     save_path : str, optional
-        Directory to save the plot as SVG and PNG. If None, the plot is not saved.
+        If provided, saves the plot as 'z_scores_plot.svg' and 'z_scores_plot.png' in the specified directory.
 
     Raises
     ------
     ValueError
         If `box_z_values` and `box_colors` are not of equal length.
     """
-
     if len(box_z_values) != len(box_colors):
         raise ValueError("Length of 'box_z_values' and 'box_colors' must be equal.")
 
@@ -1009,7 +877,7 @@ def plot_metrics(
     x_limits: dict = None
 ):
     """
-    Plots statistical distributions of metrics across multiple biomarkers and models.
+    Plots density distributions of metrics across multiple biomarkers and models.
 
     This function generates a series of kernel density estimate (KDE) plots for a specified set of biomarkers
     and their associated metrics (e.g., MACE, skewness, kurtosis, W). The plots are arranged in a grid with one 
@@ -1042,16 +910,6 @@ def plot_metrics(
     None
         The function does not return any value. It directly generates the plots and saves them to the specified 
         `save_path` if provided.
-
-    Notes
-    -----
-    - The function uses seaborn's `kdeplot` to generate KDE plots for each biomarker and metric combination.
-    - The y-axis is hidden for all subplots, and the x-axis ticks are removed for all but the last row of subplots.
-    - The plot titles display the metric name (e.g., 'MACE', 'skewness') at the top of each column, and the 
-      biomarker names are shown on the left of each row.
-    - The function supports KDE plotting for different metrics and can clip the x-axis limits based on the provided 
-      `x_limits` dictionary.
-    - If `save_path` is provided, the plots are saved in both SVG and PNG formats with high resolution (600 dpi).
     
     Example
     -------
@@ -1061,7 +919,7 @@ def plot_metrics(
         biomarkers_new_name=['New_Biomarker_1', 'New_Biomarker_2'],
         colors=['red', 'blue'],
         save_path='/path/to/save/plots',
-        x_limits={'MACE': (0, 10), 'skewness': (-2, 2)}
+        x_limits={'MACE': (0, 0.0), 'skewness': (-2, 2)}
     )
     """
     with open(metrics_path, "rb") as file:
@@ -1136,13 +994,14 @@ def qq_plot(processing_dir,
     markersize: int = 8,
     alpha: float = 0.6,
     lower_lim: float = -4.0,
-    upper_lim: float = 4.0
+    upper_lim: float = 4.0,
+    prefix: str = "estimate"
     ):
     """
-    Generate QQ plots of Z-score estimates for different biomarkers.
+    Generate QQ plots for estimated Z-scores across biomarkers.
 
     This function reads a pickle file containing Z-score estimates,
-    generates QQ plots comparing sample quantiles to theoretical quantiles
+    generates QQ plots comparing estimated quantiles to theoretical quantiles
     for each specified marker, and optionally saves the plots to disk.
 
     Parameters
@@ -1171,7 +1030,7 @@ def qq_plot(processing_dir,
         Displays and optionally saves the QQ plots for each dataset in `label_dict`.
 
     """
-    with open(os.path.join(processing_dir, "Z_estimate.pkl"), "rb") as file:
+    with open(os.path.join(processing_dir, f"Z_{prefix}.pkl"), "rb") as file:
         z_scores = pickle.load(file)
 
     for indx, (key, value) in enumerate(label_dict.items()):
@@ -1221,15 +1080,14 @@ def qq_plot(processing_dir,
             plt.savefig(os.path.join(save_fig, f"{key}_qqplot.png"), dpi=600, bbox_inches='tight')
             plt.savefig(os.path.join(save_fig, f"{key}_qqplot.svg"), dpi=600, bbox_inches='tight')
         
-
         plt.show()
+
 
 # ***
 def plot_extreme_deviation(
     base_path: str,
     len_runs: int,
     save_path: str,
-    mode: str,
     healthy_prefix: str,
     patient_prefix: str,
     legend: list,
@@ -1240,47 +1098,47 @@ def plot_extreme_deviation(
     y_lower_lim : float = 0
 ):
     """
-    Computes and plots the percentage of subjects with extreme Z-scores 
-    (positive > 2 and negative < -2) across multiple runs, comparing 
+    Computes and plots extreme deviation statistics (|Z|>2) across biomarkers.
+    This is done by averaging statistics across multiple runs and comparing 
     patient and healthy groups. Two separate plots are generated: one for 
     positive deviations and one for negative deviations.
 
     Parameters
     ----------
     base_path : str
-        Path template pointing to the directory containing run subfolders. 
-        Must contain the placeholder "Run_0" to be replaced with run indices.
+        Path template pointing to the directory containing run subfolders. This should include
+        the placeholder "Run_0", which will be programmatically replaced with the actual run indices.
     len_runs : int
-        Number of runs (iterations) to process.
+        Number of runs (iterations) to include in the averaging process.
     save_path : str
-        Directory where the output plots will be saved.
-    mode : str
-        Descriptor used in the plot filenames to differentiate modes.
+        Directory path where the resulting plots will be saved.
     healthy_prefix : str
-        Filename prefix for healthy participant Z-score data (e.g., 'healthy').
+        Filename prefix identifying the Z-score files for healthy participants.
     patient_prefix : str
-        Filename prefix for patient Z-score data (e.g., 'patient').
+        Filename prefix identifying the Z-score files for patient participants.
     legend : list of str
-        Legend labels to display in the plots for the healthy and patient groups.
+        List of legend labels for the healthy and patient groups, respectively.
     method : str
-        Subfolder name inside each run directory where Z-score files are located.
+        Name of the subfolder within each run directory where Z-score files are located.
     site_id : list of str, optional
-        List of site IDs to filter participants by. If None, all participants are used.
+        List of site IDs used to filter participants. If None, data from all sites is included.
     new_col_name : list of str, optional
-        Optional list of new column names to rename the Z-score DataFrames.
+        List of new column names for the Z-score DataFrames, used for relabeling features.
+    y_upper_lim : float, optional
+        Upper limit for the y-axis in the generated plots. Default is 15.
     y_lower_lim : float, optional
-        Lower limit for the y-axis in the plot. Default is 0.
+        Lower limit for the y-axis in the generated plots. Default is 0.
 
     Returns
     -------
     df_c_pos : pandas.DataFrame
-        DataFrame of positive extreme deviation proportions for the healthy group across runs.
+        DataFrame of mean positive extreme deviation proportions (|Z| > 2) for healthy participants across runs.
     df_p_pos : pandas.DataFrame
-        DataFrame of positive extreme deviation proportions for the patient group across runs.
+        DataFrame of mean positive extreme deviation proportions for patient participants across runs.
     df_c_neg : pandas.DataFrame
-        DataFrame of negative extreme deviation proportions for the healthy group across runs.
+        DataFrame of mean negative extreme deviation proportions (Z < -2) for healthy participants across runs.
     df_p_neg : pandas.DataFrame
-        DataFrame of negative extreme deviation proportions for the patient group across runs.
+        DataFrame of mean negative extreme deviation proportions for patient participants across runs.
     """
     df_c_pos, df_p_pos = pd.DataFrame(), pd.DataFrame()
     df_c_neg, df_p_neg = pd.DataFrame(), pd.DataFrame()
@@ -1324,7 +1182,7 @@ def plot_extreme_deviation(
             df_p_pos.loc[run_num, col] = (pos_p.shape[0] / z_p.shape[0]) * 100
             df_p_neg.loc[run_num, col] = (neg_p.shape[0] / z_p.shape[0]) * 100
 
-    def plot_bar(df_h, df_p, suffix, ylabel, legend_labels):
+    def plot_bar(df_h, df_p, mode, ylabel, legend_labels):
         means_h = df_h.mean()
         means_p = df_p.mean()
         ci_h = df_h.std() / np.sqrt(len(df_h)) * 1.96
@@ -1342,7 +1200,7 @@ def plot_extreme_deviation(
         ax.set_ylabel(ylabel, fontsize=14)
         ax.set_xticks(x)
         ax.set_xticklabels(means_h.index, fontsize=12, rotation=45, ha="right")
-        if suffix == "positive":
+        if mode == "positive":
             ax.legend(fontsize=12)
         ax.set_ylim(y_lower_lim, y_upper_lim)
 
@@ -1354,8 +1212,8 @@ def plot_extreme_deviation(
         ax.grid(axis="y")
 
         plt.tight_layout()
-        plt.savefig(os.path.join(save_path, f"extreme_{mode}_{suffix}_dev.svg"), dpi=600)
-        plt.savefig(os.path.join(save_path, f"extreme_{mode}_{suffix}_dev.png"), dpi=600)
+        plt.savefig(os.path.join(save_path, f"extreme_{mode}_dev.svg"), dpi=600)
+        plt.savefig(os.path.join(save_path, f"extreme_{mode}_dev.png"), dpi=600)
         plt.show()
 
     # Plot and save
