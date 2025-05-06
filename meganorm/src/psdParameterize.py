@@ -23,7 +23,7 @@ def computePsd(segments,
                n_per_seg=2
 ):
     """
-    Computes the Power Spectral Density (PSD) for the given segments of EEG/MEG data.
+    Compute the Power Spectral Density (PSD) of EEG/MEG data segments.
 
     Parameters
     ----------
@@ -77,8 +77,8 @@ def parameterizePsd(psds,
                     aperiodic_mode="fixed"
 ):
     """
-    Fits a FOOOF model to the power spectral density (PSD) data to decompose 
-    the signal into periodic and aperiodic components.
+    Fit a FOOOF model to power spectral density (PSD) data to separate 
+    periodic (oscillatory) and aperiodic (background) components.
 
     Parameters
     ----------
