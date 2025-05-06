@@ -153,42 +153,62 @@ def plot_nm_range(
 
 
 # ***
-def plot_age_hist(df, site_names, save_path, 
-    lower_age_range=5, upper_age_range=90, step_size=5,
-    colors=['#006685' ,'#591154' ,'#E84653' ,'black' ,'#E6B213', "Slategrey"]):
-    """ 
-    Plots and saves a stacked histogram showing the age distribution across multiple sites.
-
-    Args:
-        df (pandas.DataFrame): A dataframe containing at least two columns: "site" and "age".
-                               Each row represents a participant. The "site" column should 
-                               contain numeric identifiers corresponding to each site.
-        site_names (list): A list of site names (str), used as labels in the legend. 
-        save_path (str): Directory path where the resulting plots will be saved. 
-        lower_age_range (int, optional): Minimum age to include in the histogram. Default is 5.
-        upper_age_range (int, optional): Maximum age to include in the histogram. Default is 90.
-        step_size (int, optional): Bin width (in years) for the histogram. Default is 5.
-        colors (list, optional): List of colors for each site's histogram. Must be the same length
-                                 or longer than `site_names`.
-
-    Raises:
-        Exception: If the number of provided colors is less than the number of sites.
-
-    Saves:
-        "age_dis.svg"
-        "age_dis.png"
+def plot_age_hist(
+    df,
+    site_names,
+    save_path,
+    lower_age_range=5,
+    upper_age_range=90,
+    step_size=5,
+    colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "slategrey"]
+):
     """
+    Plot and save a stacked histogram of age distributions across sites.
 
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing participant information. Must include at least two columns:
+        - 'site': numeric site identifier (int or category)
+        - 'age': age of each participant (in years)
+    site_names : list of str
+        List of site names to be used as legend labels. The order should correspond to the
+        numeric site identifiers in 'df.site'.
+    save_path : str
+        Path to the directory where the generated plot images will be saved.
+    lower_age_range : int, optional
+        Minimum age to include in the histogram bins. Default is 5.
+    upper_age_range : int, optional
+        Maximum age to include in the histogram bins. Default is 90.
+    step_size : int, optional
+        Width of the histogram bins in years. Default is 5.
+    colors : list of str, optional
+        List of colors to use for each site's histogram bar. Must be at least as long as `site_names`.
+        Default uses a predefined color palette.
+
+    Raises
+    ------
+    Exception
+        If the number of colors is less than the number of site names.
+
+    Saves
+    -----
+    age_hist.svg : SVG format plot saved in `save_path`.
+    age_hist.png : PNG format plot saved in `save_path`.
+
+    Notes
+    -----
+    - Ages are multiplied by 100 before plotting, which may be unintended unless `age` is normalized (e.g., 0.23 → 23 years).
+    - The x-axis ticks may be incorrectly defined due to using `range(lower_age_range, lower_age_range, step_size*2)`.
+    """
     if len(site_names) > len(colors):
         raise Exception("The number of colors is less than site_names, please specify a longer list of colors.")
 
-    
     bins = list(range(lower_age_range, upper_age_range, step_size))
     ages = []
 
-    for counter in range(len(site_names)):
-        ages.append(df[df["site"]==counter]["age"].to_numpy()*100)
-    
+    ages = list(map(lambda i: df[df["site"] == i]["age"].to_numpy(), range(len(site_names))))
+
     plt.figure(figsize=(12, 7))
     plt.hist(ages, bins=bins, color=colors, 
              edgecolor="black", 
@@ -204,7 +224,6 @@ def plot_age_hist(df, site_names, save_path,
     plt.gca().spines['bottom'].set_position(('outward', 15))  
     plt.gca().spines['left'].set_position(('outward', 15))
 
-
     plt.gca().xaxis.set_ticks_position('bottom')
     plt.gca().yaxis.set_ticks_position('left')
     plt.grid(axis="y", color = 'black', linestyle = '--')
@@ -217,6 +236,7 @@ def plot_age_hist(df, site_names, save_path,
     plt.ylabel("Count",  fontsize=25)
     plt.savefig(os.path.join(save_path, "age_hist.svg"), format="svg", dpi=600, bbox_inches="tight")
     plt.savefig(os.path.join(save_path, "age_hist.png"), format="png", dpi=600, bbox_inches="tight")
+
 
 # ***
 def plot_PNOCs(data, age_slices, save_path):
