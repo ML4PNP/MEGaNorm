@@ -16,14 +16,14 @@ from scipy.stats import chi2
 
 # ***
 def plot_age_hist(
-    df,
-    site_names,
-    save_path,
-    lower_age_range=5,
-    upper_age_range=90,
-    step_size=5,
-    colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "slategrey"]
-)->None:
+    df: pd.DataFrame,
+    site_names: list,
+    save_path: str,
+    lower_age_range: int = 5,
+    upper_age_range: int = 90,
+    step_size: int = 5,
+    colors: list = ['#006685', '#591154', '#E84653', 'black', '#E6B213', "slategrey"]
+) -> None:
     """
     Plot and save a stacked histogram of age distributions across sites.
 
@@ -100,7 +100,7 @@ def plot_age_hist(
 
 
 # ***
-def plot_PNOCs(data: dict, age_slices: list, save_path: str) -> None:
+def plot_PNOCs(data: dict, age_slices: list, save_path: str | None) -> None:
     """
     Generate and save population-level NeuroOscilloCharts (PNOCs) showing age-related changes 
     in frequency band contributions to overall neural power for males and females.
@@ -196,7 +196,15 @@ def plot_PNOCs(data: dict, age_slices: list, save_path: str) -> None:
     plt.show()
  
 # ***    
-def plot_growthchart(age_vector, centiles_matrix, cut=0, idp='', save_path=None, colors=None, centiles_name=['5th', '25th', '50th', '75th', '95th']):
+def plot_growthchart(
+    age_vector: list,
+    centiles_matrix: list,
+    cut: int = 0,
+    idp: str = '',
+    save_path: str | None = None,
+    colors: dict | None = None,
+    centiles_name: list = ['5th', '25th', '50th', '75th', '95th']
+) -> None:
     """
     Plot a growth chart for a given f-IDP, showing centile trajectories by sex across age.
 
@@ -349,10 +357,20 @@ def plot_growthcharts(path,
 
 # ***
 def plot_INOCs(
-    sub_index, observed_value, q1, q3, percentile_5, percentile_95, percentile_50,
-    title="Quantile-Based Gauge", min_value=0, max_value=1,
-    show_legend=False, bio_name=None, save_path=None
-):
+    sub_index: int | str,
+    observed_value: float,
+    q1: float,
+    q3: float,
+    percentile_5: float,
+    percentile_95: float,
+    percentile_50: float,
+    title: str = "Quantile-Based Gauge",
+    min_value: float = 0,
+    max_value: float = 1,
+    show_legend: bool = False,
+    bio_name: str | None = None,
+    save_path: str | None = None
+) -> None:
     """
     Plots individual-level NeuroOscilloChart (INOCs) showing where an individual's 
     measurements stands in relation to the corresponding population.
@@ -497,16 +515,16 @@ def plot_INOCs(
 
 # ***
 def plot_nm_ranges_with_marker(
-    processing_dir,
-    data_dir,
-    quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
-    save_plot=True,
-    suffix="",
-    batch_curve={0: ["Male", "Female"]},
-    batch_marker={1: ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
-    new_names=['Theta', 'Alpha', 'Beta', 'Gamma'],
-    colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "Slategrey"]
-):
+    processing_dir: str,
+    data_dir: str,
+    quantiles: list = [0.05, 0.25, 0.5, 0.75, 0.95],
+    save_plot: bool = True,
+    suffix: str = "",
+    batch_curve: dict = {0: ["Male", "Female"]},
+    batch_marker: dict = {1: ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
+    new_names: list = ['Theta', 'Alpha', 'Beta', 'Gamma'],
+    colors: list = ['#006685', '#591154', '#E84653', 'black', '#E6B213', "Slategrey"]
+) -> None:
     """
     Plot normative centile curves and overlay test sample data with marker-based group labels.
 
@@ -1018,10 +1036,10 @@ def plot_metrics(
 
 # ***
 def qq_plot(
-    processing_dir, 
-    save_fig, 
-    label_dict, 
-    colors,
+    processing_dir: str, 
+    save_fig: str, 
+    label_dict: dict, 
+    colors: list,
     markersize: int = 8,
     alpha: float = 0.6,
     lower_lim: float = -4.0,
@@ -1279,15 +1297,15 @@ def plot_site_diff(
     processing_dir,
     data_dir,
     save_dir,
-    which_quantile=2,
-    suffix='estimate',
-    batch_curve={"sex": ["Male", "Female"]},
-    batch_marker={"site": ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
-    new_names=['Theta', 'Alpha', 'Beta', 'Gamma'],
-    colors=['#006685', '#591154', '#E84653', 'black', '#E6B213', "Slategrey"],
-    num_point=100,
-    age_normalizer=100
-):
+    which_quantile: int = 2,
+    suffix: str = 'estimate',
+    batch_curve: dict = {"sex": ["Male", "Female"]},
+    batch_marker: dict = {"site": ['BTH', 'Cam-Can', "NIMH", "OMEGA", "HCP", "MOUS"]},
+    new_names: list = ['Theta', 'Alpha', 'Beta', 'Gamma'],
+    colors: list = ['#006685', '#591154', '#E84653', 'black', '#E6B213', "Slategrey"],
+    num_point: int = 100,
+    age_normalizer: float = 100
+) -> None:
     """
     Plot particular centile (determined by 'which_quantile') across sites for each biomarker.
     This function shows site differences at 'which_quantile' centile.
