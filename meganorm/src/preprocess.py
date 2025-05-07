@@ -5,6 +5,7 @@ import json
 import numpy as np
 from glob import glob
 from typing import Any, Dict
+import pandas as pd
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -216,6 +217,58 @@ def AutoIca_with_IcaLabel(
 
     return data
 
+def prepare_eeg_data(data, path):
+    """
+    Prepare EEG data by setting channel types and electrode montage when they are not in the data yet
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        The raw EEG data.
+    path : str
+        Path to the EEG recording file.
+
+    Returns
+    -------
+    mne.io.Raw
+        The EEG data with updated channel types and montage (if available).
+    """
+    task = path.split("/")[-1].split("_")[-2]
+    base_dir = os.path.dirname(path)
+
+    # Set channel types
+    search_pattern = os.path.join(base_dir, f"**_{task}_channels.tsv")
+    channel_files = glob.glob(search_pattern, recursive=True)
+    if channel_files:
+        channels_df = pd.read_csv(channel_files[0], sep="\t")
+        channels_types = channels_df.set_index("name")["type"].str.lower().to_dict()
+        data.set_channel_types(channels_types)
+
+    # Set montage if not already set
+    montage = data.get_montage()
+    if montage is None:
+        try:
+            search_pattern_montage = os.path.join(base_dir, "*_montage.csv")
+            montage_files = glob.glob(search_pattern_montage, recursive=True)
+
+            if not montage_files:
+                raise FileNotFoundError("No montage CSV file found!")
+
+            montage_df = pd.read_csv(montage_files[0])
+            ch_positions = {
+                row["Channel"]: [row["X"], row["Y"], row["Z"]]
+                for _, row in montage_df.iterrows()
+            }
+            eeg_montage = mne.channels.make_dig_montage(
+                ch_pos=ch_positions, coord_frame="head"
+            )
+            data.set_montage(eeg_montage)
+
+        except Exception as e:
+            print(f"Error setting montage: {e}")
+            print("Continuing without a montage. This may raise issues for ICA labeling.")
+
+    return data  
 
 def segment_epoch(data:mne.io.Raw, 
                 tmin:float, 
