@@ -10,6 +10,7 @@ import itertools
 from scipy.stats import skew, kurtosis
 from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
+from scipy.stats import ranksums
 from sklearn.model_selection import train_test_split
 
 #**
@@ -26,14 +27,14 @@ def hbr_data_split(
     stratification_columns=["site", "sex"]
 ):
     """
-    Splits a given DataFrame into training, validation, and test sets for HBR normative modeling,
+    Splits a given DataFrame into training, validation, and test sets for normative modeling,
     while considering stratification based on specified categorical columns. The data is saved as 
     pickled files for normative modeling (PCNToolkit requires paths to the files).
 
     Parameters
     ----------
     data : pd.DataFrame
-        A Pandas DataFrame containing the data to be split. Typically created using functions like "load_camcan_data".
+        A Pandas DataFrame containing the data to be split. Created using functions like "load_camcan_data".
     
     save_path : str
         Path where the resulting training, validation, and test sets will be saved as pickled files.
@@ -90,14 +91,13 @@ def hbr_data_split(
         random_seed=42
     )
     """
-    np.random.seed(random_seed)
     os.makedirs(save_path, exist_ok=True)
 
     if drop_nans:
         data = data.dropna(axis=0)
 
     data["combination"] = data[stratification_columns].astype(str).agg("_".join, axis=1)
-    train_df, test_df = train_test_split(data, stratify=data['combination'], test_size=train_split, random_state=random_seed)
+    train_df, test_df = train_test_split(data, stratify=data['combination'], test_size=(1 - train_split), random_state=random_seed)
 
     if validation_split:
         train_df, val_df = train_test_split(train_df, stratify=data["combination"], test_size=validation_split, random_state=random_seed)
@@ -502,7 +502,7 @@ def estimate_centiles(
     processing_dir,
     bio_num,
     quantiles=[0.05, 0.25, 0.5, 0.75, 0.95],
-    batch_sizes=[2, 6],  # e.g., 2 sexes, 2 sites
+    batch_sizes=[2, 6],  # e.g., 2 sexes, 6 sites
     age_range=(0, 100),
     point_num=100,
     outputsuffix="estimate",
@@ -514,7 +514,7 @@ def estimate_centiles(
     Parameters
     ----------
     processing_dir : str
-        Path to the normative modeling output directory.
+        Path to the normative modeling output directory (Models, log, and batch files).
     bio_num : int
         Number of biomarkers or target variables (i.e., number of models to load).
     quantiles : list of float, optional
@@ -560,7 +560,7 @@ def estimate_centiles(
         in_scaler = meta_data["scaler_cov"][0]
         scaled_synthetic_X = in_scaler.transform(synthetic_X)
     else:
-        scaled_synthetic_X = synthetic_X / 100  # fallback assumption
+        scaled_synthetic_X = synthetic_X / 100  
 
     q = np.zeros((scaled_synthetic_X.shape[0], len(quantiles), bio_num))
 
@@ -678,10 +678,11 @@ def cal_stats_for_INOCs(
     ----------
     q_path : str
         Path to the pickled file containing 'quantiles', 'synthetic_X', and 'batch_effects'.
+        This is the output of 'estimate_centiles()' function.
     features : list of str
         List of biomarker feature names.
     site_id : int
-        Index representing the participant's site. If 0 or False, averages across all sites.
+        Index representing the participant's site. If None, averages across all sites.
     sex_id : int
         Index representing the participant's sex.
     age : float
@@ -696,34 +697,32 @@ def cal_stats_for_INOCs(
     dict
         Dictionary mapping each feature to a list of statistics across quantiles at the given age.
     """
-
     q = pickle.load(open(q_path, "rb"))
-    
     quantiles = q["quantiles"]
-    synthetic_X = q["synthetic_X"].reshape(num_of_datasets * 2, num_points).mean(axis=0)
-    batch_effects = q["batch_effects"]
+    synthetic_X = q["synthetic_X"].reshape(num_of_datasets*2, 100).mean(axis=0) # since Xs are repeated !
+    b = q["batch_effects"]
 
     statistics = {feature: [] for feature in features}
-
-    for marker_idx, feature in enumerate(features):
+    for ind in range(len(features)):
+        
         biomarker_stats = []
+        for quantile_id in range(quantiles.shape[1]):
 
-        for quantile_idx in range(quantiles.shape[1]):
-            if not site_id:
-                mask = batch_effects[:, 0] == sex_id
-            else:
-                mask = np.logical_and(batch_effects[:, 0] == sex_id, batch_effects[:, 1] == site_id)
+            if not site_id: # if not any specific site, average between all sites (batch effect)
+                data = quantiles[b[:,0]== sex_id, quantile_id, ind:ind+1]
+                data = data.reshape(num_of_datasets, num_points, 1)
+                data = data.mean(axis=0)
+            if site_id:
+                data = quantiles[np.logical_and(b[:,0]== sex_id, b[:,1]== site_id), quantile_id, ind:ind+1]
+            
+            data = data.squeeze()
 
-            data = quantiles[mask, quantile_idx, marker_idx]
-            if not site_id:
-                data = data.reshape(num_of_datasets, num_points).mean(axis=0)
+            closest_x = min(synthetic_X, key=lambda x: abs(x - age))
+            age_bin_ind = np.where(synthetic_X==closest_x)[0][0]
 
-            # Find closest age bin
-            age_bin_idx = np.argmin(np.abs(synthetic_X - age))
-            biomarker_stats.append(data[age_bin_idx])
-
-        statistics[feature] = biomarker_stats
-
+            biomarker_stats.append(data[age_bin_ind])
+            
+        statistics[features[ind]].extend(biomarker_stats)
     return statistics
 
 #**
@@ -935,3 +934,71 @@ def aggregate_metrics_across_runs(
                 data[metric][name].append(values[counter])
 
     return data
+
+
+def apply_ranksum_test(proposed_dict, baseline_dict):
+    """
+    Applies the Wilcoxon rank-sum test to compare metric distributions between two model
+    configurations across multiple biomarkers. Applies FDR correction
+    (Benjamini-Hochberg) to the resulting p-values.
+
+    Parameters
+    ----------
+    proposed_dict : dict
+        Dictionary of metrics for the proposed model configuration. 
+        Expected format: {metric: {biomarker: list of values}}.
+
+    baseline_dict : dict
+        Dictionary of metrics for the baseline model configuration. 
+        Same format as proposed_dict.
+
+    Returns
+    -------
+    stat_df : pandas.DataFrame
+        DataFrame of Wilcoxon rank-sum test statistics. Rows = metrics, Columns = biomarkers.
+
+    pval_df : pandas.DataFrame
+        DataFrame of uncorrected p-values.
+
+    fdr_corrected_df : pandas.DataFrame
+        DataFrame of Benjamini-Hochberg FDR-corrected p-values.
+    """
+    # Dynamically extract metrics and biomarkers
+    metrics = list(proposed_dict.keys())
+    biomarkers = list(proposed_dict.get(metrics[0]).keys())
+    print(biomarkers)
+
+    stat_df = pd.DataFrame(index=metrics, columns=biomarkers)
+    pval_df = pd.DataFrame(index=metrics, columns=biomarkers)
+    raw_pvals = []
+
+    # Compute statistics and collect p-values
+    for metric in metrics:
+        for biomarker in biomarkers:
+            proposed_vals = [float(x) for x in proposed_dict.get(metric, {}).get(biomarker, [])]
+            baseline_vals = [float(x) for x in baseline_dict.get(metric, {}).get(biomarker, [])]
+
+            if proposed_vals and baseline_vals:
+                stat, pval = ranksums(proposed_vals, baseline_vals)
+                stat_df.at[metric, biomarker] = round(stat, 5)
+                pval_df.at[metric, biomarker] = round(pval, 5)
+                raw_pvals.append(pval)
+            else:
+                stat_df.at[metric, biomarker] = np.nan
+                pval_df.at[metric, biomarker] = np.nan
+                raw_pvals.append(np.nan)
+
+    # Apply FDR correction (Benjamini-Hochberg), ignoring NaNs
+    raw_pvals_array = np.array(raw_pvals, dtype=float)
+    valid_mask = ~np.isnan(raw_pvals_array)
+    corrected = np.full_like(raw_pvals_array, np.nan)
+    corrected[valid_mask] = false_discovery_control(raw_pvals_array[valid_mask])
+
+    fdr_corrected_df = pd.DataFrame(
+        corrected.reshape(pval_df.shape),
+        index=metrics,
+        columns=biomarkers
+    )
+    fdr_corrected_df = fdr_corrected_df.round(5)
+
+    return stat_df, pval_df, fdr_corrected_df
