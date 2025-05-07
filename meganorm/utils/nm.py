@@ -936,7 +936,7 @@ def aggregate_metrics_across_runs(
     return data
 
 
-def apply_ranksum_test(proposed_dict, baseline_dict):
+def wilcoxon_rank_test(proposed_dict, baseline_dict):
     """
     Applies the Wilcoxon rank-sum test to compare metric distributions between two model
     configurations across multiple biomarkers. Applies FDR correction
@@ -966,7 +966,6 @@ def apply_ranksum_test(proposed_dict, baseline_dict):
     # Dynamically extract metrics and biomarkers
     metrics = list(proposed_dict.keys())
     biomarkers = list(proposed_dict.get(metrics[0]).keys())
-    print(biomarkers)
 
     stat_df = pd.DataFrame(index=metrics, columns=biomarkers)
     pval_df = pd.DataFrame(index=metrics, columns=biomarkers)
