@@ -43,13 +43,13 @@ def save_sensor_layouts(layout, filename):
     print(f"Sensor layouts saved to {full_path}")
 
 
-def add_specific_layout(device, layout, layout_data):
+def add_specific_layout(output_format, layout, layout_data):
     """Function to add a specific sensor layout to a JSON file
 
     Parameters
     ----------
-    device : str
-        Name of the device (used as filename)
+    output_format : str
+        Extension of the 's output (used as filename)
     layout : str
         Name of the layout to add or update.
     layout_data : dict
@@ -61,7 +61,7 @@ def add_specific_layout(device, layout, layout_data):
         Prints the path to the updated JSON file.
     """   
 
-    full_path = get_relative_path(device)
+    full_path = get_relative_path(output_format)
 
     try:
         # Load the existing data
@@ -80,13 +80,13 @@ def add_specific_layout(device, layout, layout_data):
     print(f"Layout '{layout}' saved to {full_path}")
 
 
-def load_specific_layout(device, layout):
+def load_specific_layout(output_format, layout):
     """Function to load a specific sensor layout from a JSON file
 
     Parameters
     ----------
-    device : str
-        Name of the device (used as filename)
+    output_format : str
+        Extension of the device's output (used as filename)
     layout : str
         Name of the layout to retrieve.
 
@@ -96,7 +96,7 @@ def load_specific_layout(device, layout):
         The layout data if found, otherwise None.
     """
 
-    full_path = get_relative_path(device)
+    full_path = get_relative_path(output_format)
 
     try:
         # Load the existing data
@@ -113,18 +113,18 @@ def load_specific_layout(device, layout):
         return None
 
 
-def create_layouts(modality, device):
+def create_layouts(modality, output_format):
     """
-    Function that creates predefined sensor layouts for a given modality and device.
-    This includes both whole-brain sensor configurations and region-specific layouts
+    Function that creates predefined sensor layouts for a given modality and output format.
+    This includes both whole-brain sensor configurations and for some formats also region-specific layouts
     (e.g., frontal, temporal, parietal, occipital).
 
     Parameters
     ----------
     modality : str
         Type of recording modality (e.g., "MEG", "EEG").
-    device : str
-        Specific device type or file format (e.g., "FIF", "DS", "SET", "VHDR").
+    output_format : str
+        Specific devic's output type or file format (e.g., "FIF", "DS", "SET", "VHDR").
 
     Returns
     -------
@@ -132,7 +132,7 @@ def create_layouts(modality, device):
         Path to the saved layout file if created, otherwise None.
     """
 
-    if modality == "MEG" and device == "FIF":
+    if modality == "MEG" and output_format == "FIF":
         FIF_layouts = {
             "FIF_MAG_ALL": {
                 "MAG_ALL": [
@@ -808,7 +808,7 @@ def create_layouts(modality, device):
         save_sensor_layouts(FIF_layouts, "FIF")
         return get_relative_path("FIF")
 
-    elif modality == "MEG" and device == "DS":
+    elif modality == "MEG" and output_format == "DS":
         DS_layouts = {
             "DS_MAG_ALL": {
                 "GRAD_ALL": [
@@ -1091,8 +1091,8 @@ def create_layouts(modality, device):
         return get_relative_path("DS")
 
     elif (
-        modality == "EEG" and device == "SET"
-    ):  # device is 128-channel EEG geodesic hydrocel system by Electrical Geodesics Inc. (EGI), file is .set
+        modality == "EEG" and output_format == "SET" 
+    ):  
         SET_layouts = {
             "SET_EEG_ALL": {
                 "EEG_ALL": [
@@ -1347,7 +1347,7 @@ def create_layouts(modality, device):
         return get_relative_path("SET")
 
     elif (
-        modality == "EEG" and device == "VHDR"
+        modality == "EEG" and output_format == "VHDR"
     ):  # 26-channel EEG-recordings, based on the 10–10 electrode international system using a Compumedics Quickcap or ANT-Neuro Waveguard Cap with sintered Ag/AgCl electrode, file is .vhdr
         VHDR_layouts = {
             "VHDR_EEG_ALL": {
@@ -1439,5 +1439,5 @@ def create_layouts(modality, device):
         return get_relative_path("VHDR")
     
     else:
-        print(f"No predefined layout available for modality '{modality}' and device '{device}'.")
+        print(f"No predefined layout available for modality '{modality}' and output_format '{output_format}'.")
         return None
