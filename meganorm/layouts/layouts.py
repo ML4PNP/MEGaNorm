@@ -5,12 +5,16 @@ import os
 def get_relative_path(filename):
     """Function to get the path relative to the .py file
 
-    Args:
-        filename (str): _description_
+    Parameters
+    ----------
+    filename : str
+        Name of the file
 
-    Returns:
-        str: _description_
-    """
+    Returns
+    -------
+    str
+        Full path to the JSON file
+    """    
 
     script_dir = os.path.dirname(__file__)  # Get the directory of the current script
     return os.path.join(script_dir, filename + ".json")
@@ -19,10 +23,18 @@ def get_relative_path(filename):
 def save_sensor_layouts(layout, filename):
     """Function to save the sensor layouts to a JSON file
 
-    Args:
-        layout (dict): _description_
-        filename (str): _description_
-    """
+    Parameters
+    ----------
+    layout : dict
+        Dictionary containing the sensor layout information
+    filename : str
+        Name of the JSON file
+    
+     Returns
+    -------
+    str
+        Prints the path to the saved JSON file.
+    """    
 
     full_path = get_relative_path(filename)
 
@@ -34,12 +46,20 @@ def save_sensor_layouts(layout, filename):
 def add_specific_layout(device, layout, layout_data):
     """Function to add a specific sensor layout to a JSON file
 
-    Args:
-        device (str): _description_
-        layout (str): _description_
-        layout_data (dict): _description_
-
-    """
+    Parameters
+    ----------
+    device : str
+        Name of the device (used as filename)
+    layout : str
+        Name of the layout to add or update.
+    layout_data : dict
+        Dictionary containing the layout configuration
+    
+    Returns
+    -------
+    str
+        Prints the path to the updated JSON file.
+    """   
 
     full_path = get_relative_path(device)
 
@@ -61,14 +81,19 @@ def add_specific_layout(device, layout, layout_data):
 
 
 def load_specific_layout(device, layout):
-    """
-    Function to load a specific sensor layout from a JSON file
-    Args:
-        device (str): _description_
-        layout (str): _description_
+    """Function to load a specific sensor layout from a JSON file
 
-    Returns:
-        dict: _description_
+    Parameters
+    ----------
+    device : str
+        Name of the device (used as filename)
+    layout : str
+        Name of the layout to retrieve.
+
+    Returns
+    -------
+    dict or None
+        The layout data if found, otherwise None.
     """
 
     full_path = get_relative_path(device)
@@ -88,7 +113,24 @@ def load_specific_layout(device, layout):
         return None
 
 
-def create_layouts(modality="MEG", device="FIF"):
+def create_layouts(modality, device):
+    """
+    Function that creates predefined sensor layouts for a given modality and device.
+    This includes both whole-brain sensor configurations and region-specific layouts
+    (e.g., frontal, temporal, parietal, occipital).
+
+    Parameters
+    ----------
+    modality : str
+        Type of recording modality (e.g., "MEG", "EEG").
+    device : str
+        Specific device type or file format (e.g., "FIF", "DS", "SET", "VHDR").
+
+    Returns
+    -------
+    str or None
+        Path to the saved layout file if created, otherwise None.
+    """
 
     if modality == "MEG" and device == "FIF":
         FIF_layouts = {
@@ -764,6 +806,7 @@ def create_layouts(modality="MEG", device="FIF"):
             },
         }
         save_sensor_layouts(FIF_layouts, "FIF")
+        return get_relative_path("FIF")
 
     elif modality == "MEG" and device == "DS":
         DS_layouts = {
@@ -1045,6 +1088,7 @@ def create_layouts(modality="MEG", device="FIF"):
             }
         }
         save_sensor_layouts(DS_layouts, "DS")
+        return get_relative_path("DS")
 
     elif (
         modality == "EEG" and device == "SET"
@@ -1182,9 +1226,125 @@ def create_layouts(modality="MEG", device="FIF"):
                     "E128",
                     "Cz",
                 ]
+            }, 
+            # The devision in layout is based on Rayson et al. (2019), Zora et al. (2016)
+            "SET_EEG_LOBE": {
+                "frontal_left": [
+                    "E20", 
+                    "E12", 
+                    "E28",
+                    "E24", 
+                    "E19", 
+                    "E27",
+                    "E23",
+                    "E18", 
+                    "E22", 
+                    "E26",
+                    "E33",
+                ],
+                 "frontal_right": [
+                    "E5", 
+                    "E118",
+                    "E4", 
+                    "E124", 
+                    "E117",
+                    "E10", 
+                    "E3", 
+                    "E123",
+                    "E9",
+                    "E2",
+                    "E122",
+
+                ], 
+                "central_left": [
+                    "E7", 
+                    "E31"  
+                    "E54", 
+                    "E37", 
+                    "E30", 
+                    "E13", 
+                    "E61", 
+                    "E29", 
+                    "E36",
+                    "E42",
+                    "E53",
+
+                ],
+
+                "central_right": [
+                    "E106", 
+                    "E80", 
+                    "E112", 
+                    "E105", 
+                    "E87", 
+                    "E79",  
+                    "E78", 
+                    "E111", 
+                    "E104",
+                    "E93", 
+                    "E86",
+                ],
+
+                "temporal_left": [
+                    "E45",
+                    "E50",
+                    "E58",
+                    "E39",   
+                    "E44",
+                    "E49",
+                    "E56",    
+
+                ],
+                "temporal_right": [
+                    "E115",
+                    "E108",
+                    "E101",
+                    "E96",   
+                    "E114", 
+                    "E113",
+                    "E107",   
+                
+                ],
+                "parietal_left": [
+                    "E67", 
+                    "E66",
+                    "E71",
+                    "E47",
+                    "E52",
+                    "E60",
+                    "E51",
+                    "E59",     
+                ],
+
+                "parietal_right": [
+                    "E77", 
+                    "E76",
+                    "E84",
+                    "E85",
+                    "E92",
+                    "E98",
+                    "E91",
+                    "E97",     
+                ],
+
+                 "occipital_left": [
+                    "E70",
+                    "E69",
+                    "E74",
+                    "E73", 
+                ],
+
+                "occipital_right": [
+                    "E83",
+                    "E82", 
+                    "E89",
+                    "E88",
+                
+                ],
             }
         }
         save_sensor_layouts(SET_layouts, "SET")
+        return get_relative_path("SET")
 
     elif (
         modality == "EEG" and device == "VHDR"
@@ -1226,14 +1386,58 @@ def create_layouts(modality="MEG", device="FIF"):
                     "OrbOcc",
                     "Mass",
                 ]
+            }, 
+            "VHDR_EEG_LOBE": {
+                "frontal_left": [
+                    "Fp1",
+                    "F7",
+                    "F3",                
+                ],
+                 "frontal_right": [
+                    "Fp2",
+                    "F4",
+                    "F8",
+                ], 
+                "central_left": [
+                    "FC3",
+                    "C3",
+                    "CP3",
+                ],
+
+                "central_right": [
+                    "FC4",
+                    "C4",
+                    "CP4",
+                ],
+
+                "temporal_left": [
+                    "T7",
+                ],
+                "temporal_right": [
+                    "T8",
+                ],
+                "parietal_left": [
+                    "P7",
+                    "P3", 
+                ],
+
+                "parietal_right": [
+                    "P4",
+                    "P8", 
+                ],
+
+                 "occipital_left": [
+                    "O1",
+                ],
+
+                "occipital_right": [
+                    "O2",
+                ],
             }
         }
         save_sensor_layouts(VHDR_layouts, "VHDR")
-
-
-if __name__ == "__main__":
-
-    create_layouts(modality="MEG", device="FIF")
-    create_layouts(modality="MEG", device="DS")
-    create_layouts(modality="EEG", device="SET")
-    create_layouts(modality="EEG", device="VHDR")
+        return get_relative_path("VHDR")
+    
+    else:
+        print(f"No predefined layout available for modality '{modality}' and device '{device}'.")
+        return None
