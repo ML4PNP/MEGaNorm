@@ -298,14 +298,17 @@ def plot_growthchart(
 
 # ***
 def plot_growthcharts(path, 
-                      model_indices: list, 
-                      biomarker_names: list, 
-                      site: int = None, 
-                      point_num: int = 100, 
-                      number_of_sexs: int = 2, 
-                      num_of_sites: int = None,
-                      centiles_name: list = ['5th', '25th', '50th', '75th', '95th'],
-                      colors: dict = None):
+                    model_indices: list, 
+                    biomarker_names: list, 
+                    site: int = None, 
+                    point_num: int = 100, 
+                    number_of_sexs: int = 2, 
+                    num_of_sites: int = None,
+                    centiles_name: list = ['5th', '25th', '50th', '75th', '95th'],
+                    colors: dict = None,
+                    suffix:str="",
+                    save_path: str | None = None,
+                    ):
     """
     Generate and save growth charts for multiple biomarkers using precomputed quantile estimates.
 
@@ -329,13 +332,16 @@ def plot_growthcharts(path,
         Labels for centiles (e.g., ['5th', ..., '95th']).
     colors : dict, optional
         Color dictionary with 'male' and 'female' keys.
-
+    suffix : str, optional
+        Suffix of the saved quantile identifying which output file to use. Default is 'estimate'.
+    save_path:
+        Where to save figures, if not None.
     Returns
     -------
     None
+
     """
-    
-    temp = pickle.load(open(os.path.join(path, 'Quantiles_estimate.pkl'),'rb'))
+    temp = pickle.load(open(os.path.join(path, f'Quantiles_{suffix}.pkl'),'rb'))
 
     q = temp['quantiles']
     x = temp['synthetic_X']
@@ -352,7 +358,7 @@ def plot_growthcharts(path,
             raise ValueError(f"still not implmented")
             #TODO
 
-        plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=biomarker_names[i], save_path=path, centiles_name=centiles_name, colors=colors)
+        plot_growthchart(x[0:point_num].squeeze(), data, cut=0, idp=biomarker_names[i], save_path=save_path, centiles_name=centiles_name, colors=colors)
 
 
 # ***
@@ -730,7 +736,7 @@ def box_plot_auc(
     plt.yticks(fontsize=18)
     plt.ylabel("AUC", fontsize=20)
     plt.xlabel("")
-    plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
+    plt.grid(True, linestyle="--", linewidth=1, alpha=1)
     plt.tight_layout()
 
     if save_path:
