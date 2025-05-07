@@ -7,7 +7,7 @@ import pandas as pd
 import glob
 from meganorm.utils.IO import make_config, storeFooofModels
 from meganorm.src.psdParameterize import psdParameterize
-from meganorm.src.preprocess import preprocess, segment_epoch, drop_noisy_meg_channels
+from meganorm.src.preprocess import preprocess, segment_epoch, drop_noisy_meg_channels, prepare_eeg_data
 from meganorm.src.featureExtraction import feature_extract
 
 
@@ -108,49 +108,10 @@ def main(*args):
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
         power_line_freq = 60
-    # TODO for Ymkem pls make this as function ******************************************
+
+    #set eeg info (channel types and electrode montage) when it is not there yet===============
     if configs["which_sensor"] == "eeg":
-        # Task
-        task = path.split("/")[-1].split("_")[-2]
-        base_dir = os.path.dirname(path)
-        subID = args.subject
-        search_pattern = os.path.join(base_dir, f"**_{task}_channels.tsv")
-        channel_files = glob.glob(search_pattern, recursive=True)
-        channel_file = channel_files[0]
-        channels_df = pd.read_csv(channel_file, sep="\t")
-        channels_types = channels_df.set_index("name")["type"].str.lower().to_dict()
-        data.set_channel_types(channels_types)
-
-    if configs["which_sensor"] == "eeg":
-        montage = data.get_montage()
-        if montage is None:
-            try:
-                search_pattern_montage = os.path.join(base_dir, "*_montage.csv")
-                print("Searching for:", search_pattern_montage)
-                montage_files = glob.glob(search_pattern_montage, recursive=True)
-
-                if not montage_files:
-                    raise FileNotFoundError("No montage CSV file found!")
-
-                eeg_montage = montage_files[0]
-                montage_df = pd.read_csv(eeg_montage)
-                ch_positions = {
-                    row["Channel"]: [row["X"], row["Y"], row["Z"]]
-                    for _, row in montage_df.iterrows()
-                }
-                eeg_montage = mne.channels.make_dig_montage(
-                    ch_pos=ch_positions, coord_frame="head"
-                )
-                data.set_montage(eeg_montage)
-
-            except Exception as e:
-                # Log the error and continue without setting the montage
-                print(f"Error setting montage: {e}")
-                print(
-                    "Continuing without a montage. This may raise issues for ICA label."
-                )
-    #************************************************************************************************
-
+        data = prepare_eeg_data(data, path)
 
     # drop noisy channels for MEG==============================================================
     if configs["which_sensor"] in ["meg", "grad", "mag"]:
