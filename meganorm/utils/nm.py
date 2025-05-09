@@ -807,7 +807,7 @@ def aggregate_metrics_across_runs(
     valcovfile_path: str,
     valrespfile_path: str,  # Corrected semicolon to colon
     valbefile: str,
-    metrics: list = ["skewness", "kurtosis", "W", "MACE"],
+    metrics: list = ["skewness", "kurtosis", "W", "MACE", "SMSE"],
     num_runs: int = 10,
     quantiles: list = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
     outputsuffix: str = "estimate",
@@ -875,7 +875,7 @@ def aggregate_metrics_across_runs(
     """
     # Check if all requested metrics are supported
     for elem in metrics:
-        if elem not in ["skewness", "kurtosis", "W", "MACE"]:
+        if elem not in ["skewness", "kurtosis", "W", "MACE", "SMSE"]:
             raise ValueError(f"{elem} is not supported. Supported metrics include 'skewness', 'kurtosis', 'W', 'MACE'.")
 
     data = {
@@ -891,7 +891,7 @@ def aggregate_metrics_across_runs(
         valbefile = valbefile.replace("Run_0", f"Run_{run}")
 
         # Load z-scores for the current run
-        temp_path = os.path.join(run_path, method_name, "Z_estimate.pkl")
+        temp_path = os.path.join(run_path, method_name, f"Z_{outputsuffix}.pkl")
         with open(temp_path, "rb") as file:
             z_scores = pickle.load(file)
 
@@ -917,6 +917,12 @@ def aggregate_metrics_across_runs(
                             outputsuffix=outputsuffix,
                         )
                     )
+            
+            if metric == "SMSE":
+                temp_path = os.path.join(run_path, method_name, f"SMSE_{outputsuffix}.pkl")
+                with open(temp_path, "rb") as file:
+                    smse = pickle.load(file)
+                values.extend(smse.iloc[:,0].tolist())
 
             if metric == "W":
                 with open(os.path.join(run_path, "x_test.pkl"), "rb") as file:
@@ -934,6 +940,7 @@ def aggregate_metrics_across_runs(
                 data[metric][name].append(values[counter])
 
     return data
+
 
 
 def wilcoxon_rank_test(proposed_dict, baseline_dict):
