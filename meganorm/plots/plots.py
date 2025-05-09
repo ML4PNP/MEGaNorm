@@ -1138,8 +1138,8 @@ def qq_plot(
         # Styling
         ax.set_xlim(lower_lim, upper_lim)
         ax.set_ylim(lower_lim, upper_lim)
-        ax.set_xlabel("Theoretical quantiles", fontsize=22)
-        ax.set_ylabel("Sample quantiles", fontsize=22)
+        ax.set_xlabel("Theoretical quantiles", fontsize=25)
+        ax.set_ylabel("Sample quantiles", fontsize=25)
         ax.set_title(label_name.capitalize(), fontsize=22)
 
         ax.spines["right"].set_visible(False)
@@ -1147,8 +1147,8 @@ def qq_plot(
         ax.spines["bottom"].set_position(('outward', 10))
         ax.spines["left"].set_position(('outward', 10))
 
-        plt.xticks(np.linspace(lower_lim, upper_lim, 5), fontsize=19)
-        plt.yticks(np.linspace(lower_lim, upper_lim, 5), fontsize=19)
+        plt.xticks(np.linspace(lower_lim, upper_lim, 5), fontsize=25)
+        plt.yticks(np.linspace(lower_lim, upper_lim, 5), fontsize=25)
         plt.grid(True, linestyle="--", color="gray", alpha=0.4)
 
         # Save if needed
