@@ -950,6 +950,7 @@ def plot_metrics(
     biomarkers_new_name: list = None,
     colors: list = None,
     save_path: str = None,
+    which_metrics: list = ["skewness", "kurtosis", "W", "SMSE", "MACE"]
 ):
     """
     Plots KDE distributions of metrics across biomarkers and models.
@@ -968,6 +969,8 @@ def plot_metrics(
         Colors for each metrics_path (used in KDE plots).
     save_path : str, optional
         Directory to save the plots. If None, plots will not be saved.
+    whic_metrics: list, optional
+        Which metrics to be shown. Default: ['SMSE', 'skewness', 'kurtosis', "W", "MACE"]
 
     Returns
     -------
@@ -976,9 +979,8 @@ def plot_metrics(
 
     sns.set_theme(style="ticks", palette="pastel")
 
-    ordered_metrics = ['MACE', 'W', 'skewness', 'kurtosis']
     n_rows = len(which_biomarkers)
-    n_cols = len(ordered_metrics)
+    n_cols = len(which_metrics)
     fig, ax = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows), squeeze=False)
 
     for i, path in enumerate(metrics_path):
@@ -986,9 +988,9 @@ def plot_metrics(
             metrics_dic = pickle.load(file)
 
         # Keep only the ordered metrics
-        metrics_dic = {k: metrics_dic[k] for k in ordered_metrics if k in metrics_dic}
+        metrics_dic = {k: metrics_dic[k] for k in which_metrics if k in metrics_dic}
 
-        for col_idx, metric in enumerate(ordered_metrics):
+        for col_idx, metric in enumerate(which_metrics):
             if metric not in metrics_dic:
                 continue
 
@@ -1010,7 +1012,6 @@ def plot_metrics(
 
                 sns.rugplot(values, ax=current_ax, color="black", height=0.05)
 
-
                 current_ax.set_yticks([])
                 current_ax.spines['top'].set_visible(False)
                 current_ax.spines['right'].set_visible(False)
@@ -1018,7 +1019,7 @@ def plot_metrics(
 
                 # Set titles and labels only on first row/col
                 if row_idx == 0:
-                    current_ax.set_title(metric.capitalize(), fontsize=14)
+                    current_ax.set_title(metric, fontsize=14)
                 else:
                     current_ax.set_title("")
 
@@ -1028,7 +1029,7 @@ def plot_metrics(
                     current_ax.set_ylabel("")
 
                 current_ax.set_xlabel("")
-                current_ax.tick_params(axis="both", labelsize=20)
+                current_ax.tick_params(axis="both", labelsize=25)
 
     plt.tight_layout(h_pad=1.5, w_pad=1.0)
 
