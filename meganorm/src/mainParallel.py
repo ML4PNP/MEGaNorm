@@ -7,17 +7,22 @@ import pandas as pd
 import glob
 from meganorm.utils.IO import make_config, storeFooofModels
 from meganorm.src.psdParameterize import psdParameterize
-from meganorm.src.preprocess import preprocess, segment_epoch, drop_noisy_meg_channels, prepare_eeg_data
+from meganorm.src.preprocess import (
+    preprocess,
+    segment_epoch,
+    drop_noisy_meg_channels,
+    prepare_eeg_data,
+)
 from meganorm.src.featureExtraction import feature_extract
 
 
 def main(*args):
     """
-    Main function for running a complete spectral feature extraction pipeline 
+    Main function for running a complete spectral feature extraction pipeline
     using serialized or parallelized workflows.
 
-    This function processes raw MEG/EEG recordings through a pipeline that includes 
-    preprocessing, segmentation, PSD computation, spectral parameterization using FOOOF, 
+    This function processes raw MEG/EEG recordings through a pipeline that includes
+    preprocessing, segmentation, PSD computation, spectral parameterization using FOOOF,
     and feature extraction. The resulting features are saved to a CSV file.
 
     Positional Arguments (from command line)
@@ -32,7 +37,7 @@ def main(*args):
     Optional Arguments
     ------------------
     --configs : str, optional
-        Path to a JSON configuration file specifying preprocessing, segmentation, 
+        Path to a JSON configuration file specifying preprocessing, segmentation,
         PSD, and FOOOF parameters. If not provided, a default configuration is used.
 
     Workflow Overview
@@ -104,22 +109,20 @@ def main(*args):
             preload=True,
         )
 
-    
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
         power_line_freq = 60
 
-    #set eeg info (channel types and electrode montage) when it is not there yet===============
+    # set eeg info (channel types and electrode montage) when it is not there yet===============
     if configs["which_sensor"] == "eeg":
         data = prepare_eeg_data(data, path)
 
     # drop noisy channels for MEG==============================================================
     if configs["which_sensor"] in ["meg", "grad", "mag"]:
         data = drop_noisy_meg_channels(data, subID, args, configs)
-    
+
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor[configs.get("which_sensor")] = True
-
 
     # preproces ========================================================================
     filtered_data, channel_names, sampling_rate = preprocess(
@@ -190,6 +193,5 @@ def main(*args):
 
 
 if __name__ == "__main__":
-
 
     main(sys.argv[1:])

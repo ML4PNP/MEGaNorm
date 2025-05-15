@@ -9,10 +9,10 @@ import pandas as pd
 import fooof as f
 from typing import Dict, List
 from typing import Union
+
 # from layouts import load_specific_layout
 from meganorm.utils.IO import make_config
 from meganorm.layouts.layouts import load_specific_layout
-
 
 
 def offset(fm: f.FOOOF) -> float:
@@ -37,10 +37,10 @@ def offset(fm: f.FOOOF) -> float:
     if not isinstance(fm, f.FOOOF):
         raise TypeError("Expected a FOOOF model instance.")
 
-    return fm.get_params("aperiodic_params")[0] 
+    return fm.get_params("aperiodic_params")[0]
 
 
-def exponent(fm:f.FOOOF, aperiodic_mode:str) -> float:
+def exponent(fm: f.FOOOF, aperiodic_mode: str) -> float:
     """
     Extract the exponent value from the aperiodic component of a FOOOF model.
 
@@ -61,17 +61,21 @@ def exponent(fm:f.FOOOF, aperiodic_mode:str) -> float:
     ValueError
         Unknown aperiodic_mode; Expected 'knee' or 'fixed'.
     """
-    if aperiodic_mode == "knee": 
-        exponent_index = 2 
-    elif aperiodic_mode == "fixed": 
+    if aperiodic_mode == "knee":
+        exponent_index = 2
+    elif aperiodic_mode == "fixed":
         exponent_index = 1
     else:
-        raise ValueError(f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'.")
+        raise ValueError(
+            f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
+        )
 
     return fm.get_params("aperiodic_params")[exponent_index]
 
 
-def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, float]) -> list:
+def find_peak_in_band(
+    fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, float]
+) -> list:
     """
     Find peaks in a specified frequency band (determined by fmin and fmax) from the peak parameters of a FOOOF model.
 
@@ -86,22 +90,21 @@ def find_peak_in_band(fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, flo
 
     Returns
     -------
-    list  
-        A list of tuples where each tuple represents a peak. In the tuples, the first element is the 
+    list
+        A list of tuples where each tuple represents a peak. In the tuples, the first element is the
         frequency of the corresponding peak, the second element is the peak value (power), and the third element is the width of the peak.
     """
-    peaks = fm.get_params('peak_params')
-    
+    peaks = fm.get_params("peak_params")
+
     # filter peaks: check for NaNs and then within thee frequency band
     band_peaks = [
-        peak for peak in peaks
-        if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
+        peak for peak in peaks if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
     ]
 
     return band_peaks
 
 
-def peak_center(band_peaks:list):
+def peak_center(band_peaks: list):
     """
     Returns the frequency of the center of a dominant peak.
 
@@ -109,7 +112,7 @@ def peak_center(band_peaks:list):
     ----------
     band_peaks : list
         A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-        function. In the tuples, the first element is the frequency, the second element is the peak value, 
+        function. In the tuples, the first element is the frequency, the second element is the peak value,
         and the third element is the width of the dominant peak.
     Returns
     -------
@@ -121,12 +124,12 @@ def peak_center(band_peaks:list):
 
     # Get the dominant peak by selecting the one with the maximum second element (e.g., power)
     dominant_peak = max(band_peaks, key=lambda x: x[1])
-    
+
     # Return the frequency of the dominant peak (first element of the tuple)
     return dominant_peak[0]
 
 
-def peak_power(band_peaks:list):
+def peak_power(band_peaks: list):
     """
     Returns the power of the center of a dominant peak from a list of peaks.
 
@@ -134,7 +137,7 @@ def peak_power(band_peaks:list):
     ----------
     band_peaks : list
         A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-        function. In the tuples, the first element is the frequency, the second element is the peak value, 
+        function. In the tuples, the first element is the frequency, the second element is the peak value,
         and the third element is the width of the dominant peak.
 
     Returns
@@ -149,14 +152,14 @@ def peak_power(band_peaks:list):
     return dominant_peak[1]
 
 
-def peak_width(band_peaks:list):
+def peak_width(band_peaks: list):
     """
     Returns the width of the dominant peak from a list of peaks.
 
     Parameters
     ----------
     band_peaks : A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-                function. In the tuples, the first element is the frequency, the second 
+                function. In the tuples, the first element is the frequency, the second
                 element is the peak value, and the third element is the width of the dominant peak.
 
     Returns
@@ -191,8 +194,9 @@ def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
     return psd - 10**fm._ap_fit
 
 
-def abs_canonical_power(psd: np.ndarray, freqs: np.ndarray, 
-                    fmin: Union[int, float], fmax : Union[int, float]) -> float:
+def abs_canonical_power(
+    psd: np.ndarray, freqs: np.ndarray, fmin: Union[int, float], fmax: Union[int, float]
+) -> float:
     """
     Calculates absolute canonical power of a frequency band from a power spectrum density (PSD).
 
@@ -217,15 +221,15 @@ def abs_canonical_power(psd: np.ndarray, freqs: np.ndarray,
     'psd' can be both original PSD or periodic PSD.
     """
 
-
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
     band_power = np.trapz(psd[band_indices], freqs[band_indices])
-    
+
     return np.log10(band_power)
 
 
-def rel_canonical_power(psd: np.ndarray, freqs: np.ndarray,
-                        fmin: Union[int, float], fmax: Union[int, float]) -> float:
+def rel_canonical_power(
+    psd: np.ndarray, freqs: np.ndarray, fmin: Union[int, float], fmax: Union[int, float]
+) -> float:
     """
     Calculates relative canonical power of a frequency band from a power spectrum density.
 
@@ -295,8 +299,9 @@ def abs_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     lower_offset, upper_offset = individualized_band_ranges[band_name]
 
     # Define the frequency range around the peak and find matching indices
-    peak_range_indices = np.logical_and(freqs >= peak_freq + lower_offset,
-                                        freqs <= peak_freq + upper_offset)
+    peak_range_indices = np.logical_and(
+        freqs >= peak_freq + lower_offset, freqs <= peak_freq + upper_offset
+    )
 
     band_power = np.trapz(psd[peak_range_indices], freqs[peak_range_indices])
     return np.log10(band_power)
@@ -338,8 +343,9 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     lower_offset, upper_offset = individualized_band_ranges[band_name]
 
     # Define the range around the peak frequency
-    peak_range_indices = np.logical_and(freqs >= peak_freq + lower_offset,
-                                        freqs <= peak_freq + upper_offset)
+    peak_range_indices = np.logical_and(
+        freqs >= peak_freq + lower_offset, freqs <= peak_freq + upper_offset
+    )
 
     band_power = np.trapz(psd[peak_range_indices], freqs[peak_range_indices])
     total_power = np.trapz(psd, freqs)
@@ -355,12 +361,12 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
     Summarizes a feature DataFrame by averaging channels based on a specified sensor layout.
 
     Since sensor positions may differ across datasets recorded with different MEG hardware systems,
-    this function enables consistent feature extraction by averaging signals across the whole brain 
+    this function enables consistent feature extraction by averaging signals across the whole brain
     or predefined brain regions (e.g., lobes).
 
-    The function computes the mean of selected channels (e.g., MEG, EEG) according to a layout 
-    specified in a JSON file. The layout file is selected based on the recording extension 
-    (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional (lobe-level) 
+    The function computes the mean of selected channels (e.g., MEG, EEG) according to a layout
+    specified in a JSON file. The layout file is selected based on the recording extension
+    (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional (lobe-level)
     parcellation.
 
     Example layout for regional parcellation:
@@ -374,8 +380,8 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
             "MAG_ALL": ["MEG0121", "MEG0341", "MEG0311", ...]
         }
 
-    Layout files must be stored in a dedicated layout directory and named based on the recording 
-    extension (e.g., 'FIF.json'). The appropriate key in the JSON (e.g., 'FIF_MEG_LOBE') is constructed 
+    Layout files must be stored in a dedicated layout directory and named based on the recording
+    extension (e.g., 'FIF.json'). The appropriate key in the JSON (e.g., 'FIF_MEG_LOBE') is constructed
     using `extention`, `which_layout`, and `which_sensor`.
 
     Parameters
@@ -476,13 +482,13 @@ def psd_ratio(
 
 def create_feature_container(feature_categories, freq_bands, channel_names):
     """
-    Creates a DataFrame to store features for each channel, with feature names corresponding to 
+    Creates a DataFrame to store features for each channel, with feature names corresponding to
     the specified categories and frequency bands.
 
     Parameters
     ----------
     feature_categories : dict
-        Dictionary with feature names as keys and booleans indicating 
+        Dictionary with feature names as keys and booleans indicating
         whether the feature should be calculated.
     freq_bands : list
         List of frequency bands (e.g., ['theta', 'alpha', 'beta']).
@@ -499,9 +505,9 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
 
     # Features that do not need frequency band appended
     no_freq = ["Offset", "Exponent", "Peak_Center", "Peak_Power", "Peak_Width"]
-    
+
     feature_names = []
-    
+
     for feature, if_calculate in feature_categories.items():
         if if_calculate:
             if feature not in no_freq:
@@ -511,7 +517,7 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
             else:
                 # For features that don't need frequency bands
                 feature_names.append(feature)
-    
+
     # Return an empty DataFrame with features as index and channels as columns
     return pd.DataFrame(columns=channel_names, index=feature_names)
 
@@ -520,8 +526,8 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
     """
     Add a feature value to the feature container for a specific channel and frequency band.
 
-    This function appends a feature to a DataFrame by assigning a value (e.g., from an array) 
-    to a row labeled with the combined feature and band name, and a column labeled with the 
+    This function appends a feature to a DataFrame by assigning a value (e.g., from an array)
+    to a row labeled with the combined feature and band name, and a column labeled with the
     channel name.
 
     Parameters
@@ -547,24 +553,27 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
 
     return feature_container
 
-def feature_extract(subject_id: str, 
-                    fmGroup: f.FOOOF, 
-                    psds: np.ndarray, 
-                    feature_categories: Dict[str, bool], 
-                    freqs: np.ndarray, 
-                    freq_bands: Dict[str, tuple], 
-                    channel_names: List[str], 
-                    individualized_band_ranges: Dict[str, tuple], 
-                    extention: str, 
-                    which_layout: str, 
-                    which_sensor: Dict[str, bool], 
-                    aperiodic_mode: str, 
-                    min_r_squared: float) -> pd.DataFrame:
+
+def feature_extract(
+    subject_id: str,
+    fmGroup: f.FOOOF,
+    psds: np.ndarray,
+    feature_categories: Dict[str, bool],
+    freqs: np.ndarray,
+    freq_bands: Dict[str, tuple],
+    channel_names: List[str],
+    individualized_band_ranges: Dict[str, tuple],
+    extention: str,
+    which_layout: str,
+    which_sensor: Dict[str, bool],
+    aperiodic_mode: str,
+    min_r_squared: float,
+) -> pd.DataFrame:
     """
     Extract features from FOOOF models for each channel and frequency band.
 
-    This function computes various features from FOOOF models for each channel, 
-    based on specified frequency bands. Features such as offset, exponent, peak 
+    This function computes various features from FOOOF models for each channel,
+    based on specified frequency bands. Features such as offset, exponent, peak
     characteristics, and canonical power are calculated and stored in a DataFrame.
 
     Parameters
@@ -572,42 +581,42 @@ def feature_extract(subject_id: str,
     subject_id : str
         The unique identifier for the subject whose data is being processed.
     fmGroup : f.FOOOF
-        Group of FOOOF models, where each model corresponds to a channel and 
+        Group of FOOOF models, where each model corresponds to a channel and
         its power spectral data.
     psds : np.ndarray
         Original power spectral density values, with shape (n_channels, n_freqs).
     feature_categories : Dict[str, bool]
-        A dictionary where keys are feature names (e.g., 'Offset', 'Exponent') and values are 
+        A dictionary where keys are feature names (e.g., 'Offset', 'Exponent') and values are
         booleans indicating whether to compute the feature.
     freqs : np.ndarray
         Frequency values corresponding to the power values in the `psds` array.
     freq_bands : Dict[str, tuple]
-        Dictionary mapping frequency band names (e.g., 'Alpha', 'Beta') to their 
+        Dictionary mapping frequency band names (e.g., 'Alpha', 'Beta') to their
         corresponding frequency ranges (min_freq, max_freq).
     channel_names : List[str]
         List of channel names corresponding to the rows of the `psds` array.
     individualized_band_ranges : Dict[str, tuple]
-        A dictionary mapping band names to individualized frequency ranges, which may differ 
+        A dictionary mapping band names to individualized frequency ranges, which may differ
         across subjects or datasets.
     extention : str
-        The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the 
+        The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the
         appropriate layout file from the layout directory.
     which_layout : str
-        Specifies the sensor layout for feature averaging, either 'all' for global averaging 
+        Specifies the sensor layout for feature averaging, either 'all' for global averaging
         or 'lobe' for averaging within lobes.
     which_sensor : Dict[str, bool]
-        A dictionary indicating which modalities (e.g., 'meg', 'eeg') should be included 
+        A dictionary indicating which modalities (e.g., 'meg', 'eeg') should be included
         in the feature extraction.
     aperiodic_mode : str
         Defines the aperiodic component fitting mode for FOOOF. Options are 'knee' or 'fixed'.
     min_r_squared : float
-        Minimum acceptable R-squared value for FOOOF model fitting. Channels with 
+        Minimum acceptable R-squared value for FOOOF model fitting. Channels with
         R-squared values below this threshold are excluded.
 
     Returns
     -------
     pd.DataFrame
-        A DataFrame with features extracted for each channel and frequency band. The 
+        A DataFrame with features extracted for each channel and frequency band. The
         DataFrame has features as rows and channels (and frequency bands) as columns.
 
     Raises
@@ -619,17 +628,21 @@ def feature_extract(subject_id: str,
     ValueError
         If `min_r_squared` is not between 0 and 1.
     """
- 
+
     if aperiodic_mode not in ["knee", "fixed"]:
-        raise ValueError(f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'.")
+        raise ValueError(
+            f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
+        )
     if not isinstance(fmGroup, f.FOOOF):
         raise TypeError("Expected a FOOOF model instance.")
-    if not 0<=min_r_squared<=1:
+    if not 0 <= min_r_squared <= 1:
         raise ValueError("Minimum R squared should be between zero and 1")
 
     # Store features in a pandas DataFrame with channel names as columns
     # and feature names as the index,
-    feature_container = create_feature_container(feature_categories, freq_bands, channel_names)
+    feature_container = create_feature_container(
+        feature_categories, freq_bands, channel_names
+    )
 
     for channel_num, channel_name in enumerate(channel_names):
 
@@ -841,4 +854,3 @@ def feature_extract(subject_id: str,
     final_df.index = [subject_id]
 
     return final_df
-
