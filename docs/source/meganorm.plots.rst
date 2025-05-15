@@ -4,13 +4,7 @@ meganorm.plots package
 Submodules
 ----------
 
-meganorm.plots.fooofFitnessVis module
--------------------------------------
 
-.. automodule:: meganorm.plots.fooofFitnessVis
-   :members:
-   :show-inheritance:
-   :undoc-members:
 
 meganorm.plots.plots module
 ---------------------------
