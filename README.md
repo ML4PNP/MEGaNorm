@@ -8,7 +8,17 @@
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
 [![Documentation Status](https://readthedocs.org/projects/meganorm/badge/?version=latest)](https://meganorm.readthedocs.io/en/latest/?badge=latest)
 
-![Logo](docs/images/logo.png)
+
+<p align="center">
+  <img src="docs/images/logo.png" alt="MEGaNorm Logo" width="180"/>
+</p>
+
+<h1 align="center">MEGaNorm</h1>
+
+<p align="center">
+  Normative modeling of EEG/MEG brain dynamics across populations and timescales.
+</p>
+
 
 **MEGaNorm** is a Python toolbox for extracting functional imaging-derived phenotypes (f-IDPs) from large-scale EEG and MEG datasets, before normative modeling. It allows researchers to build, visualize, and analyze normative models of brain dynamics across individuals.
 
