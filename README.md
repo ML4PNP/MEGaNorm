@@ -1,5 +1,13 @@
 # MEGaNorm
 
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+![Last Commit](https://img.shields.io/github/last-commit/ML4PNP/MEGaNorm.svg)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1234567.svg)](https://doi.org/10.5281/zenodo.1234567)
+[![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
+
+
 **MEGaNorm** is a Python toolbox for extracting functional imaging-derived phenotypes (f-IDPs) from large-scale EEG and MEG datasets, before normative modeling. It allows researchers to build, visualize, and analyze normative models of brain dynamics across individuals.
 
 &#x20;
