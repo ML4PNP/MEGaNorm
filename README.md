@@ -31,6 +31,7 @@
 ## 🚀 Features
 
 * Compatibility with MNE-Python, PCNToolkit, FOOOF libraries
+* Normative modeling of oscillatory brain activity
 * Using high performance capabilities on SLURM clusters 
 * EEG and MEG support with BIDS integration
 * Easy-to-use API with high customizability
@@ -59,13 +60,19 @@ pip install .
 
 ### Option 2: Using Docker
 
-We provide a pre-configured Docker environment with Jupyter Lab:
+We provide a pre-configured Docker environment with Jupyter Lab. You can either **build the image locally** or **pull the latest version from Docker Hub**.
+
+#### Option A: Build the image locally
 
 ```bash
-# Build the image
 make build
+make run
+```
 
-# Run with Jupyter Lab and mounted folders
+#### Option B: Pull the latest image from Docker Hub
+
+```bash
+make pull
 make run
 ```
 

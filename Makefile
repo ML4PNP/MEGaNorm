@@ -1,4 +1,7 @@
+DOCKER_USER ?= smkia
 IMAGE_NAME = meganorm
+TAG = latest
+
 CONTAINER_NAME = meganorm-container
 HOST_PORT = 8888
 NOTEBOOK_DIR = $(PWD)/notebooks
@@ -19,3 +22,13 @@ run:
 
 stop:
 	docker stop $(CONTAINER_NAME) || true
+
+push:
+	@read -p "Enter Docker tag (e.g. latest, v0.1.0): " TAG; \
+	docker tag $(IMAGE_NAME) $(DOCKER_USER)/$(IMAGE_NAME):$(TAG)
+	docker push $(DOCKER_USER)/$(IMAGE_NAME):$(TAG)
+
+
+pull:
+	docker pull $(DOCKER_USER)/$(IMAGE_NAME):latest
+	
