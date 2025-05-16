@@ -10,6 +10,33 @@ import numpy as np
 
 
 def make_config(project, path=None):
+    """Create a configuration dictionary for a neuroimaging preprocessing pipeline.
+
+    This function generates configuration settings for preprocessing, feature extraction,
+    spectral analysis, and other relevant parameters used in processing EEG/MEG data.
+    Optionally, it saves the generated configuration to a JSON file in the specified path.
+
+    Parameters
+    ----------
+    project : str
+        The name of the project. Used to name the configuration file if `path` is provided.
+    path : str, optional
+        The directory path where the configuration file should be saved. If not provided,
+        the configuration is not saved to a file.
+
+    Returns
+    -------
+    config : dict
+        The configuration dictionary containing settings for preprocessing, feature extraction,
+        and analysis.
+
+    Notes
+    -----
+    - The generated configuration includes settings for ICA preprocessing, spectral
+      estimation, and feature extraction for EEG/MEG data.
+    - Default values are provided for the majority of settings.
+    - If `path` is provided, a `.json` file containing the configuration will be saved.
+    """
 
     # preprocess configurations =================================================
     # downsample data
@@ -139,65 +166,37 @@ def make_config(project, path=None):
 
 def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
     """
-    This function stores the periodic and aperiodic
-    results in a h5py file
+    Stores the periodic and aperiodic results from FOOOF analysis in a pickle file.
 
-    parameters
-    ------------
-    path: str
-    where to save
+    This function saves the FOOOF models, the power spectral densities (PSDs),
+    and the associated frequency data for a given subject into a `.pickle` file.
+    The data is appended to the file for each subject.
 
-    subjid: str
-    subject ID
+    Parameters
+    ----------
+    path : str
+        Directory path where the results will be saved.
 
-    fooofModels: object
+    subjId : str
+        The subject ID for which the results are saved.
 
-    returns
-    -------------
+    fooofModels : object
+        The FOOOF model object containing the periodic and aperiodic components.
+
+    psds : ndarray
+        Power Spectral Densities (PSDs) calculated for the subject.
+
+    freqs : ndarray
+        Frequency values corresponding to the PSDs.
+
+    Returns
+    -------
     None
+        This function does not return any value; it writes the results to a file.
 
     """
-
-    with open(os.path.join(path, subjId + ".pickle"), "ab") as file:
+    with open(os.path.join(path, subjId + ".pickle"), "w") as file:
         pickle.dump([fooofModels, psds, freqs], file)
-
-
-def merge_datasets(datasets):
-
-    subjects = {}
-
-    for dataset_name in datasets.keys():
-        path = datasets[dataset_name]
-        dirs = os.listdir(path)
-        for dir in dirs:
-            full_path = os.path.join(path, dir)
-            if os.path.isdir(full_path):
-                subjects[dir] = full_path
-
-    return subjects
-
-
-def merge_datasets_with_regex(datasets):
-
-    subjects = {}
-
-    for dataset_name, dataset_info in datasets.items():
-        base_dir = dataset_info["base_dir"]
-        regex_pattern = dataset_info["regex"]
-
-        dirs = [
-            d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
-        ]
-
-        # Walk through the base directory to find subject directories
-        for subject_dir in dirs:
-            formatted_regex = regex_pattern.format(
-                subject_name=subject_dir, base_dir=base_dir
-            )
-            if os.path.exists(formatted_regex):
-                subjects[subject_dir] = formatted_regex
-
-    return subjects
 
 
 def separate_eyes_open_close_eeglab(
@@ -305,95 +304,232 @@ def separate_eyes_open_close_eeglab(
 
 
 def merge_fidp_demo(
-    datasets_paths: str,
+    datasets_paths: list,
     features_dir: str,
-    data_set_names: list,
-    include_patients=False,
-    diagnosis="parkinson",
+    dataset_names: list,
+    drop_columns: list = ["eyes"],
 ):
     """
-    Loads demographic data and features, then concatenates them.
-    It assigns a site index for each dataset and normalizes the age range to [0, 1].
-    Note that the demographic data must be stored according to MNE BIDS standards.
+    Merge demographic metadata and extracted features into a single DataFrame.
 
-    Parameters:
-        datasets_paths (str): Path to the datasets.
-        features_dir (str): Path to the extracted features.
+    This function loads demographic data and feature data,
+    assigns a site label to each participant if missing, removes unnecessary columns,
+    and merges demographic information with corresponding extracted features.
 
-    Returns:
-        data (pd.DataFrame): Merged data.
+    Parameters
+    ----------
+    datasets_paths : list
+        List of paths to the dataset directories containing demographic files
+        ('participants_bids.tsv').
+    features_dir : str
+        Path to the directory containing the extracted features ('all_features.csv').
+    dataset_names : list of str
+        List of dataset names corresponding to each dataset path. Used to populate
+        missing 'site' information if necessary.
+    drop_columns : list of str, optional
+        Columns to drop from the demographic data before merging. Default is ["eyes"].
+
+    Returns
+    -------
+    data : pandas.DataFrame
+        Merged DataFrame containing both demographic information and feature data,
+        with participants indexed as strings.
+
+    Raises
+        ------
+        FileNotFoundError
+            If the 'participants_bids.tsv' file is missing in any of the dataset paths or
+            the 'all_features.csv' file is missing in the provided features directory.
     """
 
-    demographic_df = pd.DataFrame({})
+    # Initialize empty DataFrame
+    demographic_df = pd.DataFrame()
+
+    # Loop through dataset paths
     for counter, dataset_path in enumerate(datasets_paths):
-        demo = pd.read_csv(
-            os.path.join(dataset_path, "participants_bids.tsv"), sep="\t", index_col=0
-        )
+        demo_path = os.path.join(dataset_path, "participants_bids.tsv")
+        if not os.path.exists(demo_path):
+            raise FileNotFoundError(
+                f"The file 'participants_bids.tsv' is missing from the directory: {dataset_path}. "
+                "This file must be created using the 'make_demo_file_bids' function and placed in "
+                "the corresponding dataset directory."
+            )
+        demo = pd.read_csv(demo_path, sep="\t", index_col=0)
         demo.index = demo.index.astype(str)
 
-        if not "site" in demo.columns:
-            demo["site"] = data_set_names[counter]
+        if "site" not in demo.columns:
+            demo["site"] = dataset_names[counter]
 
         demographic_df = pd.concat([demographic_df, demo], axis=0)
 
-    demographic_df.drop(columns="eyes", inplace=True)
-    # demographic_df["eyes"] = pd.factorize(demographic_df["eyes"])[0]
+    # Drop unnecessary columns
+    demographic_df.drop(columns=drop_columns, errors="ignore", inplace=True)
 
-    demographic_df["sex"] = pd.factorize(demographic_df["sex"])[0]
-    demographic_df["site"] = pd.factorize(demographic_df["site"])[0]
-
+    # Load features
     feature_path = os.path.join(features_dir, "all_features.csv")
-    data = pd.read_csv(feature_path, index_col=0)
-    data.index = data.index.astype(str)
+    if not os.path.exists(feature_path):
+        raise FileNotFoundError(
+            f"The file 'all_features.csv' is missing in the directory: {features_dir}."
+        )
+    features_df = pd.read_csv(feature_path, index_col=0)
+    features_df.index = features_df.index.astype(str)
+
+    # Merge demographic and features
+    data = demographic_df.join(features_df, how="inner")
     data.index.name = None
 
-    data = demographic_df.join(data, how="inner")
-    data.index.name = None
+    return data
 
-    # resacle age range to [0,1]
-    data["age"] = data["age"] / 100
 
-    # initialize data_patient
-    data_patient = None
+def factorize_columns(df: pd.DataFrame, columns: list):
+    """
+    Factorizes specified columns in the DataFrame.
+    For the 'diagnosis' column, it assigns 0 to 'control' and factorizes the rest.
 
-    if not include_patients:
-        data_patient = data[
-            data["diagnosis"].isin(diagnosis)
-        ]  # changed from data_patient = data[data["diagnosis"] == diagnosis]
-        # data_patient["diagnosis"] = pd.factorize(data_patient["diagnosis"])[0]
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing the columns to be factorized.
+    columns : list
+        List of column names to be factorized.
 
-        data = data[data["diagnosis"] == "control"]
-        data.drop(columns="diagnosis", inplace=True)
-    elif include_patients:
-        data = data.dropna(subset=["diagnosis"])  # Drop rows where diangosis = nan
-        data["diagnosis"] = np.where(
-            data["diagnosis"] == "control", 0, pd.factorize(data["diagnosis"])[0] + 1
+    Returns
+    -------
+    df : pandas.DataFrame
+        DataFrame with factorized columns.
+    """
+
+    for col in columns:
+        if col in df.columns:
+            if col == "diagnosis":
+                # Drop rows where diagnosis is NaN
+                df = df.dropna(subset=["diagnosis"])
+                # Assign 0 to 'control' and factorize the rest
+                df["diagnosis"] = np.where(
+                    df["diagnosis"] == "control",
+                    0,
+                    pd.factorize(df["diagnosis"])[0] + 1,
+                )
+            else:
+                # Factorize other columns
+                df[col] = pd.factorize(df[col])[0]
+
+    return df
+
+
+def normalize_column(df, column="age", normalizer=100):
+    """
+    Normalizes a specified column in the DataFrame by dividing its values by the given normalizer.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing the column to be normalized.
+    column : str, optional
+        The column to be normalized (default is "age").
+    normalizer : float or None, optional
+        The value by which the column will be divided. If None, the column will not be normalized.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        DataFrame with the normalized column.
+
+    Raises
+    ------
+    KeyError
+        If the specified column does not exist in the DataFrame.
+    ValueError
+        If the normalizer is not a positive numeric value.
+    """
+
+    # Check if column exists in DataFrame
+    if column not in df.columns:
+        raise KeyError(f"Column '{column}' not found in DataFrame.")
+
+    # Check if the normalizer is a valid positive number
+    if normalizer is not None and (
+        not isinstance(normalizer, (int, float)) or normalizer <= 0
+    ):
+        raise ValueError(
+            f"Normalizer should be a positive numeric value, got {normalizer}."
         )
 
-    # Filter out sites with only one subject
-    site_counts = data["site"].value_counts()
-    valid_sites = site_counts[site_counts > 1].index
+    # Normalize the column if a valid normalizer is provided
+    if normalizer:
+        df[column] = df[column] / normalizer
 
-    data = data[data["site"].isin(valid_sites)]
-    if data_patient is not None:
-        data_patient = data_patient[data_patient["site"].isin(valid_sites)]
-        data_patient.dropna(inplace=True)  # drop rows with nan values
+    return df
 
-    # Create a mapping for renumbering sites so that numbers are sequentially and none are skipped
-    site_mapping = {
-        old_site: new_site for new_site, old_site in enumerate(sorted(valid_sites))
-    }
 
-    # Apply the new site numbering
-    data["site"] = data["site"].map(site_mapping)
-    if data_patient is not None:
-        data_patient["site"] = data_patient["site"].map(site_mapping)
+def separate_patient_data(df, diagnosis: list):
+    """
+    Separates patients' data from control data based on the diagnosis column.
 
-    return data, data_patient
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing the patient data.
+    diagnosis : list of str
+        A list of diagnosis values used to separate patients' data.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        The DataFrame containing only control data (after dropping the 'diagnosis' column).
+    df_patient : pandas.DataFrame
+        The DataFrame containing the patient data.
+
+    Raises
+    ------
+    KeyError
+        If the 'diagnosis' column is not found in the DataFrame.
+    """
+
+    # Ensure the 'diagnosis' column exists in the DataFrame
+    if "diagnosis" not in df.columns:
+        raise KeyError("The 'diagnosis' column is missing in the DataFrame.")
+
+    # Separate the patient data based on the 'diagnosis' column
+    df_patient = df[df["diagnosis"].isin(diagnosis)]
+
+    # Filter the control data and drop the 'diagnosis' column
+    df = df[df["diagnosis"] == "control"].drop(columns="diagnosis", errors="ignore")
+
+    return df, df_patient
 
 
 def merge_datasets_with_glob(datasets):
+    """
+    Merges file paths across multiple datasets using glob pattern matching.
 
+    This function walks through the provided datasets' base directories to find
+    subject folders and file paths matching a specified task and file ending. It
+    creates a dictionary mapping each subject to a glob pattern that can be used
+    to aggregate files across multiple runs or sessions.
+
+    Parameters
+    ----------
+    datasets : dict
+        Dictionary where each key is a dataset name, and each value is a dictionary
+        with the following keys:
+            - "base_dir" (str): Base directory containing subject subdirectories.
+            - "task" (str): Task keyword to search for in filenames.
+            - "ending" (str): File ending (e.g., '.nii.gz') to filter relevant files.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping subject IDs to a glob-style path string that aggregates
+        all matching files for that subject. Only subjects with at least one matched
+        file are included.
+
+    Notes
+    -----
+    This function is designed to assist in scenarios where each subject may have
+    multiple files (e.g., different runs or sessions), and the goal is to create
+    a single pattern that can be used to load all related files for a subject.
+    """
     subjects = {}
 
     for dataset_name, dataset_info in datasets.items():
@@ -426,21 +562,91 @@ def merge_datasets_with_glob(datasets):
     subjects = dict(filter(lambda item: item[1], subjects.items()))
     subjects = {key: join_with_star(value) for key, value in subjects.items()}
 
-    # 	paths = args.dir.split("*")
-    # paths = list(filter(lambda x: len(x), paths))
-    # # read the data ====================================================================
-    # for path_counter, path in enumerate(paths):
-    # 	if path_counter == 0:
-    # 		data = mne.io.read_raw(path, verbose=False, preload=True)
-    # 		dev_head_t_ref = data.info['dev_head_t']
-    # 	else:
-    # 		new_data = mne.io.read_raw(path, verbose=False, preload=True)
-    # 		new_data = mne.preprocessing.maxwell_filter(
-    # 												new_data,
-    # 												origin=(0,0,0),
-    # 												coord_frame='head',
-    # 												destination=dev_head_t_ref
-    # 												)
-    # 		data = mne.concatenate_raws([data, new_data])
-
     return subjects
+
+
+def make_demo_file_bids(
+    file_dir: str, save_dir: str, id_col: int, age_col: int, *columns
+) -> None:
+    """
+    Convert formats of demographic data into a single format so it can be used
+    in later stages.
+
+    Parameters
+    ----------
+    file_dir : str
+        Path to the input demographic file (supports CSV, TSV, or XLSX).
+    save_dir : str
+        Path where the BIDS-formatted demographic file will be saved (as TSV).
+    id_col : int
+        Column index containing the participant ID.
+    age_col : int
+        Column index containing participant age.
+    *extra_columns : dict
+        Additional column definitions. While age and participants id were defined
+        using positional arguments, extra coulmn modification (e.g., sex and eyes
+        condition) can be revised and converted to a single format across dataset
+        using this function. Each dict can contain:
+            - 'col_name': str, required name for the output column. This does not
+                necessarly match the column name before being passed to this function.
+            - 'col_id': int, index of the column that the revision should be applied to.
+            - 'single_value': value to assign to all rows if no col_id and mapping are given.
+                This can be helpful when all subjects in a dataset have the same properties
+                e.g., eyes open condition.
+            - 'mapping': dict, if single value is not defined, value mapping can be passed
+                to map the initial values to the target values.
+
+    Returns
+    -------
+    None
+    """
+    for col in columns:
+        if col.get("single_value") and col.get("mapping"):
+            raise ValueError(
+                "'single_value' and 'mapping' can not be both defined. One of them must be None; see the documentation!"
+            )
+
+    # Load input file based on extension
+    if file_dir.endswith(".xlsx"):
+        df = pd.read_excel(file_dir)
+    elif file_dir.endswith(".csv"):
+        df = pd.read_csv(file_dir)
+    elif file_dir.endswith(".tsv"):
+        df = pd.read_csv(file_dir, sep="\t")
+    else:
+        raise ValueError(f"Unsupported file type for: {file_dir}")
+
+    # Initialize new dataframe with required fields
+    new_df = pd.DataFrame(
+        {"participant_id": df.iloc[:, id_col], "age": df.iloc[:, age_col]}
+    )
+
+    for col in columns:
+        col_name = col.get("col_name")
+        col_id = col.get("col_id")
+        mapping = col.get("mapping")
+        single_value = col.get("single_value")
+
+        if col_name is None:
+            raise ValueError("Each column dictionary must contain a 'col_name'.")
+
+        if col_id is not None:
+            new_df[col_name] = df.iloc[:, col_id]
+            if mapping:
+                new_df[col_name] = new_df[col_name].map(mapping)
+        elif single_value is not None:
+            new_df[col_name] = single_value
+        else:
+            raise ValueError(
+                f"Column '{col_name}' must have either 'col_id' or 'single_value'."
+            )
+
+        # Special case handling
+        if col_name == "diagnosis":
+            new_df[col_name] = new_df[col_name].fillna("nan")
+
+    # Remove duplicate participants
+    new_df = new_df.drop_duplicates(subset="participant_id", keep="first")
+
+    # Save as BIDS-compatible TSV
+    new_df.to_csv(save_dir, sep="\t", index=False)

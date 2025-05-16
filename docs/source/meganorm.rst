@@ -7,10 +7,11 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
-   meganorm.datasets
-   meganorm.layouts
-   meganorm.plots
+   meganorm.src
    meganorm.utils
+   meganorm.plots
+   meganorm.layouts
+   
 
 Module contents
 ---------------

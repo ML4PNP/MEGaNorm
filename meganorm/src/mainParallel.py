@@ -5,25 +5,74 @@ import sys
 import mne
 import pandas as pd
 import glob
-
-# Add utils folder to the system path
-# parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# config_path = os.path.join(parent_dir, 'utils')
-# sys.path.append(config_path)
-
 from meganorm.utils.IO import make_config, storeFooofModels
 from meganorm.src.psdParameterize import psdParameterize
-from meganorm.src.preprocess import preprocess, segment_epoch, drop_bads
+from meganorm.src.preprocess import (
+    preprocess,
+    segment_epoch,
+    drop_noisy_meg_channels,
+    prepare_eeg_data,
+)
 from meganorm.src.featureExtraction import feature_extract
 
 
-def mainParallel(*args):
+def main(*args):
+    """
+    Main function for running a complete spectral feature extraction pipeline
+    using serialized or parallelized workflows.
 
+    This function processes raw MEG/EEG recordings through a pipeline that includes
+    preprocessing, segmentation, PSD computation, spectral parameterization using FOOOF,
+    and feature extraction. The resulting features are saved to a CSV file.
+
+    Positional Arguments (from command line)
+    ----------------------------------------
+    dir : str
+        Path to the raw MEG/EEG data file or directory.
+    saveDir : str
+        Directory where the extracted features will be saved.
+    subject : str
+        Subject or participant identifier used for file naming and tracking.
+
+    Optional Arguments
+    ------------------
+    --configs : str, optional
+        Path to a JSON configuration file specifying preprocessing, segmentation,
+        PSD, and FOOOF parameters. If not provided, a default configuration is used.
+
+    Workflow Overview
+    -----------------
+    1. Loads raw MEG/EEG data.
+    2. Applies channel type mapping and sets EEG montage (if applicable).
+    3. Removes bad channels using Maxwell filtering (for MEG).
+    4. Applies preprocessing steps such as bandpass filtering and ICA.
+    5. Segments the continuous data into epochs.
+    6. Computes the Power Spectral Density (PSD) for each epoch and channel.
+    7. Fits FOOOF models to each PSD to decompose into periodic and aperiodic components.
+    8. Extracts spectral features across predefined frequency bands.
+    9. Saves the extracted features as a CSV file to the specified output directory.
+
+    Notes
+    -----
+    - Supports both EEG and MEG modalities.
+    - Compatible with various MEG/EEG file formats supported by MNE.
+    - Can be run in serial mode or in parallel environments (e.g., SLURM-based clusters).
+
+    Raises
+    ------
+    FileNotFoundError
+        If required montage or channel information is missing.
+    ValueError
+        If an unsupported sensor type or PSD method is defined in the configuration.
+    RuntimeError
+        If data loading fails due to unsupported or corrupted formats.
+    """
     parser = argparse.ArgumentParser()
     # positional Arguments
     parser.add_argument("dir", type=str, help="Address to your data")
     parser.add_argument("saveDir", type=str, help="where to save extracted features")
     parser.add_argument("subject", type=str, help="participant ID")
+    # optional Arguments
     parser.add_argument(
         "--configs", type=str, default=None, help="Address of configs json file"
     )
@@ -44,15 +93,12 @@ def mainParallel(*args):
     paths = list(filter(lambda x: len(x), paths))
     path = paths[0]
 
+    # Extracting file format (extention) for loading layout
     extention = path[0].split(".")[-1]
     if "4D" in path[0]:
         extention = "BTI"  # TODO: you need to change this
 
-    # Task
-    task = path.split("/")[-1].split("_")[-2]
-
     # read the data ====================================================================
-
     try:
         data = mne.io.read_raw(path, verbose=False, preload=True)
     except:
@@ -67,55 +113,16 @@ def mainParallel(*args):
     if not power_line_freq:
         power_line_freq = 60
 
+    # set eeg info (channel types and electrode montage) when it is not there yet===============
     if configs["which_sensor"] == "eeg":
-        base_dir = os.path.dirname(path)
-        subID = args.subject
-        search_pattern = os.path.join(base_dir, f"**_{task}_channels.tsv")
-        channel_files = glob.glob(search_pattern, recursive=True)
-        channel_file = channel_files[0]
-        channels_df = pd.read_csv(channel_file, sep="\t")
-        channels_types = channels_df.set_index("name")["type"].str.lower().to_dict()
-        data.set_channel_types(channels_types)
+        data = prepare_eeg_data(data, path)
 
-    if configs["which_sensor"] == "eeg":
-        montage = data.get_montage()
-        if montage is None:
-            try:
-                search_pattern_montage = os.path.join(base_dir, "*_montage.csv")
-                print("Searching for:", search_pattern_montage)
-                montage_files = glob.glob(search_pattern_montage, recursive=True)
+    # drop noisy channels for MEG==============================================================
+    if configs["which_sensor"] in ["meg", "grad", "mag"]:
+        data = drop_noisy_meg_channels(data, subID, args, configs)
 
-                if not montage_files:
-                    raise FileNotFoundError("No montage CSV file found!")
-
-                eeg_montage = montage_files[0]
-                montage_df = pd.read_csv(eeg_montage)
-                ch_positions = {
-                    row["Channel"]: [row["X"], row["Y"], row["Z"]]
-                    for _, row in montage_df.iterrows()
-                }
-                eeg_montage = mne.channels.make_dig_montage(
-                    ch_pos=ch_positions, coord_frame="head"
-                )
-                data.set_montage(eeg_montage)
-
-            except Exception as e:
-                # Log the error and continue without setting the montage
-                print(f"Error setting montage: {e}")
-                print(
-                    "Continuing without a montage. This may raise issues for ICA label."
-                )
-
-    which_sensor = {
-        "meg": False,
-        "mag": False,
-        "grad": False,
-        "eeg": False,
-        "opm": False,
-    }
-    for key, values in which_sensor.items():
-        if key == configs["which_sensor"]:
-            which_sensor[key] = True
+    which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
+    which_sensor[configs.get("which_sensor")] = True
 
     # preproces ========================================================================
     filtered_data, channel_names, sampling_rate = preprocess(
@@ -144,28 +151,18 @@ def mainParallel(*args):
         overlap=configs["segments_overlap"],
     )
 
-    # drop bad channels ================================================================
-    # segments = drop_bads(segments = segments,
-    # 					mag_var_threshold = configs["mag_var_threshold"],
-    # 					grad_var_threshold = configs["grad_var_threshold"],
-    # 					eeg_var_threshold = configs["eeg_var_threshold"],
-    # 					mag_flat_threshold = configs["mag_flat_threshold"],
-    # 					grad_flat_threshold = configs["grad_flat_threshold"],
-    # 					eeg_flat_threshold = configs["eeg_flat_threshold"],
-    # 					which_sensor = which_sensor)
-
     # fooof analysis ====================================================================
     fmGroup, psds, freqs = psdParameterize(
         segments=segments,
         sampling_rate=sampling_rate,
         # psd parameters
-        psdMethod=configs["psd_method"],
+        psd_method=configs["psd_method"],
         psd_n_overlap=configs["psd_n_overlap"],
         psd_n_fft=configs["psd_n_fft"],
         n_per_seg=configs["psd_n_per_seg"],
         # fooof parameters
-        freqRangeLow=configs["fooof_freqRangeLow"],
-        freqRangeHigh=configs["fooof_freqRangeHigh"],
+        freq_range_low=configs["fooof_freq_range_low"],
+        freq_range_high=configs["fooof_freq_range_how"],
         min_peak_height=configs["fooof_min_peak_height"],
         peak_threshold=configs["fooof_peak_threshold"],
         peak_width_limits=configs["fooof_peak_width_limits"],
@@ -177,7 +174,7 @@ def mainParallel(*args):
 
     # # feature extraction ==================================================================
     features = feature_extract(
-        subjectId=subID,
+        subject_id=subID,
         fmGroup=fmGroup,
         psds=psds,
         freqs=freqs,
@@ -197,7 +194,4 @@ def mainParallel(*args):
 
 if __name__ == "__main__":
 
-    # command = python src/mainParallel.py /project/meganorm/Data/MOUS/sub-A2021/meg/sub-A2021_task-rest_meg.ds /home/meganorm-mznasrabadi/MEGaNorm/tests sub-A2021
-    # command = python src/mainParallel.py /project/meganorm/Data/BTNRH/CAMCAN/BIDS_data/sub-CC221828/meg/sub-CC221828_task-rest_meg.fif /home/meganorm-mznasrabadi/MEGaNorm/tests
-
-    mainParallel(sys.argv[1:])
+    main(sys.argv[1:])
