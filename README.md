@@ -1,4 +1,4 @@
-# MEGaNorm (Not Complete)
+# MEGaNorm
 
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
@@ -20,7 +20,7 @@
 </p>
 
 
-**MEGaNorm** is a Python toolbox for extracting functional imaging-derived phenotypes (f-IDPs) from large-scale EEG and MEG datasets, before normative modeling. It allows researchers to build, visualize, and analyze normative models of brain dynamics across individuals.
+**MEGaNorm** is a Python package that wraps [MNE-Python](https://github.com/mne-tools/mne-python) and [PCNToolkit](https://github.com/amarquand/PCNtoolkit) functionalities for extracting functional imaging-derived phenotypes (f-IDPs) from large-scale EEG and MEG datasets, and then deriving their normative ranges. It allows researchers to analyze large MEG and EEG dataset using high-performance computing facilities, and then build, visualize, and analyze normative models of brain dynamics across individuals.
 
 ![Overview](docs/images/pipeline_overview.png)
 
@@ -30,11 +30,10 @@
 
 ## 🚀 Features
 
-* Compatibility with MNE-Python, PCNToolkit, FOOOF libraries
+* Compatibility with MNE-Python, PCNToolkit, SpecParam libraries
 * Normative modeling of oscillatory brain activity
 * Using high performance capabilities on SLURM clusters 
 * EEG and MEG support with BIDS integration
-* Easy-to-use API with high customizability
 * Ready for reproducible deployment with Docker
 
 ---
@@ -86,7 +85,7 @@ Jupyter will open in your browser on [http://localhost:8888](http://localhost:88
 
 ---
 
-## 📒 Getting Started (not complete)
+## 📒 Getting Started (under construction)
 
 ```python 
 import meganorm
@@ -96,7 +95,7 @@ Explore examples in the [`notebooks/`](notebooks/) folder.
 
 ---
 
-## 🧚‍♂️ Testing (not complete)
+## 🧚‍♂️ Testing (under construction)
 
 Run unit tests using:
 
@@ -106,7 +105,7 @@ pytest tests/
 
 ---
 
-## 🧠 Citing MEGaNorm (not complete)
+## 🧠 Citing MEGaNorm (under construction)
 
 If you use MEGaNorm in your work, please cite:
 
@@ -116,7 +115,7 @@ If you use MEGaNorm in your work, please cite:
 
 ---
 
-## 🤝 Contributing (not complete)
+## 🤝 Contributing
 
 Contributions, issues and feature requests are welcome!
 
