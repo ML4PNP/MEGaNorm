@@ -40,13 +40,26 @@
 
 ## 📦 Installation
 
-### Option 1: Using Conda + Pip
+### Option 1: From PyPI (recommended)
 
-We recommend using a clean conda environment:
+This is the easiest way to get started if you just want to use the toolbox.
+
+```bash
+conda create --channel=conda-forge --strict-channel-priority --name mne python=3.12 mne
+
+conda activate mne
+
+pip install meganorm
+```
+
+---
+
+### Option 2: Installl from the source files
 
 ```bash
 # 1. Create and activate environment
 conda create --channel=conda-forge --strict-channel-priority --name mne python=3.12 mne
+
 conda activate mne
 
 # 2. Clone and install MEGaNorm
@@ -57,7 +70,7 @@ pip install .
 
 ---
 
-### Option 2: Using Docker
+### Option 3: Using Docker
 
 We provide a pre-configured Docker environment with Jupyter Lab. You can either **build the image locally** or **pull the latest version from Docker Hub**.
 
