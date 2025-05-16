@@ -100,6 +100,8 @@ Jupyter will open in your browser on [http://localhost:8888](http://localhost:88
 
 ## 📒 Getting Started (under construction)
 
+👉 **documentation** Early helpers are available at: [https://meganorm.readthedocs.io](https://meganorm.readthedocs.io). We are working hard to add more thorough documentations and tutorials and they will be available soon.
+
 ```python 
 import meganorm
 ```
@@ -118,13 +120,14 @@ pytest tests/
 
 ---
 
-## 🧠 Citing MEGaNorm (under construction)
+## 🧠 Citing MEGaNorm
 
 If you use MEGaNorm in your work, please cite:
 
-```
-[To be added: preprint / paper DOI or BibTeX]
-```
+**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)
+
+You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320).
+
 
 ---
 
