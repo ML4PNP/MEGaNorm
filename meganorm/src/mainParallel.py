@@ -72,7 +72,14 @@ def main(*args):
         "--configs", type=str, default=None, help="Address of configs json file"
     )
 
-    args = parser.parse_args()
+    # TODO: a more principled approach must be used to handle this issue
+    # Error handling was used since seria computing requires parse_args(args)
+    # while parallel computing does not require args to be passed
+    try:
+        args = parser.parse_args(args)
+    except:
+        args = parser.parse_args()
+
 
     # Loading configs
     if args.configs is not None:
