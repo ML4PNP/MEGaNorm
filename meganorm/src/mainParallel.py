@@ -159,7 +159,7 @@ def main(*args):
         n_per_seg=configs["psd_n_per_seg"],
         # fooof parameters
         freq_range_low=configs["fooof_freq_range_low"],
-        freq_range_high=configs["fooof_freq_range_how"],
+        freq_range_high=configs["fooof_freq_range_high"],
         min_peak_height=configs["fooof_min_peak_height"],
         peak_threshold=configs["fooof_peak_threshold"],
         peak_width_limits=configs["fooof_peak_width_limits"],
