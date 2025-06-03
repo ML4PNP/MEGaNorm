@@ -77,7 +77,13 @@ def main(*args):
         "--configs", type=str, default=None, help="Address of configs json file"
     )
 
-    args = parser.parse_args()
+    # TODO: a more principled approach must be used to handle this issue
+    # Error handling was used since seria computing requires parse_args(args)
+    # while parallel computing does not require args to be passed
+    try:
+        args = parser.parse_args(args)
+    except:
+        args = parser.parse_args()
 
     # Loading configs
     if args.configs is not None:
@@ -162,7 +168,7 @@ def main(*args):
         n_per_seg=configs["psd_n_per_seg"],
         # fooof parameters
         freq_range_low=configs["fooof_freq_range_low"],
-        freq_range_high=configs["fooof_freq_range_how"],
+        freq_range_high=configs["fooof_freq_range_high"],
         min_peak_height=configs["fooof_min_peak_height"],
         peak_threshold=configs["fooof_peak_threshold"],
         peak_width_limits=configs["fooof_peak_width_limits"],

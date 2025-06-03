@@ -9,8 +9,9 @@ import mne
 import numpy as np
 
 
-def make_config(project, path=None):
-    """Create a configuration dictionary for a neuroimaging preprocessing pipeline.
+def make_config(path=None):
+    """
+    Create a configuration dictionary for a neuroimaging preprocessing pipeline.
 
     This function generates configuration settings for preprocessing, feature extraction,
     spectral analysis, and other relevant parameters used in processing EEG/MEG data.
@@ -18,8 +19,6 @@ def make_config(project, path=None):
 
     Parameters
     ----------
-    project : str
-        The name of the project. Used to name the configuration file if `path` is provided.
     path : str, optional
         The directory path where the configuration file should be saved. If not provided,
         the configuration is not saved to a file.
@@ -78,7 +77,6 @@ def make_config(project, path=None):
     # flatness threshold across time
     config["mag_flat_threshold"] = 10e-15
     config["grad_flat_threshold"] = 10e-15
-    config["eeg_flat_threshold"] = None
     config["eeg_flat_threshold"] = 40e-6
     # variance thershold across channels
     config["zscore_std_thresh"] = 15  # change this
@@ -104,8 +102,10 @@ def make_config(project, path=None):
 
     # fooof analysis configurations ==============================================
     # Desired frequency range to run FOOOF
-    config["fooof_freqRangeLow"] = 3
-    config["fooof_freqRangeHigh"] = 40
+    config["fooof_freq_range_low"] = 3
+    config["fooof_freq_range_high"] = 40
+    config["fooof_freq_range_low"] = 3
+    config["fooof_freq_range_high"] = 40
     # which mode should be used for fitting; choices (knee, fixed)
     config["aperiodic_mode"] = "knee"
     # minimum acceptable peak width in fooof analysis
@@ -146,7 +146,7 @@ def make_config(project, path=None):
         "Adjusted_Canonical_Absolute_Power": False,
         "Adjusted_Individualized_Relative_Power": False,
         "Adjusted_Individualized_Absolute_Power": False,
-        "OriginalPSD_Canonical_Relative_Power": True,
+        "OriginalPSD_Canonical_Relative_Power": False,
         "OriginalPSD_Canonical_Absolute_Power": False,
         "OriginalPSD_Individualized_Relative_Power": False,
         "OriginalPSD_Individualized_Absolute_Power": False,
@@ -157,7 +157,7 @@ def make_config(project, path=None):
     config["random_state"] = 42
 
     if path is not None:
-        out_file = open(os.path.join(path, project + ".json"), "w")
+        out_file = open(os.path.join(path, "configuration.json"), "w")
         json.dump(config, out_file, indent=6)
         out_file.close()
 
@@ -195,7 +195,7 @@ def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
         This function does not return any value; it writes the results to a file.
 
     """
-    with open(os.path.join(path, subjId + ".pickle"), "w") as file:
+    with open(os.path.join(path, subjId + ".pickle"), "wb") as file:
         pickle.dump([fooofModels, psds, freqs], file)
 
 

@@ -3,7 +3,7 @@ import mne
 from mne_icalabel import label_components
 import json
 import numpy as np
-from glob import glob
+import glob
 from typing import Any, Dict
 import pandas as pd
 
