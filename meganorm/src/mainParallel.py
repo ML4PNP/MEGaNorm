@@ -85,7 +85,6 @@ def main(*args):
     except:
         args = parser.parse_args()
 
-
     # Loading configs
     if args.configs is not None:
         with open(args.configs, "r") as f:
