@@ -103,9 +103,9 @@ def make_config(path=None):
     # fooof analysis configurations ==============================================
     # Desired frequency range to run FOOOF
     config['fooof_freq_range_low'] = 3
-    config['fooof_freq_range_how'] = 40
+    config['fooof_freq_range_high'] = 40
     # which mode should be used for fitting; choices (knee, fixed)
-    config["aperiodic_mode"] = "fixed"
+    config["aperiodic_mode"] = "knee"
     # minimum acceptable peak width in fooof analysis
     config["fooof_peak_width_limits"] = [1.0, 12.0]
     #Absolute threshold for detecting peaks
