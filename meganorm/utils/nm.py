@@ -596,12 +596,12 @@ def estimate_centiles(
     q = np.zeros((scaled_synthetic_X.shape[0], len(quantiles), bio_num))
 
     for model_id in range(bio_num):
-        model_path = os.path.join(processing_dir, f"batch_{model_id + 1}", "Models")
+        model_path = os.path.join(processing_dir, f"batch_{model_id + 1}", "Models") # TODO: it should not go to the batch files, it should go to the Models
 
         with open(os.path.join(model_path, "meta_data.md"), "rb") as f:
             meta_data = pickle.load(f)
 
-        with open(os.path.join(model_path, f"NM_0_0_{outputsuffix}.pkl"), "rb") as f:
+        with open(os.path.join(model_path, f"NM_0_0_{outputsuffix}.pkl"), "rb") as f: 
             nm = pickle.load(f)
 
         q[:, :, model_id] = nm.get_mcmc_quantiles(
