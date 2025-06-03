@@ -13,14 +13,15 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-def computePsd(segments, 
-               freq_range_low=3, 
-               freq_range_high=40, 
-               sampling_rate=1000, 
-               psd_method="welch", 
-               psd_n_overlap=1, 
-               psd_n_fft=2, 
-               n_per_seg=2
+def computePsd(
+    segments,
+    freq_range_low=3,
+    freq_range_high=40,
+    sampling_rate=1000,
+    psd_method="welch",
+    psd_n_overlap=1,
+    psd_n_fft=2,
+    n_per_seg=2,
 ):
     """
     Compute the Power Spectral Density (PSD) of EEG/MEG data segments.
@@ -52,32 +53,37 @@ def computePsd(segments,
         Array of frequency values corresponding to the PSD.
     """
 
-    
-    psds, freqs = segments.compute_psd( 
-                    method=psd_method,
-                    fmin=freq_range_low,
-                    fmax=freq_range_high,
-                    n_jobs=-1,
-                    average="mean",
-                    n_overlap=psd_n_overlap * sampling_rate, 
-                    n_fft=psd_n_fft * sampling_rate, 
-                    n_per_seg=n_per_seg * sampling_rate, 
-                    verbose=False).average().get_data(return_freqs=True)
-    
+    psds, freqs = (
+        segments.compute_psd(
+            method=psd_method,
+            fmin=freq_range_low,
+            fmax=freq_range_high,
+            n_jobs=-1,
+            average="mean",
+            n_overlap=psd_n_overlap * sampling_rate,
+            n_fft=psd_n_fft * sampling_rate,
+            n_per_seg=n_per_seg * sampling_rate,
+            verbose=False,
+        )
+        .average()
+        .get_data(return_freqs=True)
+    )
+
     return psds, freqs
 
 
-def parameterizePsd(psds, 
-                    freqs, 
-                    freq_range_low=3, 
-                    freq_range_high=40, 
-                    min_peak_height=0,
-                    peak_threshold=2, 
-                    peak_width_limits=[1, 12.0], 
-                    aperiodic_mode="fixed"
+def parameterizePsd(
+    psds,
+    freqs,
+    freq_range_low=3,
+    freq_range_high=40,
+    min_peak_height=0,
+    peak_threshold=2,
+    peak_width_limits=[1, 12.0],
+    aperiodic_mode="fixed",
 ):
     """
-    Fit a FOOOF model to power spectral density (PSD) data to separate 
+    Fit a FOOOF model to power spectral density (PSD) data to separate
     periodic (oscillatory) and aperiodic (background) components.
 
     Parameters
@@ -109,12 +115,13 @@ def parameterizePsd(psds,
         Frequency values corresponding to the PSD.
     """
 
-    
     # Fit separate models for each channel
-    fooofModels = f.FOOOFGroup(peak_width_limits=peak_width_limits, 
-                                min_peak_height=min_peak_height, 
-                                peak_threshold=peak_threshold, 
-                                aperiodic_mode=aperiodic_mode)
+    fooofModels = f.FOOOFGroup(
+        peak_width_limits=peak_width_limits,
+        min_peak_height=min_peak_height,
+        peak_threshold=peak_threshold,
+        aperiodic_mode=aperiodic_mode,
+    )
     fooofModels.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=-1)
 
     return fooofModels, psds, freqs
@@ -132,10 +139,10 @@ def psdParameterize(
     psd_n_fft=2,
     n_per_seg=2,
     peak_width_limits=None,
-    aperiodic_mode="knee"
+    aperiodic_mode="knee",
 ):
     """
-    Runs the complete pipeline for spectral parameterization using FOOOF. 
+    Runs the complete pipeline for spectral parameterization using FOOOF.
     This includes computing the PSD and fitting FOOOF models for each channel.
 
     Parameters
@@ -198,7 +205,7 @@ def psdParameterize(
         psd_method=psd_method,
         psd_n_overlap=psd_n_overlap,
         psd_n_fft=psd_n_fft,
-        n_per_seg=n_per_seg
+        n_per_seg=n_per_seg,
     )
 
     fooofModels, psds, freqs = parameterizePsd(

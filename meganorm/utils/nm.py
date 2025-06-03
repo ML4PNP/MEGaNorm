@@ -13,7 +13,8 @@ from scipy.stats import false_discovery_control
 from scipy.stats import ranksums
 from sklearn.model_selection import train_test_split
 
-#**
+
+# **
 def hbr_data_split(
     data,
     save_path,
@@ -24,18 +25,18 @@ def hbr_data_split(
     drop_nans=False,
     random_seed="23d",
     prefix="",
-    stratification_columns=["site", "sex"]
+    stratification_columns=["site", "sex"],
 ):
     """
     Splits a given DataFrame into training, validation, and test sets for normative modeling,
-    while considering stratification based on specified categorical columns. The data is saved as 
+    while considering stratification based on specified categorical columns. The data is saved as
     pickled files for normative modeling (PCNToolkit requires paths to the files).
 
     Parameters
     ----------
     data : pd.DataFrame
         A Pandas DataFrame containing the data to be split. Created using functions like "load_camcan_data".
-    
+
     save_path : str
         Path where the resulting training, validation, and test sets will be saved as pickled files.
 
@@ -66,7 +67,7 @@ def hbr_data_split(
     Returns
     -------
     list of str
-        A list of biomarker names (columns in the target `y` DataFrame), which represent the dependent 
+        A list of biomarker names (columns in the target `y` DataFrame), which represent the dependent
         variables for the HBR normative modeling.
 
     Notes
@@ -78,11 +79,11 @@ def hbr_data_split(
         - Saves the resulting splits (`x_train`, `y_train`, `b_train`, etc.) as pickled files in the specified `save_path`.
         - Saves the random seed used for splitting into a separate pickled file.
         - Returns the names of the biomarkers (columns in `y_train`).
-    
+
     Example
     -------
     biomarker_names = hbr_data_split(
-        data=df, 
+        data=df,
         save_path="./data_split/",
         covariates=["age", "sex"],
         batch_effects=["site"],
@@ -97,10 +98,20 @@ def hbr_data_split(
         data = data.dropna(axis=0)
 
     data["combination"] = data[stratification_columns].astype(str).agg("_".join, axis=1)
-    train_df, test_df = train_test_split(data, stratify=data['combination'], test_size=(1 - train_split), random_state=random_seed)
+    train_df, test_df = train_test_split(
+        data,
+        stratify=data["combination"],
+        test_size=(1 - train_split),
+        random_state=random_seed,
+    )
 
     if validation_split:
-        train_df, val_df = train_test_split(train_df, stratify=data["combination"], test_size=validation_split, random_state=random_seed)
+        train_df, val_df = train_test_split(
+            train_df,
+            stratify=data["combination"],
+            test_size=validation_split,
+            random_state=random_seed,
+        )
 
     # train ********
     x_train = train_df.loc[:, covariates]
@@ -114,11 +125,15 @@ def hbr_data_split(
         )
     )
     y_train = (
-        train_df.drop(columns=covariates + batch_effects + ["combination", "diganosis"], errors="ignore")
+        train_df.drop(
+            columns=covariates + batch_effects + ["combination", "diganosis"],
+            errors="ignore",
+        )
         if batch_effects is not None
-        else train_df.drop(columns=covariates + ["combination", "diganosis"], errors="ignore")
+        else train_df.drop(
+            columns=covariates + ["combination", "diganosis"], errors="ignore"
+        )
     )
-
 
     # test ********
     x_test = test_df.loc[:, covariates]
@@ -132,11 +147,15 @@ def hbr_data_split(
         )
     )
     y_test = (
-        test_df.drop(columns=covariates + batch_effects + ["combination", "diganosis"], errors="ignore")
+        test_df.drop(
+            columns=covariates + batch_effects + ["combination", "diganosis"],
+            errors="ignore",
+        )
         if batch_effects is not None
-        else test_df.drop(columns=covariates + ["combination", "diganosis"], errors="ignore")
+        else test_df.drop(
+            columns=covariates + ["combination", "diganosis"], errors="ignore"
+        )
     )
-
 
     # validation ********
     if validation_split:
@@ -151,32 +170,29 @@ def hbr_data_split(
             )
         )
         y_val = (
-            val_df.drop(columns=covariates + batch_effects + ["combination", "diganosis"], errors="ignore")
+            val_df.drop(
+                columns=covariates + batch_effects + ["combination", "diganosis"],
+                errors="ignore",
+            )
             if batch_effects is not None
-            else val_df.drop(columns=covariates + ["combination", "diganosis"], errors="ignore"))
+            else val_df.drop(
+                columns=covariates + ["combination", "diganosis"], errors="ignore"
+            )
+        )
 
     # train
-    x_train.to_pickle(
-        os.path.join(save_path, prefix + "x_train.pkl"))
-    y_train.to_pickle(
-        os.path.join(save_path, prefix + "y_train.pkl"))
-    b_train.to_pickle(
-        os.path.join(save_path, prefix + "b_train.pkl"))
+    x_train.to_pickle(os.path.join(save_path, prefix + "x_train.pkl"))
+    y_train.to_pickle(os.path.join(save_path, prefix + "y_train.pkl"))
+    b_train.to_pickle(os.path.join(save_path, prefix + "b_train.pkl"))
     # validation
     if validation_split:
-        x_val.to_pickle(
-            os.path.join(save_path, prefix + "x_val.pkl"))
-        y_val.to_pickle(
-            os.path.join(save_path, prefix + "y_val.pkl"))
-        b_val.to_pickle(
-            os.path.join(save_path, prefix + "b_val.pkl"))
+        x_val.to_pickle(os.path.join(save_path, prefix + "x_val.pkl"))
+        y_val.to_pickle(os.path.join(save_path, prefix + "y_val.pkl"))
+        b_val.to_pickle(os.path.join(save_path, prefix + "b_val.pkl"))
     # test
-    x_test.to_pickle(
-        os.path.join(save_path, prefix + "x_test.pkl"))
-    y_test.to_pickle(
-        os.path.join(save_path, prefix + "y_test.pkl"))
-    b_test.to_pickle(
-        os.path.join(save_path, prefix + "b_test.pkl"))
+    x_test.to_pickle(os.path.join(save_path, prefix + "x_test.pkl"))
+    y_test.to_pickle(os.path.join(save_path, prefix + "y_test.pkl"))
+    b_test.to_pickle(os.path.join(save_path, prefix + "b_test.pkl"))
 
     with open(os.path.join(save_path, prefix + "random_seed.pkl"), "wb") as file:
         pickle.dump({"random_seed": random_seed}, file)
@@ -184,7 +200,8 @@ def hbr_data_split(
     biomarker_name = y_train.columns
     return biomarker_name.tolist()
 
-#**
+
+# **
 def evaluate_mace(
     model_path,
     X_path,
@@ -199,8 +216,8 @@ def evaluate_mace(
     """
     Evaluate model calibration using the Mean Absolute Calibration Error (MACE) metric.
 
-    This function computes MACE by comparing model-predicted quantiles with the 
-    empirical distribution of outcomes across batch groups. Optionally, it plots a 
+    This function computes MACE by comparing model-predicted quantiles with the
+    empirical distribution of outcomes across batch groups. Optionally, it plots a
     reliability diagram to visually assess calibration performance.
 
     Parameters
@@ -323,7 +340,8 @@ def evaluate_mace(
 
     return batch_mace.mean()
 
-#**
+
+# **
 def calculate_PNOCs(
     quantiles_path,
     gender_ids,
@@ -331,16 +349,16 @@ def calculate_PNOCs(
     quantile_id=2,
     site_id=None,
     point_num=100,
-    sex_batch_ind = 0,
-    site_batch_ind =1, 
-    num_of_sexs = 2,
-    num_of_datasets = None,
+    sex_batch_ind=0,
+    site_batch_ind=1,
+    num_of_sexs=2,
+    num_of_datasets=None,
     age_slices=None,
 ):
     """
     Prepares the data required for the `plot_PNOCs` function.
 
-    This function slices the covariate into multiple bins and calculates the mean and 
+    This function slices the covariate into multiple bins and calculates the mean and
     standard deviation of each frequency band across the population for both sexes.
 
     Parameters
@@ -373,7 +391,7 @@ def calculate_PNOCs(
     Returns
     -------
     oscilogram : dict
-        Nested dictionary with structure: oscilogram[gender][frequency_band] = list of [mean, std] 
+        Nested dictionary with structure: oscilogram[gender][frequency_band] = list of [mean, std]
         values for each age slice.
     age_slices : numpy.ndarray
         Array of age slice start values used for binning.
@@ -416,12 +434,16 @@ def calculate_PNOCs(
             data = np.concatenate(
                 [
                     q[
-                        np.logical_and(b[:, sex_batch_ind] == 0, b[:, site_batch_ind] == site_id),
+                        np.logical_and(
+                            b[:, sex_batch_ind] == 0, b[:, site_batch_ind] == site_id
+                        ),
                         quantile_id,
                         model_id : model_id + 1,
                     ],
                     q[
-                        np.logical_and(b[:, sex_batch_ind] == 1, b[:, site_batch_ind] == site_id),
+                        np.logical_and(
+                            b[:, sex_batch_ind] == 1, b[:, site_batch_ind] == site_id
+                        ),
                         quantile_id,
                         model_id : model_id + 1,
                     ],
@@ -433,29 +455,35 @@ def calculate_PNOCs(
             batch_id = gender_ids[gender]
             oscilogram[gender][fb] = []
             for slice in age_slices:
-                d = data[np.logical_and(x >= slice, x < slice + int(age_slices[1]-age_slices[0])), batch_id]
+                d = data[
+                    np.logical_and(
+                        x >= slice, x < slice + int(age_slices[1] - age_slices[0])
+                    ),
+                    batch_id,
+                ]
                 m = np.mean(d)
                 s = np.std(d)
                 oscilogram[gender][fb].append([m, s])
 
     return oscilogram, age_slices
 
-#**
+
+# **
 def shapiro_stat(z_scores, covariates, n_bins=10):
     """
     Computes Shapiro-Wilk test statistics for z-scores stratified by covariate bins.
 
-    The z-scores are grouped into bins based on the values of the covariate, and the 
-    Shapiro-Wilk test for normality is applied within each bin for every feature. 
+    The z-scores are grouped into bins based on the values of the covariate, and the
+    Shapiro-Wilk test for normality is applied within each bin for every feature.
     The function returns the average Shapiro-Wilk statistic across all bins for each biomarker.
 
     Parameters
     ----------
     z_scores : numpy.ndarray
-        A 2D array of shape (n_samples, n_features) containing the z-scores 
+        A 2D array of shape (n_samples, n_features) containing the z-scores
         for each subject and feature.
     covariates : numpy.ndarray
-        A 1D or 2D array of shape (n_samples,) or (n_samples, 1) containing the covariate 
+        A 1D or 2D array of shape (n_samples,) or (n_samples, 1) containing the covariate
         values used for binning.
     n_bins : int, optional
         The number of equal-width bins to divide the covariate range into. Default is 10.
@@ -463,15 +491,15 @@ def shapiro_stat(z_scores, covariates, n_bins=10):
     Returns
     -------
     numpy.ndarray
-        A 1D array of length `n_features`, where each element is the mean 
-        Shapiro-Wilk test statistic across bins for the corresponding feature. 
+        A 1D array of length `n_features`, where each element is the mean
+        Shapiro-Wilk test statistic across bins for the corresponding feature.
         NaN is returned for bins with fewer than 3 samples.
 
     Notes
     -----
-    - The Shapiro-Wilk test is only performed for bins with at least 3 samples. 
+    - The Shapiro-Wilk test is only performed for bins with at least 3 samples.
       Bins with fewer samples contribute NaN to the average.
-    - The output values range from 0 to 1, where values closer to 1 suggest better 
+    - The output values range from 0 to 1, where values closer to 1 suggest better
       adherence to a normal distribution.
     """
 
@@ -497,7 +525,8 @@ def shapiro_stat(z_scores, covariates, n_bins=10):
 
     return test_statistics.mean(axis=0)
 
-#**
+
+# **
 def estimate_centiles(
     processing_dir,
     bio_num,
@@ -546,10 +575,12 @@ def estimate_centiles(
 
     # Construct synthetic inputs
     batch_effects = np.repeat(combinations, point_num, axis=0)
-    synthetic_X = np.vstack([
-        np.linspace(age_range[0], age_range[1], point_num)[:, np.newaxis]
-        for _ in range(len(combinations))
-    ])
+    synthetic_X = np.vstack(
+        [
+            np.linspace(age_range[0], age_range[1], point_num)[:, np.newaxis]
+            for _ in range(len(combinations))
+        ]
+    )
 
     # Load input scaler from first model
     meta_path = os.path.join(processing_dir, "batch_1", "Models", "meta_data.md")
@@ -560,7 +591,7 @@ def estimate_centiles(
         in_scaler = meta_data["scaler_cov"][0]
         scaled_synthetic_X = in_scaler.transform(synthetic_X)
     else:
-        scaled_synthetic_X = synthetic_X / 100  
+        scaled_synthetic_X = synthetic_X / 100
 
     q = np.zeros((scaled_synthetic_X.shape[0], len(quantiles), bio_num))
 
@@ -587,25 +618,29 @@ def estimate_centiles(
     if save:
         out_path = os.path.join(processing_dir, f"Quantiles_{outputsuffix}.pkl")
         with open(out_path, "wb") as f:
-            pickle.dump({
-                "quantiles": q,
-                "synthetic_X": synthetic_X,
-                "batch_effects": np.array(batch_effects)
-            }, f)
+            pickle.dump(
+                {
+                    "quantiles": q,
+                    "synthetic_X": synthetic_X,
+                    "batch_effects": np.array(batch_effects),
+                },
+                f,
+            )
 
     return q
 
-#**
+
+# **
 def prepare_prediction_data(
     data: pd.DataFrame,
     save_path: str,
     covariates: list[str] = ["age"],
     batch_effects: list[str] = None,
     drop_nans: bool = False,
-    prefix: str = ""
+    prefix: str = "",
 ) -> None:
     """
-    Prepares and saves test data (covariates, batch effects, and targets) 
+    Prepares and saves test data (covariates, batch effects, and targets)
     for normative model prediction.
 
     Parameters
@@ -661,7 +696,8 @@ def prepare_prediction_data(
 
     return None
 
-#**
+
+# **
 def cal_stats_for_INOCs(
     q_path: str,
     features: list,
@@ -669,7 +705,7 @@ def cal_stats_for_INOCs(
     sex_id: int,
     age: float,
     num_of_datasets: int,
-    num_points: int = 100
+    num_points: int = 100,
 ) -> dict:
     """
     Calculates population statistics (centiles of variation) give a subject age, sex and site.
@@ -699,46 +735,55 @@ def cal_stats_for_INOCs(
     """
     q = pickle.load(open(q_path, "rb"))
     quantiles = q["quantiles"]
-    synthetic_X = q["synthetic_X"].reshape(num_of_datasets*2, 100).mean(axis=0) # since Xs are repeated !
+    synthetic_X = (
+        q["synthetic_X"].reshape(num_of_datasets * 2, 100).mean(axis=0)
+    )  # since Xs are repeated !
     b = q["batch_effects"]
 
     statistics = {feature: [] for feature in features}
     for ind in range(len(features)):
-        
+
         biomarker_stats = []
         for quantile_id in range(quantiles.shape[1]):
 
-            if not site_id: # if not any specific site, average between all sites (batch effect)
-                data = quantiles[b[:,0]== sex_id, quantile_id, ind:ind+1]
+            if (
+                not site_id
+            ):  # if not any specific site, average between all sites (batch effect)
+                data = quantiles[b[:, 0] == sex_id, quantile_id, ind : ind + 1]
                 data = data.reshape(num_of_datasets, num_points, 1)
                 data = data.mean(axis=0)
             if site_id:
-                data = quantiles[np.logical_and(b[:,0]== sex_id, b[:,1]== site_id), quantile_id, ind:ind+1]
-            
+                data = quantiles[
+                    np.logical_and(b[:, 0] == sex_id, b[:, 1] == site_id),
+                    quantile_id,
+                    ind : ind + 1,
+                ]
+
             data = data.squeeze()
 
             closest_x = min(synthetic_X, key=lambda x: abs(x - age))
-            age_bin_ind = np.where(synthetic_X==closest_x)[0][0]
+            age_bin_ind = np.where(synthetic_X == closest_x)[0][0]
 
             biomarker_stats.append(data[age_bin_ind])
-            
+
         statistics[features[ind]].extend(biomarker_stats)
     return statistics
 
-#**
+
+# **
 def abnormal_probability(
     processing_dir: str,
     nm_processing_dir: str,
     n_permutation: int = 1000,
     site_id: int = None,
     healthy_data_prefix: str = "",
-    patient_data_prefix: str = ""
+    patient_data_prefix: str = "",
 ):
     """
     Computes the abnormality probability index for both control and patient groups
-    based on z-scores from normative modeling. Then calculates the AUC between 
-    these two groups and estimates the statistical significance of AUC values using 
-    permutation testing. Finally, it applies false discovery rate (FDR) correction 
+    based on z-scores from normative modeling. Then calculates the AUC between
+    these two groups and estimates the statistical significance of AUC values using
+    permutation testing. Finally, it applies false discovery rate (FDR) correction
     to the p-values.
 
     Parameters
@@ -763,11 +808,15 @@ def abnormal_probability(
     auc : np.ndarray
         AUC values comparing abnormal probability between groups.
     """
-    
+
     # Load z-scores
-    with open(os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb") as file:
+    with open(
+        os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb"
+    ) as file:
         z_patient = pickle.load(file)
-    with open(os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb") as file:
+    with open(
+        os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb"
+    ) as file:
         z_healthy = pickle.load(file)
 
     # Filter by site if specified
@@ -778,7 +827,9 @@ def abnormal_probability(
         z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
 
         # Patient group
-        with open(os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb") as file:
+        with open(
+            os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb"
+        ) as file:
             b_patient = pickle.load(file)
         z_patient = z_patient.iloc[np.where(b_patient["site"] == site_id)[0], :]
 
@@ -799,7 +850,8 @@ def abnormal_probability(
 
     return p_val, auc
 
-#**
+
+# **
 def aggregate_metrics_across_runs(
     path: str,
     method_name: str,
@@ -852,7 +904,7 @@ def aggregate_metrics_across_runs(
     Returns
     -------
     data : dict
-        A dictionary where keys are the metric names (e.g., "skewness", "kurtosis", "W", "MACE") and values 
+        A dictionary where keys are the metric names (e.g., "skewness", "kurtosis", "W", "MACE") and values
         are dictionaries with biomarker names as keys and lists of aggregated metric values across runs as values.
 
     Notes
@@ -876,7 +928,9 @@ def aggregate_metrics_across_runs(
     # Check if all requested metrics are supported
     for elem in metrics:
         if elem not in ["skewness", "kurtosis", "W", "MACE", "SMSE"]:
-            raise ValueError(f"{elem} is not supported. Supported metrics include 'skewness', 'kurtosis', 'W', 'MACE'.")
+            raise ValueError(
+                f"{elem} is not supported. Supported metrics include 'skewness', 'kurtosis', 'W', 'MACE'."
+            )
 
     data = {
         metric: {biomarker_name: [] for biomarker_name in biomarker_names}
@@ -917,12 +971,14 @@ def aggregate_metrics_across_runs(
                             outputsuffix=outputsuffix,
                         )
                     )
-            
+
             if metric == "SMSE":
-                temp_path = os.path.join(run_path, method_name, f"SMSE_{outputsuffix}.pkl")
+                temp_path = os.path.join(
+                    run_path, method_name, f"SMSE_{outputsuffix}.pkl"
+                )
                 with open(temp_path, "rb") as file:
                     smse = pickle.load(file)
-                values.extend(smse.iloc[:,0].tolist())
+                values.extend(smse.iloc[:, 0].tolist())
 
             if metric == "W":
                 with open(os.path.join(run_path, "x_test.pkl"), "rb") as file:
@@ -942,7 +998,6 @@ def aggregate_metrics_across_runs(
     return data
 
 
-
 def wilcoxon_rank_test(proposed_dict, baseline_dict):
     """
     Applies the Wilcoxon rank-sum test to compare metric distributions between two model
@@ -952,11 +1007,11 @@ def wilcoxon_rank_test(proposed_dict, baseline_dict):
     Parameters
     ----------
     proposed_dict : dict
-        Dictionary of metrics for the proposed model configuration. 
+        Dictionary of metrics for the proposed model configuration.
         Expected format: {metric: {biomarker: list of values}}.
 
     baseline_dict : dict
-        Dictionary of metrics for the baseline model configuration. 
+        Dictionary of metrics for the baseline model configuration.
         Same format as proposed_dict.
 
     Returns
@@ -981,8 +1036,12 @@ def wilcoxon_rank_test(proposed_dict, baseline_dict):
     # Compute statistics and collect p-values
     for metric in metrics:
         for biomarker in biomarkers:
-            proposed_vals = [float(x) for x in proposed_dict.get(metric, {}).get(biomarker, [])]
-            baseline_vals = [float(x) for x in baseline_dict.get(metric, {}).get(biomarker, [])]
+            proposed_vals = [
+                float(x) for x in proposed_dict.get(metric, {}).get(biomarker, [])
+            ]
+            baseline_vals = [
+                float(x) for x in baseline_dict.get(metric, {}).get(biomarker, [])
+            ]
 
             if proposed_vals and baseline_vals:
                 stat, pval = ranksums(proposed_vals, baseline_vals)
@@ -1001,9 +1060,7 @@ def wilcoxon_rank_test(proposed_dict, baseline_dict):
     corrected[valid_mask] = false_discovery_control(raw_pvals_array[valid_mask])
 
     fdr_corrected_df = pd.DataFrame(
-        corrected.reshape(pval_df.shape),
-        index=metrics,
-        columns=biomarkers
+        corrected.reshape(pval_df.shape), index=metrics, columns=biomarkers
     )
     fdr_corrected_df = fdr_corrected_df.round(5)
 

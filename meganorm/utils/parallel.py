@@ -152,7 +152,7 @@ def submit_jobs(
     bash_file_path : str
         Path where the generated batch job file will be saved.
     subjects : dict
-        A dictionary of subject names (keys) and their corresponding paths (values). 
+        A dictionary of subject names (keys) and their corresponding paths (values).
         Each subject will have a job submitted to the cluster.
     temp_path : str
         Path where temporary files will be stored.
@@ -393,7 +393,7 @@ def auto_parallel_feature_extraction(
     max_try=3,
 ):
     """
-    Automatically submits, monitors, and reruns jobs for feature extraction on multiple subjects, 
+    Automatically submits, monitors, and reruns jobs for feature extraction on multiple subjects,
     and collects the results.
 
     Parameters
