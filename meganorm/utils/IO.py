@@ -9,7 +9,7 @@ import mne
 import numpy as np
 
 
-def make_config(path=None):
+def make_config(path=None, **kwargs):
     """
     Create a configuration dictionary for a neuroimaging preprocessing pipeline.
 
@@ -22,6 +22,10 @@ def make_config(path=None):
     path : str, optional
         The directory path where the configuration file should be saved. If not provided,
         the configuration is not saved to a file.
+
+    **kwargs: : keyword arguments
+        Configuration keys to override. For nested dicts, use double underscores (e.g.,
+        'feature_categories__Offset').
 
     Returns
     -------
@@ -155,6 +159,15 @@ def make_config(path=None):
     config["fooof_res_save_path"] = None
 
     config["random_state"] = 42
+
+    # Override default values when specified by user =========================
+    for key, value in kwargs.items():
+        if "__" in key:
+            outer_key, inner_key = key.split("__", 1)
+            if outer_key in config and isinstance(config[outer_key], dict):
+                config[outer_key][inner_key] = value
+        else:
+            config[key] = value
 
     if path is not None:
         out_file = open(os.path.join(path, "configuration.json"), "w")
