@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from pathlib import Path
 import subprocess
+import numpy as np
 import mne
 import os
 
@@ -17,23 +18,15 @@ def run_recon_freesurfer(
     env["SUBJECTS_DIR"] = subjects_dir
     env["FS_LICENSE"] = license_path
 
-    # Source FreeSurfer setup script
-    setup_command = f"source {freesurfer_home}/SetUpFreeSurfer.sh"
+    # Path to FreeSurfer setup script
+    setup_script = os.path.join(freesurfer_home, "SetUpFreeSurfer.sh")
 
-    # Construct recon-all command
-    recon_command = f"recon-all -i {mri_path} -s {subject_id} -all"
-
-    # Combine into a full bash command
-    full_command = f"""
-    bash -c '
-    {setup_command} &&
-    # {recon_command}
-    '
-    """
+    # Construct command
+    full_command = f"bash -c 'source {setup_script} && recon-all -i {mri_path} -s {subject_id} -all'"
 
     # Run the command
     process = subprocess.run(full_command, shell=True, env=env)
-    
+
     if process.returncode == 0:
         print("recon-all completed successfully.")
     else:
@@ -55,7 +48,89 @@ def set_freesurfer_paths(
     os.environ["FS_LICENSE"] = license_path
 
 
-    print("hi")
+
+def max_consecutive_ratio(nums):
+
+    max_ratio = 0
+    max_index = 0
+
+    for i in range(len(nums) - 1):
+        a, b = nums[i], nums[i + 1]
+        if a == 0 or b == 0:
+            continue  # Skip to avoid division by zero
+        ratio = abs(a / b)
+        if ratio > max_ratio:
+            max_ratio = ratio
+            max_index = i
+
+    return max_index, max_ratio
+
+
+def rank_based_quality_control(
+    data_cov,
+    info,
+    subject,
+    figures_path,
+    exclude=[],
+    qc_ignore=[],
+):
+    
+    os.makedirs(
+        os.path.join(
+            figures_path,
+            "QC_results"
+        ),
+        exist_ok=True
+    )
+
+    # This lines of codes were copied from MNE:
+    # https://mne.tools/stable/index.html
+    # ====================================================================
+    info, C, ch_names, idx_names = mne.viz.misc._index_info_cov(info, data_cov, exclude=exclude)
+
+    for k, (idx, name, unit, scaling, key) in enumerate(idx_names):
+        this_C = C[idx][:, idx]
+        s = np.linalg.svd(this_C, compute_uv=False)
+
+        this_C = mne.cov.Covariance(this_C, [info["ch_names"][ii] for ii in idx], [], [], 0)
+        this_info = mne._fiff.pick.pick_info(info, idx)
+        with this_info._unlock():
+            this_info["projs"] = []
+        this_rank = mne.rank.compute_rank(this_C, info=this_info)
+
+        this_rank = this_rank[key]
+
+        s[s <= 0] = 1e-10 * s[s > 0].min()
+        s = np.sqrt(s) * scaling
+        # ====================================================================
+
+        diffs = np.diff(s)
+        abs_diffs = abs(diffs)
+        
+        eigen_idx, _ = max_consecutive_ratio(abs_diffs)
+
+        if not this_rank > eigen_idx:
+
+            if subject in qc_ignore:
+                pass
+
+            else:
+
+                _, fig = data_cov.plot(info=info)
+                fig.savefig(
+                    os.path.join(
+                        figures_path,
+                        "QC_results",
+                        f"{subject}_QC_rank.png"
+                    )
+                )
+
+                raise Exception(f"There seems to be a problem with the covariance matrix for {name}. The estimated "\
+                                "rank is higher than the largest drop (cliff) in the singular value spectrum. "\
+                                "The spectrum for this subject will be saved—please review it. If you determine "\
+                                "there is no issue, you can add the subject ID to the qc_ignore argument.")
+
+    return 
 
 
 def corregistration(data, 
@@ -111,15 +186,19 @@ def corregistration(data,
     """
 
     # creates a standard head model subject sample (required for coregisteration)
-    try:
+    if not os.path.exists(
+        os.path.join(
+            subjects_dir,
+            subject,
+            "bem",
+            "inner_skull.surf"
+        )
+    ):
         mne.bem.make_watershed_bem(
             subject=subject,
             subjects_dir=subjects_dir,
-            overwrite=False
+            overwrite=True
         )
-    except RuntimeError as e:
-        if "watershed already exists" in str(e):
-            pass
     
     coreg = mne.coreg.Coregistration(data.info, 
                             subject=subject,
@@ -258,13 +337,16 @@ def forward_solution(
         verbose=True
     )
 
-    return lead_field_matrix, src
+    return lead_field_matrix, lead_field_matrix["src"]
 
 def inverse_solution(
+        subject,
         data,
         fwd,
         inverse_operator,
-        empty_room_recording_path=None,
+        figures_path,
+        empty_room_recording=None,
+        qc_ignore=[],
         **kwargs
 ):
     """
@@ -282,8 +364,8 @@ def inverse_solution(
         The forward solution (lead field matrix).
     inverse_operator : str
         The type of inverse method to use. Currently only supports "lcmv".
-    empty_room_recording_path : str or Path or None
-        Path to empty-room MEG recording used to estimate noise covariance.
+    empty_room_recording : mne.io.Raw
+        Empty-room MEG recording used to estimate noise covariance.
         If None, no noise covariance will be used.
 
     **kwargs : dict, optional
@@ -311,11 +393,10 @@ def inverse_solution(
     - Noise covariance can be estimated from an empty-room recording if provided.
     """
     
-    if empty_room_recording_path:
-        empty_room_rocord = mne.io.read_raw(empty_room_recording_path, preload=True)
+    if empty_room_recording:
         noise_cov = mne.compute_raw_covariance(
-            empty_room_rocord,
-            method=kwargs.get("covariance_method", "emperical")
+            empty_room_recording,
+            method=kwargs.get("covariance_method", "empirical")
         ) # TODO: change to epoch later
     else: 
         noise_cov=None
@@ -327,7 +408,20 @@ def inverse_solution(
             data,
             method=kwargs.get("covariance_method", "empirical")
         )
+        
+        if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
+            kwargs.get("beamformer_weight_norm", "unit-noise-gain") != "unit-noise-gain-invariant"):
+            raise Exception("If you wish to compute a vector beamformer, it is necessary to use" \
+            " unit-noise-gain-invariant for weight_norm argument.")
 
+        rank_based_quality_control(
+            data_cov=data_cov,
+            info=data.info,
+            subject=subject,
+            figures_path=figures_path,
+            exclude=[], #TODO
+            qc_ignore=qc_ignore)
+            
         filters = mne.beamformer.make_lcmv(
             data.info,
             forward=fwd,
@@ -336,6 +430,8 @@ def inverse_solution(
             reg=kwargs.get("inverse_regularization_value", 0.05), # for regularization (shifting the matrix)
             pick_ori=kwargs.get("beamformer_pick_ori", "max-power"),
             weight_norm=kwargs.get("beamformer_weight_norm", "unit-noise-gain"),
+            # TODO: if rank==None, it will compute the rank
+            # If rank==info, it will read from the info
             rank=None,
         )
 
@@ -351,9 +447,10 @@ def morph_stc(
         subject,
         subject_to,
         subjects_dir,
-        src,
         stc,
-        plot_gui=False,
+        src_from,
+        source_space,
+        plot_3d=False,
         **kwargs
 ):
     """
@@ -371,11 +468,15 @@ def morph_stc(
         Name of the subject to which the source estimate should be morphed.
     subjects_dir : str
         Path to the FreeSurfer subjects directory.
-    src : instance of mne.SourceSpaces
-        Source space of the original subject. (Note: currently unused in the function.)
-    stc : instance of mne.SourceEstimate
-        The source estimate object to morph.
-    plot_gui : bool, optional
+
+    stc
+
+
+    src_from : instance of mne.SourceSpaces or mne.SourceEstimate
+
+
+        # TODO
+    plot_3d : bool, optional
         Whether to display the morphed source estimate using MNE's interactive 3D plotter.
         Default is False.
     **kwargs : dict
@@ -402,32 +503,56 @@ def morph_stc(
     - The `src` argument is included for completeness but not directly used.
     - Only surface source estimates are supported.
     """
-    # src[0]['subject_his_id'] = ""
-    # src[1]['subject_his_id'] = "" TODO
-    morph = mne.compute_source_morph(stc, 
+
+    if source_space == "surface":
+        src_morph_to = mne.setup_source_space(
+            subject=subject_to,
+            subjects_dir=subjects_dir,
+            spacing=kwargs.get("source_space_spacing", "ico6"),
+            add_dist=kwargs.get("source_space_add_dist", "patch"),
+        )
+    elif source_space == "volumetric": # TODO
+
+        inner_skull_path = Path(subjects_dir) / subject_to / "bem" / "inner_skull.surf"
+        if not os.path.exists(inner_skull_path):
+            mne.bem.make_watershed_bem(
+                subject=subject_to,
+                subjects_dir=subjects_dir,
+                overwrite=True
+            )
+
+        src_morph_to = mne.setup_volume_source_space(
+                subject=subject_to,
+                subjects_dir=subjects_dir,
+                surface= inner_skull_path,
+                add_interpolator=True,
+        )
+
+    morph = mne.compute_source_morph(src_from, 
                                     subject_from=subject, 
                                     subject_to=subject_to, 
                                     subjects_dir=subjects_dir, 
                                     spacing=kwargs.get("spacing", 5),
-                                    # src_to=src # TODO
+                                    src_to=src_morph_to
                                     )
     
     stc_fsaverage = morph.apply(stc)
 
-    if plot_gui:
+    if plot_3d:
         brain = stc_fsaverage.plot(
             subjects_dir=subjects_dir,
             clim=dict(kind="value", lims=[3, 6, 9]),
             smoothing_steps=7,
         )
 
-    return stc_fsaverage, morph
+    return stc_fsaverage, src_morph_to
 
 
 def parcellate(
         subject,
         subjects_dir,
         stc_fsaverage,
+        src_morph,
         source_space,
         **kwargs
     ):
@@ -476,34 +601,28 @@ def parcellate(
     - The source space is reconstructed internally for label extraction and does not need to match the original STC.
     - The default parcellation ('aparc.a2009s') provides 148 cortical labels (74 per hemisphere).
     """
-    
-    labels = mne.read_labels_from_annot(
-        subject=subject,
-        subjects_dir=subjects_dir,
-        parc=kwargs.get("parcellation_parc", "aparc.a2009s")
-    )
+    if not os.path.exists(
+        os.path.join(
+            subjects_dir,
+            subject
+        )):
+        mne.datasets.fetch_fsaverage()
 
     if source_space == "surface":
-        src_morph = mne.setup_source_space(
+        labels = mne.read_labels_from_annot(
             subject=subject,
             subjects_dir=subjects_dir,
-            spacing=kwargs.get("source_space_spacing", "ico6"),
-            add_dist=kwargs.get("source_space_add_dist", "patch"),
+            parc=kwargs.get("parcellation_parc", "aparc.a2009s")
         )
     elif source_space == "volumetric":
-        # src = mne.setup_volume_source_space(
-        #         subject=subject,
-        #         subjects_dir=subjects_dir,
-        #         surface= Path(subjects_dir) / subject / "bem" / "inner_skull.surf",
-        #         add_interpolator=True,
-        # )
-        pass
+        parc = kwargs.get("parcellation_parc", "aparc.a2009s")
+        labels = Path(subjects_dir) / subject / "mri" / f"{parc}+aseg.mgz"
 
     parcelled_stc = mne.extract_label_time_course(
         stcs=stc_fsaverage,
         labels=labels,
         src=src_morph,
-        mode=kwargs.get("parcellation_mode", "mean_flip"),
+        mode=kwargs.get("parcellation_mode", "mean"),
         return_generator=False
     )
 
@@ -516,10 +635,14 @@ def source_localization(
         subject_to,
         data,
         freesurfer_path,
+        figures_path,
         freesurfer_license_path,
         source_space="surface",
         conductivity=(0.3,),
         inverse_operator="lcmv",
+        plot_3d=False,
+        qc_ignore=[],
+        empty_room_recording=None,
         **kwargs
 ):
     """
@@ -550,17 +673,9 @@ def source_localization(
         Conductivity values for the BEM model (e.g., one value for 1-layer, three for 3-layer).
     inverse_operator : str, default='lcmv'
         Method to compute the inverse solution. Options: 'lcmv', 'dspm', 'mne', etc.
-    **kwargs : dict
-        Additional keyword arguments passed to internal functions, such as:
-        
-        - parcellation_parc : str
-            Parcellation scheme used in `parcellate()` (e.g., 'aparc', 'aparc.a2009s').
-        - source_space_spacing : str | int
-            Spacing resolution for the source space setup (e.g., 'ico5', 'oct6').
-        - parcellation_mode : str
-            Method to summarize activity within each label (e.g., 'mean', 'mean_flip').
-        - plot_gui : bool
-            Whether to visualize the morphed source estimate.
+    empty_room_recording: TODO
+    
+    plot_3d:TODO
 
     Returns
     -------
@@ -585,7 +700,7 @@ def source_localization(
         data=data, 
         subject=subject,
         subjects_dir=subjects_dir, 
-        plot_3d=False
+        plot_3d=plot_3d
     )
 
     fwd, src = forward_solution(
@@ -598,25 +713,33 @@ def source_localization(
     )
 
     stc = inverse_solution(
+        subject=subject,
         data=data,
         fwd=fwd,
-        inverse_operator=inverse_operator
+        inverse_operator=inverse_operator,
+        empty_room_recording=empty_room_recording,
+        figures_path=figures_path,
+        qc_ignore=qc_ignore
     )
 
-    stc_fsaveage, _ = morph_stc(
+    stc_fsaveage, src_morph = morph_stc(
         subject=subject,
         subject_to=subject_to,
         subjects_dir=subjects_dir,
-        src=src,
         stc=stc,
-        plot_gui=False,
+        src_from=src,
+        source_space=source_space,
+        plot_3d=plot_3d,
         )
     
     stc = parcellate(
             subject=subject_to,
             subjects_dir=subjects_dir,
             stc_fsaverage=stc_fsaveage,
+            src_morph=src_morph,
             source_space=source_space
     )
+
+    print("Done; congrats!")
 
     return stc
