@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import subprocess
 import numpy as np
+import logging
 import mne
 import os
 
@@ -109,6 +110,8 @@ def rank_based_quality_control(
         
         eigen_idx, _ = max_consecutive_ratio(abs_diffs)
 
+        logger.info(f"The estimated rank of data_cov: {this_rank}")
+        logger.info(f"The largest drop (cliff) in the singular value spectrum: {eigen_idx}")
         if not this_rank > eigen_idx:
 
             if subject in qc_ignore:
@@ -125,10 +128,12 @@ def rank_based_quality_control(
                     )
                 )
 
-                raise Exception(f"There seems to be a problem with the covariance matrix for {name}. The estimated "\
+                error_msg = f"There seems to be a problem with the covariance matrix for {name}. The estimated "\
                                 "rank is higher than the largest drop (cliff) in the singular value spectrum. "\
                                 "The spectrum for this subject will be saved—please review it. If you determine "\
-                                "there is no issue, you can add the subject ID to the qc_ignore argument.")
+                                "there is no issue, you can add the subject ID to the qc_ignore argument."
+                logger.error(error_msg)
+                raise Exception(error_msg)
 
     return 
 
@@ -194,10 +199,11 @@ def corregistration(data,
             "inner_skull.surf"
         )
     ):
+        logger.info("Creating a bem surface for the subject")
         mne.bem.make_watershed_bem(
             subject=subject,
             subjects_dir=subjects_dir,
-            overwrite=True
+            overwrite=True,
         )
     
     coreg = mne.coreg.Coregistration(data.info, 
@@ -206,7 +212,7 @@ def corregistration(data,
                             fiducials=kwargs.get("corregistration_fiducials", "estimated"))
     
     # initial fit with fudicials
-    coreg.fit_fiducials(verbose=False)
+    coreg.fit_fiducials()
 
     # fit with icp
     coreg.fit_icp(n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
@@ -233,6 +239,8 @@ def corregistration(data,
             coord_frame="meg",
         )
         fig = mne.viz.plot_alignment(data.info, trans=coreg.trans, **plot_kwargs)
+
+    logger.info("Automatic coregisteration is done!")
 
     return coreg
 
@@ -324,6 +332,7 @@ def forward_solution(
     )
 
     bem = mne.make_bem_solution(model)
+    logger.info(f"{source_space} BEM model with {len(conductivity)} layer/s was constructed.")
 
     lead_field_matrix = mne.make_forward_solution(
         data.info,
@@ -334,8 +343,10 @@ def forward_solution(
         eeg=kwargs.get("eeg", False),
         mindist=kwargs.get("forward_mindist", 5.0),
         n_jobs=kwargs.get("n_jobs", -1),
-        verbose=True
+        verbose=True,
+        ignore_ref=kwargs.get("source_localization_ignore_ref", True)
     )
+    logger.info("Lead field matrix was estimated.")
 
     return lead_field_matrix, lead_field_matrix["src"]
 
@@ -398,11 +409,19 @@ def inverse_solution(
             empty_room_recording,
             method=kwargs.get("covariance_method", "empirical")
         ) # TODO: change to epoch later
+        logger.info("Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten" \
+                    "the data")
+
     else: 
+        logger.warning("Noise covariance is not calculated due to missing empty room recordings. Noise covariance can be" \
+        "benefitial for prewhitenning activities across sensors with different scale and noise." \
+        "Consider using noise covariance for a better results.")
         noise_cov=None
 
     if inverse_operator == "lcmv":
-
+        logger.info(f"Solving the inverse problem using {inverse_operator} algorithm. "\
+                    f"A regularization of {kwargs.get('inverse_regularization_value', 0.05)} will be used " \
+                    f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', "max-power")} for `pick_ori`.")
         # compute data covaraince
         data_cov = mne.compute_raw_covariance(
             data,
@@ -411,8 +430,10 @@ def inverse_solution(
         
         if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
             kwargs.get("beamformer_weight_norm", "unit-noise-gain") != "unit-noise-gain-invariant"):
-            raise Exception("If you wish to compute a vector beamformer, it is necessary to use" \
-            " unit-noise-gain-invariant for weight_norm argument.")
+            error_msg = "If you wish to compute a vector beamformer, it is necessary to use" \
+                        " unit-noise-gain-invariant for weight_norm argument."
+            logger.error(error_msg)
+            raise Exception(error_msg)
 
         rank_based_quality_control(
             data_cov=data_cov,
@@ -440,6 +461,7 @@ def inverse_solution(
         filters=filters
     )
 
+    logger.info("Source estimate is done!")
     return stc
 
 
@@ -503,6 +525,7 @@ def morph_stc(
     - The `src` argument is included for completeness but not directly used.
     - Only surface source estimates are supported.
     """
+    logger.info("Morphing the estimated source data onto a common space")
 
     if source_space == "surface":
         src_morph_to = mne.setup_source_space(
@@ -545,6 +568,7 @@ def morph_stc(
             smoothing_steps=7,
         )
 
+    logger.info("Morphing is finised!")
     return stc_fsaverage, src_morph_to
 
 
@@ -601,6 +625,8 @@ def parcellate(
     - The source space is reconstructed internally for label extraction and does not need to match the original STC.
     - The default parcellation ('aparc.a2009s') provides 148 cortical labels (74 per hemisphere).
     """
+    logger.info(f"Parcellating morphed source estimates using {kwargs.get('parcellation_parc', 'aparc.a2009s')} atlas.")
+
     if not os.path.exists(
         os.path.join(
             subjects_dir,
@@ -626,6 +652,7 @@ def parcellate(
         return_generator=False
     )
 
+    logger.info("Parcellation is finised!")
     return parcelled_stc
 
 
@@ -740,6 +767,6 @@ def source_localization(
             source_space=source_space
     )
 
-    print("Done; congrats!")
+    logger.info("Done; congrats!")
 
     return stc
