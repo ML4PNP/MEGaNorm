@@ -35,22 +35,38 @@ def run_recon_freesurfer(
 
 
 
-def set_freesurfer_paths(
-        freesurfer_home: str,
-        subjects_dir: str,
-        license_path: str,
-        ):
-    
-    
-
-    os.environ["FREESURFER_HOME"] = freesurfer_home
-    os.environ["PATH"] = os.environ["FREESURFER_HOME"] + "/bin:" + os.environ["PATH"]
-    os.environ["SUBJECTS_DIR"] = subjects_dir
-    os.environ["FS_LICENSE"] = license_path
-
-
-
 def max_consecutive_ratio(nums):
+    """
+    Find the maximum absolute ratio between consecutive non-zero elements in a list.
+
+    Parameters
+    ----------
+    nums : list or array-like of float or int
+        A sequence of numerical values. Elements may include zeros,
+        which are skipped to avoid division by zero.
+
+    Returns
+    -------
+    max_index : int
+        The index of the first element in the pair with the maximum
+        absolute ratio (i.e., the ratio is computed as `abs(nums[i] / nums[i+1])`).
+    max_ratio : float
+        The maximum absolute ratio found between consecutive non-zero elements.
+
+    Notes
+    -----
+    - If either element in a consecutive pair is zero, that pair is skipped.
+    - The function compares `abs(a / b)` for each valid consecutive pair `(a, b)`.
+    - If all elements are zero or no valid pair is found, the function returns the default `(0, 0)`.
+
+    Examples
+    --------
+    >>> max_consecutive_ratio([2, 4, 1, 8])
+    (2, 8.0)
+
+    >>> max_consecutive_ratio([0, 5, 0, 10])
+    (1, 0.5)
+    """
 
     max_ratio = 0
     max_index = 0
@@ -75,6 +91,57 @@ def rank_based_quality_control(
     exclude=[],
     qc_ignore=[],
 ):
+    """
+    Perform rank-based quality control on a covariance matrix using singular value spectrum analysis.
+
+    This function estimates the rank of the covariance matrix and compares it to the largest
+    "cliff" (drop) in the singular value spectrum. If the estimated rank exceeds the index of the
+    largest drop, it raises an exception and saves a diagnostic figure unless the subject is
+    explicitly listed in `qc_ignore`.
+
+    Parameters
+    ----------
+    data_cov : instance of mne.Covariance
+        The data covariance matrix to be quality-checked.
+    
+    info : instance of mne.Info
+        The measurement info dictionary containing metadata about the channels.
+    
+    subject : str
+        Identifier of the subject, used for logging and saving figures.
+    
+    figures_path : str
+        Path to the directory where quality control figures should be saved.
+    
+    exclude : list of str, optional
+        List of channel names to exclude from the analysis (e.g., bad channels).
+    
+    qc_ignore : list of str, optional
+        List of subject identifiers to ignore QC errors for (i.e., suppress exception and allow
+        continuing despite failing the QC check).
+
+    Raises
+    ------
+    Exception
+        If the estimated rank exceeds the index of the largest drop in the singular value spectrum
+        and the subject is not in `qc_ignore`.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    - Singular values are regularized by replacing non-positive values to avoid numerical instability.
+    - The largest consecutive drop in the spectrum is used as a heuristic for determining the intrinsic dimensionality.
+    - Based on implementation and utilities from the MNE-Python package.
+
+    Examples
+    --------
+    >>> rank_based_quality_control(data_cov, info, 'sub-01', '/path/to/figures')
+
+    If a QC issue is found and `subject` is not in `qc_ignore`, a diagnostic plot will be saved and an exception raised.
+    """
     
     os.makedirs(
         os.path.join(
