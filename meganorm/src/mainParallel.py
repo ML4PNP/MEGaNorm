@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import mne
+import logging
 import pandas as pd
 import glob
 from meganorm.utils.IO import make_config, storeFooofModels
@@ -16,7 +17,44 @@ from meganorm.src.preprocess import (
 from meganorm.src.featureExtraction import feature_extract
 
 
-def main(*args):
+def main_argparser(args=None):
+    parser = argparse.ArgumentParser()
+    
+    # Positional Arguments
+    parser.add_argument("dir", type=str, help="Address to your data")
+    parser.add_argument("save_dir", type=str, help="Where to save extracted features")
+    parser.add_argument("subject", type=str, help="Participant ID")
+    
+    # Optional Arguments
+    parser.add_argument("--freesufer_path", type=str, default=None)
+    parser.add_argument("--fsaverage_path", type=str, default=None)
+    parser.add_argument("--empty_room_record_path", type=str, default=None)
+    parser.add_argument("--configs", type=str, default=None)
+
+    return parser.parse_args(args)
+
+
+def set_logger(args, pakcages_to_silent):
+
+    save_dir = os.path.join(args.save_dir, "log")
+    os.makedirs(save_dir, exist_ok=True)
+
+    # set the logger
+    logging.basicConfig(
+        level=logging.INFO,
+        filename=os.path.join(save_dir, f"subject_{args.subject}_report.log"),
+        filemode="w",
+        format='%(name)s - %(levelname)s - %(funcName)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+
+    for package in pakcages_to_silent:
+        logging.getLogger(package).setLevel(logging.WARNING)
+
+    return logger
+
+
+def main(args):
     """
     Main function for running a complete spectral feature extraction pipeline
     using serialized or parallelized workflows.
@@ -67,26 +105,13 @@ def main(*args):
     RuntimeError
         If data loading fails due to unsupported or corrupted formats.
     """
-    parser = argparse.ArgumentParser()
-    # positional Arguments
-    parser.add_argument("dir", type=str, help="Address to your data")
-    parser.add_argument("saveDir", type=str, help="where to save extracted features")
-    parser.add_argument("subject", type=str, help="participant ID")
-    # optional Arguments
-    parser.add_argument(
-        "--configs", type=str, default=None, help="Address of configs json file"
-    )
+    # parse the arguments
+    args = main_argparser(args)
 
-    # TODO: a more principled approach must be used to handle this issue
-    # Error handling was used since seria computing requires parse_args(args)
-    # while parallel computing does not require args to be passed
-    try:
-        args = parser.parse_args(args)
-    except:
-        args = parser.parse_args()
-
+    logger = set_logger(args, ["mne", "numexpr"])
 
     # Loading configs
+    # *******************************************************
     if args.configs is not None:
         with open(args.configs, "r") as f:
             configs = json.load(f)
@@ -95,7 +120,6 @@ def main(*args):
 
     # subject ID
     subID = args.subject
-
     paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
     path = paths[0]
@@ -105,33 +129,53 @@ def main(*args):
     if "4D" in path[0]:
         extention = "BTI"  # TODO: you need to change this
 
-    # read the data ====================================================================
+    logger.info(f"Starting the process for the subject {subID}:")
+    # read the data
+    # *******************************************************
     try:
-        data = mne.io.read_raw(path, verbose=False, preload=True)
+        data = mne.io.read_raw(path, preload=True)
+        if args.empty_room_record_path:
+            empty_room_recording = mne.io.read_raw(args.empty_room_record_path, preload=True)
+
     except:
         data = mne.io.read_raw_bti(
             pdf_fname=os.path.join(path, "c,rfDC"),
             config_fname=os.path.join(path, "config"),
             head_shape_fname=None,
-            preload=True,
+            preload=True
         )
-
+        
+        if args.empty_room_record_path:
+            empty_room_recording = mne.io.read_raw_bti(
+                pdf_fname=os.path.join(args.empty_room_record_path, "c,rfDC"),
+                config_fname=os.path.join(args.empty_room_record_path, "config"),
+                head_shape_fname=None,
+                preload=True
+            )
+            
+    # extract power line freq
+    # *******************************************************
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
         power_line_freq = 60
 
-    # set eeg info (channel types and electrode montage) when it is not there yet===============
+    # set eeg info (channel types and electrode montage) when it is not there yet
+    # *******************************************************
     if configs["which_sensor"] == "eeg":
         data = prepare_eeg_data(data, path)
 
-    # drop noisy channels for MEG==============================================================
+    # drop noisy channels for MEG
+    # *******************************************************
     if configs["which_sensor"] in ["meg", "grad", "mag"]:
-        data = drop_noisy_meg_channels(data, subID, args, configs)
+        data, droped_ch_len = drop_noisy_meg_channels(data, subID, args, configs)
+    logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
+
 
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor[configs.get("which_sensor")] = True
 
-    # preproces ========================================================================
+    # preproces
+    # *******************************************************
     filtered_data, channel_names, sampling_rate = preprocess(
         data=data,
         n_component=configs["ica_n_component"],
@@ -148,7 +192,8 @@ def main(*args):
         power_line_freq=power_line_freq,
     )
 
-    # segmentation =====================================================================
+    # segmentation 
+    # *******************************************************
     segments = segment_epoch(
         data=filtered_data,
         sampling_rate=sampling_rate,
@@ -158,7 +203,8 @@ def main(*args):
         overlap=configs["segments_overlap"],
     )
 
-    # fooof analysis ====================================================================
+    # fooof analysis 
+    # *******************************************************
     fmGroup, psds, freqs = psdParameterize(
         segments=segments,
         sampling_rate=sampling_rate,
@@ -179,7 +225,8 @@ def main(*args):
     if configs["fooof_res_save_path"]:
         storeFooofModels(configs["fooof_res_save_path"], subID, fmGroup, psds, freqs)
 
-    # # feature extraction ==================================================================
+    # feature extraction 
+    # *******************************************************
     features = feature_extract(
         subject_id=subID,
         fmGroup=fmGroup,
