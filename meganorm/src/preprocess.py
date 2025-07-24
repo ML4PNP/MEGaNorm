@@ -585,10 +585,5 @@ def drop_noisy_meg_channels(
 
     # Always proceed to log and drop marked bads
     droped_ch_len = len(data.info["bads"])
-    log_path = args.saveDir.replace("temp", "log_droped_channels")
 
-    os.makedirs(log_path, exist_ok=True)
-    with open(os.path.join(log_path, f"{subID}.json"), "w") as file:
-        json.dump(droped_ch_len, file)
-
-    return data.copy().drop_channels(data.info["bads"])
+    return data.copy().drop_channels(data.info["bads"]), droped_ch_len
