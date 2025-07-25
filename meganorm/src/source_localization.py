@@ -6,6 +6,7 @@ import logging
 import mne
 import os
 
+logger = logging.getLogger(__name__)
 
 def run_recon_freesurfer(
         freesurfer_home: str,
@@ -33,6 +34,18 @@ def run_recon_freesurfer(
     else:
         print(f"recon-all failed with exit code {process.returncode}.")
 
+def set_freesurfer_paths(
+        freesurfer_home: str,
+        subjects_dir: str,
+        license_path: str,
+        ):
+    
+    
+
+    os.environ["FREESURFER_HOME"] = freesurfer_home
+    os.environ["PATH"] = os.environ["FREESURFER_HOME"] + "/bin:" + os.environ["PATH"]
+    os.environ["SUBJECTS_DIR"] = subjects_dir
+    os.environ["FS_LICENSE"] = license_path
 
 
 def max_consecutive_ratio(nums):
@@ -709,7 +722,13 @@ def parcellate(
         )
     elif source_space == "volumetric":
         parc = kwargs.get("parcellation_parc", "aparc.a2009s")
-        labels = Path(subjects_dir) / subject / "mri" / f"{parc}+aseg.mgz"
+        aseg_path = os.path.join(subjects_dir, subject, "mri", f"{parc}+aseg.mgz")
+        labels = mne.get_volume_labels_from_src(src=src_morph, aseg=aseg_path)
+
+    else:
+        error_msg = "Source space model is not detected. Source splace must be either 'surface' or 'volumetric'."
+        logger.ERROR(error_msg)
+        raise ExceptionValueError(error_msg)
 
     parcelled_stc = mne.extract_label_time_course(
         stcs=stc_fsaverage,
@@ -720,7 +739,8 @@ def parcellate(
     )
 
     logger.info("Parcellation is finised!")
-    return parcelled_stc
+
+    return parcelled_stc, labels
 
 
 def source_localization(
@@ -837,3 +857,11 @@ def source_localization(
     logger.info("Done; congrats!")
 
     return stc
+
+def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
+
+    ch_names = [label.name for label in labels]
+    ch_types = [ch_name] * len(labels)
+    info = mne.create_info(ch_names=ch_names, sfreq=sampling_rate, ch_types=ch_types)
+    raw_parc = mne.io.RawArray(stc, info)
+    return raw_parc
