@@ -91,6 +91,16 @@ def make_config(path=None):
     # amount of overlap between MEG sigals in seconds
     config['segments_overlap'] = 2
 
+    # Source localization ==============================================
+    # If you need to apply source localization
+    config["apply_source_localization"] = True
+    # The type of source space for source localization (SL); choices(surface & volumetric)
+    config["SL_source_space"] = "volumetric"
+    # conductivity of different tissues. The number of values indicates the number of values
+    config["SL_conductivity"] = (0.3,)
+    # The inverse operator algorithm, so far only LCMV is supported
+    config["SL_inverse_operator"] = "lcmv"
+
     # PSD ==============================================
     # Spectral estimation method
     config['psd_method'] = "welch"
