@@ -6,6 +6,7 @@ import mne
 import logging
 import pandas as pd
 import glob
+from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
 from meganorm.utils.IO import make_config, storeFooofModels
 from meganorm.src.psdParameterize import psdParameterize
 from meganorm.src.preprocess import (
@@ -26,9 +27,20 @@ def main_argparser(args=None):
     parser.add_argument("subject", type=str, help="Participant ID")
     
     # Optional Arguments
-    parser.add_argument("--freesufer_path", type=str, default=None)
-    parser.add_argument("--fsaverage_path", type=str, default=None)
-    parser.add_argument("--empty_room_record_path", type=str, default=None)
+    parser.add_argument("--freesufer_path", type=str, default=None,
+                        help="If you need to apply source localization, you need to set" \
+                        "this to the freesurfer directory, otherwise leave this empty")
+    parser.add_argument("--freesufer_license_path", type=str, default=None,
+                        help="If you need to apply source localization, please set this to" \
+                        "your freesurfer license.")
+    parser.add_argument("--surfaces_dir", type=str, default=None,
+                        help="If you need to apply source localization, set this to the"\
+                        "directory in which freesurfer results are saved")
+    parser.add_argument("--empty_room_record_path", type=str, default=None,
+                        help="This the path to subjetc's empty room recording. Although not" \
+                        " it can be helpful for pre-whitennin the data. Note that empty room" \
+                        " room recordings are necessary for applying source localization" \
+                        " to recordings with both magnetometer and gradiometer.")
     parser.add_argument("--configs", type=str, default=None)
 
     return parser.parse_args(args)
@@ -67,7 +79,7 @@ def main(args):
     ----------------------------------------
     dir : str
         Path to the raw MEG/EEG data file or directory.
-    saveDir : str
+    save_dir : str
         Directory where the extracted features will be saved.
     subject : str
         Subject or participant identifier used for file naming and tracking.
@@ -136,6 +148,8 @@ def main(args):
         data = mne.io.read_raw(path, preload=True)
         if args.empty_room_record_path:
             empty_room_recording = mne.io.read_raw(args.empty_room_record_path, preload=True)
+        else:
+            empty_room_recording = None
 
     except:
         data = mne.io.read_raw_bti(
@@ -152,7 +166,9 @@ def main(args):
                 head_shape_fname=None,
                 preload=True
             )
-            
+        else:
+            empty_room_recording = None
+
     # extract power line freq
     # *******************************************************
     power_line_freq = data.info.get("line_freq")
@@ -167,8 +183,12 @@ def main(args):
     # drop noisy channels for MEG
     # *******************************************************
     if configs["which_sensor"] in ["meg", "grad", "mag"]:
-        data, droped_ch_len = drop_noisy_meg_channels(data, subID, args, configs)
-    logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
+        data, empty_room_recording = drop_noisy_meg_channels(data=data, 
+                                            subID=subID, 
+                                            args=args, 
+                                            configs=configs, 
+                                            empty_room_recording=empty_room_recording)
+    
 
 
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
@@ -176,7 +196,7 @@ def main(args):
 
     # preproces
     # *******************************************************
-    filtered_data, channel_names, sampling_rate = preprocess(
+    filtered_data, channel_names, sampling_rate, empty_room_recording = preprocess(
         data=data,
         n_component=configs["ica_n_component"],
         ica_max_iter=configs["ica_max_iter"],
@@ -190,6 +210,7 @@ def main(args):
         apply_ica=configs["apply_ica"],
         auto_ica_corr_thr=configs["auto_ica_corr_thr"],
         power_line_freq=power_line_freq,
+        empty_room_recording=empty_room_recording
     )
 
     # segmentation 
@@ -202,6 +223,29 @@ def main(args):
         segmentsLength=configs["segments_length"],
         overlap=configs["segments_overlap"],
     )
+
+    # Source localization 
+    # *******************************************************
+    kwargs = {"source_space_spacing":"ico6",
+              "spacing":5}
+
+    if configs["apply_source_localization"]:
+        stc, labels = source_localization(
+                subject=subID,
+                recon_anatomical_model_dir=args.surfaces_dir, 
+                subject_to="fsaverage",
+                data=data,
+                freesurfer_path=args.freesufer_path,
+                freesurfer_license_path=args.freesufer_license_path, 
+                empty_room_recording=empty_room_recording,
+                source_space=configs["SL_source_space"],
+                conductivity=configs["SL_conductivity"],
+                inverse_operator=configs["SL_inverse_operator"],
+                figures_path=os.path.join(args.save_dir, "figures"),
+                plot_3d=False,
+                **kwargs
+            )
+        segments = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
 
     # fooof analysis 
     # *******************************************************
@@ -243,8 +287,9 @@ def main(args):
         min_r_squared=configs["min_r_squared"],
     )
 
-    features.to_csv(os.path.join(args.saveDir, f"{subID}.csv"))
+    features.to_csv(os.path.join(args.save_dir, f"{subID}.csv"))
 
+    logger.INFO(f"The process for the subject {subID} is complete.")
 
 if __name__ == "__main__":
 
