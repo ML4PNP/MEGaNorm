@@ -4,6 +4,7 @@ from mne_icalabel import label_components
 import json
 import numpy as np
 import glob
+import logging
 from typing import Any, Dict
 import pandas as pd
 
@@ -532,7 +533,7 @@ def preprocess(
 
 
 def drop_noisy_meg_channels(
-    data: Any, subID: str, args: Any, configs: Dict[str, str]
+    data: Any, subID: str, args: Any, configs: Dict[str, str], empty_room_recording=None
 ) -> Any:
     """
     Identifies and removes noisy or flat MEG/EEG channels using Maxwell filtering,
@@ -568,6 +569,8 @@ def drop_noisy_meg_channels(
     a directory derived from `args.saveDir`, replacing 'temp' with
     'log_droped_channels'.
     """
+    logger = logging.getLogger(__name__)
+
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor[configs.get("which_sensor")] = True
 
@@ -583,7 +586,13 @@ def drop_noisy_meg_channels(
         else:
             raise
 
+    if empty_room_recording:
+        empty_room_recording.info["bads"] = data.info["bads"].copy()
+        dropped_empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
+
     # Always proceed to log and drop marked bads
     droped_ch_len = len(data.info["bads"])
+    logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
 
-    return data.copy().drop_channels(data.info["bads"]), droped_ch_len
+    dropped_data = data.copy().drop_channels(data.info["bads"])
+    return dropped_data, dropped_empty_room_recording
