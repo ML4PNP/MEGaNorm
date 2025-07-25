@@ -355,6 +355,7 @@ def segment_epoch(
 def preprocess(
     data,
     which_sensor: dict,
+    empty_room_recording=None,
     resampling_rate: int = 1000,
     digital_filter=True,
     rereference_method="average",
@@ -377,6 +378,8 @@ def preprocess(
         Raw MEG/EEG data.
     which_sensor : dict
         Dictionary specifying which sensor types to include (e.g., {'meg': True, 'eeg': True}).
+    empty_room_recording : mne.io.Raw, optional
+        Empty room recording.
     resampling_rate : int, optional
         Target sampling rate for resampling. If None, resampling is skipped; by default 1000.
     digital_filter : bool, optional
@@ -422,27 +425,32 @@ def preprocess(
     # since pick_channels can not seperate mag and grad signals
     if not (which_sensor["meg"] or which_sensor["eeg"]):
         if not which_sensor["mag"]:
-            mag_channels = [
+            dropping_channels = [
                 ch
                 for ch, ch_type in zip(data.ch_names, data.get_channel_types())
                 if ch_type == "mag"
             ]
         elif not which_sensor["grad"]:
-            mag_channels = [
+            dropping_channels = [
                 ch
                 for ch, ch_type in zip(data.ch_names, data.get_channel_types())
                 if ch_type == "grad"
             ]
-        data.drop_channels(mag_channels)
+        data.drop_channels(dropping_channels)
+        if empty_room_recording:
+            empty_room_recording.drop_channels(dropping_channels)
 
     channel_types = set(data.get_channel_types())
 
     sampling_rate = data.info["sfreq"]
-
     # resample & band pass filter
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
         sampling_rate = data.info["sfreq"]
+        # resampling empty room recording
+        if empty_room_recording:
+            empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
+
 
     data.notch_filter(
         freqs=np.arange(
@@ -450,6 +458,13 @@ def preprocess(
         ),
         n_jobs=-1,
     )
+    if empty_room_recording:
+        empty_room_recording.notch_filter(
+            freqs=np.arange(
+                int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
+            ),
+            n_jobs=-1,
+        )
 
     if digital_filter:
         data.filter(
@@ -458,10 +473,19 @@ def preprocess(
             n_jobs=-1,
             verbose=False,
         )
+        if empty_room_recording:
+            empty_room_recording.filter(
+                l_freq=int(cutoffFreqLow),
+                h_freq=int(cutoffFreqHigh),
+                n_jobs=-1,
+                verbose=False,
+            )            
 
     # rereference
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
+        if empty_room_recording:
+            empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
 
     ICA_flag = True  # initialize flag
 
@@ -529,7 +553,16 @@ def preprocess(
         ecg=False,
     )
 
-    return data, data.info["ch_names"], int(sampling_rate)
+    if empty_room_recording:
+        empty_room_recording = empty_room_recording.pick_types(
+            meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
+            eeg=which_sensor["eeg"],
+            ref_meg=False,
+            eog=False,
+            ecg=False,
+        )
+
+    return data, data.info["ch_names"], int(sampling_rate), empty_room_recording
 
 
 def drop_noisy_meg_channels(
@@ -553,6 +586,9 @@ def drop_noisy_meg_channels(
     configs : dict
         Configuration dictionary containing:
             - 'which_sensor': one of {"meg", "mag", "grad", "eeg", "opm"}
+
+    empty_room_recording: instance of `mne.io.Raw`
+        Empty room recording.
 
     Returns
     -------
@@ -588,11 +624,17 @@ def drop_noisy_meg_channels(
 
     if empty_room_recording:
         empty_room_recording.info["bads"] = data.info["bads"].copy()
-        dropped_empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
+        empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
 
     # Always proceed to log and drop marked bads
     droped_ch_len = len(data.info["bads"])
     logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
 
     dropped_data = data.copy().drop_channels(data.info["bads"])
-    return dropped_data, dropped_empty_room_recording
+    return dropped_data, empty_room_recording
+
+
+
+def make_mne_raw_obj(src_names, sfreq):
+
+    pass
