@@ -728,7 +728,7 @@ def parcellate(
     else:
         error_msg = "Source space model is not detected. Source splace must be either 'surface' or 'volumetric'."
         logger.ERROR(error_msg)
-        raise ExceptionValueError(error_msg)
+        raise ValueError(error_msg)
 
     parcelled_stc = mne.extract_label_time_course(
         stcs=stc_fsaverage,
@@ -859,7 +859,41 @@ def source_localization(
     return stc
 
 def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
+    """
+    Convert a parcellated source estimate into an MNE Raw object.
 
+    This function wraps a 2D NumPy array representing parcellated source time series
+    into an `mne.io.RawArray` using anatomical labels and sampling frequency information.
+
+    Parameters
+    ----------
+    stc : ndarray, shape (n_labels, n_times)
+        The source time courses for each label (typically from `extract_label_time_course`).
+        Each row corresponds to one anatomical region, and each column to a time point.
+    labels : list of mne.Label or mne.VolumeLabel
+        The list of anatomical labels used to extract the time courses. Must match the number of rows in `stc`.
+    ch_name : str
+        The MNE channel type to assign to all channels (e.g., 'misc', 'eeg', 'ecog').
+        Must be one of the types supported by `mne.create_info`.
+    sampling_rate : float
+        The sampling frequency (in Hz) of the source time series.
+
+    Returns
+    -------
+    raw_parc : mne.io.RawArray
+        The MNE Raw object containing the parcellated source estimate as virtual channels.
+
+    Notes
+    -----
+    - This is commonly used to wrap parcellated source activity into a Raw object
+      so it can be saved, plotted, or processed using MNE’s standard pipeline.
+    - Ensure that `ch_name` is a valid MNE channel type, such as `'misc'` or `'eeg'`.
+
+    Examples
+    --------
+    >>> raw = numpy_to_mne_raw(parcelled_stc, labels, ch_name='misc', sampling_rate=1000)
+    >>> raw.plot()
+    """
     ch_names = [label.name for label in labels]
     ch_types = [ch_name] * len(labels)
     info = mne.create_info(ch_names=ch_names, sfreq=sampling_rate, ch_types=ch_types)
