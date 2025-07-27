@@ -854,11 +854,11 @@ def source_localization(
             source_space=source_space
     )
 
-    logger.info("Done; congrats!")
+    logger.info("Done; congrats! ")
 
     return stc
 
-def git config -l(stc, labels, ch_name, sampling_rate):
+def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     """
     Convert a parcellated source estimate into an MNE Raw object.
 
