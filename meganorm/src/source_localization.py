@@ -854,7 +854,7 @@ def source_localization(
             source_space=source_space
     )
 
-    logger.info("Done; congrats! ")
+    logger.info("Done; congrats!")
 
     return stc
 
