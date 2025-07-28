@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import numpy as np
 import logging
+import shutil
 import mne
 import os
 
@@ -46,6 +47,69 @@ def set_freesurfer_paths(
     os.environ["PATH"] = os.environ["FREESURFER_HOME"] + "/bin:" + os.environ["PATH"]
     os.environ["SUBJECTS_DIR"] = subjects_dir
     os.environ["FS_LICENSE"] = license_path
+
+def find_freesurfer():
+    """
+    Locate the FreeSurfer installation and configure environment variables.
+
+    This function attempts to automatically detect the installation path of 
+    FreeSurfer by first locating the `recon-all` executable in the system PATH.
+    If that fails, it checks a set of common installation directories.
+
+    If found, it verifies that a valid license file (`license.txt`) exists
+    in the expected directory and sets the necessary environment variables:
+    `FREESURFER_HOME` and `FREESURFER_LICENSE`.
+
+    Raises
+    ------
+    RuntimeError
+        If FreeSurfer cannot be found or the license file is missing. The error
+        message will include guidance for installing FreeSurfer or manually
+        setting the environment variables.
+
+    Returns
+    -------
+    freesurfer_home : str
+        The absolute path to the FreeSurfer installation directory.
+
+    Examples
+    --------
+    >>> fs_home = find_freesurfer()
+    >>> print(f"FreeSurfer found at: {fs_home}")
+    """
+    ...
+    # Try to locate recon-all
+    recon_path = shutil.which("recon-all")
+    if recon_path:
+        freesurfer_home = os.path.abspath(os.path.join(os.path.dirname(recon_path), ".."))
+    else:
+        # Try common install paths
+        possible_paths = [
+            "/opt/freesurfer",
+            os.path.expanduser("~/software/freesurfer"),
+            os.path.expanduser("~/freesurfer"),
+        ]
+        freesurfer_home = next((p for p in possible_paths if os.path.exists(os.path.join(p, "SetUpFreeSurfer.sh"))), None)
+    
+
+    if not freesurfer_home:
+        error_msg = "FreeSurfer not found. Please install it (https://surfer.nmr.mgh.harvard.edu/fswiki/DownloadAndInstall)" \
+        " or set FREESURFER_HOME manually if it has already been installed."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Check license file
+    license_path = os.path.join(freesurfer_home, "license.txt")
+    if not os.path.exists(license_path):
+        error_msg = f"FreeSurfer license not found at {license_path}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Set environment variables
+    os.environ["FREESURFER_HOME"] = freesurfer_home
+    os.environ["FREESURFER_LICENSE"] = license_path
+
+    return freesurfer_home
 
 
 def max_consecutive_ratio(nums):
