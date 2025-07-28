@@ -42,6 +42,8 @@ def sbatchfile(
     node=1,
     batch_file_name="batch_job",
     with_config=True,
+    with_source_localization=False,
+    with_empty_room_recording=False
 ):
     """
     Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
@@ -91,6 +93,8 @@ def sbatchfile(
     sbatch_input_2 = "target=$2\n"
     sbatch_input_3 = "subject=$3\n"
     sbatch_input_4 = "config=$4\n"
+    sbatch_input_5 = "surfaces_dir=$5\n"
+    sbatch_input_6 = "empty_room_recording_path=$6\n"
 
     if with_config:
         command = (
@@ -100,6 +104,12 @@ def sbatchfile(
         )
     else:
         command = "srun python " + mainParallel_path + " $source $target $subject"
+
+    if with_source_localization:
+        command += f" --surfaces_dir $surfaces_dir"
+    
+        if with_empty_room_recording:
+            command += "--empty_room_recording_path $empty_room_recording_path"
 
     bash_environment = [
         sbatch_init
@@ -120,6 +130,11 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_3
     if with_config:
         bash_environment[0] += sbatch_input_4
+    if with_source_localization:
+        bash_environment[0] += sbatch_input_5
+        if with_empty_room_recording:
+            bash_environment[0] += sbatch_input_6
+
     bash_environment[0] += command
 
     job_path = os.path.join(bash_file_path, batch_file_name + ".sh")
@@ -138,6 +153,8 @@ def submit_jobs(
     bash_file_path,
     subjects,
     temp_path,
+    surfaces_dir=None,
+    empty_room_recording=None,
     config_file=None,
     job_configs=None,
     progress=False,
@@ -197,6 +214,8 @@ def submit_jobs(
         node=job_configs["node"],
         batch_file_name=job_configs["batch_file_name"],
         with_config=config_file is not None,
+        with_source_localization=surfaces_dir is not None,
+        with_empty_room_recording=empty_room_recording is not None
     )
 
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -204,19 +223,18 @@ def submit_jobs(
     for s, subject in enumerate(subjects.keys()):
         # fname = os.path.join(subjects[subject], 'meg', subject + '_task-rest_meg.fif')
         fname = subjects[subject]
-        # if os.path.exists(fname[0]):
-        if config_file is None:
-            subprocess.check_call(
-                f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {subject}",
-                shell=True,
-            )
-        else:
-            subprocess.check_call(
-                f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {subject} {config_file}",
-                shell=True,
-            )
-        # else:
-        #     print('File does not exist!')
+        
+        command = f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {subject}"
+        if config_file:
+            command += f" {config_file}"
+
+        if surfaces_dir:
+            command += f" {surfaces_dir}"
+            
+            if empty_room_recording:
+                command += f" {empty_room_recording}"
+        
+        subprocess.check_call(command, shell=True)
 
         if progress:
             progress_bar(s, len(subjects))
@@ -387,6 +405,8 @@ def auto_parallel_feature_extraction(
     subjects,
     job_configs,
     config_file,
+    surfaces_dir=None,
+    empty_room_recording=None,
     username=None,
     auto_rerun=True,
     auto_collect=True,
@@ -408,6 +428,10 @@ def auto_parallel_feature_extraction(
         Dictionary containing job configuration settings (e.g., memory, time, partition, etc.).
     config_file : str
         Path to a JSON configuration file containing additional settings for the feature extraction jobs.
+
+    TODO
+
+    
     username : str, optional
         The SLURM username. If not provided, it will be fetched from the environment. Default is None.
     auto_rerun : bool, optional
@@ -434,6 +458,8 @@ def auto_parallel_feature_extraction(
         features_dir,
         subjects,
         features_temp_path,
+        surfaces_dir=surfaces_dir,
+        empty_room_recording=empty_room_recording,
         job_configs=job_configs,
         config_file=config_file,
     )
@@ -451,6 +477,8 @@ def auto_parallel_feature_extraction(
             features_dir,
             falied_subjects,
             features_temp_path,
+            surfaces_dir=surfaces_dir,
+            empty_room_recording=empty_room_recording,
             job_configs=job_configs,
             config_file=config_file,
         )
