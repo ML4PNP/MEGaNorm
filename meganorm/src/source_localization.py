@@ -48,7 +48,7 @@ def set_freesurfer_paths(
     os.environ["SUBJECTS_DIR"] = subjects_dir
     os.environ["FS_LICENSE"] = license_path
 
-def find_freesurfer():
+def check_freesurfer():
     """
     Locate the FreeSurfer installation and configure environment variables.
 
@@ -79,7 +79,10 @@ def find_freesurfer():
     """
     ...
     # Try to locate recon-all
-    recon_path = shutil.which("recon-all")
+    env = os.environ.copy()
+    result = subprocess.run(["which", "recon-all"], capture_output=True, text=True, env=env)
+    recon_path = result.stdout.strip()
+
     if recon_path:
         freesurfer_home = os.path.abspath(os.path.join(os.path.dirname(recon_path), ".."))
     else:
@@ -90,7 +93,6 @@ def find_freesurfer():
             os.path.expanduser("~/freesurfer"),
         ]
         freesurfer_home = next((p for p in possible_paths if os.path.exists(os.path.join(p, "SetUpFreeSurfer.sh"))), None)
-    
 
     if not freesurfer_home:
         error_msg = "FreeSurfer not found. Please install it (https://surfer.nmr.mgh.harvard.edu/fswiki/DownloadAndInstall)" \
@@ -105,11 +107,9 @@ def find_freesurfer():
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
-    # Set environment variables
-    os.environ["FREESURFER_HOME"] = freesurfer_home
     os.environ["FREESURFER_LICENSE"] = license_path
 
-    return freesurfer_home
+    return None
 
 
 def max_consecutive_ratio(nums):
@@ -812,9 +812,7 @@ def source_localization(
         subjects_dir,
         subject_to,
         data,
-        freesurfer_path,
         figures_path,
-        freesurfer_license_path,
         source_space="surface",
         conductivity=(0.3,),
         inverse_operator="lcmv",
@@ -868,11 +866,13 @@ def source_localization(
     - The BEM model is generated internally using provided conductivity values.
     """
 
-    set_freesurfer_paths(
-        freesurfer_home=freesurfer_path,
-        subjects_dir=subjects_dir,
-        license_path=freesurfer_license_path,
-    )
+    # set_freesurfer_paths(
+    #     freesurfer_home=freesurfer_path,
+    #     subjects_dir=subjects_dir,
+    #     license_path=freesurfer_license_path,
+    # )
+
+    # check_freesurfer()
 
     coreg = corregistration(
         data=data, 
