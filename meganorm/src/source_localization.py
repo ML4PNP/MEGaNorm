@@ -788,7 +788,7 @@ def parcellate(
     elif source_space == "volumetric":
         parc = kwargs.get("parcellation_parc", "aparc.a2009s")
         labels = os.path.join(subjects_dir, subject, "mri", f"{parc}+aseg.mgz")
-        labels_list = mne.get_volume_labels_from_src(src=src_morph, aseg=aseg_path)
+        labels_list = mne.get_volume_labels_from_src(src=src_morph, aseg=labels)
 
     else:
         error_msg = "Source space model is not detected. Source splace must be either 'surface' or 'volumetric'."
