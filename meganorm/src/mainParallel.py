@@ -26,17 +26,11 @@ def main_argparser(args=None):
     parser.add_argument("save_dir", type=str, help="Where to save extracted features")
     parser.add_argument("subject", type=str, help="Participant ID")
     
-    # Optional Arguments
-    parser.add_argument("--freesufer_path", type=str, default=None,
-                        help="If you need to apply source localization, you need to set" \
-                        "this to the freesurfer directory, otherwise leave this empty")
-    parser.add_argument("--freesufer_license_path", type=str, default=None,
-                        help="If you need to apply source localization, please set this to" \
-                        "your freesurfer license.")
+
     parser.add_argument("--surfaces_dir", type=str, default=None,
                         help="If you need to apply source localization, set this to the"\
                         "directory in which freesurfer results are saved")
-    parser.add_argument("--empty_room_record_path", type=str, default=None,
+    parser.add_argument("--empty_room_recording_path", type=str, default=None,
                         help="This the path to subjetc's empty room recording. Although not" \
                         " it can be helpful for pre-whitennin the data. Note that empty room" \
                         " room recordings are necessary for applying source localization" \
@@ -120,7 +114,7 @@ def main(args):
     # parse the arguments
     args = main_argparser(args)
 
-    logger = set_logger(args, ["mne", "numexpr"])
+    logger = set_logger(args, ["mne", "numexpr", "dipy"])
 
     # Loading configs
     # *******************************************************
@@ -146,8 +140,8 @@ def main(args):
     # *******************************************************
     try:
         data = mne.io.read_raw(path, preload=True)
-        if args.empty_room_record_path:
-            empty_room_recording = mne.io.read_raw(args.empty_room_record_path, preload=True)
+        if args.empty_room_recording_path:
+            empty_room_recording = mne.io.read_raw(args.empty_room_recording_path, preload=True)
         else:
             empty_room_recording = None
 
@@ -159,10 +153,10 @@ def main(args):
             preload=True
         )
         
-        if args.empty_room_record_path:
+        if args.empty_room_recording_path:
             empty_room_recording = mne.io.read_raw_bti(
-                pdf_fname=os.path.join(args.empty_room_record_path, "c,rfDC"),
-                config_fname=os.path.join(args.empty_room_record_path, "config"),
+                pdf_fname=os.path.join(args.empty_room_recording_path, "c,rfDC"),
+                config_fname=os.path.join(args.empty_room_recording_path, "config"),
                 head_shape_fname=None,
                 preload=True
             )
@@ -230,13 +224,12 @@ def main(args):
               "spacing":5}
 
     if configs["apply_source_localization"]:
+        logger.info("Starting the source localization")
         stc, labels = source_localization(
                 subject=subID,
-                recon_anatomical_model_dir=args.surfaces_dir, 
+                subjects_dir=args.surfaces_dir, 
                 subject_to="fsaverage",
                 data=data,
-                freesurfer_path=args.freesufer_path,
-                freesurfer_license_path=args.freesufer_license_path, 
                 empty_room_recording=empty_room_recording,
                 source_space=configs["SL_source_space"],
                 conductivity=configs["SL_conductivity"],
@@ -289,7 +282,7 @@ def main(args):
 
     features.to_csv(os.path.join(args.save_dir, f"{subID}.csv"))
 
-    logger.INFO(f"The process for the subject {subID} is complete.")
+    logger.info(f"The process for the subject {subID} is complete.")
 
 if __name__ == "__main__":
 
