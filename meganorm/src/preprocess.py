@@ -12,6 +12,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+logger = logging.getLogger(__name__)
+
 
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     """
@@ -126,7 +128,7 @@ def auto_ica(
             )
         )
 
-    print("Bad Components identified by auto ICA:", bad_components)
+    logger.info(f"Number of bad ICA components: {len(bad_components)}")
 
     if bad_components:
         ica.exclude = bad_components.copy()
@@ -192,6 +194,7 @@ def auto_ica_with_mean(
         data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
     )
 
+    logger.info(f"Number of bad ICA components detected by creating synthetic ECG signal: {len(ecg_indices)}")
     ica.exclude = ecg_indices
     ica.apply(data, verbose=False)
 
@@ -235,7 +238,7 @@ def AutoIca_with_IcaLabel(
         ):
             bad_components.append(idx)
 
-    print("Bad Components identified by ICALabel:", bad_components)
+    logger.info("Number of bad Components identified by ICALabel:", len(bad_components))
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
@@ -633,8 +636,3 @@ def drop_noisy_meg_channels(
     dropped_data = data.copy().drop_channels(data.info["bads"])
     return dropped_data, empty_room_recording
 
-
-
-def make_mne_raw_obj(src_names, sfreq):
-
-    pass
