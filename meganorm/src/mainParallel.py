@@ -128,6 +128,9 @@ def main(args):
     subID = args.subject
     paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
+    if len(paths) > 0:
+        logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
+                       " will be used in this analysis.")
     path = paths[0]
 
     # Extracting file format (extention) for loading layout
@@ -207,17 +210,6 @@ def main(args):
         empty_room_recording=empty_room_recording
     )
 
-    # segmentation 
-    # *******************************************************
-    segments = segment_epoch(
-        data=filtered_data,
-        sampling_rate=sampling_rate,
-        tmin=configs["segments_tmin"],
-        tmax=configs["segments_tmax"],
-        segmentsLength=configs["segments_length"],
-        overlap=configs["segments_overlap"],
-    )
-
     # Source localization 
     # *******************************************************
     kwargs = {"source_space_spacing":"ico6",
@@ -229,7 +221,7 @@ def main(args):
                 subject=subID,
                 subjects_dir=args.surfaces_dir, 
                 subject_to="fsaverage",
-                data=data,
+                data=filtered_data,
                 empty_room_recording=empty_room_recording,
                 source_space=configs["SL_source_space"],
                 conductivity=configs["SL_conductivity"],
@@ -238,7 +230,18 @@ def main(args):
                 plot_3d=False,
                 **kwargs
             )
-        segments = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
+        sl_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
+
+    # segmentation 
+    # *******************************************************
+    segments = segment_epoch(
+        data=sl_data,
+        sampling_rate=sampling_rate,
+        tmin=configs["segments_tmin"],
+        tmax=configs["segments_tmax"],
+        segmentsLength=configs["segments_length"],
+        overlap=configs["segments_overlap"],
+    )
 
     # fooof analysis 
     # *******************************************************
