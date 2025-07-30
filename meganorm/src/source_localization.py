@@ -959,8 +959,7 @@ def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     >>> raw = numpy_to_mne_raw(parcelled_stc, labels, ch_name='misc', sampling_rate=1000)
     >>> raw.plot()
     """
-    ch_names = [label.name for label in labels]
     ch_types = [ch_name] * len(labels)
-    info = mne.create_info(ch_names=ch_names, sfreq=sampling_rate, ch_types=ch_types)
+    info = mne.create_info(ch_names=labels, sfreq=sampling_rate, ch_types=ch_types)
     raw_parc = mne.io.RawArray(stc, info)
     return raw_parc
