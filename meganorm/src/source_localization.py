@@ -784,7 +784,7 @@ def parcellate(
             subjects_dir=subjects_dir,
             parc=kwargs.get("parcellation_parc", "aparc.a2009s")
         )
-        labels_list = labels.copy()
+        labels_list = [label.name for label in labels]
     elif source_space == "volumetric":
         parc = kwargs.get("parcellation_parc", "aparc.a2009s")
         labels = os.path.join(subjects_dir, subject, "mri", f"{parc}+aseg.mgz")
