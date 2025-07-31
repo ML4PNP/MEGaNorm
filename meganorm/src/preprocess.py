@@ -498,9 +498,8 @@ def preprocess(
 
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
 
-        if which_sensor[
-            "meg"
-        ]:  # ======================================================================
+        if which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"]:  
+            # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
                 data, _ = auto_ica(
@@ -636,3 +635,35 @@ def drop_noisy_meg_channels(
     dropped_data = data.copy().drop_channels(data.info["bads"])
     return dropped_data, empty_room_recording
 
+def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
+
+    if meg_data.info["hpi_results"]:
+
+        # BTi/4D MEG recordings do not support cHPI and don't have 
+        # real time recordings  of the brain pos
+        if extention == "fif":
+            amp = mne.chpi.compute_chpi_amplitudes(meg_data)
+            locs = mne.chpi.compute_chpi_locs(meg_data.info, amp)
+
+        if extention == "ds":
+            locs = mne.chpi.extract_chpi_locs_ctf(meg_data)
+
+        head_pos = mne.chpi.compute_head_pos(meg_data.info, locs)
+
+        if list(head_pos):
+            movement_annot = mne.preprocessing.annotate_movement(meg_data, 
+                                                                pos=head_pos, 
+                                                                mean_distance_limit=movement_limit)
+
+            moved_times = sum(movement_annot.duration)
+            moved_inteval_percentage = moved_times/meg_data.duration[-1]*100
+
+            logger.warning(f"{moved_inteval_percentage} percent of the recording exceeds the mean distance"/
+                        "limit for the head motion. Consider using tSSS.")
+        else:
+            logger.info("Unable to find a reliable solution for any of the coils")
+
+    else:
+        logger.info("No cHPI coil was found for the current subject.")
+
+    mne.chpi.write_head_pos(head_pos_save_path, head_pos)
