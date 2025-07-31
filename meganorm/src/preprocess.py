@@ -370,6 +370,7 @@ def preprocess(
     apply_ica=True,
     power_line_freq: int = 60,
     auto_ica_corr_thr: float = 0.9,
+    muscle_artifact_thr=4.0,
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -407,6 +408,8 @@ def preprocess(
         Correlation threshold for automatic ICA artifact rejection; by default 0.9. That is,
         the correlation between identified independent components and physiological signals (ECG
         and EOG) must be higher than 'auto_ica_corr_thr'
+    muscle_artifact_thr : float, optional
+        The threshold for a segment to be considered as artifact (z-scores)
 
     Returns
     -------
@@ -473,6 +476,7 @@ def preprocess(
     if data.info["hpi_results"]:
         data = mne.chpi.filter_chpi(data,
                                     include_line=False)
+    # TODO: add the arguments of this func to the config
 
     if digital_filter:
         data.filter(
@@ -489,6 +493,11 @@ def preprocess(
                 verbose=False,
             )      
 
+    # Muscle artifact detection
+    muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data, threshold=muscle_artifact_thr)
+    # ICA will ignore these and later will be removed in segmentation
+    data.set_annotations(data)
+    # TODO: add arguments of these method should be added to the config
 
     # rereference
     if which_sensor["eeg"] and rereference_method:
