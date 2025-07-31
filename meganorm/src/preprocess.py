@@ -469,6 +469,11 @@ def preprocess(
             n_jobs=-1,
         )
 
+    # remove cHPI noise:
+    if data.info["hpi_results"]:
+        data = mne.chpi.filter_chpi(data,
+                                    include_line=False)
+
     if digital_filter:
         data.filter(
             l_freq=int(cutoffFreqLow),
@@ -482,7 +487,8 @@ def preprocess(
                 h_freq=int(cutoffFreqHigh),
                 n_jobs=-1,
                 verbose=False,
-            )            
+            )      
+
 
     # rereference
     if which_sensor["eeg"] and rereference_method:
