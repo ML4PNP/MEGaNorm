@@ -682,3 +682,59 @@ def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
         logger.info("No cHPI coil was found for the current subject.")
 
     mne.chpi.write_head_pos(head_pos_save_path, head_pos)
+
+
+def apply_gradient_comp(ctf_meg_data, grade=3):
+    """
+    Interpolate bad channels and apply gradient compensation to CTF MEG data.
+
+    This function first interpolates bad MEG channels using the minimum norm method
+    to improve signal quality, then applies CTF-style gradient compensation at the
+    specified grade level. Gradient compensation is specific to CTF MEG systems and
+    helps remove interference from distant sources.
+
+    Parameters
+    ----------
+    ctf_meg_data : mne.io.Raw
+        The raw MEG data object (from a CTF system), loaded with `preload=True`.
+        Must contain CTF-specific gradient compensation information.
+    grade : int, optional
+        The gradient compensation level to apply. Valid values typically include:
+        -1 (disable), 0 (raw data), 1, 2, 3 (increasing levels of compensation).
+        Default is 3.
+
+    Returns
+    -------
+    ctf_meg_data : mne.io.Raw
+        The same Raw object with interpolated bad channels and gradient compensation applied.
+
+    Notes
+    -----
+    - Only the minimum norm method (`method={"meg": "MNE"}`) is used for interpolation,
+      which is currently the only supported method for MEG in MNE.
+    - Bad channels are not reset after interpolation (`reset_bads=False`) so that
+      they remain marked in the data structure.
+    - This function assumes that the input data is from a CTF MEG system.
+
+    See Also
+    --------
+    mne.io.Raw.interpolate_bads : Interpolate bad channels in MEG/EEG data.
+    mne.io.Raw.apply_gradient_compensation : Apply gradient compensation to CTF MEG data.
+    """
+    # Only minimum norm method is supported by MNE
+    # for interpolating MEG signals; Therefore this
+    # argument is not added to the config
+    method = {"meg": "MNE"}
+    # Bad channels are first interpolated for the
+    # sake of SNR
+    # reset_bads should remain False to keep track
+    # of bad channels so we can use them later in
+    # source localization.
+    ctf_meg_data.interpolate_bads(reset_bads=False,
+                                  method=method)
+    
+    ctf_meg_data.apply_gradient_compensation(grade=grade) 
+
+    logger.info(f"Gradient compensation with level of {grade} has been applied to the data.")
+
+    return ctf_meg_data
