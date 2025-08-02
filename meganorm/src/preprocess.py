@@ -371,6 +371,7 @@ def preprocess(
     power_line_freq: int = 60,
     auto_ica_corr_thr: float = 0.9,
     muscle_artifact_thr=4.0,
+    ctf_gradient_comp_level=3
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -410,6 +411,11 @@ def preprocess(
         and EOG) must be higher than 'auto_ica_corr_thr'
     muscle_artifact_thr : float, optional
         The threshold for a segment to be considered as artifact (z-scores)
+    ctf_gradient_comp_level: int, optional
+        The gradient compensation level to apply. Valid values typically include:
+        -1 (disable), 0 (raw data), 1, 2, 3 (increasing levels of compensation).
+        Default is 3.
+
 
     Returns
     -------
@@ -504,6 +510,10 @@ def preprocess(
         data = data.set_eeg_reference(rereference_method)
         if empty_room_recording:
             empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
+
+    # gradient compensation for CTF datasets
+    data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+
 
     ICA_flag = True  # initialize flag
 
