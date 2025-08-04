@@ -47,7 +47,7 @@ def make_config(path=None):
 
     # which sensor type should be used
     # choices: meg, mag, grad, eeg, opm
-    config["which_sensor"] = "meg"
+    config["which_sensor"] = "mag"
     # config['fs'] = 1000
 
     # ICA configuration
@@ -63,8 +63,18 @@ def make_config(path=None):
     config["digital_filter"] = True
     config["notch_filter"] = False
 
-    config["apply_ica"] = True
+    # Muscle artifact rekection configurations
+    config["muscle_activity_thr"] = 4
+    config["muscle_activity_min_length_good"] = 0.1
+    config["muscle_activity_filter_freq"] = (110, 140)
+    # external noise suppression
+        # tsss
 
+        # gradient compensation
+    config["ctf_gradient_comp_level"] = 3
+    
+
+    config["apply_ica"] = True
     config["auto_ica_corr_thr"] = 0.9
 
     # options are "average", "REST", and None 
