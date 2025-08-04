@@ -357,6 +357,7 @@ def segment_epoch(
 
 def preprocess(
     data,
+    extention,
     which_sensor: dict,
     empty_room_recording=None,
     resampling_rate: int = 1000,
@@ -371,7 +372,9 @@ def preprocess(
     power_line_freq: int = 60,
     auto_ica_corr_thr: float = 0.9,
     muscle_artifact_thr=4.0,
-    ctf_gradient_comp_level=3
+    ctf_gradient_comp_level=3,
+    muscle_activity_min_length_good=0.1,
+    muscle_activity_filter_freq=(110, 140)
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -381,6 +384,9 @@ def preprocess(
     ----------
     data : mne.io.Raw
         Raw MEG/EEG data.
+    extention : str
+        The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the
+        appropriate layout file from the layout directory.
     which_sensor : dict
         Dictionary specifying which sensor types to include (e.g., {'meg': True, 'eeg': True}).
     empty_room_recording : mne.io.Raw, optional
@@ -415,6 +421,11 @@ def preprocess(
         The gradient compensation level to apply. Valid values typically include:
         -1 (disable), 0 (raw data), 1, 2, 3 (increasing levels of compensation).
         Default is 3.
+    muscle_activity_min_length_good: float, optional
+        The minimum required duration (in seconds) of valid data between consecutive annotations.
+    muscle_activity_filter_freq: tuple, optional
+        Cutoff frequencies for the band-pass filter used in muscle activity detection.
+        Muscle activity is typically more prominent in higher frequency ranges (e.g., 110–140 Hz).
 
 
     Returns
@@ -430,19 +441,26 @@ def preprocess(
         ICA method must be one of: 'fastica', 'picard', 'infomax'.
     """
     if not 0 < auto_ica_corr_thr <= 1:
-        raise ValueError("auto_ica_corr_thr must be between 0 and 1.")
+        err_msg = "auto_ica_corr_thr must be between 0 and 1."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
     if IcaMethod not in ["fastica", "picard", "infomax"]:
-        raise ValueError("ICA method must be one of: 'fastica', 'picard', 'infomax'.")
+        err_msg = "ICA method must be one of: 'fastica', 'picard', 'infomax'."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
+
 
     # since pick_channels can not seperate mag and grad signals
     if not (which_sensor["meg"] or which_sensor["eeg"]):
         if not which_sensor["mag"]:
+            logger.info("Dropping magnetometer sensors.")
             dropping_channels = [
                 ch
                 for ch, ch_type in zip(data.ch_names, data.get_channel_types())
                 if ch_type == "mag"
             ]
         elif not which_sensor["grad"]:
+            logger.info("Dropping gradiometer sensors.")
             dropping_channels = [
                 ch
                 for ch, ch_type in zip(data.ch_names, data.get_channel_types())
@@ -482,7 +500,6 @@ def preprocess(
     if data.info["hpi_results"]:
         data = mne.chpi.filter_chpi(data,
                                     include_line=False)
-    # TODO: add the arguments of this func to the config
 
     if digital_filter:
         data.filter(
@@ -500,10 +517,18 @@ def preprocess(
             )      
 
     # Muscle artifact detection
-    muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data, threshold=muscle_artifact_thr)
-    # ICA will ignore these and later will be removed in segmentation
-    data.set_annotations(data)
-    # TODO: add arguments of these method should be added to the config
+    if cutoffFreqHigh > muscle_activity_filter_freq:
+        muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data,
+                                                min_length_good=muscle_activity_min_length_good,
+                                                filter_freq=muscle_activity_filter_freq,
+                                                threshold=muscle_artifact_thr)
+        # ICA will ignore these and later will be removed in segmentation
+        data.set_annotations(muscle_annot)
+        logger.info(f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} of"/
+                    " the signal.")
+        # TODO: MNE doc: The type of sensors to use. If None it will take the first type in mag, grad, eeg.
+        # You need to apply muscle artifact detection on both
+        # MAG and Grad seperately.
 
     # rereference
     if which_sensor["eeg"] and rereference_method:
@@ -512,7 +537,8 @@ def preprocess(
             empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
 
     # gradient compensation for CTF datasets
-    data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+    if extention == "CTF":
+        data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
 
 
     ICA_flag = True  # initialize flag
@@ -645,7 +671,7 @@ def drop_noisy_meg_channels(
 
     except RuntimeError as e:
         if "Maxwell filtering SSS step has already been applied" in str(e):
-            print("Skipping: SSS already applied.")
+            logger.info("Skipping: SSS already applied.")
         else:
             raise
 
