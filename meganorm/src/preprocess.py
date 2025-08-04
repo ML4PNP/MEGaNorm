@@ -371,8 +371,8 @@ def preprocess(
     apply_ica=True,
     power_line_freq: int = 60,
     auto_ica_corr_thr: float = 0.9,
-    muscle_artifact_thr=4.0,
     ctf_gradient_comp_level=3,
+    muscle_activity_thr=4.0,
     muscle_activity_min_length_good=0.1,
     muscle_activity_filter_freq=(110, 140)
 ):
@@ -415,12 +415,12 @@ def preprocess(
         Correlation threshold for automatic ICA artifact rejection; by default 0.9. That is,
         the correlation between identified independent components and physiological signals (ECG
         and EOG) must be higher than 'auto_ica_corr_thr'
-    muscle_artifact_thr : float, optional
-        The threshold for a segment to be considered as artifact (z-scores)
     ctf_gradient_comp_level: int, optional
         The gradient compensation level to apply. Valid values typically include:
         -1 (disable), 0 (raw data), 1, 2, 3 (increasing levels of compensation).
         Default is 3.
+    muscle_activity_thr : float, optional
+        The threshold for a segment to be considered as artifact (z-scores)
     muscle_activity_min_length_good: float, optional
         The minimum required duration (in seconds) of valid data between consecutive annotations.
     muscle_activity_filter_freq: tuple, optional
@@ -521,7 +521,7 @@ def preprocess(
         muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data,
                                                 min_length_good=muscle_activity_min_length_good,
                                                 filter_freq=muscle_activity_filter_freq,
-                                                threshold=muscle_artifact_thr)
+                                                threshold=muscle_activity_thr)
         # ICA will ignore these and later will be removed in segmentation
         data.set_annotations(muscle_annot)
         logger.info(f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} of"/

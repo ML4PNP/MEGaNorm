@@ -210,7 +210,9 @@ def main(args):
         power_line_freq=power_line_freq,
         empty_room_recording=empty_room_recording,
         ctf_gradient_comp_level=configs["ctf_gradient_comp_level"],
+        muscle_activity_min_length_good=configs["muscle_activity_min_length_good"],
         muscle_activity_filter_freq=configs["muscle_activity_filter_freq"],
+        muscle_activity_thr=configs["muscle_activity_thr"],
         extention=extention
     )
 
