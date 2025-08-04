@@ -170,6 +170,8 @@ def main(args):
     # *******************************************************
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
+        logger.warning("Power line frequency was not detected" \
+        "; therefore, it was set to 60 Hz")
         power_line_freq = 60
 
     # set eeg info (channel types and electrode montage) when it is not there yet
@@ -186,7 +188,6 @@ def main(args):
                                             configs=configs, 
                                             empty_room_recording=empty_room_recording)
     
-
 
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor[configs.get("which_sensor")] = True
@@ -207,7 +208,10 @@ def main(args):
         apply_ica=configs["apply_ica"],
         auto_ica_corr_thr=configs["auto_ica_corr_thr"],
         power_line_freq=power_line_freq,
-        empty_room_recording=empty_room_recording
+        empty_room_recording=empty_room_recording,
+        ctf_gradient_comp_level=configs["ctf_gradient_comp_level"],
+        muscle_activity_filter_freq=configs["muscle_activity_filter_freq"],
+        extention=extention
     )
 
     # Source localization 
