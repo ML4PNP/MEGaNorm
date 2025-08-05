@@ -517,14 +517,14 @@ def preprocess(
             )      
 
     # Muscle artifact detection
-    if cutoffFreqHigh > muscle_activity_filter_freq:
+    if cutoffFreqHigh > muscle_activity_filter_freq[0]:
         muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data,
                                                 min_length_good=muscle_activity_min_length_good,
                                                 filter_freq=muscle_activity_filter_freq,
                                                 threshold=muscle_activity_thr)
         # ICA will ignore these and later will be removed in segmentation
         data.set_annotations(muscle_annot)
-        logger.info(f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} of"/
+        logger.info(f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} seconds of"\
                     " the signal.")
         # TODO: MNE doc: The type of sensors to use. If None it will take the first type in mag, grad, eeg.
         # You need to apply muscle artifact detection on both
@@ -709,7 +709,7 @@ def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
             moved_times = sum(movement_annot.duration)
             moved_inteval_percentage = moved_times/meg_data.duration[-1]*100
 
-            logger.warning(f"{moved_inteval_percentage} percent of the recording exceeds the mean distance"/
+            logger.warning(f"{moved_inteval_percentage} percent of the recording exceeds the mean distance"\
                         "limit for the head motion. Consider using tSSS.")
         else:
             logger.info("Unable to find a reliable solution for any of the coils")
