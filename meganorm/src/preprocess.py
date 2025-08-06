@@ -497,7 +497,7 @@ def preprocess(
         )
 
     # remove cHPI noise:
-    if data.info["hpi_meas"] & data.info["hpi_subsystem"]:
+    if data.info["hpi_meas"] and data.info["hpi_subsystem"]:
         data = mne.chpi.filter_chpi(data,
                                     include_line=False)
         logger.info("Filtering CHPI noise.")
