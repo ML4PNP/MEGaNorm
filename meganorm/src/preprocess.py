@@ -7,7 +7,7 @@ import glob
 import logging
 from typing import Any, Dict
 import pandas as pd
-
+from scipy.stats import zscore
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -884,3 +884,70 @@ def apply_tsss(
         )
 
     return data_tsss, empty_room_record
+
+
+def drop_noisy_segments(
+        segments,
+        z_thr
+):
+    """
+    Drop noisy data segments based on the z-scored standard deviation 
+    across time.
+
+    This function computes the standard deviation of each segment across 
+    the time axis, converts these values to z-scores, and removes segments 
+    whose z-score exceeds a given threshold. This is useful for discarding 
+    artifacts or unusually high-variance data before further processing.
+
+    Parameters
+    ----------
+    segments : mne.Epochs or mne.Epochs-like
+        The segmented MEG/EEG data object. Must have an attribute 
+        ``_data`` of shape (n_segments, n_channels, n_times) and a 
+        ``drop(indices)`` method to remove segments.
+    z_thr : float
+        The z-score threshold. Segments with a standard deviation 
+        z-score greater than this value will be dropped.
+
+    Returns
+    -------
+    segments : mne.Epochs or mne.Epochs-like
+        The input object with noisy segments removed.
+
+    Notes
+    -----
+    - This method assumes that noise manifests as abnormally high 
+      variance in one or more channels of a segment.
+    - Z-scores are computed per channel across all segments, so 
+      segments may be flagged for removal if any channel exceeds 
+      the threshold.
+    - The function logs the number of dropped segments and the 
+      remaining count.
+
+    Examples
+    --------
+    >>> cleaned_epochs = drop_noisy_segments(epochs, z_thr=3.0)
+    Dropping 2 segments due to Z > Z_threshold. The final number of used segments: 98
+
+    See Also
+    --------
+    scipy.stats.zscore : Function used to compute z-scores.
+    mne.Epochs.drop : Method used internally to drop flagged segments.
+    """
+
+    z_scores = zscore(
+        np.std(
+            segments._data, axis=2
+            ),
+        axis=0)
+    
+    bad_segments = np.where(
+        z_scores>z_thr
+        )[0]
+    
+    segments=segments.drop(indices=bad_segments)
+
+    logger.info(f"Dropping {len(bad_segments)} segments due to Z > Z_threshold. "\
+                f"The final number of used segments: {segments.__len__()}")
+    
+    return segments
