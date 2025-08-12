@@ -497,9 +497,15 @@ def preprocess(
         )
 
     # remove cHPI noise:
-    if data.info["hpi_results"]:
+    if data.info["hpi_meas"] and data.info["hpi_subsystem"]:
         data = mne.chpi.filter_chpi(data,
                                     include_line=False)
+        logger.info("Filtering CHPI noise.")
+    else:
+        if cutoffFreqHigh > 100: # TODO check this
+            logger.warning("hpi_meas and hpi_subsystem info are missing; Therefore"\
+            " cHPI noise can not be filtered. In case you have cHPI coils, please put"
+            "this information in the data, otherwise you can ignore this error.")
 
     if digital_filter:
         data.filter(

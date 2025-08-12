@@ -45,6 +45,9 @@ def set_logger(args, pakcages_to_silent):
     save_dir = os.path.join(args.save_dir, "log")
     os.makedirs(save_dir, exist_ok=True)
 
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
     # set the logger
     logging.basicConfig(
         level=logging.INFO,
