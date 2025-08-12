@@ -137,7 +137,7 @@ def auto_ica(
     else:
         ICA_flag = True
 
-    return data, ICA_flag
+    return data, ICA_flag, len(bad_components)
 
 
 def auto_ica_with_mean(
@@ -198,7 +198,7 @@ def auto_ica_with_mean(
     ica.exclude = ecg_indices
     ica.apply(data, verbose=False)
 
-    return data
+    return data, len(ecg_indices)
 
 
 def AutoIca_with_IcaLabel(
@@ -242,7 +242,7 @@ def AutoIca_with_IcaLabel(
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
-    return data
+    return data, len(bad_components)
 
 
 def prepare_eeg_data(data, path):
@@ -554,12 +554,15 @@ def preprocess(
     }
 
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
-
+        
+        # number of reduced independent components for rank computation
+        number_of_reduced_ic = 0
+        
         if which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"]:  
             # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data, _ = auto_ica(
+                data, _, number_of_reduced_ic  = auto_ica(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -570,7 +573,7 @@ def preprocess(
                 )
             # 2
             elif not if_elec_exist and apply_ica and phys_activity_type == "ecg":
-                data = auto_ica_with_mean(
+                data, number_of_reduced_ic = auto_ica_with_mean(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -584,7 +587,7 @@ def preprocess(
         ]:  # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data, ICA_flag = auto_ica(
+                data, ICA_flag, number_of_reduced_ic = auto_ica(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -595,7 +598,7 @@ def preprocess(
                 )
             # 2
             elif not if_elec_exist and apply_ica and ICA_flag:
-                data = AutoIca_with_IcaLabel(
+                data, number_of_reduced_ic = AutoIca_with_IcaLabel(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -621,7 +624,7 @@ def preprocess(
             ecg=False,
         )
 
-    return data, data.info["ch_names"], int(sampling_rate), empty_room_recording
+    return data, data.info["ch_names"], int(sampling_rate), empty_room_recording, number_of_reduced_ic
 
 
 def drop_noisy_meg_channels(

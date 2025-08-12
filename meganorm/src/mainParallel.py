@@ -197,7 +197,7 @@ def main(args):
 
     # preproces
     # *******************************************************
-    filtered_data, channel_names, sampling_rate, empty_room_recording = preprocess(
+    filtered_data, channel_names, sampling_rate, empty_room_recording, number_of_reduced_ic = preprocess(
         data=data,
         n_component=configs["ica_n_component"],
         ica_max_iter=configs["ica_max_iter"],
@@ -236,6 +236,8 @@ def main(args):
                 conductivity=configs["SL_conductivity"],
                 inverse_operator=configs["SL_inverse_operator"],
                 figures_path=os.path.join(args.save_dir, "figures"),
+                number_of_reduced_ic=number_of_reduced_ic,
+                which_sensor=which_sensor,
                 plot_3d=False,
                 **kwargs
             )

@@ -7,6 +7,8 @@ import shutil
 import mne
 import os
 
+from meganorm.src.preprocessing import check_tsss
+
 logger = logging.getLogger(__name__)
 
 def run_recon_freesurfer(
@@ -503,8 +505,10 @@ def inverse_solution(
         fwd,
         inverse_operator,
         figures_path,
+        which_sensor,
         empty_room_recording=None,
         qc_ignore=[],
+        number_of_reduced_ic=0,
         **kwargs
 ):
     """
@@ -550,6 +554,13 @@ def inverse_solution(
     - It assumes the forward model is already computed and passed as `fwd`.
     - Noise covariance can be estimated from an empty-room recording if provided.
     """
+    # if tSSS has already been applied, return the rank in info
+    if check_tsss(meg_data=data):
+        data_rank = mne.compute_rank(data, rank="info")
+        # since ICA has also removed some components
+        data_rank -= number_of_reduced_ic
+    else:
+        data_rank = mne.compute_rank(data)
     
     if empty_room_recording:
         noise_cov = mne.compute_raw_covariance(
@@ -558,12 +569,33 @@ def inverse_solution(
         ) # TODO: change to epoch later
         logger.info("Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten" \
                     "the data")
+        # If empty room recording is available, the rank for
+        # lcmv should be the ranke of this recording
+        lcmv_rank = mne.compute_rank(empty_room_recording)
+        
+        if data_rank["mag"] < lcmv_rank["mag"]:
+            lcmv_rank["mag"] = data_rank["mag"].copy()
+        if data_rank["grad"] < lcmv_rank["grad"]:
+            lcmv_rank["grad"] = data_rank["grad"].copy()
+    
+    elif which_sensor["meg"]:
+        # If both MAG and Grad are present, having a noise cov is necessary
+        # to scale the data. If empty room recording is not available,
+        # make_ad_hoc_cov make a diagonal covariance matrix where the 
+        # diagonals represent channel wise variance and off-diagonals are zero.
+        # The default noise values are 5 fT/cm, 20 fT for gradiometers, magnetometers
+        noise_cov = mne.make_ad_hoc_cov(info=data.info,
+                                        std=kwargs.get("ad_hoc_cov_std", None))
+        lcmv_rank = data_rank.copy()
 
-    else: 
+    else:
         logger.warning("Noise covariance is not calculated due to missing empty room recordings. Noise covariance can be" \
         "benefitial for prewhitenning activities across sensors with different scale and noise." \
         "Consider using noise covariance for a better results.")
         noise_cov=None
+        # If empty room recording is not available, the rank for
+        # lcmv should be the ranke of the data itself
+        lcmv_rank = data_rank.copy()
 
     if inverse_operator == "lcmv":
         logger.info(f"Solving the inverse problem using {inverse_operator} algorithm. "\
@@ -572,7 +604,8 @@ def inverse_solution(
         # compute data covaraince
         data_cov = mne.compute_raw_covariance(
             data,
-            method=kwargs.get("covariance_method", "empirical")
+            method=kwargs.get("covariance_method", "empirical"),
+            rank=data_rank
         )
         
         if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
@@ -589,7 +622,7 @@ def inverse_solution(
             figures_path=figures_path,
             exclude=[], #TODO
             qc_ignore=qc_ignore)
-            
+        
         filters = mne.beamformer.make_lcmv(
             data.info,
             forward=fwd,
@@ -600,7 +633,7 @@ def inverse_solution(
             weight_norm=kwargs.get("beamformer_weight_norm", "unit-noise-gain"),
             # TODO: if rank==None, it will compute the rank
             # If rank==info, it will read from the info
-            rank=None,
+            rank=lcmv_rank,
         )
 
     stc = mne.beamformer.apply_lcmv_raw(
@@ -820,12 +853,14 @@ def source_localization(
         subject_to,
         data,
         figures_path,
+        which_sensor,
         source_space="surface",
         conductivity=(0.3,),
         inverse_operator="lcmv",
         plot_3d=False,
         qc_ignore=[],
         empty_room_recording=None,
+        number_of_reduced_ic=0,
         **kwargs
 ):
     """
@@ -904,7 +939,9 @@ def source_localization(
         inverse_operator=inverse_operator,
         empty_room_recording=empty_room_recording,
         figures_path=figures_path,
-        qc_ignore=qc_ignore
+        qc_ignore=qc_ignore,
+        number_of_reduced_ic=number_of_reduced_ic,
+        which_sensor=which_sensor
     )
 
     stc_fsaveage, src_morph = morph_stc(
