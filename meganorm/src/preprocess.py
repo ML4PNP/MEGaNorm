@@ -774,3 +774,107 @@ def apply_gradient_comp(ctf_meg_data, grade=3):
     logger.info(f"Gradient compensation with level of {grade} has been applied to the data.")
 
     return ctf_meg_data
+
+
+def apply_tsss(
+        data,
+        cross_talk_path,
+        calibration_path,
+        head_pos_path=None,
+        empty_room_record=None,
+        st_duration=10.0,
+        st_correlation=0.98
+):
+    """
+    Apply temporal Signal Space Separation (tSSS) to MEG data with optional 
+    head position correction and empty-room noise processing.
+
+    This function uses MNE-Python's Maxwell filtering implementation to 
+    suppress environmental noise and remove cross-talk between sensors.
+    If a head position file is provided, movement compensation will be 
+    applied. Optionally, an empty-room recording can be processed with 
+    the same parameters for noise estimation.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG data to be processed.
+    cross_talk_path : str or path-like
+        Path to the cross-talk compensation file (CTF), typically provided
+        by the MEG system.
+    calibration_path : str or path-like
+        Path to the fine-calibration file (CAL), typically provided by the
+        MEG system.
+    head_pos_path : str or path-like, optional
+        Path to the head position file (.pos) obtained from cHPI processing.
+        If provided, movement compensation will be applied.
+    empty_room_record : mne.io.Raw, optional
+        Raw empty-room MEG recording to process for noise estimation. If 
+        provided, it will be Maxwell filtered with the same parameters as 
+        the main data.
+    st_duration : float, default=10.0
+        Window duration in seconds for the temporal SSS (tSSS) projection.
+        Shorter windows can better track non-stationary interference but 
+        may remove more brain signal.
+    st_correlation : float, default=0.98
+        Correlation limit between SSS basis functions across time windows. 
+        Values closer to 1.0 remove less brain signal but may be less 
+        effective at removing artifacts.
+
+    Returns
+    -------
+    data_tsss : mne.io.Raw
+        The Maxwell-filtered MEG data with optional movement compensation.
+    empty_room_record : mne.io.Raw or None
+        The Maxwell-filtered empty-room recording if provided, else None.
+
+    Notes
+    -----
+    - Maxwell filtering is sensitive to accurate calibration and cross-talk
+      compensation files; ensure the provided files match the MEG system used
+      for the recording.
+    - The `st_duration` and `st_correlation` parameters control the aggressiveness 
+      of the temporal projection; inappropriate values can either leave 
+      environmental noise in the data or attenuate brain signal.
+    - If `head_pos_path` is provided, continuous head position data will be
+      used to apply movement compensation during filtering.
+
+    References
+    ----------
+    .. [1] Taulu, S., Simola, J. (2006). Spatiotemporal signal space separation method 
+       for rejecting nearby interference in MEG measurements. Physics in Medicine 
+       and Biology, 51(7), 1759.
+    .. [2] MNE-Python documentation: 
+       https://mne.tools/stable/generated/mne.preprocessing.maxwell_filter.html
+    """
+    
+    if head_pos_path:
+        head_pos = mne.chpi.read_head_pos(head_pos_path)
+    else:
+        head_pos = None
+
+    data_tsss = mne.preprocessing.maxwell_filter(
+        raw=data,
+        calibration=calibration_path,
+        cross_talk=cross_talk_path,
+        st_duration=st_duration,
+        st_correlation=st_correlation,
+        head_pos=head_pos
+    )
+
+    if empty_room_record:
+        
+        empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+            raw_er=empty_room_record
+        )
+
+        empty_room_record = mne.preprocessing.maxwell_filter(
+            raw=empty_room_record,
+            calibration=calibration_path,
+            cross_talk=cross_talk_path,
+            st_duration=st_duration,
+            st_correlation=st_correlation,
+            head_pos=head_pos
+        )
+
+    return data_tsss, empty_room_record
