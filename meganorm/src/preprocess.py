@@ -924,15 +924,6 @@ def drop_noisy_segments(
     - The function logs the number of dropped segments and the 
       remaining count.
 
-    Examples
-    --------
-    >>> cleaned_epochs = drop_noisy_segments(epochs, z_thr=3.0)
-    Dropping 2 segments due to Z > Z_threshold. The final number of used segments: 98
-
-    See Also
-    --------
-    scipy.stats.zscore : Function used to compute z-scores.
-    mne.Epochs.drop : Method used internally to drop flagged segments.
     """
 
     z_scores = zscore(
@@ -951,3 +942,27 @@ def drop_noisy_segments(
                 f"The final number of used segments: {segments.__len__()}")
     
     return segments
+
+
+def check_tsss(meg_data):
+    """
+    Check if Maxwell filtering (tSSS) was applied to raw/epochs data.
+
+    This inspects the processing history for presence of maxfilter info.
+
+    Parameters
+    ----------
+    meg_data : mne.io.BaseRaw | mne.Epochs
+        The MEG data object.
+
+    Returns
+    -------
+    bool
+        True if tSSS has been applied, False otherwise.
+    """
+    proc_history = meg_data.info.get('proc_history', [])
+    if not proc_history:
+        return False
+    max_info = proc_history[0].get('max_info', {})
+    sss_cal = max_info.get('sss_cal', [])
+    return len(sss_cal) > 0
