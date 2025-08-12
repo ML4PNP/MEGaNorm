@@ -348,6 +348,9 @@ def corregistration(data,
             subject=subject,
             subjects_dir=subjects_dir,
             overwrite=True,
+            gcaatlas=kwargs.get("gcaatlas", True),
+            volume="T1", # TODO: this should be a data specific info
+            preflood=kwargs.get("preflood", None)
         )
     
     coreg = mne.coreg.Coregistration(data.info, 
@@ -685,7 +688,10 @@ def morph_stc(
             mne.bem.make_watershed_bem(
                 subject=subject_to,
                 subjects_dir=subjects_dir,
-                overwrite=True
+                overwrite=True,
+                gcaatlas=kwargs.get("gcaatlas", True),
+                volume="T1", # TODO: this should be a data specific info.
+                preflood=kwargs.get("preflood", None)
             )
 
         src_morph_to = mne.setup_volume_source_space(
