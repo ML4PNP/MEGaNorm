@@ -911,7 +911,7 @@ def source_localization(
         plot_3d=plot_3d,
         )
     
-    stc = parcellate(
+    stc, labels = parcellate(
             subject=subject_to,
             subjects_dir=subjects_dir,
             stc_fsaverage=stc_fsaveage,
@@ -921,7 +921,7 @@ def source_localization(
 
     logger.info("Done; congrats! ")
 
-    return stc
+    return stc, labels
 
 def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     """
