@@ -105,7 +105,7 @@ def make_config(path=None):
     # If you need to apply source localization
     config["apply_source_localization"] = True
     # The type of source space for source localization (SL); choices(surface & volumetric)
-    config["SL_source_space"] = "volumetric"
+    config["SL_source_space"] = "surface"
     # conductivity of different tissues. The number of values indicates the number of values
     config["SL_conductivity"] = (0.3,)
     # The inverse operator algorithm, so far only LCMV is supported
@@ -670,3 +670,68 @@ def make_demo_file_bids(
 
     # Save as BIDS-compatible TSV
     new_df.to_csv(save_dir, sep="\t", index=False)
+
+
+def set_path(project_dir):
+    """
+    Create and initialize directory structure for a given project.
+
+    This function generates a set of predefined directories for
+    feature extraction and normative modeling workflows within the
+    specified project directory. If any of these directories do not
+    exist, they will be created. The function returns the path to the
+    features log directory.
+
+    Parameters
+    ----------
+    project_dir : str
+        Path to the root project directory where the folder structure
+        will be created.
+
+    Returns
+    -------
+    str
+        Absolute path to the 'log' directory inside the 'Features'
+        folder.
+
+    Notes
+    -----
+    The function creates the following directory structure:
+
+    - ``Features/``  
+      - ``log/`` (for saving logs of feature extraction)
+      - ``temp/`` (for temporarily storing extracted features)
+      - ``figures/`` (for saving generated figures)
+
+    - ``Normative modeling/``  
+      - ``Runs/`` (for saving model run outputs)
+      - ``Figures/`` (for visual outputs related to modeling)
+      - ``Models summary/`` (for summaries of model results)
+    """
+    def make_folder(path):
+        if not os.path.isdir(path):
+            os.makedirs(path)
+
+    features_dir = os.path.join(project_dir, 'Features')
+    # a log file to save logs of feature extraction
+    features_log_path = os.path.join(features_dir, 'log')
+    # a directory to save extracted features temporarily
+    features_temp_path = os.path.join(features_dir,'temp')
+    figures_dir = os.path.join(features_dir, "figures")
+
+    make_folder(features_dir)
+    make_folder(features_log_path)
+    make_folder(features_temp_path)
+    make_folder(figures_dir)
+
+    nm_dir = os.path.join(project_dir, "Normative modeling")
+    run_dir = os.path.join(nm_dir, "Runs")
+    figures_dir = os.path.join(nm_dir, "Figures")
+    models_summary = os.path.join(nm_dir, "Models summary")
+
+    make_folder(nm_dir)
+    make_folder(run_dir)
+    make_folder(figures_dir)
+    make_folder(models_summary)
+
+    return features_log_path
