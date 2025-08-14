@@ -7,7 +7,7 @@ import shutil
 import mne
 import os
 
-from meganorm.src.preprocessing import check_tsss
+from meganorm.src.preprocess import check_tsss
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ def set_freesurfer_paths(
     os.environ["PATH"] = os.environ["FREESURFER_HOME"] + "/bin:" + os.environ["PATH"]
     os.environ["SUBJECTS_DIR"] = subjects_dir
     os.environ["FS_LICENSE"] = license_path
+
 
 def check_freesurfer():
     """
@@ -558,7 +559,7 @@ def inverse_solution(
     if check_tsss(meg_data=data):
         data_rank = mne.compute_rank(data, rank="info")
         # since ICA has also removed some components
-        data_rank -= number_of_reduced_ic
+        data_rank[list(data_rank.keys())[0]] -= number_of_reduced_ic # TODO: not accuarte
     else:
         data_rank = mne.compute_rank(data)
     
