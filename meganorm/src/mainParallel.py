@@ -42,7 +42,7 @@ def main_argparser(args=None):
 
 def set_logger(args, pakcages_to_silent):
 
-    save_dir = os.path.join(args.save_dir, "log")
+    save_dir = os.path.join(args.save_dir, "log_summary")
     os.makedirs(save_dir, exist_ok=True)
 
     for handler in logging.root.handlers[:]:
@@ -118,6 +118,13 @@ def main(args):
     args = main_argparser(args)
 
     logger = set_logger(args, ["mne", "numexpr", "dipy"])
+
+    if args.empty_room_recording_path == "None":
+        args.empty_room_recording_path = None
+    if args.surfaces_dir == "None":
+        args.surfaces_dir = None
+    if args.configs == "None":
+        args.configs = None
 
     # Loading configs
     # *******************************************************
