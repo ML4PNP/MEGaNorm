@@ -550,37 +550,60 @@ def merge_datasets_with_glob(datasets):
     multiple files (e.g., different runs or sessions), and the goal is to create
     a single pattern that can be used to load all related files for a subject.
     """
-    subjects = {}
-
-    for dataset_name, dataset_info in datasets.items():
-        base_dir = dataset_info["base_dir"]
-
-        dirs = [
-            d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
-        ]
-        subjects.update({subj: [] for subj in dirs})
-
-        paths = glob.glob(
-            f"{datasets[dataset_name]["base_dir"]}/**/*{datasets[dataset_name]["task"]}*{datasets[dataset_name]["ending"]}",
-            recursive=True,
-        )
-
-        # Walk through the base directory to find subject directories
-        for subject_dir in dirs:
-            pattern = os.path.join(datasets[dataset_name]["base_dir"], subject_dir)
-            subjects[subject_dir].extend(
-                list(filter(lambda path: path.startswith(pattern), paths))
-            )
 
     def join_with_star(lst):
         if len(lst) == 1:
             return lst[0] + "*"
         return "*".join(lst)
+    
+    subjects = {}
 
-    # add this part to main parallel when you want to concatenate
-    # different run
-    subjects = dict(filter(lambda item: item[1], subjects.items()))
-    subjects = {key: join_with_star(value) for key, value in subjects.items()}
+    for dataset_name, dataset_info in datasets.items():
+        base_dir = dataset_info["base_dir"]
+        task = dataset_info["task"]
+        ending = dataset_info["ending"]
+        empty_room_task = dataset_info["empty_room_task"]
+        surfaces = dataset_info["surfaces_dir"]
+
+        dirs = [
+            d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
+        ]
+        
+        for subj in dirs:
+        
+            rs_record_paths = glob.glob(
+                f"{base_dir}/{subj}/**/*{task}*{ending}",
+                recursive=True
+                )
+            
+            if empty_room_task:
+                er_record_paths = glob.glob(
+                    f"{base_dir}/{subj}/**/*{empty_room_task}*{ending}",
+                    recursive=True
+                    )
+            else: 
+                er_record_paths = None
+            
+            if surfaces:
+                if os.path.isdir(os.path.join(surfaces, subj)):
+                    surface = surfaces
+                else:
+                    surface = None
+            else: 
+                surface = None
+
+            subjects.update(
+                {subj: 
+                    {
+                    "rest_record": join_with_star(rs_record_paths),
+                    "empty_room_record":er_record_paths,
+                    "mri_surface":surface
+                    }
+                }
+            )
+
+    # subjects = dict(filter(lambda item: item[1], subjects.items()))
+    # subjects = {key: join_with_star(value) for key, value in subjects.items()}
 
     return subjects
 
@@ -734,4 +757,4 @@ def set_path(project_dir):
     make_folder(figures_dir)
     make_folder(models_summary)
 
-    return features_log_path
+    return features_dir, features_log_path
