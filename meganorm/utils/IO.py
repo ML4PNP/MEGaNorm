@@ -51,7 +51,7 @@ def make_config(path=None, **kwargs):
 
     # which sensor type should be used
     # choices: meg, mag, grad, eeg, opm
-    config["which_sensor"] = "meg"
+    config["which_sensor"] = "mag"
     # config['fs'] = 1000
 
     # ICA configuration
@@ -67,8 +67,18 @@ def make_config(path=None, **kwargs):
     config["digital_filter"] = True
     config["notch_filter"] = False
 
-    config["apply_ica"] = True
+    # Muscle artifact rekection configurations
+    config["muscle_activity_thr"] = 4
+    config["muscle_activity_min_length_good"] = 0.1
+    config["muscle_activity_filter_freq"] = (110, 140)
+    # external noise suppression
+        # tsss
 
+        # gradient compensation
+    config["ctf_gradient_comp_level"] = 3
+    
+
+    config["apply_ica"] = True
     config["auto_ica_corr_thr"] = 0.9
 
     # options are "average", "REST", and None
@@ -94,6 +104,16 @@ def make_config(path=None, **kwargs):
     config["segments_length"] = 10
     # amount of overlap between MEG sigals in seconds
     config["segments_overlap"] = 2
+
+    # Source localization ==============================================
+    # If you need to apply source localization
+    config["apply_source_localization"] = True
+    # The type of source space for source localization (SL); choices(surface & volumetric)
+    config["SL_source_space"] = "surface"
+    # conductivity of different tissues. The number of values indicates the number of values
+    config["SL_conductivity"] = (0.3,)
+    # The inverse operator algorithm, so far only LCMV is supported
+    config["SL_inverse_operator"] = "lcmv"
 
     # PSD ==============================================
     # Spectral estimation method
@@ -543,37 +563,60 @@ def merge_datasets_with_glob(datasets):
     multiple files (e.g., different runs or sessions), and the goal is to create
     a single pattern that can be used to load all related files for a subject.
     """
-    subjects = {}
-
-    for dataset_name, dataset_info in datasets.items():
-        base_dir = dataset_info["base_dir"]
-
-        dirs = [
-            d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
-        ]
-        subjects.update({subj: [] for subj in dirs})
-
-        paths = glob.glob(
-            f"{datasets[dataset_name]["base_dir"]}/**/*{datasets[dataset_name]["task"]}*{datasets[dataset_name]["ending"]}",
-            recursive=True,
-        )
-
-        # Walk through the base directory to find subject directories
-        for subject_dir in dirs:
-            pattern = os.path.join(datasets[dataset_name]["base_dir"], subject_dir)
-            subjects[subject_dir].extend(
-                list(filter(lambda path: path.startswith(pattern), paths))
-            )
 
     def join_with_star(lst):
         if len(lst) == 1:
             return lst[0] + "*"
         return "*".join(lst)
+    
+    subjects = {}
 
-    # add this part to main parallel when you want to concatenate
-    # different run
-    subjects = dict(filter(lambda item: item[1], subjects.items()))
-    subjects = {key: join_with_star(value) for key, value in subjects.items()}
+    for dataset_name, dataset_info in datasets.items():
+        base_dir = dataset_info["base_dir"]
+        task = dataset_info["task"]
+        ending = dataset_info["ending"]
+        empty_room_task = dataset_info["empty_room_task"]
+        surfaces = dataset_info["surfaces_dir"]
+
+        dirs = [
+            d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
+        ]
+        
+        for subj in dirs:
+        
+            rs_record_paths = glob.glob(
+                f"{base_dir}/{subj}/**/*{task}*{ending}",
+                recursive=True
+                )
+            
+            if empty_room_task:
+                er_record_paths = glob.glob(
+                    f"{base_dir}/{subj}/**/*{empty_room_task}*{ending}",
+                    recursive=True
+                    )
+            else: 
+                er_record_paths = None
+            
+            if surfaces:
+                if os.path.isdir(os.path.join(surfaces, subj)):
+                    surface = surfaces
+                else:
+                    surface = None
+            else: 
+                surface = None
+
+            subjects.update(
+                {subj: 
+                    {
+                    "rest_record": join_with_star(rs_record_paths),
+                    "empty_room_record":er_record_paths,
+                    "mri_surface":surface
+                    }
+                }
+            )
+
+    # subjects = dict(filter(lambda item: item[1], subjects.items()))
+    # subjects = {key: join_with_star(value) for key, value in subjects.items()}
 
     return subjects
 
@@ -663,3 +706,68 @@ def make_demo_file_bids(
 
     # Save as BIDS-compatible TSV
     new_df.to_csv(save_dir, sep="\t", index=False)
+
+
+def set_path(project_dir):
+    """
+    Create and initialize directory structure for a given project.
+
+    This function generates a set of predefined directories for
+    feature extraction and normative modeling workflows within the
+    specified project directory. If any of these directories do not
+    exist, they will be created. The function returns the path to the
+    features log directory.
+
+    Parameters
+    ----------
+    project_dir : str
+        Path to the root project directory where the folder structure
+        will be created.
+
+    Returns
+    -------
+    str
+        Absolute path to the 'log' directory inside the 'Features'
+        folder.
+
+    Notes
+    -----
+    The function creates the following directory structure:
+
+    - ``Features/``  
+      - ``log/`` (for saving logs of feature extraction)
+      - ``temp/`` (for temporarily storing extracted features)
+      - ``figures/`` (for saving generated figures)
+
+    - ``Normative modeling/``  
+      - ``Runs/`` (for saving model run outputs)
+      - ``Figures/`` (for visual outputs related to modeling)
+      - ``Models summary/`` (for summaries of model results)
+    """
+    def make_folder(path):
+        if not os.path.isdir(path):
+            os.makedirs(path)
+
+    features_dir = os.path.join(project_dir, 'Features')
+    # a log file to save logs of feature extraction
+    features_log_path = os.path.join(features_dir, 'log')
+    # a directory to save extracted features temporarily
+    features_temp_path = os.path.join(features_dir,'temp')
+    figures_dir = os.path.join(features_dir, "figures")
+
+    make_folder(features_dir)
+    make_folder(features_log_path)
+    make_folder(features_temp_path)
+    make_folder(figures_dir)
+
+    nm_dir = os.path.join(project_dir, "Normative modeling")
+    run_dir = os.path.join(nm_dir, "Runs")
+    figures_dir = os.path.join(nm_dir, "Figures")
+    models_summary = os.path.join(nm_dir, "Models summary")
+
+    make_folder(nm_dir)
+    make_folder(run_dir)
+    make_folder(figures_dir)
+    make_folder(models_summary)
+
+    return features_dir, features_log_path

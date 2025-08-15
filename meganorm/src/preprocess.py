@@ -4,12 +4,15 @@ from mne_icalabel import label_components
 import json
 import numpy as np
 import glob
+import logging
 from typing import Any, Dict
 import pandas as pd
-
+from scipy.stats import zscore
 import warnings
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
@@ -125,7 +128,7 @@ def auto_ica(
             )
         )
 
-    print("Bad Components identified by auto ICA:", bad_components)
+    logger.info(f"Number of bad ICA components: {len(bad_components)}")
 
     if bad_components:
         ica.exclude = bad_components.copy()
@@ -134,7 +137,7 @@ def auto_ica(
     else:
         ICA_flag = True
 
-    return data, ICA_flag
+    return data, ICA_flag, len(bad_components)
 
 
 def auto_ica_with_mean(
@@ -191,10 +194,11 @@ def auto_ica_with_mean(
         data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
     )
 
+    logger.info(f"Number of bad ICA components detected by creating synthetic ECG signal: {len(ecg_indices)}")
     ica.exclude = ecg_indices
     ica.apply(data, verbose=False)
 
-    return data
+    return data, len(ecg_indices)
 
 
 def AutoIca_with_IcaLabel(
@@ -234,11 +238,11 @@ def AutoIca_with_IcaLabel(
         ):
             bad_components.append(idx)
 
-    print("Bad Components identified by ICALabel:", bad_components)
+    logger.info("Number of bad Components identified by ICALabel:", len(bad_components))
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
-    return data
+    return data, len(bad_components)
 
 
 def prepare_eeg_data(data, path):
@@ -353,7 +357,9 @@ def segment_epoch(
 
 def preprocess(
     data,
+    extention,
     which_sensor: dict,
+    empty_room_recording=None,
     resampling_rate: int = 1000,
     digital_filter=True,
     rereference_method="average",
@@ -365,6 +371,10 @@ def preprocess(
     apply_ica=True,
     power_line_freq: int = 60,
     auto_ica_corr_thr: float = 0.9,
+    ctf_gradient_comp_level=3,
+    muscle_activity_thr=4.0,
+    muscle_activity_min_length_good=0.1,
+    muscle_activity_filter_freq=(110, 140)
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -374,8 +384,13 @@ def preprocess(
     ----------
     data : mne.io.Raw
         Raw MEG/EEG data.
+    extention : str
+        The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the
+        appropriate layout file from the layout directory.
     which_sensor : dict
         Dictionary specifying which sensor types to include (e.g., {'meg': True, 'eeg': True}).
+    empty_room_recording : mne.io.Raw, optional
+        Empty room recording.
     resampling_rate : int, optional
         Target sampling rate for resampling. If None, resampling is skipped; by default 1000.
     digital_filter : bool, optional
@@ -400,6 +415,18 @@ def preprocess(
         Correlation threshold for automatic ICA artifact rejection; by default 0.9. That is,
         the correlation between identified independent components and physiological signals (ECG
         and EOG) must be higher than 'auto_ica_corr_thr'
+    ctf_gradient_comp_level: int, optional
+        The gradient compensation level to apply. Valid values typically include:
+        -1 (disable), 0 (raw data), 1, 2, 3 (increasing levels of compensation).
+        Default is 3.
+    muscle_activity_thr : float, optional
+        The threshold for a segment to be considered as artifact (z-scores)
+    muscle_activity_min_length_good: float, optional
+        The minimum required duration (in seconds) of valid data between consecutive annotations.
+    muscle_activity_filter_freq: tuple, optional
+        Cutoff frequencies for the band-pass filter used in muscle activity detection.
+        Muscle activity is typically more prominent in higher frequency ranges (e.g., 110–140 Hz).
+
 
     Returns
     -------
@@ -414,34 +441,46 @@ def preprocess(
         ICA method must be one of: 'fastica', 'picard', 'infomax'.
     """
     if not 0 < auto_ica_corr_thr <= 1:
-        raise ValueError("auto_ica_corr_thr must be between 0 and 1.")
+        err_msg = "auto_ica_corr_thr must be between 0 and 1."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
     if IcaMethod not in ["fastica", "picard", "infomax"]:
-        raise ValueError("ICA method must be one of: 'fastica', 'picard', 'infomax'.")
+        err_msg = "ICA method must be one of: 'fastica', 'picard', 'infomax'."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
+
 
     # since pick_channels can not seperate mag and grad signals
     if not (which_sensor["meg"] or which_sensor["eeg"]):
         if not which_sensor["mag"]:
-            mag_channels = [
+            logger.info("Dropping magnetometer sensors.")
+            dropping_channels = [
                 ch
                 for ch, ch_type in zip(data.ch_names, data.get_channel_types())
                 if ch_type == "mag"
             ]
         elif not which_sensor["grad"]:
-            mag_channels = [
+            logger.info("Dropping gradiometer sensors.")
+            dropping_channels = [
                 ch
                 for ch, ch_type in zip(data.ch_names, data.get_channel_types())
                 if ch_type == "grad"
             ]
-        data.drop_channels(mag_channels)
+        data.drop_channels(dropping_channels)
+        if empty_room_recording:
+            empty_room_recording.drop_channels(dropping_channels)
 
     channel_types = set(data.get_channel_types())
 
     sampling_rate = data.info["sfreq"]
-
     # resample & band pass filter
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
         sampling_rate = data.info["sfreq"]
+        # resampling empty room recording
+        if empty_room_recording:
+            empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
+
 
     data.notch_filter(
         freqs=np.arange(
@@ -449,6 +488,24 @@ def preprocess(
         ),
         n_jobs=-1,
     )
+    if empty_room_recording:
+        empty_room_recording.notch_filter(
+            freqs=np.arange(
+                int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
+            ),
+            n_jobs=-1,
+        )
+
+    # remove cHPI noise:
+    if data.info["hpi_meas"] and data.info["hpi_subsystem"]:
+        data = mne.chpi.filter_chpi(data,
+                                    include_line=False)
+        logger.info("Filtering CHPI noise.")
+    else:
+        if cutoffFreqHigh > 100: # TODO check this
+            logger.warning("hpi_meas and hpi_subsystem info are missing; Therefore"\
+            " cHPI noise can not be filtered. In case you have cHPI coils, please put"
+            "this information in the data, otherwise you can ignore this error.")
 
     if digital_filter:
         data.filter(
@@ -457,10 +514,38 @@ def preprocess(
             n_jobs=-1,
             verbose=False,
         )
+        if empty_room_recording:
+            empty_room_recording.filter(
+                l_freq=int(cutoffFreqLow),
+                h_freq=int(cutoffFreqHigh),
+                n_jobs=-1,
+                verbose=False,
+            )      
+
+    # Muscle artifact detection
+    if cutoffFreqHigh > muscle_activity_filter_freq[0]:
+        muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data,
+                                                min_length_good=muscle_activity_min_length_good,
+                                                filter_freq=muscle_activity_filter_freq,
+                                                threshold=muscle_activity_thr)
+        # ICA will ignore these and later will be removed in segmentation
+        data.set_annotations(muscle_annot)
+        logger.info(f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} seconds of"\
+                    " the signal.")
+        # TODO: MNE doc: The type of sensors to use. If None it will take the first type in mag, grad, eeg.
+        # You need to apply muscle artifact detection on both
+        # MAG and Grad seperately.
 
     # rereference
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
+        if empty_room_recording:
+            empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
+
+    # gradient compensation for CTF datasets
+    if extention == "CTF":
+        data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+
 
     ICA_flag = True  # initialize flag
 
@@ -469,13 +554,15 @@ def preprocess(
     }
 
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
-
-        if which_sensor[
-            "meg"
-        ]:  # ======================================================================
+        
+        # number of reduced independent components for rank computation
+        number_of_reduced_ic = 0
+        
+        if which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"]:  
+            # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data, _ = auto_ica(
+                data, _, number_of_reduced_ic  = auto_ica(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -486,7 +573,7 @@ def preprocess(
                 )
             # 2
             elif not if_elec_exist and apply_ica and phys_activity_type == "ecg":
-                data = auto_ica_with_mean(
+                data, number_of_reduced_ic = auto_ica_with_mean(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -500,7 +587,7 @@ def preprocess(
         ]:  # ======================================================================
             # 1
             if if_elec_exist and apply_ica:
-                data, ICA_flag = auto_ica(
+                data, ICA_flag, number_of_reduced_ic = auto_ica(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -511,7 +598,7 @@ def preprocess(
                 )
             # 2
             elif not if_elec_exist and apply_ica and ICA_flag:
-                data = AutoIca_with_IcaLabel(
+                data, number_of_reduced_ic = AutoIca_with_IcaLabel(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -528,11 +615,20 @@ def preprocess(
         ecg=False,
     )
 
-    return data, data.info["ch_names"], int(sampling_rate)
+    if empty_room_recording:
+        empty_room_recording = empty_room_recording.pick_types(
+            meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
+            eeg=which_sensor["eeg"],
+            ref_meg=False,
+            eog=False,
+            ecg=False,
+        )
+
+    return data, data.info["ch_names"], int(sampling_rate), empty_room_recording, number_of_reduced_ic
 
 
 def drop_noisy_meg_channels(
-    data: Any, subID: str, args: Any, configs: Dict[str, str]
+    data: Any, subID: str, args: Any, configs: Dict[str, str], empty_room_recording=None
 ) -> Any:
     """
     Identifies and removes noisy or flat MEG/EEG channels using Maxwell filtering,
@@ -553,6 +649,9 @@ def drop_noisy_meg_channels(
         Configuration dictionary containing:
             - 'which_sensor': one of {"meg", "mag", "grad", "eeg", "opm"}
 
+    empty_room_recording: instance of `mne.io.Raw`
+        Empty room recording.
+
     Returns
     -------
     data_cleaned : instance of `mne.io.Raw`
@@ -568,6 +667,8 @@ def drop_noisy_meg_channels(
     a directory derived from `args.saveDir`, replacing 'temp' with
     'log_droped_channels'.
     """
+    logger = logging.getLogger(__name__)
+
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor[configs.get("which_sensor")] = True
 
@@ -579,16 +680,292 @@ def drop_noisy_meg_channels(
 
     except RuntimeError as e:
         if "Maxwell filtering SSS step has already been applied" in str(e):
-            print("Skipping: SSS already applied.")
+            logger.info("Skipping: SSS already applied.")
         else:
             raise
 
+    if empty_room_recording:
+        empty_room_recording.info["bads"] = data.info["bads"].copy()
+        empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
+
     # Always proceed to log and drop marked bads
     droped_ch_len = len(data.info["bads"])
-    log_path = args.saveDir.replace("temp", "log_droped_channels")
+    logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
 
-    os.makedirs(log_path, exist_ok=True)
-    with open(os.path.join(log_path, f"{subID}.json"), "w") as file:
-        json.dump(droped_ch_len, file)
+    dropped_data = data.copy().drop_channels(data.info["bads"])
+    return dropped_data, empty_room_recording
 
-    return data.copy().drop_channels(data.info["bads"])
+def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
+
+    if meg_data.info["hpi_results"]:
+
+        # BTi/4D MEG recordings do not support cHPI and don't have 
+        # real time recordings  of the brain pos
+        if extention == "fif":
+            amp = mne.chpi.compute_chpi_amplitudes(meg_data)
+            locs = mne.chpi.compute_chpi_locs(meg_data.info, amp)
+
+        if extention == "ds":
+            locs = mne.chpi.extract_chpi_locs_ctf(meg_data)
+
+        head_pos = mne.chpi.compute_head_pos(meg_data.info, locs)
+
+        if list(head_pos):
+            movement_annot = mne.preprocessing.annotate_movement(meg_data, 
+                                                                pos=head_pos, 
+                                                                mean_distance_limit=movement_limit)
+
+            moved_times = sum(movement_annot.duration)
+            moved_inteval_percentage = moved_times/meg_data.duration[-1]*100
+
+            logger.warning(f"{moved_inteval_percentage} percent of the recording exceeds the mean distance"\
+                        "limit for the head motion. Consider using tSSS.")
+        else:
+            logger.info("Unable to find a reliable solution for any of the coils")
+
+    else:
+        logger.info("No cHPI coil was found for the current subject.")
+
+    mne.chpi.write_head_pos(head_pos_save_path, head_pos)
+
+
+def apply_gradient_comp(ctf_meg_data, grade=3):
+    """
+    Interpolate bad channels and apply gradient compensation to CTF MEG data.
+
+    This function first interpolates bad MEG channels using the minimum norm method
+    to improve signal quality, then applies CTF-style gradient compensation at the
+    specified grade level. Gradient compensation is specific to CTF MEG systems and
+    helps remove interference from distant sources.
+
+    Parameters
+    ----------
+    ctf_meg_data : mne.io.Raw
+        The raw MEG data object (from a CTF system), loaded with `preload=True`.
+        Must contain CTF-specific gradient compensation information.
+    grade : int, optional
+        The gradient compensation level to apply. Valid values typically include:
+        -1 (disable), 0 (raw data), 1, 2, 3 (increasing levels of compensation).
+        Default is 3.
+
+    Returns
+    -------
+    ctf_meg_data : mne.io.Raw
+        The same Raw object with interpolated bad channels and gradient compensation applied.
+
+    Notes
+    -----
+    - Only the minimum norm method (`method={"meg": "MNE"}`) is used for interpolation,
+      which is currently the only supported method for MEG in MNE.
+    - Bad channels are not reset after interpolation (`reset_bads=False`) so that
+      they remain marked in the data structure.
+    - This function assumes that the input data is from a CTF MEG system.
+
+    See Also
+    --------
+    mne.io.Raw.interpolate_bads : Interpolate bad channels in MEG/EEG data.
+    mne.io.Raw.apply_gradient_compensation : Apply gradient compensation to CTF MEG data.
+    """
+    # Only minimum norm method is supported by MNE
+    # for interpolating MEG signals; Therefore this
+    # argument is not added to the config
+    method = {"meg": "MNE"}
+    # Bad channels are first interpolated for the
+    # sake of SNR
+    # reset_bads should remain False to keep track
+    # of bad channels so we can use them later in
+    # source localization.
+    ctf_meg_data.interpolate_bads(reset_bads=False,
+                                  method=method)
+    
+    ctf_meg_data.apply_gradient_compensation(grade=grade) 
+
+    logger.info(f"Gradient compensation with level of {grade} has been applied to the data.")
+
+    return ctf_meg_data
+
+
+def apply_tsss(
+        data,
+        cross_talk_path,
+        calibration_path,
+        head_pos_path=None,
+        empty_room_record=None,
+        st_duration=10.0,
+        st_correlation=0.98
+):
+    """
+    Apply temporal Signal Space Separation (tSSS) to MEG data with optional 
+    head position correction and empty-room noise processing.
+
+    This function uses MNE-Python's Maxwell filtering implementation to 
+    suppress environmental noise and remove cross-talk between sensors.
+    If a head position file is provided, movement compensation will be 
+    applied. Optionally, an empty-room recording can be processed with 
+    the same parameters for noise estimation.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG data to be processed.
+    cross_talk_path : str or path-like
+        Path to the cross-talk compensation file (CTF), typically provided
+        by the MEG system.
+    calibration_path : str or path-like
+        Path to the fine-calibration file (CAL), typically provided by the
+        MEG system.
+    head_pos_path : str or path-like, optional
+        Path to the head position file (.pos) obtained from cHPI processing.
+        If provided, movement compensation will be applied.
+    empty_room_record : mne.io.Raw, optional
+        Raw empty-room MEG recording to process for noise estimation. If 
+        provided, it will be Maxwell filtered with the same parameters as 
+        the main data.
+    st_duration : float, default=10.0
+        Window duration in seconds for the temporal SSS (tSSS) projection.
+        Shorter windows can better track non-stationary interference but 
+        may remove more brain signal.
+    st_correlation : float, default=0.98
+        Correlation limit between SSS basis functions across time windows. 
+        Values closer to 1.0 remove less brain signal but may be less 
+        effective at removing artifacts.
+
+    Returns
+    -------
+    data_tsss : mne.io.Raw
+        The Maxwell-filtered MEG data with optional movement compensation.
+    empty_room_record : mne.io.Raw or None
+        The Maxwell-filtered empty-room recording if provided, else None.
+
+    Notes
+    -----
+    - Maxwell filtering is sensitive to accurate calibration and cross-talk
+      compensation files; ensure the provided files match the MEG system used
+      for the recording.
+    - The `st_duration` and `st_correlation` parameters control the aggressiveness 
+      of the temporal projection; inappropriate values can either leave 
+      environmental noise in the data or attenuate brain signal.
+    - If `head_pos_path` is provided, continuous head position data will be
+      used to apply movement compensation during filtering.
+
+    References
+    ----------
+    .. [1] Taulu, S., Simola, J. (2006). Spatiotemporal signal space separation method 
+       for rejecting nearby interference in MEG measurements. Physics in Medicine 
+       and Biology, 51(7), 1759.
+    .. [2] MNE-Python documentation: 
+       https://mne.tools/stable/generated/mne.preprocessing.maxwell_filter.html
+    """
+    
+    if head_pos_path:
+        head_pos = mne.chpi.read_head_pos(head_pos_path)
+    else:
+        head_pos = None
+
+    data_tsss = mne.preprocessing.maxwell_filter(
+        raw=data,
+        calibration=calibration_path,
+        cross_talk=cross_talk_path,
+        st_duration=st_duration,
+        st_correlation=st_correlation,
+        head_pos=head_pos
+    )
+
+    if empty_room_record:
+        
+        empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+            raw_er=empty_room_record
+        )
+
+        empty_room_record = mne.preprocessing.maxwell_filter(
+            raw=empty_room_record,
+            calibration=calibration_path,
+            cross_talk=cross_talk_path,
+            st_duration=st_duration,
+            st_correlation=st_correlation,
+            head_pos=head_pos
+        )
+
+    return data_tsss, empty_room_record
+
+
+def drop_noisy_segments(
+        segments,
+        z_thr
+):
+    """
+    Drop noisy data segments based on the z-scored standard deviation 
+    across time.
+
+    This function computes the standard deviation of each segment across 
+    the time axis, converts these values to z-scores, and removes segments 
+    whose z-score exceeds a given threshold. This is useful for discarding 
+    artifacts or unusually high-variance data before further processing.
+
+    Parameters
+    ----------
+    segments : mne.Epochs or mne.Epochs-like
+        The segmented MEG/EEG data object. Must have an attribute 
+        ``_data`` of shape (n_segments, n_channels, n_times) and a 
+        ``drop(indices)`` method to remove segments.
+    z_thr : float
+        The z-score threshold. Segments with a standard deviation 
+        z-score greater than this value will be dropped.
+
+    Returns
+    -------
+    segments : mne.Epochs or mne.Epochs-like
+        The input object with noisy segments removed.
+
+    Notes
+    -----
+    - This method assumes that noise manifests as abnormally high 
+      variance in one or more channels of a segment.
+    - Z-scores are computed per channel across all segments, so 
+      segments may be flagged for removal if any channel exceeds 
+      the threshold.
+    - The function logs the number of dropped segments and the 
+      remaining count.
+
+    """
+
+    z_scores = zscore(
+        np.std(
+            segments._data, axis=2
+            ),
+        axis=0)
+    
+    bad_segments = np.where(
+        z_scores>z_thr
+        )[0]
+    
+    segments=segments.drop(indices=bad_segments)
+
+    logger.info(f"Dropping {len(bad_segments)} segments due to Z > Z_threshold. "\
+                f"The final number of used segments: {segments.__len__()}")
+    
+    return segments
+
+
+def check_tsss(meg_data):
+    """
+    Check if Maxwell filtering (tSSS) was applied to raw/epochs data.
+
+    This inspects the processing history for presence of maxfilter info.
+
+    Parameters
+    ----------
+    meg_data : mne.io.BaseRaw | mne.Epochs
+        The MEG data object.
+
+    Returns
+    -------
+    bool
+        True if tSSS has been applied, False otherwise.
+    """
+    proc_history = meg_data.info.get('proc_history', [])
+    if not proc_history:
+        return False
+    max_info = proc_history[0].get('max_info', {})
+    sss_cal = max_info.get('sss_cal', [])
+    return len(sss_cal) > 0

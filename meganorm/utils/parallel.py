@@ -41,7 +41,8 @@ def sbatchfile(
     core=1,
     node=1,
     batch_file_name="batch_job",
-    with_config=True,
+    freesurfer_home=None,
+    freesurfer_license=None,
 ):
     """
     Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
@@ -82,7 +83,19 @@ def sbatchfile(
     sbatch_partition = "#SBATCH -p " + partition + "\n"
     sbatch_time = "#SBATCH --time=" + time + "\n"
     sbatch_memory = "#SBATCH --mem=" + memory + "\n"
-    sbatch_module = "source activate " + module + "\n"
+
+    if freesurfer_home:
+        sbatch_module = (
+        "source activate " + module + "\n" +
+        f"export FREESURFER_HOME={freesurfer_home}\n" +
+        f"export FREESURFER_LICENSE={freesurfer_license}\n" +
+        "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
+        )
+    else:
+        sbatch_module = (
+        "source activate " + module + "\n" 
+        )
+
     if log_path is not None:
         sbatch_log_out = "#SBATCH -o " + log_path + "/%x_%j.out" + "\n"
         sbatch_log_error = "#SBATCH -e " + log_path + "/%x_%j.err" + "\n"
@@ -91,15 +104,23 @@ def sbatchfile(
     sbatch_input_2 = "target=$2\n"
     sbatch_input_3 = "subject=$3\n"
     sbatch_input_4 = "config=$4\n"
+    sbatch_input_5 = "surfaces_dir=$5\n"
+    sbatch_input_6 = "empty_room_recording_path=$6\n"
 
-    if with_config:
-        command = (
-            "srun python "
-            + mainParallel_path
-            + " $source $target $subject --configs $config"
+    # if with_config:
+    command = (
+        "srun python "
+        + mainParallel_path
+        + " $source $target $subject --configs $config"
         )
-    else:
-        command = "srun python " + mainParallel_path + " $source $target $subject"
+    # else:
+    #     command = "srun python " + mainParallel_path + " $source $target $subject"
+
+    # if with_source_localization:
+    command += f" --surfaces_dir $surfaces_dir"
+    
+        # if with_empty_room_recording:
+    command += " --empty_room_recording_path $empty_room_recording_path"
 
     bash_environment = [
         sbatch_init
@@ -118,8 +139,13 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_1
     bash_environment[0] += sbatch_input_2
     bash_environment[0] += sbatch_input_3
-    if with_config:
-        bash_environment[0] += sbatch_input_4
+    # if with_config:
+    bash_environment[0] += sbatch_input_4
+    # if with_source_localization:
+    bash_environment[0] += sbatch_input_5
+        # if with_empty_room_recording:
+    bash_environment[0] += sbatch_input_6
+
     bash_environment[0] += command
 
     job_path = os.path.join(bash_file_path, batch_file_name + ".sh")
@@ -141,6 +167,8 @@ def submit_jobs(
     config_file=None,
     job_configs=None,
     progress=False,
+    freesurfer_home=None,
+    freesurfer_license=None
 ):
     """
     Submits jobs for each subject to the SLURM cluster for parallel execution.
@@ -196,27 +224,32 @@ def submit_jobs(
         core=job_configs["core"],
         node=job_configs["node"],
         batch_file_name=job_configs["batch_file_name"],
-        with_config=config_file is not None,
+        freesurfer_home=freesurfer_home,
+        freesurfer_license=freesurfer_license
+        # with_config=config_file is not None,
+        # with_source_localization=surfaces_dir is not None,
+        # with_empty_room_recording=empty_room_recording is not None
     )
 
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects.keys()):
         # fname = os.path.join(subjects[subject], 'meg', subject + '_task-rest_meg.fif')
-        fname = subjects[subject]
-        # if os.path.exists(fname[0]):
-        if config_file is None:
-            subprocess.check_call(
-                f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {subject}",
-                shell=True,
-            )
-        else:
-            subprocess.check_call(
-                f"sbatch --job-name={subject} {batch_file} {fname} {temp_path} {subject} {config_file}",
-                shell=True,
-            )
-        # else:
-        #     print('File does not exist!')
+        rs_fname = subjects[subject]["rest_record"]
+        er_fname = subjects[subject]["empty_room_record"]
+        mri_surface = subjects[subject]["mri_surface"]
+        
+        command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject}"
+        # if config_file:
+        command += f" {config_file}"
+
+        # if mri_surface:
+        command += f" {mri_surface}"
+            
+            # if er_fname:
+        command += f" {er_fname}"
+        
+        subprocess.check_call(command, shell=True)
 
         if progress:
             progress_bar(s, len(subjects))
@@ -386,10 +419,12 @@ def auto_parallel_feature_extraction(
     features_dir,
     subjects,
     job_configs,
-    config_file,
+    config_file=None,
     username=None,
     auto_rerun=True,
     auto_collect=True,
+    freesurfer_home=None,
+    freesurfer_license=None,
     max_try=3,
 ):
     """
@@ -408,6 +443,10 @@ def auto_parallel_feature_extraction(
         Dictionary containing job configuration settings (e.g., memory, time, partition, etc.).
     config_file : str
         Path to a JSON configuration file containing additional settings for the feature extraction jobs.
+
+    TODO
+
+    
     username : str, optional
         The SLURM username. If not provided, it will be fetched from the environment. Default is None.
     auto_rerun : bool, optional
@@ -436,6 +475,8 @@ def auto_parallel_feature_extraction(
         features_temp_path,
         job_configs=job_configs,
         config_file=config_file,
+        freesurfer_home=freesurfer_home,
+        freesurfer_license=freesurfer_license
     )
     # Checking jobs
     failed_jobs = check_jobs_status(username, start_time)
@@ -453,6 +494,8 @@ def auto_parallel_feature_extraction(
             features_temp_path,
             job_configs=job_configs,
             config_file=config_file,
+            freesurfer_home=freesurfer_home,
+            freesurfer_license=freesurfer_license
         )
         # Checking jobs
         failed_jobs = check_jobs_status(username, start_time)
