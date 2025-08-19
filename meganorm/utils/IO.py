@@ -133,7 +133,7 @@ class config(BaseModel):
 
 
 
-def make_config(path=None):
+def make_config(path=None, **kwargs):
     """
     Create a configuration dictionary for a neuroimaging preprocessing pipeline.
 
@@ -146,6 +146,10 @@ def make_config(path=None):
     path : str, optional
         The directory path where the configuration file should be saved. If not provided,
         the configuration is not saved to a file.
+
+    **kwargs: : keyword arguments
+        Configuration keys to override. For nested dicts, use double underscores (e.g.,
+        'feature_categories__Offset').
 
     Returns
     -------
@@ -165,7 +169,7 @@ def make_config(path=None):
     # downsample data
     config = dict()
 
-    # You could also set layout to None to have high 
+    # You could also set layout to None to have high
     # choices: all, lobe, None
     config["which_layout"] = "all"
 
@@ -175,13 +179,13 @@ def make_config(path=None):
     # config['fs'] = 1000
 
     # ICA configuration
-    config['ica_n_component'] = 30
-    config['ica_max_iter'] = 800
-    config['ica_method'] = "fastica"
+    config["ica_n_component"] = 30
+    config["ica_max_iter"] = 800
+    config["ica_method"] = "fastica"
 
     # lower and upper cutoff frequencies in a bandpass filter
-    config['cutoffFreqLow'] = 1
-    config['cutoffFreqHigh'] = 45
+    config["cutoffFreqLow"] = 1
+    config["cutoffFreqHigh"] = 45
 
     config["resampling_rate"] = 1000
     config["digital_filter"] = True
@@ -201,8 +205,8 @@ def make_config(path=None):
     config["apply_ica"] = True
     config["auto_ica_corr_thr"] = 0.9
 
-    # options are "average", "REST", and None 
-    config["rereference_method"]= "average"
+    # options are "average", "REST", and None
+    config["rereference_method"] = "average"
 
     # variance threshold across time
     config["mag_var_threshold"] = 4e-12
@@ -213,17 +217,17 @@ def make_config(path=None):
     config["grad_flat_threshold"] = 10e-15
     config["eeg_flat_threshold"] = 40e-6
     # variance thershold across channels
-    config["zscore_std_thresh"] = 15 # change this
+    config["zscore_std_thresh"] = 15  # change this
 
     # segmentation ==============================================
-    #start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state. 
-    config['segments_tmin'] = 20
+    # start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
+    config["segments_tmin"] = 20
     # end time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
-    config['segments_tmax'] = -20
+    config["segments_tmax"] = -20
     # length of MEG segments in seconds
-    config['segments_length'] = 10
+    config["segments_length"] = 10
     # amount of overlap between MEG sigals in seconds
-    config['segments_overlap'] = 2
+    config["segments_overlap"] = 2
 
     # Source localization ==============================================
     # If you need to apply source localization
@@ -237,75 +241,84 @@ def make_config(path=None):
 
     # PSD ==============================================
     # Spectral estimation method
-    config['psd_method'] = "welch"
+    config["psd_method"] = "welch"
     # amount of overlap between windows in Welch's method
-    config['psd_n_overlap'] = 1
-    config['psd_n_fft'] = 2
+    config["psd_n_overlap"] = 1
+    config["psd_n_fft"] = 2
     # number of samples in psd
     config["psd_n_per_seg"] = 2
 
     # fooof analysis configurations ==============================================
     # Desired frequency range to run FOOOF
-    config['fooof_freq_range_low'] = 3
-    config['fooof_freq_range_high'] = 40
+    config["fooof_freq_range_low"] = 3
+    config["fooof_freq_range_high"] = 40
     config["fooof_freq_range_low"] = 3
     config["fooof_freq_range_high"] = 40
     # which mode should be used for fitting; choices (knee, fixed)
     config["aperiodic_mode"] = "knee"
     # minimum acceptable peak width in fooof analysis
     config["fooof_peak_width_limits"] = [1.0, 12.0]
-    #Absolute threshold for detecting peaks
-    config['fooof_min_peak_height'] = 0
-    #Relative threshold for detecting peaks
-    config['fooof_peak_threshold'] = 2
+    # Absolute threshold for detecting peaks
+    config["fooof_min_peak_height"] = 0
+    # Relative threshold for detecting peaks
+    config["fooof_peak_threshold"] = 2
 
     # feature extraction ==========================================================
     # Define frequency bands
-    config['freq_bands'] = {
-                            'Theta': (3, 8),
-                            'Alpha': (8, 13),
-                            'Beta': (13, 30),
-                            'Gamma': (30, 40),
-                            # 'Broadband': (3, 40)
-                            }
+    config["freq_bands"] = {
+        "Theta": (3, 8),
+        "Alpha": (8, 13),
+        "Beta": (13, 30),
+        "Gamma": (30, 40),
+        # 'Broadband': (3, 40)
+    }
 
     # Define individualized frequency range over main peaks in each freq band
-    config['individualized_band_ranges'] = { 
-                                            'Theta': (-2, 3),
-                                            'Alpha': (-2, 3), # change to (-4,2)
-                                            'Beta': (-8, 9),
-                                            'Gamma': (-5, 5)
-                                            }
+    config["individualized_band_ranges"] = {
+        "Theta": (-2, 3),
+        "Alpha": (-2, 3),  # change to (-4,2)
+        "Beta": (-8, 9),
+        "Gamma": (-5, 5),
+    }
 
     # least acceptable R squred of fitted models
-    config['min_r_squared'] = 0.9 
- 
-    config['feature_categories'] = {
-                                    "Offset":False,
-                                    "Exponent":False,
-                                    "Peak_Center":False,
-                                    "Peak_Power":False,
-                                    "Peak_Width":False,
-                                    "Adjusted_Canonical_Relative_Power":True, 
-                                    "Adjusted_Canonical_Absolute_Power":False,
-                                    "Adjusted_Individualized_Relative_Power":False,
-                                    "Adjusted_Individualized_Absolute_Power":False,
-                                    "OriginalPSD_Canonical_Relative_Power":False, 
-                                    "OriginalPSD_Canonical_Absolute_Power":False,
-                                    "OriginalPSD_Individualized_Relative_Power":False,
-                                    "OriginalPSD_Individualized_Absolute_Power":False,
-                                    }
-    
+    config["min_r_squared"] = 0.9
+
+    config["feature_categories"] = {
+        "Offset": False,
+        "Exponent": False,
+        "Peak_Center": False,
+        "Peak_Power": False,
+        "Peak_Width": False,
+        "Adjusted_Canonical_Relative_Power": True,
+        "Adjusted_Canonical_Absolute_Power": False,
+        "Adjusted_Individualized_Relative_Power": False,
+        "Adjusted_Individualized_Absolute_Power": False,
+        "OriginalPSD_Canonical_Relative_Power": False,
+        "OriginalPSD_Canonical_Absolute_Power": False,
+        "OriginalPSD_Individualized_Relative_Power": False,
+        "OriginalPSD_Individualized_Absolute_Power": False,
+    }
+
     config["fooof_res_save_path"] = None
 
     config["random_state"] = 42
 
+    # Override default values when specified by user =========================
+    for key, value in kwargs.items():
+        if "__" in key:
+            outer_key, inner_key = key.split("__", 1)
+            if outer_key in config and isinstance(config[outer_key], dict):
+                config[outer_key][inner_key] = value
+        else:
+            config[key] = value
+
     if path is not None:
-        out_file = open(os.path.join(path, "configuration.json"), "w") 
-        json.dump(config, out_file, indent = 6) 
+        out_file = open(os.path.join(path, "configuration.json"), "w")
+        json.dump(config, out_file, indent=6)
         out_file.close()
 
-    return config 
+    return config
 
 
 def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:

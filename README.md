@@ -122,12 +122,9 @@ pytest tests/
 
 ## 🧠 Citing MEGaNorm
 
-If you use MEGaNorm in your work, please cite:
+* Citing the package (**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)): You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320). 
 
-**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)
-
-You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320).
-
+* Citing the paper ([BioRxiv Preprint](https://doi.org/10.1101/2025.06.23.660997)): Zamanzadeh, Mohammad, Ymke Verduyn, Augustijn AA de Boer, Tomas Ros, Thomas Wolfers, Richard Dinga, Marie Safar Postma, Andre F. Marquand, Marijn van Wingerden, and Seyed Mostafa Kia. "MEGaNorm: Normative Modeling of MEG Brain Oscillations Across the Human Lifespan." bioRxiv (2025): 2025-06. 
 
 ---
 
