@@ -7,6 +7,130 @@ import glob
 from pathlib import Path
 import mne
 import numpy as np
+from typing import Literal, Dict, Tuple, List, Optional
+import warnings
+from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
+
+class config(BaseModel):
+
+    which_layout: Literal["all", "lobe", "None"] = "all"
+    which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
+
+    # ICA
+    ica_n_component: PositiveInt = 30
+    ica_max_iter: PositiveInt = 800
+    ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
+
+    cutoffFreqLow: PositiveInt = 1
+    cutoffFreqHigh: PositiveInt = 40
+
+    resampling_rate: PositiveInt = 1000
+    digital_filter: bool = True
+    notch_filter: bool = True
+
+    muscle_activity_thr: int = 4
+    muscle_activity_min_length_good: float = 0.1
+    muscle_activity_filter_freq: Tuple[int, int] = (110, 140)
+
+    ctf_gradient_comp_level: PositiveInt = 3
+    
+    apply_ica: bool = True
+    auto_ica_corr_thr: confloat(ge=0, le=1) = 0.9
+
+    rereference_method: Literal["average", "REST", "None"] = "average"
+
+    mag_var_threshold: float = 4e-12
+    grad_var_threshold: float = 4000e-13
+    eeg_var_threshold: float = 40e-6
+    mag_flat_threshold: float = 10e-15
+    grad_flat_threshold: float = 10e-15
+    eeg_flat_threshold: float = 40e-6
+
+    zscore_std_thresh: PositiveInt = 15
+
+    segments_tmin: PositiveInt = 20
+    segments_tmax: NegativeInt = -20
+    segments_length: PositiveInt = 10
+    segments_overlap: int = 2
+
+    # Source localization
+    apply_source_localization: bool = True
+    SL_source_space: Literal["surface", "volumetric"] = "surface"
+    SL_conductivity: Tuple[float, ...] = (0.3,)
+    SL_inverse_operator: Literal["lcmv"] = "lcmv"
+
+    # PSD
+    psd_method: Literal["multitaper", "welch"] = "welch"
+    psd_n_overlap: PositiveInt = 1
+    psd_n_fft: PositiveInt = 2
+    psd_n_per_seg: PositiveInt = 2
+
+
+    # FOOOF analysis
+    fooof_freq_range_low: PositiveInt = 3
+    fooof_freq_range_high: PositiveInt = 40
+    aperiodic_mode: Literal["knee", "fixed"] = "knee"
+    fooof_peak_width_limits: List[float] = [1.0, 12.0]
+    fooof_min_peak_height: int = 0
+    fooof_peak_threshold: PositiveInt = 2
+    
+    # Feature extraction
+    freq_bands: Dict[str, Tuple[int, int]] = {
+        "Theta": (3, 8),
+        "Alpha": (8, 13),
+        "Beta": (13, 30),
+        "Gamma": (30, 40),
+    }
+
+    individualized_band_ranges: Dict[str, Tuple[int, int]] = {
+        "Theta": (-2, 3),
+        "Alpha": (-2, 3),
+        "Beta": (-8, 9),
+        "Gamma": (-5, 5),
+    }
+
+    min_r_squared: confloat(ge=0, le=1) = 0.9
+
+    feature_categories: Dict[str, bool] = {
+        "Offset": False,
+        "Exponent": False,
+        "Peak_Center": False,
+        "Peak_Power": False,
+        "Peak_Width": False,
+        "Adjusted_Canonical_Relative_Power": True,
+        "Adjusted_Canonical_Absolute_Power": False,
+        "Adjusted_Individualized_Relative_Power": False,
+        "Adjusted_Individualized_Absolute_Power": False,
+        "OriginalPSD_Canonical_Relative_Power": False,
+        "OriginalPSD_Canonical_Absolute_Power": False,
+        "OriginalPSD_Individualized_Relative_Power": False,
+        "OriginalPSD_Individualized_Absolute_Power": False,
+    }
+
+    fooof_res_save_path: Optional[str] = None
+    random_state: int = 42
+
+
+    @field_validator("muscle_activity_thr")
+    def muscle_activity_thr_fv(cls, v):
+        if v < 3:
+            warnings.warn("Select a higher threshold for muscle activity artifacts. Low values " \
+            "remove clean data.")
+        return v
+
+    @ field_validator("muscle_activity_filter_freq")
+    def muscle_activity_filter_freq_fv(cls, v):
+        if v[0] < 100:
+            warnings.warn(f"Muscle activity artifact affects higher frequencies than {v[0]} Hz.")
+        return v
+
+    @model_validator(mode="after")
+    def SL_conductivity_mv(self):
+        if len(self.SL_conductivity) == 1 and self.which_sensor == "eeg":
+            raise ValueError("In the case of EEG, you must have a three layers conductivity model due to volume conduction.")
+        return self
+
+
 
 
 def make_config(path=None):
@@ -601,10 +725,7 @@ def merge_datasets_with_glob(datasets):
                     }
                 }
             )
-
-    # subjects = dict(filter(lambda item: item[1], subjects.items()))
-    # subjects = {key: join_with_star(value) for key, value in subjects.items()}
-
+            
     return subjects
 
 
