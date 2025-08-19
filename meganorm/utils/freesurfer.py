@@ -9,6 +9,9 @@ import re
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import time
+import json
+from datetime import datetime
 
 
 def get_freesurfer_home(freesurfer_path: str | None) -> str:
@@ -167,30 +170,46 @@ echo "Done: ${{SUBJECT_ID}}"
     os.chmod(script_path, 0o755)
     return script_path
 
+def is_success(
+    results_directory: str,
+    subject_id: str,
+    token: str = "finished without error",
+    tail_lines_to_scan: int = 200,
+    fresh_minutes: int = 30,
+    stalled_hours: int = 24,
+) -> bool:
+    """Thin wrapper that reuses the unified classifier."""
+    status, _ = classify_subject_status(
+        results_directory,
+        subject_id,
+        success_token=token,
+        tail_lines_to_scan=tail_lines_to_scan,
+        fresh_minutes=fresh_minutes,
+        stalled_hours=stalled_hours,
+    )
+    return status == "success"
+
 
 def run_parallel_reconall(
     subjects_directory,
-    results_directory=None,        # DEFAULT: <BIDS_ROOT>/derivatives/freesurfer
+    results_directory=None,
     processing_directory=".",
-    freesurfer_path=None,          # <— now optional; resolved from env if None
+    freesurfer_path=None,
     file_postfix=".nii",
+    skip_completed: bool = True,
+    skip_running: bool = True,                         # NEW: avoid double-submitting active jobs
+    resubmit_statuses: tuple[str, ...] = ("failed", "missing", "stalled"),  # NEW
+    success_token: str = "finished without error",
+    tail_lines_to_scan: int = 200,
+    fresh_minutes: int = 30,
+    stalled_hours: int = 24,
 ):
-    """Runs FreeSurfer recon-all in parallel on a SLURM cluster for a BIDS dataset.
-    - Submits one job per T1w file discovered:
-      * sub-XX/anat/*T1w.*
-      * sub-XX/ses-YY/anat/*T1w.*
-
-    Args:
-        subjects_directory (str): Path to data.
-        results_directory (str): Path to save the results.
-        processing_directory (str): Path to save the bash script.
-        freesurfer_path (str): Path to freesurfer.
-        file_postfix (str): file postfix for nifti files (could be different from one dataset to another).
-
-    Returns:
-        A list of submitted jobs.
-
     """
+    Submit recon-all for BIDS subjects, using classify_subject_status() to decide
+    whether to (re)submit. Saves submission manifests to processing_directory.
+    """
+
+    Path(processing_directory).mkdir(parents=True, exist_ok=True)
 
     bids_root = Path(subjects_directory)
     subject_ids = sorted(d.name for d in bids_root.glob("sub-*") if d.is_dir())
@@ -201,26 +220,56 @@ def run_parallel_reconall(
         results_directory = str(bids_root / "derivatives" / "freesurfer")
     os.makedirs(results_directory, exist_ok=True)
 
-    submitted = []
-    failed_job_submissions = []
-    for subject_id in subject_ids:
-        # discover all T1w files for subject (supports sessions)
-        t1_entries = find_bids_t1w_files(subjects_directory, subject_id)
+    submitted: list[str] = []
+    failed_job_submissions: list[str] = []
 
+    submitted_records: list[dict] = []
+    failed_records: list[dict] = []
+
+    for subject_id in subject_ids:
+        # Decide what to do based on unified status
+        status, _info = classify_subject_status(
+            results_directory,
+            subject_id,
+            success_token=success_token,
+            tail_lines_to_scan=tail_lines_to_scan,
+            fresh_minutes=fresh_minutes,
+            stalled_hours=stalled_hours,
+        )
+
+        if skip_completed and status == "success":
+            print(f"[SKIP] {subject_id} already finished without error.")
+            continue
+        if skip_running and status == "running":
+            print(f"[SKIP] {subject_id} currently running.")
+            continue
+        if status not in resubmit_statuses and status != "success":
+            # e.g., you might choose not to resubmit 'idle' or other states
+            print(f"[SKIP] {subject_id}: status '{status}' not in resubmit_statuses.")
+            continue
+
+        # Discover T1w inputs
+        t1_entries = find_bids_t1w_files(subjects_directory, subject_id)
         if not t1_entries:
-            # fallback to non-BIDS pattern if needed
             fallback = os.path.join(subjects_directory, subject_id, "anat", subject_id + file_postfix)
             if os.path.isfile(fallback):
                 t1_entries = [{
-                    "subject_id": subject_id,
-                    "session": None,
-                    "t1_path": fallback,
-                    "job_label": subject_id,
+                    "subject_id": subject_id, "session": None,
+                    "t1_path": fallback, "job_label": subject_id
                 }]
             else:
                 print(f"[WARN] No T1w for {subject_id}; skipping")
                 failed_job_submissions.append(subject_id)
+                failed_records.append({
+                    "subject_id": subject_id,
+                    "reason": "no_T1w_found",
+                    "attempt_time": datetime.now().isoformat(timespec="seconds"),
+                })
                 continue
+
+        # Avoid re-importing T1 on reruns (keeps mri/orig clean)
+        subj_fs_dir = Path(results_directory) / subject_id
+        i_opt = not subj_fs_dir.exists()
 
         for entry in t1_entries:
             script_file_path = create_slurm_script(
@@ -228,80 +277,248 @@ def run_parallel_reconall(
                 job_label=entry["job_label"],
                 results_dir=results_directory,
                 processing_directory=processing_directory,
-                freesurfer_path=freesurfer_path  # may be None -> resolved from env
+                freesurfer_path=freesurfer_path,
+                i_option=i_opt,
             )
 
-            # pass the BIDS subject id as-is
-            command = ["sbatch", script_file_path, subject_id]
-            print(f"Submitting job: {entry['job_label']} -> {' '.join(command)}")
-            subprocess.run(command, check=False, capture_output=True, text=True)
-            submitted.append(entry["job_label"])
+            cmd = ["sbatch", script_file_path, subject_id]
+            print(f"Submitting job: {entry['job_label']} -> {' '.join(cmd)}")
 
+            res = subprocess.run(cmd, check=False, capture_output=True, text=True)
+
+            # Parse SLURM job ID
+            job_id = None
+            m = re.search(r"Submitted batch job\s+(\d+)", (res.stdout or ""))
+            if m:
+                job_id = m.group(1)
+
+            submitted.append(entry["job_label"])
+            submitted_records.append({
+                "subject_id": subject_id,
+                "job_label": entry["job_label"],
+                "session": entry.get("session"),
+                "t1_path": entry["t1_path"],
+                "script_path": script_file_path,
+                "sbatch_cmd": " ".join(cmd),
+                "job_id": job_id,
+                "sbatch_returncode": res.returncode,
+                "sbatch_stdout": (res.stdout or "").strip(),
+                "sbatch_stderr": (res.stderr or "").strip(),
+                "submit_time": datetime.now().isoformat(timespec="seconds"),
+                "pre_status": status,  # status before submitting
+            })
+
+    # ---- Persist manifests ----
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    proc_dir = Path(processing_directory)
+
+    with open(proc_dir / f"submitted_jobs_{ts}.json", "w") as f:
+        json.dump(submitted_records, f, indent=2)
+
+    with open(proc_dir / f"failed_jobs_{ts}.json", "w") as f:
+        if failed_records:
+            json.dump(failed_records, f, indent=2)
+        else:
+            json.dump([{"subject_id": sid, "reason": "no_T1w_found"} for sid in failed_job_submissions], f, indent=2)
+    
     return submitted, failed_job_submissions
 
 
-def check_log_for_success(results_directory, subject_ids):
-    """Check the log file for the success message.
 
-    Args:
-        results_directory (str): Path for the freesurfer results.
-        subject_ids (list): List of subject IDs.
+def log_tail_lines(path: Path, n: int = 200) -> list[str]:
+    """Return the last n lines of a log file efficiently."""
+    if not path.exists():
+        return []
+    with path.open("rb") as f:
+        try:
+            f.seek(0, os.SEEK_END)
+            end = f.tell()
+            block = 4096
+            data = b""
+            while end > 0 and data.count(b"\n") <= n:
+                start = max(0, end - block)
+                f.seek(start)
+                data = f.read(end - start) + data
+                end = start
+        except OSError:
+            f.seek(0)
+            data = f.read()
+    lines = data.splitlines()[-n:]
+    return [l.decode(errors="replace") for l in lines]
+
+
+def discover_subjects(results_directory: str, exclude_subjects: set[str]) -> list[str]:
+    root = Path(results_directory)
+    if not root.is_dir():
+        return []
+    def keep(name: str) -> bool:
+        if name.startswith("."): return False
+        if name in exclude_subjects: return False
+        if name.startswith("fsaverage"): return False
+        return True
+    with_logs = [p.name for p in root.iterdir()
+                 if p.is_dir() and keep(p.name) and (p / "scripts" / "recon-all.log").exists()]
+    return sorted(with_logs) if with_logs else sorted([p.name for p in root.iterdir() if p.is_dir() and keep(p.name)])
+
+
+def classify_subject_status(
+    results_directory: str,
+    subject_id: str,
+    *,
+    success_token: str = "finished without error",
+    tail_lines_to_scan: int = 200,
+    fresh_minutes: int = 30,
+    stalled_hours: int = 24,
+) -> tuple[str, dict]:
+    """
+    Classify a single subject by inspecting recon-all logs and IsRunning* locks.
 
     Returns:
-        List: List of failed subject Ids.
+        (status, info_dict)
+        status ∈ {"success","running","stalled","failed","missing"}
     """
-    failed_subjects = []
+    scripts_dir = Path(results_directory) / subject_id / "scripts"
+    log_path = scripts_dir / "recon-all.log"
 
-    for subject_id in subject_ids:
-        log_path = os.path.join(
-            results_directory, subject_id, "scripts", "recon-all.log"
-        )
-        if not os.path.exists(log_path):
-            failed_subjects.append(subject_id)
-        else:
-            with open(log_path, "r") as f:
-                log_content = f.read()
-            if "finished without error" not in log_content:
-                failed_subjects.append(subject_id)
-    return failed_subjects
+    # Gather candidate IsRunning* lock files (ignore backups)
+    isrunning_files = []
+    for p in scripts_dir.glob("IsRunning*"):
+        name = p.name
+        if name.endswith((".bak", ".old", "~")):
+            continue
+        if p.exists():
+            isrunning_files.append(p)
+
+    # Running/stalled logic based on mtimes
+    now = time.time()
+    fresh_s = fresh_minutes * 60
+    stalled_s = stalled_hours * 3600
+
+    log_mtime = log_path.stat().st_mtime if log_path.exists() else 0.0
+    ir_mtimes = [p.stat().st_mtime for p in isrunning_files] if isrunning_files else []
+    newest_ir = max(ir_mtimes) if ir_mtimes else 0.0
+
+    recently_touched = (
+        (log_path.exists() and now - log_mtime <= fresh_s) or
+        (ir_mtimes and now - newest_ir <= fresh_s)
+    )
+
+    # Build info dict (filled incrementally)
+    info: dict[str, object] = {
+        "subject_id": subject_id,
+        "log_path": str(log_path),
+        "has_log": log_path.exists(),
+        "is_running_files": [p.name for p in isrunning_files],
+        "last_mod_time": log_mtime if log_path.exists() else None,
+        "tail_excerpt": [],
+        "error_hints": [],
+    }
+
+    # No log at all
+    if not log_path.exists():
+        status = "missing"
+        info["status"] = status
+        return status, info
+
+    # Read tail and check for success
+    tail = log_tail_lines(log_path, n=tail_lines_to_scan)
+    info["tail_excerpt"] = tail
+
+    if any(success_token in line for line in tail):
+        status = "success"
+        info["status"] = status
+        return status, info
+
+    # Not successful yet → decide running/stalled/failed
+    if recently_touched:
+        status = "running"
+    elif isrunning_files and (
+        ((not log_path.exists()) or (now - log_mtime > stalled_s)) and (now - newest_ir > stalled_s)
+    ):
+        status = "stalled"
+    else:
+        # Try to extract error hints from tail
+        error_patterns = [re.compile(p, re.IGNORECASE) for p in [
+            r"\bERROR\b", r"Segmentation (fault|violation)", r"\bKilled\b",
+            r"out of memory", r"No space left on device", r"Bus error",
+            r"floating point exception", r"Abort", r"assertion.*failed",
+        ]]
+        hints: list[str] = []
+        for line in tail:
+            if any(p.search(line) for p in error_patterns):
+                hints.append(line.strip())
+        info["error_hints"] = hints[-10:]
+        status = "failed"
+
+    info["status"] = status
+    return status, info
 
 
-def rerun_failed_subs(
-    failed_subjetcs,
-    subjects_directory,
-    results_directory,
-    processing_directory,
-    freesurfer_path,
-    file_postfix=".nii",
+def check_log_for_success(
+    results_directory: str,
+    subject_ids: list[str] | None = None,
+    *,
+    processing_directory: str | None = None,   # where to save failed manifests
+    write_manifests: bool = True,              # save JSON outputs
+    success_token: str = "finished without error",
+    consider_running_as_failure: bool = False,
+    tail_lines_to_scan: int = 200,
+    fresh_minutes: int = 30,
+    stalled_hours: int = 24,
+    return_details: bool = True,               # return only FAILED/MISSING/STALLED by default
 ):
-    """Re-runs Freesurfer recon-all for failed subjects.
-
-    Args:
-        failed_subjetcs (list): List of failed subjects IDs.
-        subjects_directory (str): Path to data.
-        results_directory (str): Path to save the results.
-        processing_directory (str): Path to save the bash script.
-        freesurfer_path (str): Path to freesurfer.
-
     """
+    Scan SUBJECTS_DIR for recon-all outcomes, print a summary, and
+    (optionally) write failed/stalled/missing manifests to processing_directory.
 
-    for subject_id in failed_subjetcs:
+    Returns:
+        dict[str, dict] of FAILED/MISSING/STALLED subjects (default),
+        or list[str] of subject IDs if return_details=False.
+    """
+    # Subject discovery (skip FS templates)
+    default_exclude = {
+        "fsaverage","fsaverage_sym","fsaverage5","fsaverage6",
+        "lh.EC_average","rh.EC_average","bert"
+    }
+    subjects = subject_ids if subject_ids else discover_subjects(results_directory, default_exclude)
 
-        script_file_path = create_slurm_script(
-            subjects_directory,
-            subject_id,
+    counts = {"success": 0, "running": 0, "stalled": 0, "failed": 0, "missing": 0}
+    failed_ids: list[str] = []
+    failed_details: dict[str, dict] = {}
+
+    for sid in subjects:
+        status, info = classify_subject_status(
             results_directory,
-            processing_directory,
-            freesurfer_path,
-            i_option=False,
-            file_postfix=file_postfix,
+            sid,
+            success_token=success_token,
+            tail_lines_to_scan=tail_lines_to_scan,
+            fresh_minutes=fresh_minutes,
+            stalled_hours=stalled_hours,
         )
 
-        command = ["sbatch", script_file_path, subject_id]
+        counts[status] += 1
 
-        print(f"Submitting job for subject: {subject_id}")
+        if status in ("failed", "missing", "stalled") or (status == "running" and consider_running_as_failure):
+            failed_ids.append(sid)
+            failed_details[sid] = info
 
-        subprocess.run(command, capture_output=True, text=True)
+    # Summary
+    checked = sum(counts.values())
+    print(f"[check_log_for_success] Checked {checked} subjects "
+          f"(success={counts['success']}, running={counts['running']}, "
+          f"stalled={counts['stalled']}, failed={counts['failed']}, missing={counts['missing']}).")
+
+    # Persist manifests (FAILED/MISSING/STALLED only)
+    if write_manifests and processing_directory:
+        Path(processing_directory).mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts_json = Path(processing_directory) / f"failed_jobs_{ts}.json"
+
+        with open(ts_json, "w") as f:
+            json.dump(failed_details, f, indent=2, default=str)
+
+
+    return failed_details if return_details else failed_ids
 
 
 def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None):
@@ -336,85 +553,59 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None):
     """
 
     if subjects is None:
-        subjects = [temp for temp in os.listdir(freesurfer_dir)
-                    if os.path.isdir(os.path.join(freesurfer_dir, temp))]
+        subjects = [s for s in os.listdir(freesurfer_dir) if os.path.isdir(os.path.join(freesurfer_dir, s))]
 
-    df = pd.DataFrame(index=subjects, columns=['lh_en', 'rh_en', 'avg_en'])
+    df = pd.DataFrame(index=subjects, columns=["lh_en","rh_en","avg_en"])
     missing_subjects = []
 
     for s, sub in enumerate(subjects):
         sub_dir = os.path.join(freesurfer_dir, sub)
-        log_file = os.path.join(sub_dir, 'scripts', 'recon-all.log')
+        log_file = os.path.join(sub_dir, "scripts", "recon-all.log")
 
-        if os.path.exists(sub_dir):
-            if os.path.exists(log_file):
-                with open(log_file) as f:
-                    for line in f:
-                        # find the part that refers to the EC
-                        if re.search('orig.nofix lheno', line):
-                            eno_line = line
-                f.close()
-                eno_l = eno_line.split()[3][0:-1]  # remove the trailing comma
-                eno_r = eno_line.split()[6]
-                euler = (float(eno_l) + float(eno_r)) / 2
+        if not os.path.isdir(sub_dir):
+            missing_subjects.append(sub); print(f"{s}: Subject {sub} is missing.")
+            continue
 
-                df.at[sub, 'lh_en'] = eno_l
-                df.at[sub, 'rh_en'] = eno_r
-                df.at[sub, 'avg_en'] = euler
-
-                print('%d: Subject %s is successfully processed. EN = %f'
-                      % (s, sub, df.at[sub, 'avg_en']))
-            else:
-                print('%d: Subject %s is missing log file, running QC ...' % (s, sub))
+        if os.path.exists(log_file):
+            eno_line = None
+            with open(log_file) as f:
+                for line in f:
+                    if "orig.nofix lheno" in line:
+                        eno_line = line
+            if eno_line:
+                parts = eno_line.split()
                 try:
-                    bashCommand = 'mris_euler_number ' + freesurfer_dir + \
-                        sub + '/surf/lh.orig.nofix>' + 'temp_l.txt 2>&1'
-                    res = subprocess.run(
-                        bashCommand, stdout=subprocess.PIPE, shell=True)
-                    file = open('temp_l.txt', mode='r', encoding='utf-8-sig')
-                    lines = file.readlines()
-                    file.close()
-                    words = []
-                    for line in lines:
-                        line = line.strip()
-                        words.append([item.strip()
-                                     for item in line.split(' ')])
-                    eno_l = np.float32(words[0][12])
+                    eno_l, eno_r = float(parts[3].rstrip(",")), float(parts[6])
+                    df.at[sub,"lh_en"] = eno_l
+                    df.at[sub,"rh_en"] = eno_r
+                    df.at[sub,"avg_en"] = (eno_l + eno_r)/2.0
+                    print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
+                    continue
+                except Exception:
+                    pass  # fall through to recompute
+            print(f"{s}: Subject {sub} missing EN line, recomputing ...")
 
-                    bashCommand = 'mris_euler_number ' + freesurfer_dir + \
-                        sub + '/surf/rh.orig.nofix>' + 'temp_r.txt 2>&1'
-                    res = subprocess.run(
-                        bashCommand, stdout=subprocess.PIPE, shell=True)
-                    file = open('temp_r.txt', mode='r', encoding='utf-8-sig')
-                    lines = file.readlines()
-                    file.close()
-                    words = []
-                    for line in lines:
-                        line = line.strip()
-                        words.append([item.strip()
-                                     for item in line.split(' ')])
-                    eno_r = np.float32(words[0][12])
-
-                    df.at[sub, 'lh_en'] = eno_l
-                    df.at[sub, 'rh_en'] = eno_r
-                    df.at[sub, 'avg_en'] = (eno_r + eno_l) / 2
-
-                    print('%d: Subject %s is successfully processed. EN = %f'
-                          % (s, sub, df.at[sub, 'avg_en']))
-
-                except:
-                    e = sys.exc_info()[0]
-                    missing_subjects.append(sub)
-                    print('%d: QC is failed for subject %s: %s.' % (s, sub, e))
-
-        else:
+        try:
+            # recompute with mris_euler_number
+            lh_cmd = ["mris_euler_number", os.path.join(sub_dir,"surf","lh.orig.nofix")]
+            rh_cmd = ["mris_euler_number", os.path.join(sub_dir,"surf","rh.orig.nofix")]
+            lh_out = subprocess.run(lh_cmd, capture_output=True, text=True, check=True).stdout.split()
+            rh_out = subprocess.run(rh_cmd, capture_output=True, text=True, check=True).stdout.split()
+            # typically the value is near the end; be defensive
+            eno_l = float([t for t in lh_out if re.fullmatch(r"-?\d+(\.\d+)?", t)][-1])
+            eno_r = float([t for t in rh_out if re.fullmatch(r"-?\d+(\.\d+)?", t)][-1])
+            df.at[sub,"lh_en"] = eno_l
+            df.at[sub,"rh_en"] = eno_r
+            df.at[sub,"avg_en"] = (eno_l + eno_r)/2.0
+            print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
+        except Exception as e:
             missing_subjects.append(sub)
-            print('%d: Subject %s is missing.' % (s, sub))
-        df = df.dropna()
+            print(f"{s}: QC failed for {sub}: {e}")
 
-        if save_path is not None:
-            with open(save_path, 'wb') as file:
-                pickle.dump({'ENs': df}, file)
+    df = df.dropna()
+    if save_path is not None:
+        with open(save_path, "wb") as f:
+            pickle.dump({"ENs": df}, f)
 
     return df, missing_subjects
 
@@ -446,26 +637,21 @@ def freesurfer_QC(results_directory):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(
-        description="Run FreeSurfer recon-all in parallel on a Slurm cluster."
-    )
-    parser.add_argument(
-        "subjects_directory",
-        type=str,
-        help="Path to the directory containing subject folders",
-    )
-    parser.add_argument(
-        "results_directory", type=str, help="Path to the directory to save the results"
-    )
-    parser.add_argument("script_path", type=str, help="Path to save the Slurm script")
-    parser.add_argument(
-        "scripfreesurfer_patht_path", type=str, help="Path to freesurfer"
-    )
-
+    parser = argparse.ArgumentParser(description="Run FreeSurfer recon-all in parallel on a Slurm cluster.")
+    parser.add_argument("subjects_directory", type=str, help="BIDS root with sub-*")
+    parser.add_argument("processing_directory", type=str, help="Directory to write SLURM scripts/logs")
+    parser.add_argument("--results-directory", type=str, default=None,
+                        help="SUBJECTS_DIR (default: <BIDS>/derivatives/freesurfer)")
+    parser.add_argument("--freesurfer-path", type=str, default=None,
+                        help="Path to FreeSurfer install (default: $FREESURFER_HOME)")
+    parser.add_argument("--no-skip-completed", action="store_true", help="Do not skip already successful subjects")
     args = parser.parse_args()
-    run_parallel_reconall(
-        args.subjects_directory,
-        args.results_directory,
-        args.script_path,
-        args.freesurfer_path,
+
+    submitted, failed = run_parallel_reconall(
+        subjects_directory=args.subjects_directory,
+        results_directory=args.results_directory,
+        processing_directory=args.processing_directory,
+        freesurfer_path=args.freesurfer_path,
+        skip_completed=not args.no_skip_completed,
     )
+    print(f"Submitted jobs: {len(submitted)}; missing T1w: {len(failed)}")
