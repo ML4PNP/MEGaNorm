@@ -21,6 +21,36 @@ from meganorm.src.featureExtraction import feature_extract
 
 
 def main_argparser(args=None):
+    """
+    Create and parse command-line arguments for the feature extraction script.
+
+    Parameters
+    ----------
+    args : list of str or None, optional
+        List of arguments to parse. If None, parses arguments from `sys.argv`.
+
+    Returns
+    -------
+    argparse.Namespace
+        Namespace containing the parsed command-line arguments:
+        - `dir` : str
+            Path to the input data directory.
+        - `save_dir` : str
+            Directory where extracted features will be saved.
+        - `subject` : str
+            Participant identifier.
+        - `surfaces_dir` : str or None
+            Path to the FreeSurfer surfaces directory (used for source localization). Default is None.
+        - `empty_room_recording_path` : str or None
+            Path to subject's empty room recording for pre-whitening. Default is None.
+        - `configs` : str or None
+            Path to optional configuration file. Default is None.
+
+    Notes
+    -----
+    - The empty room recording is particularly useful for recordings with both magnetometer
+      and gradiometer sensors when performing source localization.
+    """
     parser = argparse.ArgumentParser()
     
     # Positional Arguments
@@ -43,7 +73,34 @@ def main_argparser(args=None):
 
 
 def set_logger(args, pakcages_to_silent):
+    """
+    Set up a logger for the experiment or script, writing logs to a file 
+    and silencing specified packages.
 
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Arguments namespace containing at least `save_dir` and `subject` attributes.
+        - `args.save_dir` : str
+            Base directory where log files will be saved.
+        - `args.subject` : str
+            Subject identifier, used to name the log file.
+    pakcages_to_silent : list of str
+        List of package names whose logging level should be set to WARNING 
+        to reduce verbosity.
+
+    Returns
+    -------
+    logging.Logger
+        Configured logger instance.
+
+    Notes
+    -----
+    - The logger writes to a file named `subject_<subject>_report.log` 
+      in a `log_summary` folder inside `args.save_dir`.
+    - Existing root handlers are removed before setting up the new logger.
+    - Silenced packages will not log INFO or DEBUG messages.
+    """
     save_dir = os.path.join(args.save_dir, "log_summary")
     os.makedirs(save_dir, exist_ok=True)
 
