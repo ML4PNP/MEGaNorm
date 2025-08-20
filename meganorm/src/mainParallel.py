@@ -6,6 +6,7 @@ import mne
 import logging
 import pandas as pd
 import glob
+from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
 from meganorm.utils.IO import make_config, storeFooofModels, Config
 from meganorm.src.psdParameterize import psdParameterize
@@ -145,7 +146,8 @@ def main(args):
     if "4D" in path[0]:
         extention = "BTI"  # TODO: you need to change this
 
-    logger.info(f"Starting the process for the subject {subID}:")
+    start_time = datetime.now()
+    logger.info(f"Starting the process for the subject {subID} at {start_time}:")
     # read the data
     # *******************************************************
     try:
@@ -301,6 +303,10 @@ def main(args):
     features.to_csv(os.path.join(args.save_dir, f"{subID}.csv"))
 
     logger.info(f"The feature extraction process for the subject {subID} is complete.")
+    end_time = datetime.now()
+    elapsed = start_time - end_time
+    logger.info(f"Script ended at {end_time}")
+    logger.info(f"Total elapsed time: {elapsed}")
 
 if __name__ == "__main__":
 
