@@ -277,8 +277,7 @@ class Config(BaseModel):
     @classmethod
     def load(cls, path: str):
         # Load configuration from a JSON file
-        load_path = os.path.join(path, "Features", "Configuration.json")
-        with open(load_path, "r") as file:
+        with open(path, "r") as file:
             cfg = json.load(file)
         return cls(**cfg)
 
