@@ -130,6 +130,20 @@ class config(BaseModel):
             raise ValueError("In the case of EEG, you must have a three layers conductivity model due to volume conduction.")
         return self
 
+    def save(self, path:str):
+        "save the configurations to a JSON file"
+        save_path = os.path.join(path, "Configuration.json")
+        with open(save_path, "w") as file:
+            json.dump(self.model_dump(), file, indent=4)
+
+
+    @classmethod
+    def load(cls, path: str):
+        # Load configuration from a JSON file
+        load_path = os.path.join(path, "Configuration.json")
+        with open(load_path, "r") as file:
+            cfg = json.load(file)
+        return cls(**cfg)
 
 
 
