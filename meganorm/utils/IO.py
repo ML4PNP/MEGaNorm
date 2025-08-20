@@ -11,7 +11,145 @@ from typing import Literal, Dict, Tuple, List, Optional
 import warnings
 from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
 
-class config(BaseModel):
+class Config(BaseModel):
+    """
+    Configuration class for preprocessing, feature extraction, and analysis
+    of neurophysiological signals (e.g., MEG, EEG, OPM). The configuration
+    includes parameters for filtering, ICA, artifact detection, source
+    localization, PSD, FOOOF analysis, and feature extraction.
+
+    Parameters
+    ----------
+    which_layout : {"all", "lobe", "None"}, default="all"
+        Sensor layout selection.
+    which_sensor : {"mag", "grad", "meg", "eeg", "opm"}, default="meg"
+        Sensor type to process.
+
+    ica_n_component : int, default=30
+        Number of ICA components to compute.
+    ica_max_iter : int, default=800
+        Maximum iterations for ICA algorithm.
+    ica_method : {"fastica", "infomax", "picard"}, default="fastica"
+        ICA algorithm to use.
+
+    cutoffFreqLow : int, default=1
+        Low cutoff frequency for bandpass filtering (Hz).
+    cutoffFreqHigh : int, default=40
+        High cutoff frequency for bandpass filtering (Hz).
+
+    resampling_rate : int, default=1000
+        Sampling rate for resampling (Hz).
+    digital_filter : bool, default=True
+        Whether to apply digital bandpass filtering.
+    notch_filter : bool, default=True
+        Whether to apply a notch filter.
+
+    muscle_activity_thr : int, default=4
+        Threshold for muscle activity artifact detection.
+    muscle_activity_min_length_good : float, default=0.1
+        Minimum clean segment length after artifact detection (s).
+    muscle_activity_filter_freq : tuple of int, default=(110, 140)
+        Frequency range for muscle artifact filtering (Hz).
+
+    ctf_gradient_comp_level : int, default=3
+        CTF gradient compensation level.
+
+    apply_ica : bool, default=True
+        Whether to apply ICA artifact correction.
+    auto_ica_corr_thr : float, default=0.9
+        Correlation threshold for automatic ICA component removal.
+
+    rereference_method : {"average", "REST", "None"}, default="average"
+        EEG re-referencing method.
+
+    mag_var_threshold : float, default=4e-12
+        Variance threshold for MEG magnetometers.
+    grad_var_threshold : float, default=4000e-13
+        Variance threshold for MEG gradiometers.
+    eeg_var_threshold : float, default=40e-6
+        Variance threshold for EEG.
+    mag_flat_threshold : float, default=10e-15
+        Flatline threshold for MEG magnetometers.
+    grad_flat_threshold : float, default=10e-15
+        Flatline threshold for MEG gradiometers.
+    eeg_flat_threshold : float, default=40e-6
+        Flatline threshold for EEG.
+
+    zscore_std_thresh : int, default=15
+        Standard deviation threshold for z-score outlier rejection.
+
+    segments_tmin : int, default=20
+        Start time (s) relative to event for segmentation.
+    segments_tmax : int, default=-20
+        End time (s) relative to event for segmentation.
+    segments_length : int, default=10
+        Segment length (s).
+    segments_overlap : int, default=2
+        Overlap between segments (s).
+
+    apply_source_localization : bool, default=True
+        Whether to perform source localization.
+    SL_source_space : {"surface", "volumetric"}, default="surface"
+        Source space type.
+    SL_conductivity : tuple of float, default=(0.3,)
+        Conductivity values for head model layers.
+    SL_inverse_operator : {"lcmv"}, default="lcmv"
+        Inverse operator method for source localization.
+
+    psd_method : {"multitaper", "welch"}, default="welch"
+        Method for power spectral density estimation.
+    psd_n_overlap : int, default=1
+        Number of overlapping samples for PSD estimation.
+    psd_n_fft : int, default=2
+        FFT size for PSD estimation.
+    psd_n_per_seg : int, default=2
+        Segment length for PSD estimation.
+
+    fooof_freq_range_low : int, default=3
+        Lower bound of frequency range for FOOOF (Hz).
+    fooof_freq_range_high : int, default=40
+        Upper bound of frequency range for FOOOF (Hz).
+    aperiodic_mode : {"knee", "fixed"}, default="knee"
+        Aperiodic component model for FOOOF.
+    fooof_peak_width_limits : list of float, default=[1.0, 12.0]
+        Peak width limits (Hz).
+    fooof_min_peak_height : int, default=0
+        Minimum peak height threshold.
+    fooof_peak_threshold : int, default=2
+        Threshold for peak detection.
+
+    freq_bands : dict of {str: (int, int)}, default={
+        "Theta": (3, 8), "Alpha": (8, 13), "Beta": (13, 30), "Gamma": (30, 40)}
+        Canonical frequency band definitions.
+
+    individualized_band_ranges : dict of {str: (int, int)}, default={
+        "Theta": (-2, 3), "Alpha": (-2, 3), "Beta": (-8, 9), "Gamma": (-5, 5)}
+        Offsets for individualized band definitions.
+
+    min_r_squared : float, default=0.9
+        Minimum R² threshold for model fit.
+
+    feature_categories : dict of {str: bool}, default=...
+        Feature categories to include in extraction.
+
+    fooof_res_save_path : str or None, default=None
+        Path to save FOOOF results.
+    random_state : int, default=42
+        Random seed for reproducibility.
+
+    Methods
+    -------
+    save(path)
+        Save the current configuration to a JSON file at the given path.
+    load(path) : Config
+        Load configuration from a JSON file at the given path.
+    muscle_activity_thr_fv(v)
+        Field validator for muscle activity threshold.
+    muscle_activity_filter_freq_fv(v)
+        Field validator for muscle activity filter frequency.
+    SL_conductivity_mv()
+        Model validator for conductivity values in EEG case.
+    """
 
     which_layout: Literal["all", "lobe", "None"] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
@@ -132,15 +270,14 @@ class config(BaseModel):
 
     def save(self, path:str):
         "save the configurations to a JSON file"
-        save_path = os.path.join(path, "Configuration.json")
+        save_path = os.path.join(path, "Features", "Configuration.json")
         with open(save_path, "w") as file:
             json.dump(self.model_dump(), file, indent=4)
-
 
     @classmethod
     def load(cls, path: str):
         # Load configuration from a JSON file
-        load_path = os.path.join(path, "Configuration.json")
+        load_path = os.path.join(path, "Features", "Configuration.json")
         with open(load_path, "r") as file:
             cfg = json.load(file)
         return cls(**cfg)
