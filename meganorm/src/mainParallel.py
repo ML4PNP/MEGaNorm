@@ -305,6 +305,7 @@ def main(args):
                 **kwargs
             )
         sl_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
+        channel_names = sl_data.info["ch_names"]
 
     # segmentation 
     # *******************************************************
