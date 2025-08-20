@@ -670,7 +670,7 @@ def drop_noisy_meg_channels(
     logger = logging.getLogger(__name__)
 
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
-    which_sensor[configs.get("which_sensor")] = True
+    which_sensor[configs.which_sensor] = True
 
     try:
         auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
