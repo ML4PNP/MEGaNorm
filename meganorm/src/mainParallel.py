@@ -189,6 +189,14 @@ def main(args):
     # *******************************************************
     configs = Config.load(args.configs)
 
+    if configs.apply_source_localization:
+        freesurfer_data_path = os.path.join(args.surfaces_dir, args.subject)
+        if not os.path.isdir(freesurfer_data_path):
+            error_msg = "The Freesurfer file corresponding to this subject is not found."
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+
     # subject ID
     subID = args.subject
     paths = args.dir.split("*")
