@@ -304,13 +304,13 @@ def main(args):
                 plot_3d=False,
                 **kwargs
             )
-        sl_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
-        channel_names = sl_data.info["ch_names"]
+        filtered_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
+        channel_names = filtered_data.info["ch_names"]
 
     # segmentation 
     # *******************************************************
     segments = segment_epoch(
-        data=sl_data,
+        data=filtered_data,
         sampling_rate=sampling_rate,
         tmin=configs.segments_tmin,
         tmax=configs.segments_tmax,
