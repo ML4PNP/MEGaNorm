@@ -94,12 +94,12 @@ def sbatchfile(
 
     if with_config:
         command = (
-            "srun python "
+            "srun --cpus-per-task=" + str(core) + " python "
             + mainParallel_path
             + " $source $target $subject --configs $config"
         )
     else:
-        command = "srun python " + mainParallel_path + " $source $target $subject"
+        command = "srun --cpus-per-task=" + str(core) + "python " + mainParallel_path + " $source $target $subject"
 
     bash_environment = [
         sbatch_init
