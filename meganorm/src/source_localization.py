@@ -460,6 +460,7 @@ def forward_solution(
       subjects_dir/subject/bem/inner_skull.surf
     """
     
+    logger.info(f"Setting up a {source_space} source space")
     # source space
     if source_space == "surface":
         src = mne.setup_source_space(
@@ -480,14 +481,14 @@ def forward_solution(
         )
 
     # forward model
-    model = mne.make_bem_model(
+    bem_model = mne.make_bem_model(
         subject=subject,
         ico=kwargs.get("source_space_spacing_ico", 6),
         conductivity=conductivity,
         subjects_dir=subjects_dir
     )
 
-    bem = mne.make_bem_solution(model)
+    bem = mne.make_bem_solution(bem_model)
     logger.info(f"{source_space} BEM model with {len(conductivity)} layer/s was constructed.")
 
     lead_field_matrix = mne.make_forward_solution(
@@ -495,7 +496,7 @@ def forward_solution(
         trans=transformation_matrix,
         src=src,
         bem=bem,
-        meg=kwargs.get("meg", True),
+        meg=kwargs.get("meg") or kwargs.get("Grad") or kwargs.get("mag"),
         eeg=kwargs.get("eeg", False),
         mindist=kwargs.get("forward_mindist", 5.0),
         n_jobs=kwargs.get("n_jobs", -1),
@@ -506,6 +507,7 @@ def forward_solution(
 
     return lead_field_matrix, lead_field_matrix["src"]
 
+
 def inverse_solution(
         subject,
         data,
@@ -513,6 +515,7 @@ def inverse_solution(
         inverse_operator,
         figures_path,
         which_sensor,
+        source_space=None,
         empty_room_recording=None,
         qc_ignore=[],
         number_of_reduced_ic=0,
@@ -533,9 +536,12 @@ def inverse_solution(
         The forward solution (lead field matrix).
     inverse_operator : str
         The type of inverse method to use. Currently only supports "lcmv".
+    source_space : str
+        Type of source space to create. Must be either "surface" or "volumetric".
     empty_room_recording : mne.io.Raw
         Empty-room MEG recording used to estimate noise covariance.
         If None, no noise covariance will be used.
+
 
     **kwargs : dict, optional
         Optional parameters to control the inverse solution:
@@ -567,6 +573,7 @@ def inverse_solution(
         # since ICA has also removed some components
         data_rank[list(data_rank.keys())[0]] -= number_of_reduced_ic # TODO: not accuarte
     else:
+        # this estimates the rank after scaling 
         data_rank = mne.compute_rank(data)
     
     if empty_room_recording:
@@ -575,52 +582,60 @@ def inverse_solution(
             method=kwargs.get("covariance_method", "empirical"),
             n_jobs=kwargs.get("n_jobs", -1)
         ) # TODO: change to epoch later
+
         logger.info("Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten" \
                     "the data")
-        # If empty room recording is available, the rank for
-        # lcmv should be the ranke of this recording
-        lcmv_rank = mne.compute_rank(empty_room_recording)
+
+        noise_rank = mne.compute_rank(empty_room_recording)
         
-        if data_rank["mag"] < lcmv_rank["mag"]:
-            lcmv_rank["mag"] = data_rank["mag"].copy()
-        if data_rank["grad"] < lcmv_rank["grad"]:
-            lcmv_rank["grad"] = data_rank["grad"].copy()
-    
-    elif which_sensor["meg"]:
+        if data_rank["mag"] < noise_rank["mag"]:
+            noise_rank["mag"] = data_rank["mag"].copy()
+        if data_rank["grad"] < noise_rank["grad"]:
+            noise_rank["grad"] = data_rank["grad"].copy()
+
+        # If empty room recording is available, the rank for
+        # lcmv should be the rank of this recording
+        lcmv_rank = noise_rank.copy()
+
+    else:
         # If both MAG and Grad are present, having a noise cov is necessary
         # to scale the data. If empty room recording is not available,
         # make_ad_hoc_cov make a diagonal covariance matrix where the 
         # diagonals represent channel wise variance and off-diagonals are zero.
         # The default noise values are 5 fT/cm, 20 fT for gradiometers, magnetometers
+        logger.info("Empty room recording is not available. Therefore, a diagonal covariance matrix where the" \
+        " diagonals represent channel wise variance and off-diagonals are zero is used to whitten the data.")
+
         noise_cov = mne.make_ad_hoc_cov(info=data.info,
                                         std=kwargs.get("ad_hoc_cov_std", None))
-        lcmv_rank = data_rank.copy()
-
-    else:
-        logger.warning("Noise covariance is not calculated due to missing empty room recordings. Noise covariance can be" \
-        "benefitial for prewhitenning activities across sensors with different scale and noise." \
-        "Consider using noise covariance for a better results.")
-        noise_cov=None
-        # If empty room recording is not available, the rank for
-        # lcmv should be the ranke of the data itself
         lcmv_rank = data_rank.copy()
 
     if inverse_operator == "lcmv":
         logger.info(f"Solving the inverse problem using {inverse_operator} algorithm. "\
                     f"A regularization of {kwargs.get('inverse_regularization_value', 0.05)} will be used " \
                     f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', "max-power")} for `pick_ori`.")
+        
         # compute data covaraince
         data_cov = mne.compute_raw_covariance(
             data,
             method=kwargs.get("covariance_method", "empirical"),
-            rank=data_rank,
+            rank=lcmv_rank,
             n_jobs=kwargs.get("n_jobs", -1)
         )
         
         if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
             kwargs.get("beamformer_weight_norm", "unit-noise-gain") != "unit-noise-gain-invariant"):
             error_msg = "If you wish to compute a vector beamformer, it is necessary to use" \
-                        " unit-noise-gain-invariant for weight_norm argument."
+                        " unit-noise-gain-invariant for weight_norm argument. This is for addressing" \
+                        " the center of head bias where deeper sources can have larger scale than" \
+                        " superfacial sources."
+            logger.error(error_msg)
+            raise Exception(error_msg)
+        
+        if not kwargs.get("beamforme_depth") and source_space == "volumetric":
+            error_msg = "If you want to use volumetric source space (interested in deeper sources)," \
+            " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address" \
+            " the center of head bias."
             logger.error(error_msg)
             raise Exception(error_msg)
 
@@ -640,9 +655,7 @@ def inverse_solution(
             reg=kwargs.get("inverse_regularization_value", 0.05), # for regularization (shifting the matrix)
             pick_ori=kwargs.get("beamformer_pick_ori", "max-power"),
             weight_norm=kwargs.get("beamformer_weight_norm", "unit-noise-gain"),
-            # TODO: if rank==None, it will compute the rank
-            # If rank==info, it will read from the info
-            rank=lcmv_rank,
+            rank=lcmv_rank, # if er_recording available ==> noise rank, otherwise, data rank
         )
 
     stc = mne.beamformer.apply_lcmv_raw(
@@ -957,6 +970,7 @@ def source_localization(
         data=data,
         fwd=fwd,
         inverse_operator=inverse_operator,
+        source_space=source_space,
         empty_room_recording=empty_room_recording,
         figures_path=figures_path,
         qc_ignore=qc_ignore,
