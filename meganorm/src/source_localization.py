@@ -1,10 +1,12 @@
 import matplotlib.pyplot as plt
 from pathlib import Path
+from joblib import parallel_config, parallel_backend
 import subprocess
 import numpy as np
 import logging
 import shutil
 import mne
+import joblib
 import os
 
 from meganorm.src.preprocess import check_tsss
@@ -346,7 +348,9 @@ def corregistration(data,
             "inner_skull.surf"
         )
     ):
-        logger.info("Creating a bem surface for the subject")
+        
+        logger.info("bem surface was not found; Creating a bem surface for the subject")
+
         mne.bem.make_watershed_bem(
             subject=subject,
             subjects_dir=subjects_dir,
@@ -431,9 +435,9 @@ def forward_solution(
 
         - source_space_spacing : str, default="oct6"
             Spacing for surface source space (e.g., "oct6", "ico5").
-        - source-space_add_dist : str, default="patch"
+        - source_space_add_dist : str, default="patch"
             Whether to add patch information to the surface source space.
-        - forward_ico : int, default=5
+        - source_space_spacing : int, default=5
             BEM surface tessellation grade (higher = finer mesh).
         - meg : bool, default=True
             Whether to include MEG channels in the forward model.
@@ -461,8 +465,9 @@ def forward_solution(
         src = mne.setup_source_space(
                 subject=subject,
                 subjects_dir=subjects_dir,
-                spacing=kwargs.get("source_space_spacing", "oct6"),
-                add_dist=kwargs.get("source-space_add_dist", "patch")
+                spacing=kwargs.get("source_space_spacing", "ico6"),
+                add_dist=kwargs.get("source_space_add_dist", "patch"),
+                n_jobs=kwargs.get("n_jobs", -1)
         )
 
     elif source_space == "volumetric":
@@ -471,12 +476,13 @@ def forward_solution(
                 subjects_dir=subjects_dir,
                 surface= Path(subjects_dir) / subject / "bem" / "inner_skull.surf",
                 add_interpolator=True,
+                n_jobs=kwargs.get("n_jobs", -1)
         )
 
     # forward model
     model = mne.make_bem_model(
         subject=subject,
-        ico=kwargs.get("forward_ico", 5),
+        ico=kwargs.get("source_space_spacing_ico", 6),
         conductivity=conductivity,
         subjects_dir=subjects_dir
     )
@@ -566,7 +572,8 @@ def inverse_solution(
     if empty_room_recording:
         noise_cov = mne.compute_raw_covariance(
             empty_room_recording,
-            method=kwargs.get("covariance_method", "empirical")
+            method=kwargs.get("covariance_method", "empirical"),
+            n_jobs=kwargs.get("n_jobs", -1)
         ) # TODO: change to epoch later
         logger.info("Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten" \
                     "the data")
@@ -606,7 +613,8 @@ def inverse_solution(
         data_cov = mne.compute_raw_covariance(
             data,
             method=kwargs.get("covariance_method", "empirical"),
-            rank=data_rank
+            rank=data_rank,
+            n_jobs=kwargs.get("n_jobs", -1)
         )
         
         if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
@@ -714,6 +722,7 @@ def morph_stc(
             subjects_dir=subjects_dir,
             spacing=kwargs.get("source_space_spacing", "ico6"),
             add_dist=kwargs.get("source_space_add_dist", "patch"),
+            n_jobs=kwargs.get("n_jobs", -1)
         )
     elif source_space == "volumetric": # TODO
 
@@ -733,17 +742,23 @@ def morph_stc(
                 subjects_dir=subjects_dir,
                 surface= inner_skull_path,
                 add_interpolator=True,
+                n_jobs=kwargs.get("n_jobs", -1)
         )
 
-    morph = mne.compute_source_morph(src_from, 
-                                    subject_from=subject, 
-                                    subject_to=subject_to, 
-                                    subjects_dir=subjects_dir, 
-                                    spacing=kwargs.get("spacing", 5),
-                                    src_to=src_morph_to
-                                    )
-    
-    stc_fsaverage = morph.apply(stc)
+    logger.info("hello")
+    with parallel_backend("threading"):
+        with parallel_config(n_jobs=1):
+            morph = mne.compute_source_morph(src_from, 
+                                        subject_from=subject, 
+                                        subject_to=subject_to, 
+                                        subjects_dir=subjects_dir, 
+                                        spacing=kwargs.get("spacing", 5), # TODO: this 5 should another spacing mentioned above
+                                        src_to=src_morph_to
+                                        )
+        
+            logger.info("hello again")
+            stc_fsaverage = morph.apply(stc)
+            logger.info("bye")
 
     if plot_3d:
         brain = stc_fsaverage.plot(
@@ -921,7 +936,8 @@ def source_localization(
         data=data, 
         subject=subject,
         subjects_dir=subjects_dir, 
-        plot_3d=plot_3d
+        plot_3d=plot_3d,
+        **kwargs
     )
 
     fwd, src = forward_solution(
@@ -930,8 +946,11 @@ def source_localization(
         data=data,
         transformation_matrix=coreg.trans,
         conductivity=conductivity,
-        source_space=source_space
+        source_space=source_space,
+        **kwargs
     )
+
+    del coreg
 
     stc = inverse_solution(
         subject=subject,
@@ -942,10 +961,13 @@ def source_localization(
         figures_path=figures_path,
         qc_ignore=qc_ignore,
         number_of_reduced_ic=number_of_reduced_ic,
-        which_sensor=which_sensor
+        which_sensor=which_sensor,
+        **kwargs
     )
 
-    stc_fsaveage, src_morph = morph_stc(
+    del fwd
+
+    stc_fsaverage, src_morph = morph_stc(
         subject=subject,
         subject_to=subject_to,
         subjects_dir=subjects_dir,
@@ -953,15 +975,22 @@ def source_localization(
         src_from=src,
         source_space=source_space,
         plot_3d=plot_3d,
+        **kwargs
         )
     
+    del stc
+    del src
+
     stc, labels = parcellate(
             subject=subject_to,
             subjects_dir=subjects_dir,
-            stc_fsaverage=stc_fsaveage,
+            stc_fsaverage=stc_fsaverage,
             src_morph=src_morph,
-            source_space=source_space
+            source_space=source_space,
+            **kwargs
     )
+    del stc_fsaverage
+    del src_morph
 
     logger.info("Done; congrats! ")
 
