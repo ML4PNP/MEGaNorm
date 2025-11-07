@@ -656,6 +656,7 @@ def inverse_solution(
             pick_ori=kwargs.get("beamformer_pick_ori", "max-power"),
             weight_norm=kwargs.get("beamformer_weight_norm", "unit-noise-gain"),
             rank=lcmv_rank, # if er_recording available ==> noise rank, otherwise, data rank
+            depth=kwargs.get("beamforme_depth", None),
         )
 
     stc = mne.beamformer.apply_lcmv_raw(
