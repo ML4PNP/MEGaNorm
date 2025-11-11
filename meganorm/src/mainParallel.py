@@ -292,9 +292,6 @@ def main(args):
 
     # Source localization 
     # *******************************************************
-    kwargs = {"source_space_spacing":"ico6",
-              "spacing":5}
-
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
         stc, labels = source_localization(
