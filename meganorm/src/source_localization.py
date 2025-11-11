@@ -5,6 +5,7 @@ import subprocess
 import numpy as np
 import logging
 import shutil
+import time
 import mne
 import joblib
 import os
@@ -505,6 +506,8 @@ def forward_solution(
     )
     logger.info("Lead field matrix was estimated.")
 
+    # You need to use src for further analysis (morphing) from fwd since vertices can be excluded
+    # due to their proximity to inner skull surface
     return lead_field_matrix, lead_field_matrix["src"]
 
 
@@ -647,6 +650,12 @@ def inverse_solution(
             exclude=[], #TODO
             qc_ignore=qc_ignore)
         
+        _, cond_before, cond_after = regularized_cov_condition(data_cov.data, 
+                shrinkage=0.05, 
+                diag_scale='auto')
+        logger.info(f"Condition number of data covariance before regularization: {cond_before}")
+        logger.info(f"Condition number of data covariance After regularization: {cond_after}")
+
         filters = mne.beamformer.make_lcmv(
             data.info,
             forward=fwd,
@@ -731,6 +740,7 @@ def morph_stc(
     logger.info("Morphing the estimated source data onto a common space")
 
     if source_space == "surface":
+        
         src_morph_to = mne.setup_source_space(
             subject=subject_to,
             subjects_dir=subjects_dir,
@@ -738,6 +748,7 @@ def morph_stc(
             add_dist=kwargs.get("source_space_add_dist", "patch"),
             n_jobs=kwargs.get("n_jobs", -1)
         )
+
     elif source_space == "volumetric": # TODO
 
         inner_skull_path = Path(subjects_dir) / subject_to / "bem" / "inner_skull.surf"
@@ -759,20 +770,19 @@ def morph_stc(
                 n_jobs=kwargs.get("n_jobs", -1)
         )
 
-    logger.info("hello")
     with parallel_backend("threading"):
         with parallel_config(n_jobs=1):
             morph = mne.compute_source_morph(src_from, 
-                                        subject_from=subject, 
+                                        subject_from=subject,
+                                        src_to=src_morph_to, 
                                         subject_to=subject_to, 
                                         subjects_dir=subjects_dir, 
-                                        spacing=kwargs.get("spacing", 5), # TODO: this 5 should another spacing mentioned above
-                                        src_to=src_morph_to
+                                        spacing=kwargs.get("source_space_spacing_ico", 6),
                                         )
         
-            logger.info("hello again")
+            logger.info("Starting the morphing process")
+            start_time = time.time()
             stc_fsaverage = morph.apply(stc)
-            logger.info("bye")
 
     if plot_3d:
         brain = stc_fsaverage.plot(
@@ -781,7 +791,8 @@ def morph_stc(
             smoothing_steps=7,
         )
 
-    logger.info("Morphing is finised!")
+    elapsed = time.time() - start_time
+    logger.info(f"Morphing complete. Elapsed time: {elapsed:.2f} seconds.")
     return stc_fsaverage, src_morph_to
 
 
@@ -854,6 +865,7 @@ def parcellate(
             parc=kwargs.get("parcellation_parc", "aparc.a2009s")
         )
         labels_list = [label.name for label in labels]
+        
     elif source_space == "volumetric":
         parc = kwargs.get("parcellation_parc", "aparc.a2009s")
         labels = os.path.join(subjects_dir, subject, "mri", f"{parc}+aseg.mgz")
@@ -869,7 +881,7 @@ def parcellate(
         labels=labels,
         src=src_morph,
         mode=kwargs.get("parcellation_mode", "mean"),
-        return_generator=False
+        return_generator=False 
     )
 
     logger.info("Parcellation is finised!")
@@ -1051,3 +1063,50 @@ def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     info = mne.create_info(ch_names=labels, sfreq=sampling_rate, ch_types=ch_types)
     raw_parc = mne.io.RawArray(stc, info)
     return raw_parc
+
+
+def regularized_cov_condition(X, shrinkage=0.05, diag_scale='auto'):
+    """
+    Compute empirical covariance, apply linear shrinkage regularization,
+    and return both the regularized covariance and condition numbers.
+
+    Parameters
+    ----------
+    X : array, shape (n_samples, n_channels)
+        Data matrix (zero-mean not required; will be centered internally).
+    shrinkage : float
+        Shrinkage factor (0 = no regularization, 1 = full diagonal).
+    diag_scale : 'auto' or float
+        Scaling for identity target. If 'auto', uses mean channel variance.
+
+    Returns
+    -------
+    C_reg : ndarray
+        Regularized covariance matrix.
+    cond_before : float
+        Condition number of empirical covariance (np.linalg.cond).
+    cond_after : float
+        Condition number of regularized covariance (np.linalg.cond).
+    """
+    # Center the data
+    Xc = X - X.mean(axis=0, keepdims=True)
+    n_samples = Xc.shape[0]
+
+    # Empirical covariance
+    C = (Xc.T @ Xc) / (n_samples - 1)
+
+    # Compute target (scaled identity)
+    if diag_scale == 'auto':
+        alpha = np.trace(C) / C.shape[0]
+    else:
+        alpha = float(diag_scale)
+    target = alpha * np.eye(C.shape[0])
+
+    # Regularize covariance
+    C_reg = (1 - shrinkage) * C + shrinkage * target
+
+    # Compute condition numbers
+    cond_before = np.linalg.cond(C)
+    cond_after = np.linalg.cond(C_reg)
+
+    return C_reg, cond_before, cond_after
