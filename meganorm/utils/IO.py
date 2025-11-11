@@ -9,6 +9,7 @@ import mne
 import numpy as np
 from typing import Literal, Dict, Tuple, List, Optional
 import warnings
+from typing import Union
 from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
 
 class Config(BaseModel):
@@ -216,8 +217,11 @@ class Config(BaseModel):
     # this is used for regularaizing the data covariance (shifting the matrix)
     inverse_regularization_value: confloat(ge=0, le=1) = 0.05
 
-    parcellation_parc: str = "aparc.a2009s"
-            
+    # the pacellation to use
+    parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
+
+    # A custom parcellation file
+    parcellation_annot_fname: Literal[Path, None] = None
 
     # PSD
     psd_method: Literal["multitaper", "welch"] = "welch"
@@ -320,6 +324,11 @@ class Config(BaseModel):
             " the center of head bias."
             raise ValueError(error_msg)
         return self
+    
+    @model_validator(mode="after")
+    def pacellation_checker(self):
+        if not self.parcellation_parc and not self.parcellation_annot_fname:
+            raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
 
 
     def save(self, path:str):

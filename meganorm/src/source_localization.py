@@ -484,7 +484,7 @@ def forward_solution(
     # forward model
     bem_model = mne.make_bem_model(
         subject=subject,
-        ico=kwargs.get("source_space_spacing_ico", 6),
+        ico=kwargs.get("source_space_spacing_number", 6),
         conductivity=conductivity,
         subjects_dir=subjects_dir
     )
@@ -777,7 +777,7 @@ def morph_stc(
                                         src_to=src_morph_to, 
                                         subject_to=subject_to, 
                                         subjects_dir=subjects_dir, 
-                                        spacing=kwargs.get("source_space_spacing_ico", 6),
+                                        spacing=kwargs.get("source_space_spacing_number", 6),
                                         )
         
             logger.info("Starting the morphing process")
@@ -862,7 +862,8 @@ def parcellate(
         labels = mne.read_labels_from_annot(
             subject=subject,
             subjects_dir=subjects_dir,
-            parc=kwargs.get("parcellation_parc", "aparc.a2009s")
+            parc=kwargs.get("parcellation_parc", "aparc.a2009s"),
+            annot_fname=kwargs.get("parcellation_annot_fname", None)
         )
         labels_list = [label.name for label in labels]
         
