@@ -191,7 +191,7 @@ class Config(BaseModel):
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
 
     # ICA
-    ica_n_component: PositiveInt = 30
+    ica_n_component: PositiveInt = None
     ica_max_iter: PositiveInt = 800
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
