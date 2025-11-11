@@ -192,10 +192,32 @@ class Config(BaseModel):
     segments_overlap: int = 2
 
     # Source localization
-    apply_source_localization: bool = True
+    apply_source_localization: bool = False
     SL_source_space: Literal["surface", "volumetric"] = "surface"
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
+
+    # the spacing to use for source space specificatin
+    source_space_spacing:  Literal["ico3", "ico4", "ico5", "ico6", "oct5", "oct6"] = "ico4"
+    source_space_spacing_number: Literal[3, 4, 5, 6]=4
+
+    coregisteration_final_n_iterations: int = 20
+    coregisteration_final_nasion_weight: float = 10.0
+    covariance_method: str = "empirical"
+
+    # Determines whether to keep vectors for all source orientations
+    # or to select a single fixed orientation, depending on the chosen algorithm.
+    beamformer_pick_ori: Literal[None, "normal", "max-power", "vector"] = "max-power"
+    beamformer_weight_norm: Literal[None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"] = "unit-noise-gain"
+
+    # This parameter scales the activation to correct for head-center bias.
+    beamforme_depth: confloat(ge=0, le=1) = None
+
+    # this is used for regularaizing the data covariance (shifting the matrix)
+    inverse_regularization_value: confloat(ge=0, le=1) = 0.05
+
+    parcellation_parc: str = "aparc.a2009s"
+            
 
     # PSD
     psd_method: Literal["multitaper", "welch"] = "welch"
@@ -256,17 +278,49 @@ class Config(BaseModel):
             "remove clean data.")
         return v
 
+
     @ field_validator("muscle_activity_filter_freq")
     def muscle_activity_filter_freq_fv(cls, v):
         if v[0] < 100:
             warnings.warn(f"Muscle activity artifact affects higher frequencies than {v[0]} Hz.")
         return v
 
+
     @model_validator(mode="after")
     def SL_conductivity_mv(self):
         if len(self.SL_conductivity) == 1 and self.which_sensor == "eeg":
             raise ValueError("In the case of EEG, you must have a three layers conductivity model due to volume conduction.")
         return self
+    
+
+    @model_validator(mode="after")
+    def source_space_res(self):
+        if int(self.source_space_spacing[-1]) != self.source_space_spacing_number:
+            raise ValueError("The source_space_spacing and source_space_spacing_number should match")
+        return self
+
+
+    @model_validator(mode="after")
+    def beamformer_arg_check(self):
+        if self.beamformer_pick_ori == "vector" and self.beamformer_weight_norm != "unit-noise-gain-invariant":
+
+            error_msg = "If you wish to compute a vector beamformer, it is necessary to use" \
+                        " unit-noise-gain-invariant for weight_norm argument. This is for addressing" \
+                        " the center of head bias where deeper sources can have larger scale than" \
+                        " superfacial sources."
+            
+            raise ValueError(error_msg)
+        return self
+
+    @model_validator(mode="after")
+    def center_head_bias_scale_check(self):
+        if not self.beamforme_depth and self.SL_source_space == "volumetric":
+            error_msg = "If you want to use volumetric source space (interested in deeper sources)," \
+            " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address" \
+            " the center of head bias."
+            raise ValueError(error_msg)
+        return self
+
 
     def save(self, path:str):
         "save the configurations to a JSON file"
@@ -274,12 +328,15 @@ class Config(BaseModel):
         with open(save_path, "w") as file:
             json.dump(self.model_dump(), file, indent=4)
 
+
     @classmethod
     def load(cls, path: str):
         # Load configuration from a JSON file
         with open(path, "r") as file:
             cfg = json.load(file)
         return cls(**cfg)
+    
+
 
 
 
