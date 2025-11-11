@@ -14,18 +14,20 @@ from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, f
 
 class Config(BaseModel):
     """
-    Configuration class for preprocessing, feature extraction, and analysis
-    of neurophysiological signals (e.g., MEG, EEG, OPM). The configuration
-    includes parameters for filtering, ICA, artifact detection, source
-    localization, PSD, FOOOF analysis, and feature extraction.
+    Configuration class for preprocessing, feature extraction, and analysis of 
+    neurophysiological signals (e.g., MEG, EEG, OPM). Provides a comprehensive set 
+    of parameters for filtering, ICA, artifact detection, source localization, 
+    power spectral density (PSD) estimation, FOOOF analysis, and feature extraction.
 
-    Parameters
+    Attributes
     ----------
     which_layout : {"all", "lobe", "None"}, default="all"
         Sensor layout selection.
     which_sensor : {"mag", "grad", "meg", "eeg", "opm"}, default="meg"
         Sensor type to process.
 
+    ICA Parameters
+    --------------
     ica_n_component : int, default=30
         Number of ICA components to compute.
     ica_max_iter : int, default=800
@@ -33,36 +35,40 @@ class Config(BaseModel):
     ica_method : {"fastica", "infomax", "picard"}, default="fastica"
         ICA algorithm to use.
 
+    Filtering Parameters
+    -------------------
     cutoffFreqLow : int, default=1
-        Low cutoff frequency for bandpass filtering (Hz).
+        Low cutoff frequency for bandpass filter (Hz).
     cutoffFreqHigh : int, default=40
-        High cutoff frequency for bandpass filtering (Hz).
-
+        High cutoff frequency for bandpass filter (Hz).
     resampling_rate : int, default=1000
         Sampling rate for resampling (Hz).
     digital_filter : bool, default=True
-        Whether to apply digital bandpass filtering.
+        Apply digital bandpass filtering.
     notch_filter : bool, default=True
-        Whether to apply a notch filter.
+        Apply notch filter to remove line noise.
 
+    Artifact Detection
+    -----------------
     muscle_activity_thr : int, default=4
-        Threshold for muscle activity artifact detection.
+        Threshold for muscle artifact detection.
     muscle_activity_min_length_good : float, default=0.1
-        Minimum clean segment length after artifact detection (s).
-    muscle_activity_filter_freq : tuple of int, default=(110, 140)
-        Frequency range for muscle artifact filtering (Hz).
-
-    ctf_gradient_comp_level : int, default=3
-        CTF gradient compensation level.
+        Minimum clean segment length after artifact removal (s).
+    muscle_activity_filter_freq : tuple[int, int], default=(110, 140)
+        Frequency range for muscle artifact detection (Hz).
 
     apply_ica : bool, default=True
-        Whether to apply ICA artifact correction.
+        Apply ICA artifact correction.
     auto_ica_corr_thr : float, default=0.9
         Correlation threshold for automatic ICA component removal.
 
+    EEG Reference
+    -------------
     rereference_method : {"average", "REST", "None"}, default="average"
         EEG re-referencing method.
 
+    Signal Quality Thresholds
+    -------------------------
     mag_var_threshold : float, default=4e-12
         Variance threshold for MEG magnetometers.
     grad_var_threshold : float, default=4000e-13
@@ -75,82 +81,111 @@ class Config(BaseModel):
         Flatline threshold for MEG gradiometers.
     eeg_flat_threshold : float, default=40e-6
         Flatline threshold for EEG.
-
     zscore_std_thresh : int, default=15
         Standard deviation threshold for z-score outlier rejection.
 
+    Segmentation
+    ------------
     segments_tmin : int, default=20
-        Start time (s) relative to event for segmentation.
+        Start time relative to event (s).
     segments_tmax : int, default=-20
-        End time (s) relative to event for segmentation.
+        End time relative to event (s).
     segments_length : int, default=10
         Segment length (s).
     segments_overlap : int, default=2
-        Overlap between segments (s).
+        Segment overlap (s).
 
-    apply_source_localization : bool, default=True
+    Source Localization
+    -------------------
+    apply_source_localization : bool, default=False
         Whether to perform source localization.
     SL_source_space : {"surface", "volumetric"}, default="surface"
-        Source space type.
-    SL_conductivity : tuple of float, default=(0.3,)
+        Type of source space.
+    SL_conductivity : tuple[float, ...], default=(0.3,)
         Conductivity values for head model layers.
     SL_inverse_operator : {"lcmv"}, default="lcmv"
-        Inverse operator method for source localization.
+        Inverse operator method.
+    source_space_spacing : {"ico3", "ico4", "ico5", "ico6", "oct5", "oct6"}, default="ico4"
+        Source space resolution.
+    source_space_spacing_number : {3, 4, 5, 6}, default=4
+        Resolution number corresponding to `source_space_spacing`.
 
+    Beamformer Parameters
+    --------------------
+    beamformer_pick_ori : {None, "normal", "max-power", "vector"}, default="max-power"
+        Orientation selection for beamformer.
+    beamformer_weight_norm : {None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"}, default="unit-noise-gain"
+        Weight normalization method.
+    beamforme_depth : float, optional
+        Scaling factor to correct for head-center bias.
+    inverse_regularization_value : float, default=0.05
+        Regularization for data covariance matrix.
+
+    Parcellation
+    ------------
+    parcellation_parc : {None, "aparc.a2009s", "parac"}, default="aparc.a2009s"
+        Predefined parcellation.
+    parcellation_annot_fname : Path or None
+        Custom parcellation file.
+
+    PSD Parameters
+    --------------
     psd_method : {"multitaper", "welch"}, default="welch"
-        Method for power spectral density estimation.
+        PSD estimation method.
     psd_n_overlap : int, default=1
-        Number of overlapping samples for PSD estimation.
+        Number of overlapping samples.
     psd_n_fft : int, default=2
-        FFT size for PSD estimation.
+        FFT length.
     psd_n_per_seg : int, default=2
-        Segment length for PSD estimation.
+        Segment length for PSD.
 
+    FOOOF Analysis
+    --------------
     fooof_freq_range_low : int, default=3
-        Lower bound of frequency range for FOOOF (Hz).
+        Lower frequency bound (Hz).
     fooof_freq_range_high : int, default=40
-        Upper bound of frequency range for FOOOF (Hz).
+        Upper frequency bound (Hz).
     aperiodic_mode : {"knee", "fixed"}, default="knee"
-        Aperiodic component model for FOOOF.
-    fooof_peak_width_limits : list of float, default=[1.0, 12.0]
+        Model for aperiodic component.
+    fooof_peak_width_limits : list[float], default=[1.0, 12.0]
         Peak width limits (Hz).
     fooof_min_peak_height : int, default=0
-        Minimum peak height threshold.
+        Minimum peak height.
     fooof_peak_threshold : int, default=2
-        Threshold for peak detection.
-
-    freq_bands : dict of {str: (int, int)}, default={
-        "Theta": (3, 8), "Alpha": (8, 13), "Beta": (13, 30), "Gamma": (30, 40)}
-        Canonical frequency band definitions.
-
-    individualized_band_ranges : dict of {str: (int, int)}, default={
-        "Theta": (-2, 3), "Alpha": (-2, 3), "Beta": (-8, 9), "Gamma": (-5, 5)}
-        Offsets for individualized band definitions.
-
-    min_r_squared : float, default=0.9
-        Minimum R² threshold for model fit.
-
-    feature_categories : dict of {str: bool}, default=...
-        Feature categories to include in extraction.
-
-    fooof_res_save_path : str or None, default=None
+        Peak detection threshold.
+    fooof_res_save_path : str, optional
         Path to save FOOOF results.
+
+    Feature Extraction
+    ------------------
+    freq_bands : dict[str, tuple[int, int]]
+        Canonical frequency bands.
+    individualized_band_ranges : dict[str, tuple[int, int]]
+        Offsets for individualized bands.
+    min_r_squared : float, default=0.9
+        Minimum R² for model fit.
+    feature_categories : dict[str, bool]
+        Flags indicating which features to extract.
+
+    Miscellaneous
+    -------------
     random_state : int, default=42
         Random seed for reproducibility.
 
     Methods
     -------
     save(path)
-        Save the current configuration to a JSON file at the given path.
-    load(path) : Config
-        Load configuration from a JSON file at the given path.
+        Save configuration to JSON.
+    load(path) -> Config
+        Load configuration from JSON.
     muscle_activity_thr_fv(v)
-        Field validator for muscle activity threshold.
+        Validator for muscle activity threshold.
     muscle_activity_filter_freq_fv(v)
-        Field validator for muscle activity filter frequency.
+        Validator for muscle artifact frequency.
     SL_conductivity_mv()
-        Model validator for conductivity values in EEG case.
+        Validator for EEG conductivity.
     """
+
 
     which_layout: Literal["all", "lobe", "None"] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
