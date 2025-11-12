@@ -57,8 +57,8 @@ def main_argparser(args=None):
     parser.add_argument("dir", type=str, help="Address to your data")
     parser.add_argument("save_dir", type=str, help="Where to save extracted features")
     parser.add_argument("subject", type=str, help="Participant ID")
+    parser.add_argument("configs", type=str) # TODO: make it optional for both sequential and parallel computing
     
-
     parser.add_argument("--surfaces_dir", type=str, default=None,
                         help="If you need to apply source localization, set this to the"\
                         "directory in which freesurfer results are saved")
@@ -67,7 +67,7 @@ def main_argparser(args=None):
                         " it can be helpful for pre-whitennin the data. Note that empty room" \
                         " room recordings are necessary for applying source localization" \
                         " to recordings with both magnetometer and gradiometer.")
-    parser.add_argument("--configs", type=str, default=None)
+    
 
     return parser.parse_args(args)
 
@@ -182,8 +182,7 @@ def main(args):
         args.empty_room_recording_path = None
     if args.surfaces_dir == "None":
         args.surfaces_dir = None
-    if args.configs == "None":
-        args.configs = None
+
 
     # Loading configs
     # *******************************************************
@@ -196,7 +195,6 @@ def main(args):
             logger.error(error_msg)
             raise FileNotFoundError(error_msg)
 
-
     # subject ID
     subID = args.subject
     paths = args.dir.split("*")
@@ -207,12 +205,13 @@ def main(args):
     path = paths[0]
 
     # Extracting file format (extention) for loading layout
-    extention = path[0].split(".")[-1]
+    extention = paths[0].split(".")[-1]
     if "4D" in path[0]:
         extention = "BTI"  # TODO: you need to change this
 
     start_time = datetime.now()
     logger.info(f"Starting the process for the subject {subID} at {start_time}:")
+    
     # read the data
     # *******************************************************
     try:
@@ -307,7 +306,7 @@ def main(args):
                 number_of_reduced_ic=number_of_reduced_ic,
                 which_sensor=which_sensor,
                 plot_3d=False,
-                **kwargs
+                **configs.dict()
             )
         filtered_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
         channel_names = filtered_data.info["ch_names"]
