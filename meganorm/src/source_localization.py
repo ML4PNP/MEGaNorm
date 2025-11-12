@@ -855,7 +855,7 @@ def parcellate(
         os.path.join(
             subjects_dir,
             subject
-        )):
+        )) and kwargs.apply_morphing:
         mne.datasets.fetch_fsaverage()
 
     if source_space == "surface":
@@ -995,25 +995,27 @@ def source_localization(
 
     del fwd
 
-    stc_fsaverage, src_morph = morph_stc(
-        subject=subject,
-        subject_to=subject_to,
-        subjects_dir=subjects_dir,
-        stc=stc,
-        src_from=src,
-        source_space=source_space,
-        plot_3d=plot_3d,
-        **kwargs
-        )
-    
-    del stc
-    del src
+    # using the variable apply_morphing, you can choose whether you need
+    # morphing stc to a common source space or not
+    if kwargs.apply_morphing:
+        stc, src = morph_stc(
+            subject=subject,
+            subject_to=subject_to,
+            subjects_dir=subjects_dir,
+            stc=stc,
+            src_from=src,
+            source_space=source_space,
+            plot_3d=plot_3d,
+            **kwargs
+            )
+        subject = subject_to.copy()
+        
 
     stc, labels = parcellate(
-            subject=subject_to,
+            subject=subject,
             subjects_dir=subjects_dir,
-            stc_fsaverage=stc_fsaverage,
-            src_morph=src_morph,
+            stc_fsaverage=stc,
+            src_morph=src,
             source_space=source_space,
             **kwargs
     )
@@ -1023,6 +1025,7 @@ def source_localization(
     logger.info("Done; congrats! ")
 
     return stc, labels
+
 
 def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     """
