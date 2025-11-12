@@ -306,7 +306,7 @@ def main(args):
                 number_of_reduced_ic=number_of_reduced_ic,
                 which_sensor=which_sensor,
                 plot_3d=False,
-                **configs.dict()
+                **configs.model_dump()
             )
         filtered_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
         channel_names = filtered_data.info["ch_names"]
