@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from datetime import datetime
 import pandas as pd
+from meganorm.utils.IO import Config
 
 
 def progress_bar(current, total, bar_length=20):
@@ -43,6 +44,9 @@ def sbatchfile(
     batch_file_name="batch_job",
     freesurfer_home=None,
     freesurfer_license=None,
+    with_config = None,
+    # with_source_localization = None,
+    # with_empty_room_recording = None
 ):
     """
     Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
@@ -89,6 +93,7 @@ def sbatchfile(
         "source activate " + module + "\n" +
         f"export FREESURFER_HOME={freesurfer_home}\n" +
         f"export FREESURFER_LICENSE={freesurfer_license}\n" +
+        # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
         "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
         )
     else:
@@ -109,17 +114,17 @@ def sbatchfile(
 
     # if with_config:
     command = (
-        "srun python "
+        "srun --cpus-per-task=" + str(core) + " python "
         + mainParallel_path
-        + " $source $target $subject --configs $config"
+        + " $source $target $subject $config"
         )
     # else:
-    #     command = "srun python " + mainParallel_path + " $source $target $subject"
+        # command = "srun python " + mainParallel_path + " $source $target $subject"
 
     # if with_source_localization:
     command += f" --surfaces_dir $surfaces_dir"
     
-        # if with_empty_room_recording:
+    # if with_empty_room_recording:
     command += " --empty_room_recording_path $empty_room_recording_path"
 
     bash_environment = [
@@ -143,7 +148,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_4
     # if with_source_localization:
     bash_environment[0] += sbatch_input_5
-        # if with_empty_room_recording:
+    # if with_empty_room_recording:
     bash_environment[0] += sbatch_input_6
 
     bash_environment[0] += command
@@ -155,7 +160,7 @@ def sbatchfile(
 
     # changes permissoins for bash.sh file
     os.chmod(job_path, 0o770)
-
+    
     return job_path
 
 
@@ -225,8 +230,8 @@ def submit_jobs(
         node=job_configs["node"],
         batch_file_name=job_configs["batch_file_name"],
         freesurfer_home=freesurfer_home,
-        freesurfer_license=freesurfer_license
-        # with_config=config_file is not None,
+        freesurfer_license=freesurfer_license,
+        with_config=config_file is not None,
         # with_source_localization=surfaces_dir is not None,
         # with_empty_room_recording=empty_room_recording is not None
     )
@@ -239,15 +244,19 @@ def submit_jobs(
         er_fname = subjects[subject]["empty_room_record"]
         mri_surface = subjects[subject]["mri_surface"]
         
-        command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject}"
+        command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject} {config_file}"
         # if config_file:
-        command += f" {config_file}"
+        # command += f" {config_file}"
 
-        # if mri_surface:
-        command += f" {mri_surface}"
+        if mri_surface:
+            command += f" {mri_surface}"
+        else:
+            command += f" None"
             
-            # if er_fname:
-        command += f" {er_fname}"
+        if er_fname:
+            command += f" {er_fname}"
+        else:
+            command += f" None"
         
         subprocess.check_call(command, shell=True)
 
@@ -467,6 +476,11 @@ def auto_parallel_feature_extraction(
     if username is None:
         username = os.environ.get("USER")
 
+    if not config_file:
+        config_file = os.path.join(features_dir, 'Configuration.json')
+        conf = Config()
+        conf.save(path=config_file)
+
     # Running Jobs
     start_time = submit_jobs(
         mainParallel_path,
@@ -478,6 +492,7 @@ def auto_parallel_feature_extraction(
         freesurfer_home=freesurfer_home,
         freesurfer_license=freesurfer_license
     )
+
     # Checking jobs
     failed_jobs = check_jobs_status(username, start_time)
 
