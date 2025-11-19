@@ -294,7 +294,7 @@ def check_jobs_status(username, start_time, delay=20):
                 print("Failed Jobs:", ", ".join(failed_job_names))
         else:
             print("No job data available.")
-        n = job_counts["PENDING"] + job_counts["RUNNING"]
+        n = job_counts["PENDING"] + job_counts["RUNNING"] - 1 # TODO: this "-1" should be removed: solution use job-id instead of time
         time.sleep(delay)
 
     return failed_job_names
@@ -514,6 +514,7 @@ def auto_parallel_feature_extraction(
         )
         # Checking jobs
         failed_jobs = check_jobs_status(username, start_time)
+        falied_subjects = {failed_job: subjects[failed_job] for failed_job in failed_jobs}
 
         try_num += 1
 
