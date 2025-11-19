@@ -192,6 +192,7 @@ class Config(BaseModel):
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
 
     # ICA
+    ica_apply_elbow_detection: bool = False
     ica_n_component: Optional[PositiveInt] = None
     ica_max_iter: PositiveInt = 800
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"

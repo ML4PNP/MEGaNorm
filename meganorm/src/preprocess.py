@@ -9,6 +9,7 @@ from typing import Any, Dict
 import pandas as pd
 from scipy.stats import zscore
 import warnings
+from kneed import KneeLocator
 
 warnings.filterwarnings("ignore")
 
@@ -374,7 +375,8 @@ def preprocess(
     ctf_gradient_comp_level=3,
     muscle_activity_thr=4.0,
     muscle_activity_min_length_good=0.1,
-    muscle_activity_filter_freq=(110, 140)
+    muscle_activity_filter_freq=(110, 140),
+    ica_apply_elbow_detection = False
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -426,6 +428,7 @@ def preprocess(
     muscle_activity_filter_freq: tuple, optional
         Cutoff frequencies for the band-pass filter used in muscle activity detection.
         Muscle activity is typically more prominent in higher frequency ranges (e.g., 110–140 Hz).
+    ica_apply_elbow_detection: bool: False
 
 
     Returns
@@ -552,6 +555,9 @@ def preprocess(
     physiological_electrods = {
         channel: channel in channel_types for channel in ["ecg", "eog"]
     }
+
+    if ica_apply_elbow_detection:
+        n_component = pca_elbow_locator(data, which_sensor)
 
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
         
@@ -969,3 +975,39 @@ def check_tsss(meg_data):
     max_info = proc_history[0].get('max_info', {})
     sss_cal = max_info.get('sss_cal', [])
     return len(sss_cal) > 0
+
+
+
+def pca_elbow_locator(raw, which_sensor):
+
+    raw = raw.copy().pick_types(
+        meg=which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"],
+        eeg=which_sensor["eeg"],
+        ref_meg=False,
+        eog=False,
+        ecg=False,
+    )
+
+    # Use sklearn PCA via MNE
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=None, whiten=True)
+    _ = pca.fit_transform(raw.get_data().T)
+
+    explained_var = pca.explained_variance_ratio_
+
+    # Find elbow
+    knee_locator = KneeLocator(
+        x=np.arange(1, len(explained_var) + 1),
+        y=explained_var,
+        curve="concave",
+        direction="decreasing"
+    )
+
+    elbow_index = knee_locator.knee
+
+    # Handle None and enforce min
+    if elbow_index is None or elbow_index < 15:
+        elbow_index = 30
+
+    return int(elbow_index)
+

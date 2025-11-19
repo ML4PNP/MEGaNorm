@@ -191,7 +191,7 @@ def main(args):
     if configs.apply_source_localization:
         freesurfer_data_path = os.path.join(args.surfaces_dir, args.subject)
         if not os.path.isdir(freesurfer_data_path):
-            error_msg = "The Freesurfer file corresponding to this subject is not found."
+            error_msg = f"The Freesurfer file corresponding to this subject is not found in {freesurfer_data_path}."
             logger.error(error_msg)
             raise FileNotFoundError(error_msg)
 
@@ -262,8 +262,8 @@ def main(args):
                                             empty_room_recording=empty_room_recording)
     
 
-    which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
-    which_sensor[configs.which_sensor] = True
+    which_sensor_dict = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
+    which_sensor_dict[configs.which_sensor] = True
 
     # preproces
     # *******************************************************
@@ -274,7 +274,7 @@ def main(args):
         IcaMethod=configs.ica_method,
         cutoffFreqLow=configs.cutoffFreqLow,
         cutoffFreqHigh=configs.cutoffFreqHigh,
-        which_sensor=which_sensor,
+        which_sensor=which_sensor_dict,
         resampling_rate=configs.resampling_rate,
         digital_filter=configs.digital_filter,
         rereference_method=configs.rereference_method,
@@ -286,7 +286,8 @@ def main(args):
         muscle_activity_min_length_good=configs.muscle_activity_min_length_good,
         muscle_activity_filter_freq=configs.muscle_activity_filter_freq,
         muscle_activity_thr=configs.muscle_activity_thr,
-        extention=extention
+        extention=extention,
+        ica_apply_elbow_detection=configs.ica_apply_elbow_detection
     )
 
     # Source localization 
@@ -304,7 +305,7 @@ def main(args):
                 inverse_operator=configs.SL_inverse_operator,
                 figures_path=os.path.join(args.save_dir, "figures"),
                 number_of_reduced_ic=number_of_reduced_ic,
-                which_sensor=which_sensor,
+                which_sensor_dict=which_sensor_dict,
                 plot_3d=False,
                 **configs.model_dump()
             )
@@ -357,7 +358,7 @@ def main(args):
         feature_categories=configs.feature_categories,
         extention=extention,
         which_layout=configs.which_layout,
-        which_sensor=which_sensor,
+        which_sensor=which_sensor_dict,
         aperiodic_mode=configs.aperiodic_mode,
         min_r_squared=configs.min_r_squared,
     )
