@@ -407,6 +407,7 @@ def forward_solution(
         transformation_matrix,
         conductivity,
         source_space,
+        which_sensor_dict,
         **kwargs
 ):
     """
@@ -469,7 +470,7 @@ def forward_solution(
                 subjects_dir=subjects_dir,
                 spacing=kwargs.get("source_space_spacing", "ico6"),
                 add_dist=kwargs.get("source_space_add_dist", "patch"),
-                n_jobs=kwargs.get("n_jobs", -1)
+                n_jobs=kwargs.get("n_jobs", 1)
         )
 
     elif source_space == "volumetric":
@@ -478,7 +479,7 @@ def forward_solution(
                 subjects_dir=subjects_dir,
                 surface= Path(subjects_dir) / subject / "bem" / "inner_skull.surf",
                 add_interpolator=True,
-                n_jobs=kwargs.get("n_jobs", -1)
+                n_jobs=kwargs.get("n_jobs", 1)
         )
 
     # forward model
@@ -497,10 +498,10 @@ def forward_solution(
         trans=transformation_matrix,
         src=src,
         bem=bem,
-        meg=kwargs.get("meg") or kwargs.get("Grad") or kwargs.get("mag"),
-        eeg=kwargs.get("eeg", False),
+        meg=bool(which_sensor_dict.get("meg") or which_sensor_dict.get("grad") or which_sensor_dict.get("mag")),
+        eeg=which_sensor_dict.get("eeg", False),
         mindist=kwargs.get("forward_mindist", 5.0),
-        n_jobs=kwargs.get("n_jobs", -1),
+        n_jobs=kwargs.get("n_jobs", 1),
         verbose=True,
         ignore_ref=kwargs.get("source_localization_ignore_ref", True)
     )
@@ -517,7 +518,7 @@ def inverse_solution(
         fwd,
         inverse_operator,
         figures_path,
-        which_sensor,
+        which_sensor_dict,
         source_space=None,
         empty_room_recording=None,
         qc_ignore=[],
@@ -583,7 +584,7 @@ def inverse_solution(
         noise_cov = mne.compute_raw_covariance(
             empty_room_recording,
             method=kwargs.get("covariance_method", "empirical"),
-            n_jobs=kwargs.get("n_jobs", -1)
+            n_jobs=kwargs.get("n_jobs", 1)
         ) # TODO: change to epoch later
 
         logger.info("Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten" \
@@ -623,7 +624,7 @@ def inverse_solution(
             data,
             method=kwargs.get("covariance_method", "empirical"),
             rank=lcmv_rank,
-            n_jobs=kwargs.get("n_jobs", -1)
+            n_jobs=kwargs.get("n_jobs", 1)
         )
         
         if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
@@ -746,7 +747,7 @@ def morph_stc(
             subjects_dir=subjects_dir,
             spacing=kwargs.get("source_space_spacing", "ico6"),
             add_dist=kwargs.get("source_space_add_dist", "patch"),
-            n_jobs=kwargs.get("n_jobs", -1)
+            n_jobs=kwargs.get("n_jobs", 1)
         )
 
     elif source_space == "volumetric": # TODO
@@ -767,7 +768,7 @@ def morph_stc(
                 subjects_dir=subjects_dir,
                 surface= inner_skull_path,
                 add_interpolator=True,
-                n_jobs=kwargs.get("n_jobs", -1)
+                n_jobs=kwargs.get("n_jobs", 1)
         )
 
     with parallel_backend("threading"):
@@ -896,7 +897,7 @@ def source_localization(
         subject_to,
         data,
         figures_path,
-        which_sensor,
+        which_sensor_dict,
         source_space="surface",
         conductivity=(0.3,),
         inverse_operator="lcmv",
@@ -974,6 +975,7 @@ def source_localization(
         transformation_matrix=coreg.trans,
         conductivity=conductivity,
         source_space=source_space,
+        which_sensor_dict=which_sensor_dict,
         **kwargs
     )
 
@@ -989,7 +991,7 @@ def source_localization(
         figures_path=figures_path,
         qc_ignore=qc_ignore,
         number_of_reduced_ic=number_of_reduced_ic,
-        which_sensor=which_sensor,
+        which_sensor_dict=which_sensor_dict,
         **kwargs
     )
 
@@ -997,7 +999,7 @@ def source_localization(
 
     # using the variable apply_morphing, you can choose whether you need
     # morphing stc to a common source space or not
-    if kwargs.apply_morphing:
+    if kwargs.get("apply_morphing", False):
         stc, src = morph_stc(
             subject=subject,
             subject_to=subject_to,
@@ -1019,8 +1021,6 @@ def source_localization(
             source_space=source_space,
             **kwargs
     )
-    del stc_fsaverage
-    del src_morph
 
     logger.info("Done; congrats! ")
 
