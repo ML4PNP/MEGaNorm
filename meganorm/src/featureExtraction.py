@@ -9,11 +9,13 @@ import pandas as pd
 import fooof as f
 from typing import Dict, List
 from typing import Union
+import logging
 
 # from layouts import load_specific_layout
 from meganorm.utils.IO import make_config
 from meganorm.layouts.layouts import load_specific_layout
 
+logger = logging.getLogger(__name__)
 
 def offset(fm: f.FOOOF) -> float:
     """
@@ -516,6 +518,7 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
                     feature_names.append(f"{feature}_{freq_band}")
             else:
                 # For features that don't need frequency bands
+                feature += "_" # TODO: this '_' should be removed in future
                 feature_names.append(feature)
 
     # Return an empty DataFrame with features as index and channels as columns
@@ -548,7 +551,7 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
     pd.DataFrame
         Updated DataFrame with the new feature added.
     """
-    feature_name = feature_name + band_name
+    feature_name = feature_name + "_" + band_name
     feature_container.at[feature_name, channel_name] = feature_arr
 
     return feature_container
@@ -850,6 +853,8 @@ def feature_extract(
         for index in feature_container.index
         for col in feature_container.columns
     ]
+
+    logger.info(f"The shape of the extracted features:{final_df.shape}")
 
     final_df.index = [subject_id]
 
