@@ -8,6 +8,7 @@ from pathlib import Path
 import mne
 import numpy as np
 from typing import Literal, Dict, Tuple, List, Optional
+from typing import Optional
 import warnings
 from typing import Union
 from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
@@ -187,11 +188,11 @@ class Config(BaseModel):
     """
 
 
-    which_layout: Literal["all", "lobe", "None"] = "all"
+    which_layout: Literal["all", "lobe", None] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
 
     # ICA
-    ica_n_component: PositiveInt = None
+    ica_n_component: Optional[PositiveInt] = None
     ica_max_iter: PositiveInt = 800
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
@@ -229,7 +230,8 @@ class Config(BaseModel):
 
     # Source localization
     apply_source_localization: bool = False
-    SL_source_space: Literal["surface", "volumetric"] = "surface"
+    apply_empty_room_recording: bool = True
+    SL_source_space: Literal["surface", "volumetric"] = "volumetric"
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
@@ -247,16 +249,19 @@ class Config(BaseModel):
     beamformer_weight_norm: Literal[None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"] = "unit-noise-gain"
 
     # This parameter scales the activation to correct for head-center bias.
-    beamforme_depth: confloat(ge=0, le=1) = None
+    beamforme_depth: confloat(ge=0, le=1) = 0.08
 
     # this is used for regularaizing the data covariance (shifting the matrix)
     inverse_regularization_value: confloat(ge=0, le=1) = 0.05
+
+    apply_morphing: bool = False
 
     # the pacellation to use
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
 
     # A custom parcellation file
     parcellation_annot_fname: Literal[Path, None] = None
+
 
     # PSD
     psd_method: Literal["multitaper", "welch"] = "welch"
