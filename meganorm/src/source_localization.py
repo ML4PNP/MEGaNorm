@@ -381,6 +381,9 @@ def corregistration(data,
     coreg.fit_icp(n_iterations=kwargs.get("coregisteration_final_n_iterations", 20), 
                 nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0), 
                 verbose=True)
+    
+    distance_head_mri = coreg.compute_dig_mri_distances()
+    logger.info(f"Average and STD distance between head shape points and MRI surface: {np.mean(distance_head_mri)} and {np.std(distance_head_mri)}")
 
     if plot_3d:
         plot_kwargs = dict(
@@ -996,6 +999,7 @@ def source_localization(
     )
 
     del fwd
+
 
     # using the variable apply_morphing, you can choose whether you need
     # morphing stc to a common source space or not
