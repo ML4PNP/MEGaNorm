@@ -372,9 +372,14 @@ class Config(BaseModel):
             raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
 
 
-    def save(self, path:str):
+    def save(self, path:str, overwrite=False):
         "save the configurations to a JSON file"
         save_path = os.path.join(path, "Features", "Configuration.json")
+
+        if os.path.exists(save_path) and overwrite == False:
+            err_msg = f"A configuration file already exists in this directory: {save_path}. Set the overwrite to True."
+            raise FileExistsError(err_msg)
+            
         with open(save_path, "w") as file:
             json.dump(self.model_dump(), file, indent=4)
 
