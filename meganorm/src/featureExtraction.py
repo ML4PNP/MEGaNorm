@@ -729,7 +729,7 @@ def feature_extract(
                 )
 
             # Adjusted relative canonical power ==================================
-            if feature_categories["Adjusted_Canonical_Relative_Power"]:
+            if feature_categories["Adjusted_Canonical_Relative_Power"] and band_name!= "Broadband":
                 feature_arr = rel_canonical_power(
                     psd=flattened_psd, freqs=freqs, fmin=fmin, fmax=fmax
                 )
@@ -755,7 +755,7 @@ def feature_extract(
                 )
 
             # OriginalPSD relative canonical power ==================================
-            if feature_categories["OriginalPSD_Canonical_Relative_Power"]:
+            if feature_categories["OriginalPSD_Canonical_Relative_Power"] and band_name!= "Broadband":
                 feature_arr = rel_canonical_power(
                     psd=original_psd, freqs=freqs, fmin=fmin, fmax=fmax
                 )
