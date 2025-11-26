@@ -1154,3 +1154,33 @@ def set_path(project_dir):
     make_folder(models_summary)
 
     return features_dir, features_log_path
+
+
+
+def clean_nan_columns(df, nan_threshold):
+    """
+    Remove columns with more NaNs than `nan_threshold`,
+    otherwise impute NaNs with the column median.
+
+    Parameters:
+        df (pd.DataFrame): Input dataframe
+        nan_threshold (int): Max allowed NaNs per column
+
+    Returns:
+        pd.DataFrame: Cleaned dataframe
+    """
+    df = df.copy()
+
+    for col in df.columns:
+        nan_count = df[col].isna().sum()
+
+        if nan_count > nan_threshold:
+            # Drop column
+            df.drop(columns=col, inplace=True)
+        else:
+            # Impute with median (only for numeric columns)
+            if pd.api.types.is_numeric_dtype(df[col]):
+                median_value = df[col].median()
+                df[col] = df[col].fillna(median_value)
+
+    return df
