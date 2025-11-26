@@ -5,6 +5,7 @@ import pickle
 import numpy as np
 import nilearn
 import nibabel as nib
+from nilearn import plotting
 from matplotlib.colors import ListedColormap
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
