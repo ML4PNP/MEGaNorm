@@ -1143,7 +1143,7 @@ def set_path(project_dir):
     make_folder(features_temp_path)
     make_folder(figures_dir)
 
-    nm_dir = os.path.join(project_dir, "Normative modeling")
+    nm_dir = os.path.join(project_dir, "Normative_modeling")
     run_dir = os.path.join(nm_dir, "Runs")
     figures_dir = os.path.join(nm_dir, "Figures")
     models_summary = os.path.join(nm_dir, "Models summary")
