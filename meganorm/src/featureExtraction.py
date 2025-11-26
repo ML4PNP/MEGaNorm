@@ -515,10 +515,10 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
             if feature not in no_freq:
                 # Append frequency bands to the feature name
                 for freq_band in freq_bands:
-                    feature_names.append(f"{feature}_{freq_band}")
+                    feature_names.append(f"{feature}__{freq_band}")
             else:
                 # For features that don't need frequency bands
-                feature += "_" # TODO: this '_' should be removed in future
+                feature += "__" # TODO: this '_' should be removed in future
                 feature_names.append(feature)
 
     # Return an empty DataFrame with features as index and channels as columns
@@ -551,7 +551,7 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
     pd.DataFrame
         Updated DataFrame with the new feature added.
     """
-    feature_name = feature_name + "_" + band_name
+    feature_name = feature_name + "__" + band_name
     feature_container.at[feature_name, channel_name] = feature_arr
 
     return feature_container
