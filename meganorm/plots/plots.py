@@ -15,6 +15,9 @@ import pandas as pd
 from typing import Union
 import plotly.graph_objects as go
 from scipy.stats import chi2
+from sklearn.neighbors import KernelDensity
+import matplotlib.gridspec as grid_spec
+
 
 
 # ***
@@ -1760,3 +1763,77 @@ def plot_statistics_on_brain(
     )
 
     plt.show()
+
+
+
+def plot_mass_metrics(df,
+                      feature_categories,
+                      save_path,
+                      colors,
+                      xlabel,
+                      figsize=(12,10),
+                      kernel="epanechnikov",
+                      dpi=600,
+                      xlim=None,
+                      ylim=None,
+                      bandwidth=0.5,
+                      ):
+
+    gs = grid_spec.GridSpec(len(feature_categories),1)
+    fig = plt.figure(figsize=figsize)
+
+    i = 0
+    ax_objs = []
+    for counter, feature_category in enumerate(feature_categories):
+        
+        x= df.iloc[:, df.columns.str.startswith(feature_category)]
+        x.dropna(inplace=True, axis=1)
+        x = x.to_numpy()[0]
+        
+        x_d = np.linspace(x.min()-4, x.max()+4, 1000)
+
+        kde = KernelDensity(bandwidth=bandwidth, kernel=kernel)
+        kde.fit(x[:, None])
+
+        logprob = kde.score_samples(x_d[:, None])
+
+        ax_objs.append(fig.add_subplot(gs[i:i+1, 0:]))
+
+        ax_objs[-1].plot(x_d, np.exp(logprob),color="#f0f0f0",lw=1)
+        ax_objs[-1].fill_between(x_d, np.exp(logprob), alpha=1,color=colors[i])
+
+
+        if xlim:
+            ax_objs[-1].set_xlim(xlim)
+        if ylim:
+            ax_objs[-1].set_ylim(ylim)
+
+        rect = ax_objs[-1].patch
+        rect.set_alpha(0)
+
+        ax_objs[-1].set_yticklabels([])
+
+        if i == len(feature_categories)-1:
+            ax_objs[-1].set_xlabel(xlabel, 
+                                   fontsize=30,
+                                   fontweight="bold")
+        else:
+            ax_objs[-1].set_xticklabels([])
+
+        spines = ["top","right","left","bottom"]
+        for s in spines:
+            ax_objs[-1].spines[s].set_visible(False)
+        ax_objs[-1].tick_params(axis='x', labelsize=20)
+
+        ax_objs[-1].text(11.5,
+                        0,
+                        feature_category[counter],
+                        fontweight="bold",
+                        fontsize=19,
+                        ha="right")
+        i += 1
+
+    gs.update(hspace=-0.8)
+    plt.tight_layout()
+
+    plt.savefig(save_path, dpi=dpi)
