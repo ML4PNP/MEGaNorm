@@ -209,6 +209,8 @@ class Config(BaseModel):
     apply_Head_movement_correction: bool = True
     Head_movement_limit_from_mean: float = 0.0015
 
+    apply_chpi_filter: bool = False
+
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
     muscle_activity_filter_freq: Tuple[int, int] = (110, 140)

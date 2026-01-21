@@ -379,7 +379,8 @@ def preprocess(
     ica_apply_elbow_detection = False, 
     apply_oversampled_temporal_projection = True,
     apply_Head_movement_correction=True,
-    Head_movement_limit_from_mean = 0.0015
+    Head_movement_limit_from_mean = 0.0015,
+    apply_chpi_filter=False
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -501,16 +502,21 @@ def preprocess(
             )
 
     # remove cHPI noise ---------------------
-    if data.info["hpi_meas"] and data.info["hpi_subsystem"]:
-        data = mne.chpi.filter_chpi(data,
-                                    include_line=False)
-        logger.info("Filtering CHPI noise.")
-    else:
-        if cutoffFreqHigh > 100: # TODO check this
-            logger.warning("hpi_meas and hpi_subsystem info are missing; Therefore"\
-            " cHPI noise can not be filtered. In case you have cHPI coils, please put"
-            "this information in the data, otherwise you can ignore this error.")
+    if which_sensor != "eeg" and apply_chpi_filter:
+        
+        # if chpi data is available
+        if len(mne.chpi.get_chpi_info(data.info)):
+            data = mne.chpi.filter_chpi(data,
+                                        include_line=False)
+            logger.info("Filtering CHPI noise.")
+        # if chpi data is inavailable and cutoffFreqHigh > 80
+        else:
+            if cutoffFreqHigh > 80: # TODO check this
+                logger.warning("cHPI info are missing; Therefore"\
+                " cHPI noise can not be filtered. In case you have cHPI coils, please put"
+                "this information in the data, otherwise you can ignore this error.")
 
+    # digital filter ---------------------
     if digital_filter:
         data.filter(
             l_freq=int(cutoffFreqLow),

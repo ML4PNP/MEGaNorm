@@ -291,7 +291,8 @@ def main(args):
         ica_apply_elbow_detection=configs.ica_apply_elbow_detection,
         apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection,
         apply_Head_movement_correction=configs.apply_Head_movement_correction,
-        Head_movement_limit_from_mean = configs.Head_movement_limit_from_mean
+        Head_movement_limit_from_mean = configs.Head_movement_limit_from_mean,
+        apply_chpi_filter=configs.apply_chpi_filter
     )
 
     # Source localization 
