@@ -493,7 +493,7 @@ def preprocess(
         )
 
     # head motion correction ---------------------
-    if apply_Head_movement_correction:
+    if which_sensor != "eeg" and apply_Head_movement_correction:
         data, empty_room_recording = head_motion_correction(
             data,
             empty_room_recording,
