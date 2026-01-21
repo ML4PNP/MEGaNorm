@@ -461,8 +461,8 @@ def preprocess(
 
     channel_types = set(data.get_channel_types())
 
+    # resample ---------------------
     sampling_rate = data.info["sfreq"]
-    # resample
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
         sampling_rate = data.info["sfreq"]
@@ -470,10 +470,11 @@ def preprocess(
         if empty_room_recording:
             empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
 
-    # flux jumps (SQUID jumps)
+    # flux jumps (SQUID jumps) ---------------------
     if apply_oversampled_temporal_projection:
         data = mne.preprocessing.oversampled_temporal_projection(data)
     
+    # power line ---------------------
     data.notch_filter(
         freqs=np.arange(
             int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
@@ -487,6 +488,10 @@ def preprocess(
             ),
             n_jobs=-1,
         )
+
+    # head motion correction ---------------------
+
+
 
     # remove cHPI noise:
     if data.info["hpi_meas"] and data.info["hpi_subsystem"]:
@@ -1033,3 +1038,102 @@ def drop_mag_or_grad(data, empty_room_recording, which_sensor):
         empty_room_recording.drop_channels(dropping_channels)
 
     return data, empty_room_recording
+
+
+def head_motion_correction(data,
+                empty_room_recording,
+                extention,
+                Head_position_limit_from_mean=0.0015):
+    """
+    Perform head-motion–correction.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG recording from a subject. Must contain cHPI channels if
+        head-movement estimation is desired.
+
+    empty_room_recording : mne.io.Raw | None
+        Empty-room MEG recording corresponding to the subject data.
+        If provided, it will be prepared and Maxwell-filtered using the
+        sensor geometry of the subject data.
+
+    extention : str
+        File extension identifying the MEG vendor. 
+
+    Head_position_limit_from_mean : float, default=0.0015
+        Threshold (in meters) for annotating excessive head movement.
+        Time segments where the head position deviates from the mean
+        position by more than this value will be annotated.
+
+    Returns
+    -------
+    data : mne.io.Raw
+        The processed subject MEG data. If cHPI data are present, the output
+        includes movement annotations and an updated ``dev_head_t`` based on
+        the average head position.
+
+    empty_room_recording : mne.io.Raw | None
+        The processed empty-room recording, filtered using the same Maxwell
+        filtering parameters as the subject data but without movement
+        compensation. Returned unchanged if ``None`` was provided.
+
+    """
+
+    
+    if check_tsss(data):
+        return data, empty_room_recording
+    
+    # MEGIN devices
+    if extention == "fif":
+        
+        chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
+        chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
+        head_pos = mne.chpi.compute_head_pos(data, 
+                                            chpi_locs,
+                                            verbose=False)
+
+        data = mne.preprocessing.maxwell_filter(
+            data,
+            head_pos=head_pos,
+            cross_talk=None, # TODO: this should be changed to the real cross_talk file
+            calibration=None, # TODO: this should be changed to the real calibration file
+        )
+
+        if empty_room_recording:
+            empty_room_recording = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+                empty_room_recording,
+                raw=data,
+                bads="keep"
+            )
+
+            empty_room_recording = mne.preprocessing.maxwell_filter(
+                empty_room_recording,
+                head_pos=None, #If array, movement compensation will be performed. 
+                cross_talk=None, # TODO: this should be changed to the real cross_talk file
+                calibration=None, # TODO: this should be changed to the real calibration file
+            )
+
+        # check if cHPI data is available and then apply annotate_movement func
+        if len(mne.chpi.get_chpi_info(data.infp)):
+
+            chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
+            chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
+            head_pos = mne.chpi.compute_head_pos(data, 
+                                                chpi_locs,
+                                                verbose=False)
+
+            movement_annotation, Head_position_over_time = mne.preprocessing.annotate_movement(
+                data,
+                head_pos=head_pos,
+                mean_distance_limit=Head_position_limit_from_mean
+            )
+
+            data.set_annotation(movement_annotation)
+
+            # Calculate the new device head transformation
+            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos)
+            data.info["dev_head_t"] = new_dev_head_t
+
+    return data, empty_room_recording
+
