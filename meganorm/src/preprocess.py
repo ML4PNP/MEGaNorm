@@ -678,28 +678,29 @@ def drop_noisy_meg_channels(
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor[configs.which_sensor] = True
 
-    try:
+    if check_tsss(data):
+        msg = "Maxwell filter has already been applied. " \
+            "Therefore, bad channel detection using maxwell will be not applied."
+        logger.info(msg)
+        
+    else:
         auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
             data, return_scores=False, verbose=True, coord_frame="meg"
         )
         data.info["bads"] += auto_noisy_chs + auto_flat_chs
 
-    except RuntimeError as e:
-        if "Maxwell filtering SSS step has already been applied" in str(e):
-            logger.info("Skipping: SSS already applied.")
-        else:
-            raise
-
     if empty_room_recording:
         empty_room_recording.info["bads"] = data.info["bads"].copy()
-        empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
+
+    dropped_data = data.copy().drop_channels(data.info["bads"])
+    empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
 
     # Always proceed to log and drop marked bads
     droped_ch_len = len(data.info["bads"])
     logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
 
-    dropped_data = data.copy().drop_channels(data.info["bads"])
     return dropped_data, empty_room_recording
+
 
 def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
 
