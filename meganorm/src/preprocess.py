@@ -505,6 +505,7 @@ def preprocess(
     if which_sensor != "eeg" and apply_chpi_filter:
         
         # if chpi data is available
+        # TODO: use mne.chpi.extract_chpi_locs_ctf or extract_chpi_locs_kit
         if len(mne.chpi.get_chpi_info(data.info)):
             data = mne.chpi.filter_chpi(data,
                                         include_line=False)
@@ -532,7 +533,7 @@ def preprocess(
                 verbose=False,
             )      
 
-    # Muscle artifact detection
+    # Muscle artifact detection ---------------------
     if cutoffFreqHigh > muscle_activity_filter_freq[0]:
         muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data,
                                                 min_length_good=muscle_activity_min_length_good,
@@ -545,16 +546,18 @@ def preprocess(
         # TODO: MNE doc: The type of sensors to use. If None it will take the first type in mag, grad, eeg.
         # You need to apply muscle artifact detection on both
         # MAG and Grad seperately.
+        # MNE documents: Choose one channel type, if there are axial gradiometers and magnetometers,
+        # select magnetometers as they are more sensitive to muscle activity.
 
-    # rereference
+    # rereference ---------------------
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
         if empty_room_recording:
             empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
 
-    # gradient compensation for CTF datasets
-    if extention == "CTF":
-        data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+    # remove environmental noise ---------------------
+    
+
 
 
     ICA_flag = True  # initialize flag
@@ -1128,6 +1131,7 @@ def head_motion_correction(data,
             )
 
         # check if cHPI data is available and then apply annotate_movement func
+        # TODO: use mne.chpi.extract_chpi_locs_ctf or extract_chpi_locs_kit
         if len(mne.chpi.get_chpi_info(data.infp)):
 
             chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
@@ -1150,3 +1154,47 @@ def head_motion_correction(data,
 
     return data, empty_room_recording
 
+
+
+def remove_environmental_noise(data,
+                               extention,
+                               empty_room_recording=None,
+                               ctf_gradient_comp_level=3,
+                               apply_environmental_noise_ssp_with_eroom=True,
+                               apply_environmental_noise_ica_with_ref_meg=False,
+                               environmental_noise_ica_with_ref_meg_thr=2.5):
+        
+
+    # gradient compensation for CTF datasets
+    if extention == "CTF":
+        data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+
+    # If MEGIN device, apply tsss
+    elif extention == "fif":
+        if not check_tsss(data):
+            pass # TODO: to be added
+
+    elif apply_environmental_noise_ssp_with_eroom:
+        # if there is already no projection in data
+        if not raw.info["projs"]:
+            
+            if empty_room_recording:
+                pass
+            else:
+                msg = "Empty_room_recording is inavailable to perform SSP for environmental noise suppression."
+                logger.info(msg)
+
+    elif apply_environmental_noise_ica_with_ref_meg:
+
+        has_ref_meg = "ref_meg" in data.get_channel_types()
+        
+        if has_ref_meg:
+            all_picks = mne.pick_types(data.info, meg=True, ref_meg=True)
+            ica = mne.preprocessing.ICA(n_components=60, max_iter="auto", allow_ref_meg=True)
+            ica.fit(data, picks=all_picks)
+            bad_ic, scores = ica.find_bads_ref(data, threshold=environmental_noise_ica_with_ref_meg_thr)
+            data = ica.apply(data, exclude=bad_ic)
+
+            logger.info(f"Number of components, removed by ICA for suppressing environmental noise using ref MEG: {len(bad_ic)}")
+
+    return data
