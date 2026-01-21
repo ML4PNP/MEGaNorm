@@ -199,29 +199,30 @@ def main(args):
     subID = args.subject
     paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
-    if len(paths) > 0:
-        logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
-                       " will be used in this analysis.")
+    
+    logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
+                    " will be used in this analysis.")
     path = paths[0]
 
-    # Extracting file format (extention) for loading layout
-    extention = paths[0].split(".")[-1]
     if "4D" in path[0]:
         extention = "BTI"  # TODO: you need to change this
+    else:
+        # Extracting file format (extention) for loading layout
+        extention = paths[0].split(".")[-1]
 
     start_time = datetime.now()
     logger.info(f"Starting the process for the subject {subID} at {start_time}:")
     
     # read the data
     # *******************************************************
-    try:
+    if not extention == "BTI":
         data = mne.io.read_raw(path, preload=True)
         if args.empty_room_recording_path:
             empty_room_recording = mne.io.read_raw(args.empty_room_recording_path, preload=True)
         else:
             empty_room_recording = None
 
-    except:
+    else:
         data = mne.io.read_raw_bti(
             pdf_fname=os.path.join(path, "c,rfDC"),
             config_fname=os.path.join(path, "config"),
