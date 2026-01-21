@@ -376,7 +376,8 @@ def preprocess(
     muscle_activity_thr=4.0,
     muscle_activity_min_length_good=0.1,
     muscle_activity_filter_freq=(110, 140),
-    ica_apply_elbow_detection = False
+    ica_apply_elbow_detection = False, 
+    apply_oversampled_temporal_projection = True
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -454,29 +455,14 @@ def preprocess(
 
 
     # since pick_channels can not seperate mag and grad signals
-    if not (which_sensor["meg"] or which_sensor["eeg"]):
-        if not which_sensor["mag"]:
-            logger.info("Dropping magnetometer sensors.")
-            dropping_channels = [
-                ch
-                for ch, ch_type in zip(data.ch_names, data.get_channel_types())
-                if ch_type == "mag"
-            ]
-        elif not which_sensor["grad"]:
-            logger.info("Dropping gradiometer sensors.")
-            dropping_channels = [
-                ch
-                for ch, ch_type in zip(data.ch_names, data.get_channel_types())
-                if ch_type == "grad"
-            ]
-        data.drop_channels(dropping_channels)
-        if empty_room_recording:
-            empty_room_recording.drop_channels(dropping_channels)
+    # if not (which_sensor["meg"] or which_sensor["eeg"]):
+    if which_sensor["grad"] or which_sensor["meg"]:
+        data, empty_room_recording = drop_mag_or_grad(data, empty_room_recording, which_sensor)
 
     channel_types = set(data.get_channel_types())
 
     sampling_rate = data.info["sfreq"]
-    # resample & band pass filter
+    # resample
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
         sampling_rate = data.info["sfreq"]
@@ -484,7 +470,10 @@ def preprocess(
         if empty_room_recording:
             empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
 
-
+    # flux jumps (SQUID jumps)
+    if apply_oversampled_temporal_projection:
+        data = mne.preprocessing.oversampled_temporal_projection(data)
+    
     data.notch_filter(
         freqs=np.arange(
             int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
@@ -1012,3 +1001,35 @@ def pca_elbow_locator(raw, which_sensor):
 
     return int(elbow_index)
 
+
+
+def drop_mag_or_grad(data, empty_room_recording, which_sensor):
+
+    # since pick_channels can not seperate mag and grad signals
+    # if not (which_sensor["meg"] or which_sensor["eeg"]):
+    dropping_channels = []
+
+    if which_sensor["grad"]:
+        logger.info("Dropping magnetometer sensors.")
+        dropping_channels = [
+            ch
+            for ch, ch_type in zip(data.ch_names, data.get_channel_types())
+            if ch_type == "mag"
+        ]
+
+    elif which_sensor["mag"]:
+        logger.info("Dropping gradiometer sensors.")
+        dropping_channels = [
+            ch
+            for ch, ch_type in zip(data.ch_names, data.get_channel_types())
+            if ch_type == "grad"
+        ]
+    
+    else:
+        raise Exception
+    
+    data.drop_channels(dropping_channels)
+    if empty_room_recording:
+        empty_room_recording.drop_channels(dropping_channels)
+
+    return data, empty_room_recording

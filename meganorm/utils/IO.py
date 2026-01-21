@@ -204,6 +204,8 @@ class Config(BaseModel):
     digital_filter: bool = True
     notch_filter: bool = True
 
+    apply_oversampled_temporal_projection: bool = True
+
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
     muscle_activity_filter_freq: Tuple[int, int] = (110, 140)

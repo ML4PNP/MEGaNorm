@@ -288,7 +288,8 @@ def main(args):
         muscle_activity_filter_freq=configs.muscle_activity_filter_freq,
         muscle_activity_thr=configs.muscle_activity_thr,
         extention=extention,
-        ica_apply_elbow_detection=configs.ica_apply_elbow_detection
+        ica_apply_elbow_detection=configs.ica_apply_elbow_detection,
+        apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection
     )
 
     # Source localization 
