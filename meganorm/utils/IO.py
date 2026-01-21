@@ -206,6 +206,9 @@ class Config(BaseModel):
 
     apply_oversampled_temporal_projection: bool = True
 
+    apply_Head_movement_correction: bool = True
+    Head_movement_limit_from_mean: float = 0.0015
+
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
     muscle_activity_filter_freq: Tuple[int, int] = (110, 140)

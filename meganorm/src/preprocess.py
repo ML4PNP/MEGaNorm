@@ -377,7 +377,9 @@ def preprocess(
     muscle_activity_min_length_good=0.1,
     muscle_activity_filter_freq=(110, 140),
     ica_apply_elbow_detection = False, 
-    apply_oversampled_temporal_projection = True
+    apply_oversampled_temporal_projection = True,
+    apply_Head_movement_correction=True,
+    Head_movement_limit_from_mean = 0.0015
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -490,10 +492,15 @@ def preprocess(
         )
 
     # head motion correction ---------------------
+    if apply_Head_movement_correction:
+        data, empty_room_recording = head_motion_correction(
+            data,
+            empty_room_recording,
+            extention,
+            Head_movement_limit_from_mean=Head_movement_limit_from_mean
+            )
 
-
-
-    # remove cHPI noise:
+    # remove cHPI noise ---------------------
     if data.info["hpi_meas"] and data.info["hpi_subsystem"]:
         data = mne.chpi.filter_chpi(data,
                                     include_line=False)
@@ -1043,7 +1050,7 @@ def drop_mag_or_grad(data, empty_room_recording, which_sensor):
 def head_motion_correction(data,
                 empty_room_recording,
                 extention,
-                Head_position_limit_from_mean=0.0015):
+                Head_movement_limit_from_mean=0.0015):
     """
     Perform head-motion–correction.
 
@@ -1126,7 +1133,7 @@ def head_motion_correction(data,
             movement_annotation, Head_position_over_time = mne.preprocessing.annotate_movement(
                 data,
                 head_pos=head_pos,
-                mean_distance_limit=Head_position_limit_from_mean
+                mean_distance_limit=Head_movement_limit_from_mean
             )
 
             data.set_annotation(movement_annotation)

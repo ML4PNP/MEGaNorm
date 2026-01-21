@@ -289,7 +289,9 @@ def main(args):
         muscle_activity_thr=configs.muscle_activity_thr,
         extention=extention,
         ica_apply_elbow_detection=configs.ica_apply_elbow_detection,
-        apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection
+        apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection,
+        apply_Head_movement_correction=configs.apply_Head_movement_correction,
+        Head_movement_limit_from_mean = configs.Head_movement_limit_from_mean
     )
 
     # Source localization 
