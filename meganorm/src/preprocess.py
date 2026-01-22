@@ -1174,15 +1174,16 @@ def remove_environmental_noise(data,
         if not check_tsss(data):
             pass # TODO: to be added
 
-    elif apply_environmental_noise_ssp_with_eroom:
-        # if there is already no projection in data
-        if not raw.info["projs"]:
-            
-            if empty_room_recording:
-                pass
-            else:
-                msg = "Empty_room_recording is inavailable to perform SSP for environmental noise suppression."
-                logger.info(msg)
+    elif apply_environmental_noise_ssp_with_eroom:        
+        if empty_room_recording:
+            empty_room_projs = mne.compute_proj_raw(empty_room_recording, n_grad=3, n_mag=3)
+            data.add_proj(empty_room_projs)
+            data.apply_proj()
+            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info["projs"])}"
+        else:
+            msg = "Empty_room_recording is inavailable to perform SSP for environmental noise suppression." \
+            " Please, use another method to remove environmental noise."
+            logger.info(msg)
 
     elif apply_environmental_noise_ica_with_ref_meg:
 
