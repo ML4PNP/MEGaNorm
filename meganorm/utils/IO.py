@@ -216,6 +216,12 @@ class Config(BaseModel):
     muscle_activity_filter_freq: Tuple[int, int] = (110, 140)
 
     ctf_gradient_comp_level: PositiveInt = 3
+    apply_environmental_noise_ssp_with_eroom: bool = False
+    apply_environmental_noise_ica_with_ref_meg: bool = True
+    environmental_noise_ica_with_ref_meg_thr: float = 2.5
+    ica_if_reject_by_annotation: bool = True
+    environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = "separate"
+    environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = "zscore"
     
     apply_ica: bool = True
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.9
@@ -373,6 +379,17 @@ class Config(BaseModel):
             raise ValueError(error_msg)
         return self
     
+    @model_validator(mode="after")
+    def ica_e_noise_removal(self):
+        if (self.environmental_noise_ica_with_ref_meg_measure == "correlation" and not
+            0<self.environmental_noise_ica_with_ref_meg_thr<1):
+            
+            error_mg = "If the threshold method for removing environmental noise using " \
+            "ICA and ref-MEG is correlation, the corresponding measure must be between 0 and 1."
+            raise ValueError(error_mg)
+        return self    
+
+
     @model_validator(mode="after")
     def pacellation_checker(self):
         if not self.parcellation_parc and not self.parcellation_annot_fname:

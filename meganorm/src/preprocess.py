@@ -372,7 +372,6 @@ def preprocess(
     apply_ica=True,
     power_line_freq: int = 60,
     auto_ica_corr_thr: float = 0.9,
-    ctf_gradient_comp_level=3,
     muscle_activity_thr=4.0,
     muscle_activity_min_length_good=0.1,
     muscle_activity_filter_freq=(110, 140),
@@ -380,7 +379,14 @@ def preprocess(
     apply_oversampled_temporal_projection = True,
     apply_Head_movement_correction=True,
     Head_movement_limit_from_mean = 0.0015,
-    apply_chpi_filter=False
+    apply_chpi_filter=False,
+    ctf_gradient_comp_level=3,
+    apply_environmental_noise_ssp_with_eroom=False,
+    apply_environmental_noise_ica_with_ref_meg=False,
+    environmental_noise_ica_with_ref_meg_thr=2.5,
+    ica_if_reject_by_annotation=True,
+    environmental_noise_ica_with_ref_meg_method="together",
+    environmental_noise_ica_with_ref_meg_measure="zscore"
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
@@ -464,7 +470,7 @@ def preprocess(
 
     channel_types = set(data.get_channel_types())
 
-    # resample ---------------------
+    # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
@@ -477,7 +483,7 @@ def preprocess(
     if apply_oversampled_temporal_projection:
         data = mne.preprocessing.oversampled_temporal_projection(data)
     
-    # power line ---------------------
+    # power line -----------------------------------
     data.notch_filter(
         freqs=np.arange(
             int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
@@ -492,7 +498,7 @@ def preprocess(
             n_jobs=-1,
         )
 
-    # head motion correction ---------------------
+    # head motion correction ----------------------
     if which_sensor != "eeg" and apply_Head_movement_correction:
         data, empty_room_recording = head_motion_correction(
             data,
@@ -501,7 +507,7 @@ def preprocess(
             Head_movement_limit_from_mean=Head_movement_limit_from_mean
             )
 
-    # remove cHPI noise ---------------------
+    # remove cHPI noise ---------------------------
     if which_sensor != "eeg" and apply_chpi_filter:
         
         # if chpi data is available
@@ -517,7 +523,7 @@ def preprocess(
                 " cHPI noise can not be filtered. In case you have cHPI coils, please put"
                 "this information in the data, otherwise you can ignore this error.")
 
-    # digital filter ---------------------
+    # digital filter --------------------------------
     if digital_filter:
         data.filter(
             l_freq=int(cutoffFreqLow),
@@ -549,17 +555,26 @@ def preprocess(
         # MNE documents: Choose one channel type, if there are axial gradiometers and magnetometers,
         # select magnetometers as they are more sensitive to muscle activity.
 
-    # rereference ---------------------
+    # rereference -----------------------------------
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
         if empty_room_recording:
             empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
 
     # remove environmental noise ---------------------
-    
+    remove_environmental_noise(data,
+                               extention,
+                               empty_room_recording=empty_room_recording,
+                               ctf_gradient_comp_level=ctf_gradient_comp_level,
+                               apply_environmental_noise_ssp_with_eroom=apply_environmental_noise_ssp_with_eroom,
+                               apply_environmental_noise_ica_with_ref_meg=apply_environmental_noise_ica_with_ref_meg,
+                               environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+                               ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+                               environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+                               environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure)
 
 
-
+    # physiological noise ----------------------------
     ICA_flag = True  # initialize flag
 
     physiological_electrods = {
@@ -1160,9 +1175,12 @@ def remove_environmental_noise(data,
                                extention,
                                empty_room_recording=None,
                                ctf_gradient_comp_level=3,
-                               apply_environmental_noise_ssp_with_eroom=True,
+                               apply_environmental_noise_ssp_with_eroom=False,
                                apply_environmental_noise_ica_with_ref_meg=False,
-                               environmental_noise_ica_with_ref_meg_thr=2.5):
+                               environmental_noise_ica_with_ref_meg_thr=2.5,
+                               ica_if_reject_by_annotation=True,
+                               environmental_noise_ica_with_ref_meg_method="together",
+                               environmental_noise_ica_with_ref_meg_measure="zscore"):
         
 
     # gradient compensation for CTF datasets
@@ -1193,7 +1211,14 @@ def remove_environmental_noise(data,
             all_picks = mne.pick_types(data.info, meg=True, ref_meg=True)
             ica = mne.preprocessing.ICA(n_components=60, max_iter="auto", allow_ref_meg=True)
             ica.fit(data, picks=all_picks)
-            bad_ic, scores = ica.find_bads_ref(data, threshold=environmental_noise_ica_with_ref_meg_thr)
+
+            bad_ic, scores = ica.find_bads_ref(
+                data, 
+                threshold = environmental_noise_ica_with_ref_meg_thr,
+                reject_by_annotation = ica_if_reject_by_annotation,
+                method = environmental_noise_ica_with_ref_meg_method,
+                measure = environmental_noise_ica_with_ref_meg_measure)
+
             data = ica.apply(data, exclude=bad_ic)
 
             logger.info(f"Number of components, removed by ICA for suppressing environmental noise using ref MEG: {len(bad_ic)}")

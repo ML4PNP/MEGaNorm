@@ -283,7 +283,6 @@ def main(args):
         auto_ica_corr_thr=configs.auto_ica_corr_thr,
         power_line_freq=power_line_freq,
         empty_room_recording=empty_room_recording,
-        ctf_gradient_comp_level=configs.ctf_gradient_comp_level,
         muscle_activity_min_length_good=configs.muscle_activity_min_length_good,
         muscle_activity_filter_freq=configs.muscle_activity_filter_freq,
         muscle_activity_thr=configs.muscle_activity_thr,
@@ -292,7 +291,14 @@ def main(args):
         apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection,
         apply_Head_movement_correction=configs.apply_Head_movement_correction,
         Head_movement_limit_from_mean = configs.Head_movement_limit_from_mean,
-        apply_chpi_filter=configs.apply_chpi_filter
+        apply_chpi_filter = configs.apply_chpi_filter,
+        ctf_gradient_comp_level = configs.ctf_gradient_comp_level,
+        apply_environmental_noise_ssp_with_eroom = configs.apply_environmental_noise_ssp_with_eroom,
+        apply_environmental_noise_ica_with_ref_meg = configs.apply_environmental_noise_ica_with_ref_meg,
+        environmental_noise_ica_with_ref_meg_thr = configs.environmental_noise_ica_with_ref_meg_thr,
+        ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
+        environmental_noise_ica_with_ref_meg_method = configs.environmental_noise_ica_with_ref_meg_method,
+        environmental_noise_ica_with_ref_meg_measure = configs.environmental_noise_ica_with_ref_meg_measure
     )
 
     # Source localization 
