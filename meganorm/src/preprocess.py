@@ -698,7 +698,7 @@ def preprocess(
 
     # remove environmental noise ---------------------
     if apply_environmental_noise_correction:
-        data = remove_environmental_noise(
+        data, empty_room_recording = remove_environmental_noise(
             data,
             device,
             empty_room_recording=empty_room_recording,
@@ -851,7 +851,7 @@ def apply_chpi(meg_data, movement_limit, head_pos_save_path, device):
     mne.chpi.write_head_pos(head_pos_save_path, head_pos)
 
 
-def apply_gradient_comp(ctf_meg_data, grade=3):
+def apply_gradient_comp(ctf_meg_data, empty_room_recording, grade=3):
     """
     Interpolate bad channels and apply gradient compensation to CTF MEG data.
 
@@ -901,10 +901,11 @@ def apply_gradient_comp(ctf_meg_data, grade=3):
                                   method=method)
     
     ctf_meg_data.apply_gradient_compensation(grade=grade) 
+    empty_room_recording.apply_gradient_compensation(grade=grade) 
 
     logger.info(f"Gradient compensation with level of {grade} has been applied to the data.")
 
-    return ctf_meg_data
+    return ctf_meg_data, empty_room_recording
 
 
 def apply_tsss(
@@ -1089,7 +1090,7 @@ def check_tsss(meg_data):
     if not proc_history:
         return False
     max_info = proc_history[0].get('max_info', {})
-    sss_cal = max_info.get('sss_cal', [])
+    sss_cal = max_info.get('sss_info', [])
     return len(sss_cal) > 0
 
 
@@ -1285,7 +1286,7 @@ def remove_environmental_noise(data,
 
     # gradient compensation for CTF datasets
     if device == "CTF":
-        data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+        data, empty_room_recording = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
 
     # If MEGIN device, apply tsss
     elif device == "MEGIN":
@@ -1323,4 +1324,4 @@ def remove_environmental_noise(data,
 
             logger.info(f"Number of components, removed by ICA for suppressing environmental noise using ref MEG: {len(bad_ic)}")
 
-    return data
+    return data, empty_room_recording
