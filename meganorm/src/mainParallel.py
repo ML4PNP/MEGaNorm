@@ -305,12 +305,20 @@ def main(args):
     # segmentation 
     # *******************************************************
     segments = segment_epoch(
-        data=filtered_data,
-        sampling_rate=sampling_rate,
-        tmin=configs.segments_tmin,
-        tmax=configs.segments_tmax,
-        segmentsLength=configs.segments_length,
-        overlap=configs.segments_overlap,
+        data = filtered_data,
+        sampling_rate = sampling_rate,
+        tmin = configs.segments_tmin,
+        tmax = configs.segments_tmax,
+        segments_length = configs.segments_length,
+        overlap = configs.segments_overlap,
+        ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
+        remove_bad_segments = configs.remove_bad_segments,
+        mag_var_threshold = configs.mag_var_threshold,
+        grad_var_threshold = configs.grad_var_threshold,
+        eeg_var_threshold = configs.eeg_var_threshold,
+        mag_flat_threshold = configs.mag_flat_threshold,
+        grad_flat_threshold = configs.grad_flat_threshold,
+        eeg_flat_threshold = configs.eeg_flat_threshold,
     )
 
     # Source localization 

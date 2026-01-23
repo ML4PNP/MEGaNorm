@@ -408,34 +408,76 @@ def segment_epoch(
     tmin: float,
     tmax: float,
     sampling_rate: float,
-    segmentsLength: float,
-    overlap: float,
+    segments_length: float = 10,
+    overlap: float = 0,
+    ica_if_reject_by_annotation: bool = True,
+    remove_bad_segments: bool = True,
+    mag_var_threshold: float = 5000e-15,
+    grad_var_threshold: float = 5000e-13,
+    eeg_var_threshold: float = 40e-6,
+    mag_flat_threshold: float = 10e-15,
+    grad_flat_threshold: float = 10e-13,
+    eeg_flat_threshold: float = 40e-6,
 ):
     """
-    Segments continuous raw data into epochs of fixed length.
+    Segment continuous MEG/EEG data into fixed-length overlapping epochs.
+
+    This function crops the input raw data to a specified time window, removes
+    edge portions to avoid artifacts, and then segments the data into
+    fixed-length epochs using MNE-Python. Automatic rejection and flat-channel
+    criteria can be applied separately for MEG magnetometers, gradiometers,
+    and EEG channels.
 
     Parameters
     ----------
     data : mne.io.Raw
-        MEG/EEG recording.
+        Continuous MEG/EEG recording.
     tmin : float
         Start time (in seconds) for cropping the raw data.
     tmax : float
-        End time (in seconds) for cropping the raw data. 'tmax' must be a
-        negative number, indicating the time difference between the crop
-        end point and the total recording duration.
+        End time (in seconds) for cropping the raw data. Must be a negative
+        value, indicating the offset (in seconds) from the end of the
+        recording.
     sampling_rate : float
-        Sampling rate of the data (Hz).
-    segmentsLength : float
-        Length of each epoch in seconds.
-    overlap : float
-        Overlap between successive epochs in seconds.
+        Sampling rate of the data in Hz.
+    segments_length : float, optional
+        Length of each epoch in seconds. Default is 10.
+    overlap : float, optional
+        Overlap between successive epochs in seconds. Default is 0.
+    ica_if_reject_by_annotation : bool, optional
+        Whether to reject epochs based on annotations (e.g., ICA-identified
+        artifacts). Passed to ``reject_by_annotation`` in ``mne.Epochs``.
+        Default is True.
+    mag_var_threshold : float, optional
+        Peak-to-peak amplitude threshold for rejecting epochs containing
+        artifacts in magnetometer channels (in Tesla). Default is 5000e-15.
+    grad_var_threshold : float, optional
+        Peak-to-peak amplitude threshold for rejecting epochs containing
+        artifacts in gradiometer channels (in Tesla/m). Default is 5000e-13.
+    eeg_var_threshold : float, optional
+        Peak-to-peak amplitude threshold for rejecting epochs containing
+        artifacts in EEG channels (in Volts). Default is 40e-6.
+    mag_flat_threshold : float, optional
+        Flatness threshold for magnetometer channels (in Tesla). Epochs with
+        signals below this threshold are rejected. Default is 10e-15.
+    grad_flat_threshold : float, optional
+        Flatness threshold for gradiometer channels (in Tesla/m). Default is
+        10e-13.
+    eeg_flat_threshold : float, optional
+        Flatness threshold for EEG channels (in Volts). Default is 40e-6.
 
     Returns
     -------
-    mne.Epochs
-        Segmented data with fixed-length segments.
+    segments : mne.Epochs
+        An ``Epochs`` object containing fixed-length segments extracted from
+        the continuous data.
+
+    Raises
+    ------
+    ValueError
+        If ``tmax`` is not a negative number.
     """
+
     if tmax > 0:
         raise ValueError("The 'tmax' must be a negative number")
 
@@ -445,13 +487,36 @@ def segment_epoch(
     # Crop 20 seconds from both ends to avoid eye-open/close artifacts
     data.crop(tmin=tmin, tmax=tmax)
 
-    # Create fixed-length overlapping epochs
-    segments = mne.make_fixed_length_epochs(
+    if remove_bad_segments:
+        reject = dict(
+            mag=mag_var_threshold,
+            grad=grad_var_threshold,
+            eeg=eeg_var_threshold
+            )
+        
+        flat = dict(
+            mag=mag_flat_threshold,
+            grad=grad_flat_threshold,
+            eeg=eeg_flat_threshold
+        )
+    else:
+        reject = None; flat = None
+
+    events = mne.make_fixed_length_events(
+        raw = data, 
+        duration = segments_length,
+        overlap = overlap
+        )
+    
+    segments = mne.Epochs(
         data,
-        duration=segmentsLength,
+        events,
+        reject=reject,
+        flat=flat,
         overlap=overlap,
-        reject_by_annotation=True,
+        reject_by_annotation=ica_if_reject_by_annotation,
         verbose=False,
+        baseline=None
     )
 
     return segments
