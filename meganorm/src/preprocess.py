@@ -541,11 +541,12 @@ def preprocess(
     muscle_activity_thr=4.0,
     muscle_activity_min_length_good=0.1,
     muscle_activity_filter_freq=(110, 140),
-    ica_apply_elbow_detection = False, 
+    apply_ica_elbow_detection = False, 
     apply_oversampled_temporal_projection = True,
     apply_Head_movement_correction=True,
     Head_movement_limit_from_mean = 0.0015,
     apply_chpi_filter=False,
+    apply_environmental_noise_correction=True,
     ctf_gradient_comp_level=3,
     apply_environmental_noise_ssp_with_eroom=False,
     apply_environmental_noise_ica_with_ref_meg=False,
@@ -603,7 +604,7 @@ def preprocess(
     muscle_activity_filter_freq: tuple, optional
         Cutoff frequencies for the band-pass filter used in muscle activity detection.
         Muscle activity is typically more prominent in higher frequency ranges (e.g., 110–140 Hz).
-    ica_apply_elbow_detection: bool: False
+    apply_ica_elbow_detection: bool: False
 
 
     Returns
@@ -628,7 +629,7 @@ def preprocess(
             empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
 
     # flux jumps (SQUID jumps) ---------------------
-    if apply_oversampled_temporal_projection and not which_sensor["eeg"]:
+    if apply_oversampled_temporal_projection and not which_sensor.get("eeg", False):
         data = mne.preprocessing.oversampled_temporal_projection(data)
     
     # power line -----------------------------------
@@ -647,7 +648,7 @@ def preprocess(
         )
 
     # head motion correction ----------------------
-    if apply_Head_movement_correction and not which_sensor["eeg"]:
+    if apply_Head_movement_correction and not which_sensor.get("eeg", False):
         data, empty_room_recording = head_motion_correction(
             data,
             empty_room_recording,
@@ -656,20 +657,11 @@ def preprocess(
             )
 
     # remove cHPI noise ---------------------------
-    if apply_chpi_filter and not which_sensor["eeg"]:
-        
-        # if chpi data is available
-        # TODO: use mne.chpi.extract_chpi_locs_ctf or extract_chpi_locs_kit
-        if len(mne.chpi.get_chpi_info(data.info)):
-            data = mne.chpi.filter_chpi(data,
-                                        include_line=False)
-            logger.info("Filtering CHPI noise.")
-        # if chpi data is inavailable and cutoffFreqHigh > 80
-        else:
-            if cutoffFreqHigh > 80: # TODO check this
-                logger.warning("cHPI info are missing; Therefore"\
-                " cHPI noise can not be filtered. In case you have cHPI coils, please put"
-                "this information in the data, otherwise you can ignore this error.")
+    has_chpi = bool(mne.chpi.get_chpi_info(data.info))
+    if apply_chpi_filter and has_chpi and not which_sensor.get("eeg", False):
+        data = mne.chpi.filter_chpi(data, include_line=False)
+        logger.info("cHPI filter was applied.")
+
 
     # digital filter --------------------------------
     if digital_filter:
@@ -697,11 +689,6 @@ def preprocess(
         data.set_annotations(muscle_annot)
         logger.info(f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} seconds of"\
                     " the signal.")
-        # TODO: MNE doc: The type of sensors to use. If None it will take the first type in mag, grad, eeg.
-        # You need to apply muscle artifact detection on both
-        # MAG and Grad seperately.
-        # MNE documents: Choose one channel type, if there are axial gradiometers and magnetometers,
-        # select magnetometers as they are more sensitive to muscle activity.
 
     # rereference -----------------------------------
     if which_sensor["eeg"] and rereference_method:
@@ -710,26 +697,25 @@ def preprocess(
             empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
 
     # remove environmental noise ---------------------
-    data = remove_environmental_noise(
-        data,
-        device,
-        empty_room_recording=empty_room_recording,
-        ctf_gradient_comp_level=ctf_gradient_comp_level,
-        apply_environmental_noise_ssp_with_eroom=apply_environmental_noise_ssp_with_eroom,
-        apply_environmental_noise_ica_with_ref_meg=apply_environmental_noise_ica_with_ref_meg,
-        environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
-        ica_if_reject_by_annotation=ica_if_reject_by_annotation,
-        environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
-        environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure
-        )
-
+    if apply_environmental_noise_correction:
+        data = remove_environmental_noise(
+            data,
+            device,
+            empty_room_recording=empty_room_recording,
+            ctf_gradient_comp_level=ctf_gradient_comp_level,
+            apply_environmental_noise_ssp_with_eroom=apply_environmental_noise_ssp_with_eroom,
+            apply_environmental_noise_ica_with_ref_meg=apply_environmental_noise_ica_with_ref_meg,
+            environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+            ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+            environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+            environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure
+            )
 
     # physiological noise ----------------------------
     if apply_ica:
-
-        if ica_apply_elbow_detection:
+        if apply_ica_elbow_detection:
             n_component = pca_elbow_locator(data, which_sensor)
-    
+
         data, number_of_reduced_ic = apply_auto_ica_pipeline(
             data,
             apply_ica,
@@ -1271,7 +1257,8 @@ def head_motion_correction(data,
             )
 
             data.set_annotation(movement_annotation)
-            logger.info("Movement annotation was applied for the subject using cHPI coils.")
+            logger.info(f"Movement annotation algorithm using cHPI coils detected {sum(movement_annotation.duration)}" \
+                        " seconds of motion.")
 
             # Calculate the new device head transformation
             new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos, verbos=False)
@@ -1301,7 +1288,7 @@ def remove_environmental_noise(data,
         data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
 
     # If MEGIN device, apply tsss
-    elif device == "fif":
+    elif device == "MEGIN":
         if not check_tsss(data):
             pass # TODO: to be added
 
