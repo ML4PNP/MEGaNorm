@@ -191,8 +191,10 @@ class Config(BaseModel):
     which_layout: Literal["all", "lobe", None] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
 
+    drop_noisy_flat_channel: bool = True
+
     # ICA
-    ica_apply_elbow_detection: bool = False
+    apply_ica_elbow_detection: bool = False
     ica_n_component: Optional[PositiveInt] = None
     ica_max_iter: PositiveInt = 800
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
@@ -215,6 +217,7 @@ class Config(BaseModel):
     muscle_activity_min_length_good: float = 0.1
     muscle_activity_filter_freq: Tuple[int, int] = (110, 140)
 
+    apply_environmental_noise_correction: bool = True
     ctf_gradient_comp_level: PositiveInt = 3
     apply_environmental_noise_ssp_with_eroom: bool = False
     apply_environmental_noise_ica_with_ref_meg: bool = True
