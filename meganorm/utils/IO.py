@@ -228,11 +228,11 @@ class Config(BaseModel):
 
     rereference_method: Literal["average", "REST", "None"] = "average"
 
-    mag_var_threshold: float = 4e-12
-    grad_var_threshold: float = 4000e-13
+    mag_var_threshold: float = 5000e-15
+    grad_var_threshold: float = 5000e-13
     eeg_var_threshold: float = 40e-6
     mag_flat_threshold: float = 10e-15
-    grad_flat_threshold: float = 10e-15
+    grad_flat_threshold: float = 10e-13
     eeg_flat_threshold: float = 40e-6
 
     zscore_std_thresh: PositiveInt = 15
