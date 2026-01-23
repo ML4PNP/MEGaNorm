@@ -524,7 +524,7 @@ def segment_epoch(
 
 def preprocess(
     data,
-    extention,
+    device,
     which_sensor: dict,
     empty_room_recording=None,
     resampling_rate: int = 1000,
@@ -555,14 +555,13 @@ def preprocess(
     environmental_noise_ica_with_ref_meg_measure="zscore"
 ):
     """
-    Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
-    ICA for artifact removal, and optional downsampling.
+    Applies a preprocessing pipeline on MEG/EEG data.
 
     Parameters
     ----------
     data : mne.io.Raw
         Raw MEG/EEG data.
-    extention : str
+    device : str
         The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the
         appropriate layout file from the layout directory.
     which_sensor : dict
@@ -611,24 +610,7 @@ def preprocess(
     -------
     mne.io.Raw
         Preprocessed MEG/EEG data.
-
-    Raises
-    ------
-    ValueError
-        auto_ica_corr_thr must be between 0 and 1.
-    ValueError
-        ICA method must be one of: 'fastica', 'picard', 'infomax'.
     """
-    if not 0 < auto_ica_corr_thr <= 1:
-        err_msg = "auto_ica_corr_thr must be between 0 and 1."
-        logger.error(err_msg)
-        raise ValueError(err_msg)
-    if IcaMethod not in ["fastica", "picard", "infomax"]:
-        err_msg = "ICA method must be one of: 'fastica', 'picard', 'infomax'."
-        logger.error(err_msg)
-        raise ValueError(err_msg)
-
-
     # since pick_channels can not seperate mag and grad signals
     # if not (which_sensor["meg"] or which_sensor["eeg"]):
     if which_sensor["grad"] or which_sensor["meg"]:
@@ -640,13 +622,13 @@ def preprocess(
     sampling_rate = data.info["sfreq"]
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
-        sampling_rate = data.info["sfreq"]
+        sampling_rate = resampling_rate.copy()
         # resampling empty room recording
         if empty_room_recording:
             empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
 
     # flux jumps (SQUID jumps) ---------------------
-    if apply_oversampled_temporal_projection:
+    if apply_oversampled_temporal_projection and not which_sensor["eeg"]:
         data = mne.preprocessing.oversampled_temporal_projection(data)
     
     # power line -----------------------------------
@@ -665,16 +647,16 @@ def preprocess(
         )
 
     # head motion correction ----------------------
-    if which_sensor != "eeg" and apply_Head_movement_correction:
+    if apply_Head_movement_correction and not which_sensor["eeg"]:
         data, empty_room_recording = head_motion_correction(
             data,
             empty_room_recording,
-            extention,
+            device,
             Head_movement_limit_from_mean=Head_movement_limit_from_mean
             )
 
     # remove cHPI noise ---------------------------
-    if which_sensor != "eeg" and apply_chpi_filter:
+    if apply_chpi_filter and not which_sensor["eeg"]:
         
         # if chpi data is available
         # TODO: use mne.chpi.extract_chpi_locs_ctf or extract_chpi_locs_kit
@@ -730,7 +712,7 @@ def preprocess(
     # remove environmental noise ---------------------
     data = remove_environmental_noise(
         data,
-        extention,
+        device,
         empty_room_recording=empty_room_recording,
         ctf_gradient_comp_level=ctf_gradient_comp_level,
         apply_environmental_noise_ssp_with_eroom=apply_environmental_noise_ssp_with_eroom,
@@ -849,17 +831,17 @@ def drop_noisy_meg_channels(
     return data, empty_room_recording
 
 
-def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
+def apply_chpi(meg_data, movement_limit, head_pos_save_path, device):
 
     if meg_data.info["hpi_results"]:
 
         # BTi/4D MEG recordings do not support cHPI and don't have 
         # real time recordings  of the brain pos
-        if extention == "fif":
+        if device == "fif":
             amp = mne.chpi.compute_chpi_amplitudes(meg_data)
             locs = mne.chpi.compute_chpi_locs(meg_data.info, amp)
 
-        if extention == "ds":
+        if device == "ds":
             locs = mne.chpi.extract_chpi_locs_ctf(meg_data)
 
         head_pos = mne.chpi.compute_head_pos(meg_data.info, locs)
@@ -1183,9 +1165,6 @@ def drop_mag_or_grad(data, empty_room_recording, which_sensor):
             if ch_type == "grad"
         ]
     
-    else:
-        raise Exception
-    
     data.drop_channels(dropping_channels)
     if empty_room_recording:
         empty_room_recording.drop_channels(dropping_channels)
@@ -1195,7 +1174,7 @@ def drop_mag_or_grad(data, empty_room_recording, which_sensor):
 
 def head_motion_correction(data,
                 empty_room_recording,
-                extention,
+                device,
                 Head_movement_limit_from_mean=0.0015):
     """
     Perform head-motion–correction.
@@ -1211,7 +1190,7 @@ def head_motion_correction(data,
         If provided, it will be prepared and Maxwell-filtered using the
         sensor geometry of the subject data.
 
-    extention : str
+    device : str
         File extension identifying the MEG vendor. 
 
     Head_position_limit_from_mean : float, default=0.0015
@@ -1231,14 +1210,12 @@ def head_motion_correction(data,
         filtering parameters as the subject data but without movement
         compensation. Returned unchanged if ``None`` was provided.
 
-    """
-
-    
+    """    
     if check_tsss(data):
         return data, empty_room_recording
     
     # MEGIN devices
-    if extention == "fif":
+    if device == "MEGIN":
         
         chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
         chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
@@ -1252,6 +1229,8 @@ def head_motion_correction(data,
             cross_talk=None, # TODO: this should be changed to the real cross_talk file
             calibration=None, # TODO: this should be changed to the real calibration file
         )
+
+        logger.info("Movement compensation was applied for the subject using maxwell filter.")
 
         if empty_room_recording:
             empty_room_recording = mne.preprocessing.maxwell_filter_prepare_emptyroom(
@@ -1267,12 +1246,20 @@ def head_motion_correction(data,
                 calibration=None, # TODO: this should be changed to the real calibration file
             )
 
+    else:
         # check if cHPI data is available and then apply annotate_movement func
         # TODO: use mne.chpi.extract_chpi_locs_ctf or extract_chpi_locs_kit
         if len(mne.chpi.get_chpi_info(data.infp)):
+            if device == "CTF":
+                chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
+            
+            elif device == "KIT":
+                chpi_locs = mne.chpi.extract_chpi_locs_kit(data, verbose=False)
 
-            chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
-            chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
+            else:
+                chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
+                chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
+
             head_pos = mne.chpi.compute_head_pos(data, 
                                                 chpi_locs,
                                                 verbose=False)
@@ -1284,17 +1271,21 @@ def head_motion_correction(data,
             )
 
             data.set_annotation(movement_annotation)
+            logger.info("Movement annotation was applied for the subject using cHPI coils.")
 
             # Calculate the new device head transformation
-            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos)
+            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos, verbos=False)
             data.info["dev_head_t"] = new_dev_head_t
+        
+        else:
+            logger.info("Movemet correction was not done for the subject.")
 
     return data, empty_room_recording
 
 
 
 def remove_environmental_noise(data,
-                               extention,
+                               device,
                                empty_room_recording=None,
                                ctf_gradient_comp_level=3,
                                apply_environmental_noise_ssp_with_eroom=False,
@@ -1306,11 +1297,11 @@ def remove_environmental_noise(data,
         
 
     # gradient compensation for CTF datasets
-    if extention == "CTF":
+    if device == "CTF":
         data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
 
     # If MEGIN device, apply tsss
-    elif extention == "fif":
+    elif device == "fif":
         if not check_tsss(data):
             pass # TODO: to be added
 
