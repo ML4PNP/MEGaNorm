@@ -828,24 +828,25 @@ def drop_noisy_meg_channels(
         msg = "Maxwell filter has already been applied. " \
             "Therefore, bad channel detection using maxwell will be not applied."
         logger.info(msg)
+        auto_noisy_chs = []; auto_flat_chs = []
         
     else:
         auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
             data, return_scores=False, verbose=True, coord_frame="meg"
         )
-        data.info["bads"] += auto_noisy_chs + auto_flat_chs
+        data.info["bads"] += auto_noisy_chs + auto_flat_chs + empty_room_recording.info["bads"]
 
     if empty_room_recording:
         empty_room_recording.info["bads"] = data.info["bads"].copy()
 
-    dropped_data = data.copy().drop_channels(data.info["bads"])
-    empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
+    data.drop_channels(data.info["bads"])
+    empty_room_recording.drop_channels(empty_room_recording.info["bads"])
 
-    # Always proceed to log and drop marked bads
-    droped_ch_len = len(data.info["bads"])
-    logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
+    logger.warning(f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}")
+    logger.warning(f"Number of flat channels that were droped from the subject's recording: {len(auto_flat_chs)}")
+    logging.warning(f"Total number of dropped channels: {len(data.info["bads"])}")
 
-    return dropped_data, empty_room_recording
+    return data, empty_room_recording
 
 
 def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
