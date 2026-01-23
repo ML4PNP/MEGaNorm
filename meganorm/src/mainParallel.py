@@ -301,6 +301,18 @@ def main(args):
         environmental_noise_ica_with_ref_meg_measure = configs.environmental_noise_ica_with_ref_meg_measure
     )
 
+
+    # segmentation 
+    # *******************************************************
+    segments = segment_epoch(
+        data=filtered_data,
+        sampling_rate=sampling_rate,
+        tmin=configs.segments_tmin,
+        tmax=configs.segments_tmax,
+        segmentsLength=configs.segments_length,
+        overlap=configs.segments_overlap,
+    )
+
     # Source localization 
     # *******************************************************
     if configs.apply_source_localization:
@@ -323,16 +335,6 @@ def main(args):
         filtered_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
         channel_names = filtered_data.info["ch_names"]
 
-    # segmentation 
-    # *******************************************************
-    segments = segment_epoch(
-        data=filtered_data,
-        sampling_rate=sampling_rate,
-        tmin=configs.segments_tmin,
-        tmax=configs.segments_tmax,
-        segmentsLength=configs.segments_length,
-        overlap=configs.segments_overlap,
-    )
 
     # fooof analysis 
     # *******************************************************
