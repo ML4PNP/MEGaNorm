@@ -175,17 +175,16 @@ def main(args):
     """
     # parse the arguments
     args = main_argparser(args)
-
     logger = set_logger(args, ["mne", "numexpr", "dipy"])
+
+    start_time = datetime.now()
+    logger.info(f"Starting the process for the subject {args.subject} at {start_time}:")
 
     if args.empty_room_recording_path == "None":
         args.empty_room_recording_path = None
     if args.surfaces_dir == "None":
         args.surfaces_dir = None
 
-
-    # Loading configs
-    # *******************************************************
     configs = Config.load(args.configs)
 
     if configs.apply_source_localization:
@@ -195,27 +194,30 @@ def main(args):
             logger.error(error_msg)
             raise FileNotFoundError(error_msg)
 
-    # subject ID
-    subID = args.subject
     paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
-    
+    path = paths[0]
     logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
                     " will be used in this analysis.")
-    path = paths[0]
-
-    if "4D" in path[0]:
-        extention = "BTI"  # TODO: you need to change this
+    
+    # Extracting file format (device) for loading layout
+    if not configs.which_sensor == "eeg":
+        if "4D" in path: # TODO: it was originaly path[0]. Check if this correction is correct.
+            device = "BTI" 
+        elif path.split(".")[-1] == "ds":
+            device = "CTF"
+        elif path.split(".")[-1] == "fif":
+            device = "MEGIN"
+        else:
+            err_msg = "The provided MEG recording is not supported yet."
+            logger.error(err_msg)
+            raise ValueError(err_msg)
     else:
-        # Extracting file format (extention) for loading layout
-        extention = paths[0].split(".")[-1]
-
-    start_time = datetime.now()
-    logger.info(f"Starting the process for the subject {subID} at {start_time}:")
+        device = path.split(".")[-1] # TODO: it was originaly path[0]. Check if this correction is correct.
     
     # read the data
-    # *******************************************************
-    if not extention == "BTI":
+    # ------------------------------------------------------------
+    if not device == "BTI":
         data = mne.io.read_raw(path, preload=True)
         if args.empty_room_recording_path:
             empty_room_recording = mne.io.read_raw(args.empty_room_recording_path, preload=True)
@@ -229,7 +231,6 @@ def main(args):
             head_shape_fname=None,
             preload=True
         )
-        
         if args.empty_room_recording_path:
             empty_room_recording = mne.io.read_raw_bti(
                 pdf_fname=os.path.join(args.empty_room_recording_path, "c,rfDC"),
@@ -241,7 +242,7 @@ def main(args):
             empty_room_recording = None
 
     # extract power line freq
-    # *******************************************************
+    # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
         logger.warning("Power line frequency was not detected" \
@@ -249,25 +250,24 @@ def main(args):
         power_line_freq = 60
 
     # set eeg info (channel types and electrode montage) when it is not there yet
-    # *******************************************************
+    # ------------------------------------------------------------
     if configs.which_sensor == "eeg":
         data = prepare_eeg_data(data, path)
 
     # drop noisy channels for MEG
-    # *******************************************************
-    if configs.which_sensor in ["meg", "grad", "mag"]:
+    # ------------------------------------------------------------
+    if configs.which_sensor in ["meg", "grad", "mag"] and configs.drop_noisy_flat_channel:
         data, empty_room_recording = drop_noisy_meg_channels(data=data, 
-                                            subID=subID, 
+                                            subID=args.subject, 
                                             args=args, 
                                             configs=configs, 
                                             empty_room_recording=empty_room_recording)
     
-
     which_sensor_dict = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor_dict[configs.which_sensor] = True
 
     # preproces
-    # *******************************************************
+    # ------------------------------------------------------------
     filtered_data, channel_names, sampling_rate, empty_room_recording, number_of_reduced_ic = preprocess(
         data=data,
         n_component=configs.ica_n_component,
@@ -286,7 +286,7 @@ def main(args):
         muscle_activity_min_length_good=configs.muscle_activity_min_length_good,
         muscle_activity_filter_freq=configs.muscle_activity_filter_freq,
         muscle_activity_thr=configs.muscle_activity_thr,
-        extention=extention,
+        device=device,
         ica_apply_elbow_detection=configs.ica_apply_elbow_detection,
         apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection,
         apply_Head_movement_correction=configs.apply_Head_movement_correction,
@@ -303,7 +303,7 @@ def main(args):
 
 
     # segmentation 
-    # *******************************************************
+    # ------------------------------------------------------------
     segments = segment_epoch(
         data = filtered_data,
         sampling_rate = sampling_rate,
@@ -322,11 +322,11 @@ def main(args):
     )
 
     # Source localization 
-    # *******************************************************
+    # ------------------------------------------------------------
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
         stc, labels = source_localization(
-                subject=subID,
+                subject=args.subject,
                 subjects_dir=args.surfaces_dir, 
                 subject_to="fsaverage",
                 data=filtered_data,
@@ -345,7 +345,7 @@ def main(args):
 
 
     # fooof analysis 
-    # *******************************************************
+    # ------------------------------------------------------------
     fmGroup, psds, freqs = psdParameterize(
         segments=segments,
         sampling_rate=sampling_rate,
@@ -364,12 +364,12 @@ def main(args):
     )
 
     if configs.fooof_res_save_path:
-        storeFooofModels(configs.fooof_res_save_path, subID, fmGroup, psds, freqs)
+        storeFooofModels(configs.fooof_res_save_path, args.subject, fmGroup, psds, freqs)
 
     # feature extraction 
-    # *******************************************************
+    # ------------------------------------------------------------
     features = feature_extract(
-        subject_id=subID,
+        subject_id=args.subject,
         fmGroup=fmGroup,
         psds=psds,
         freqs=freqs,
@@ -377,16 +377,16 @@ def main(args):
         channel_names=channel_names,
         individualized_band_ranges=configs.individualized_band_ranges,
         feature_categories=configs.feature_categories,
-        extention=extention,
+        device=device,
         which_layout=configs.which_layout,
         which_sensor=which_sensor_dict,
         aperiodic_mode=configs.aperiodic_mode,
         min_r_squared=configs.min_r_squared,
     )
 
-    features.to_csv(os.path.join(args.save_dir, f"{subID}.csv"))
+    features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 
-    logger.info(f"The feature extraction process for the subject {subID} is complete.")
+    logger.info(f"The feature extraction process for the subject {args.subject} is complete.")
     end_time = datetime.now()
     elapsed = start_time - end_time
     logger.info(f"Script ended at {end_time}")

@@ -358,7 +358,7 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     return band_power / total_power
 
 
-def summarizeFeatures(df, extention, which_layout, which_sensor):
+def summarizeFeatures(df, device, which_layout, which_sensor):
     """
     Summarizes a feature DataFrame by averaging channels based on a specified sensor layout.
 
@@ -367,7 +367,7 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
     or predefined brain regions (e.g., lobes).
 
     The function computes the mean of selected channels (e.g., MEG, EEG) according to a layout
-    specified in a JSON file. The layout file is selected based on the recording extension
+    specified in a JSON file. The layout file is selected based on the recording device
     (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional (lobe-level)
     parcellation.
 
@@ -383,14 +383,14 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
         }
 
     Layout files must be stored in a dedicated layout directory and named based on the recording
-    extension (e.g., 'FIF.json'). The appropriate key in the JSON (e.g., 'FIF_MEG_LOBE') is constructed
-    using `extention`, `which_layout`, and `which_sensor`.
+    device (e.g., 'FIF.json'). The appropriate key in the JSON (e.g., 'FIF_MEG_LOBE') is constructed
+    using `device`, `which_layout`, and `which_sensor`.
 
     Parameters
     ----------
     df : pd.DataFrame
         A DataFrame where each column represents a channel and each row a sample (subject or epoch).
-    extention : str
+    device : str
         The recording file type (e.g., 'FIF', 'DS'). Used to locate the correct layout file.
     which_layout : str
         Layout type to use: 'all' for global averaging or 'lobe' for region-based averaging.
@@ -415,9 +415,9 @@ def summarizeFeatures(df, extention, which_layout, which_sensor):
         ][0]
 
         layout_name = (
-            extention.upper() + "_" + modality.upper() + "_" + which_layout.upper()
+            device.upper() + "_" + modality.upper() + "_" + which_layout.upper()
         )
-        layout = load_specific_layout(extention.upper(), layout_name)
+        layout = load_specific_layout(device.upper(), layout_name)
 
         for parcel_name, channels_list in layout.items():
             summrized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
@@ -566,7 +566,7 @@ def feature_extract(
     freq_bands: Dict[str, tuple],
     channel_names: List[str],
     individualized_band_ranges: Dict[str, tuple],
-    extention: str,
+    device: str,
     which_layout: str,
     which_sensor: Dict[str, bool],
     aperiodic_mode: str,
@@ -601,8 +601,8 @@ def feature_extract(
     individualized_band_ranges : Dict[str, tuple]
         A dictionary mapping band names to individualized frequency ranges, which may differ
         across subjects or datasets.
-    extention : str
-        The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the
+    device : str
+        The device of the subject's recording (e.g., 'FIF', 'DS'). Used to read the
         appropriate layout file from the layout directory.
     which_layout : str
         Specifies the sensor layout for feature averaging, either 'all' for global averaging
@@ -841,7 +841,7 @@ def feature_extract(
     if which_layout:
         feature_container = summarizeFeatures(
             df=feature_container,
-            extention=extention,
+            device=device,
             which_layout=which_layout,
             which_sensor=which_sensor,
         )
