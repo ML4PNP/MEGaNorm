@@ -224,7 +224,7 @@ class Config(BaseModel):
     environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = "zscore"
     
     apply_ica: bool = True
-    auto_ica_corr_thr: confloat(ge=0, le=1) = 0.9
+    auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
     rereference_method: Literal["average", "REST", "None"] = "average"
 
