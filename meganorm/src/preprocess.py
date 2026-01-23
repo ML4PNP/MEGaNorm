@@ -56,7 +56,7 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     return componentIndx
 
 
-def auto_ica(
+def auto_ica_with_corr(
     data,
     physiological_sensor,
     n_components=30,
@@ -244,6 +244,107 @@ def AutoIca_with_IcaLabel(
     ica.apply(data, verbose=False)
 
     return data, len(bad_components)
+
+
+def apply_auto_ica_pipeline(
+    data,
+    channel_types,
+    which_sensor,
+    n_component,
+    ica_max_iter,
+    IcaMethod,
+    auto_ica_corr_thr,
+):
+    """
+    Apply ICA automatically depending on available physiological channels
+    and sensor types (MEG / EEG).
+
+
+    Parameters
+    ----------
+    data : mne.raw
+        mne.raw data.
+    channel_types : list of str
+        List of channel type names present in the data (e.g., ``["eeg", "ecg", "eog"]``).
+    which_sensor : dict
+        Dictionary specifying available sensor modalities. 
+    n_component : int
+        Number of ICA components to compute.
+    ica_max_iter : int
+        Maximum number of iterations for ICA convergence.
+    IcaMethod : str
+        ICA algorithm to use (e.g., ``"fastica"``, ``"picard"``).
+    auto_ica_corr_thr : float
+        Threshold used for correlation-based artifact detection or ICLabel
+        classification.
+
+    Returns
+    -------
+    data : object
+        The input data after automatic ICA artifact removal.
+    number_of_reduced_ic : int
+        Total number of ICA components identified and removed.
+    """
+
+    physiological_electrods = {
+        channel: channel in channel_types for channel in ["ecg", "eog"]
+    }
+
+    ICA_flag = True
+    number_of_reduced_ic = 0
+
+    for phys_activity_type, if_elec_exist in physiological_electrods.items():
+
+        # -------- MEG / MAG / GRAD --------
+        if which_sensor.get("meg") or which_sensor.get("mag") or which_sensor.get("grad"):
+
+            if if_elec_exist:
+                data, _, number_of_reduced_ic = auto_ica_with_corr(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    physiological_sensor=phys_activity_type,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
+
+            elif not if_elec_exist and phys_activity_type == "ecg":
+                data, number_of_reduced_ic = auto_ica_with_mean(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
+
+        # -------- EEG --------
+        if which_sensor.get("eeg"):
+
+            if if_elec_exist:
+                data, ICA_flag, number_of_reduced_ic = auto_ica_with_corr(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    physiological_sensor=phys_activity_type,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
+
+            elif not if_elec_exist and ICA_flag:
+                data, number_of_reduced_ic = AutoIca_with_IcaLabel(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    iclabel_thr=auto_ica_corr_thr,
+                    physiological_noise_type=phys_activity_type,
+                )
+
+    return data, number_of_reduced_ic
+
 
 
 def prepare_eeg_data(data, path):
@@ -562,81 +663,37 @@ def preprocess(
             empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
 
     # remove environmental noise ---------------------
-    remove_environmental_noise(data,
-                               extention,
-                               empty_room_recording=empty_room_recording,
-                               ctf_gradient_comp_level=ctf_gradient_comp_level,
-                               apply_environmental_noise_ssp_with_eroom=apply_environmental_noise_ssp_with_eroom,
-                               apply_environmental_noise_ica_with_ref_meg=apply_environmental_noise_ica_with_ref_meg,
-                               environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
-                               ica_if_reject_by_annotation=ica_if_reject_by_annotation,
-                               environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
-                               environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure)
+    data = remove_environmental_noise(
+        data,
+        extention,
+        empty_room_recording=empty_room_recording,
+        ctf_gradient_comp_level=ctf_gradient_comp_level,
+        apply_environmental_noise_ssp_with_eroom=apply_environmental_noise_ssp_with_eroom,
+        apply_environmental_noise_ica_with_ref_meg=apply_environmental_noise_ica_with_ref_meg,
+        environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+        ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+        environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+        environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure
+        )
 
 
     # physiological noise ----------------------------
-    ICA_flag = True  # initialize flag
+    if apply_ica:
 
-    physiological_electrods = {
-        channel: channel in channel_types for channel in ["ecg", "eog"]
-    }
+        if ica_apply_elbow_detection:
+            n_component = pca_elbow_locator(data, which_sensor)
+    
+        data, number_of_reduced_ic = apply_auto_ica_pipeline(
+            data,
+            apply_ica,
+            channel_types,
+            which_sensor,
+            n_component,
+            ica_max_iter,
+            IcaMethod,
+            auto_ica_corr_thr
+            )
 
-    if ica_apply_elbow_detection:
-        n_component = pca_elbow_locator(data, which_sensor)
-
-    for phys_activity_type, if_elec_exist in physiological_electrods.items():
-        
-        # number of reduced independent components for rank computation
-        number_of_reduced_ic = 0
-        
-        if which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"]:  
-            # ======================================================================
-            # 1
-            if if_elec_exist and apply_ica:
-                data, _, number_of_reduced_ic  = auto_ica(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    physiological_sensor=phys_activity_type,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                )
-            # 2
-            elif not if_elec_exist and apply_ica and phys_activity_type == "ecg":
-                data, number_of_reduced_ic = auto_ica_with_mean(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                )
-
-        if which_sensor[
-            "eeg"
-        ]:  # ======================================================================
-            # 1
-            if if_elec_exist and apply_ica:
-                data, ICA_flag, number_of_reduced_ic = auto_ica(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    physiological_sensor=phys_activity_type,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                )
-            # 2
-            elif not if_elec_exist and apply_ica and ICA_flag:
-                data, number_of_reduced_ic = AutoIca_with_IcaLabel(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    iclabel_thr=auto_ica_corr_thr,
-                    physiological_noise_type=phys_activity_type,
-                )
 
     data = data.pick_types(
         meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
@@ -645,7 +702,6 @@ def preprocess(
         eog=False,
         ecg=False,
     )
-
     if empty_room_recording:
         empty_room_recording = empty_room_recording.pick_types(
             meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
