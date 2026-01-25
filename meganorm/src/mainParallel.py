@@ -307,6 +307,7 @@ def main(args):
     # ------------------------------------------------------------
     segments = segment_epoch(
         data = filtered_data,
+        which_sensor=which_sensor_dict,
         sampling_rate = sampling_rate,
         tmin = configs.segments_tmin,
         tmax = configs.segments_tmax,

@@ -499,25 +499,29 @@ def segment_epoch(
 
     if remove_bad_segments:
 
-        if which_sensor["meg"]:
-            reject = dict(
-                mag=mag_var_threshold,
-                grad=grad_var_threshold,
-                )
-            flat = dict(
-                mag=mag_flat_threshold,
-                grad=grad_flat_threshold,
-            )
-        
-        if  which_sensor["mag"]: 
-            reject = dict(mag=mag_var_threshold)
-            flat = dict(mag=mag_flat_threshold)
-        
-        if which_sensor["grad"]:
-            reject = dict(grad=grad_var_threshold)
-            flat = dict(grad=grad_flat_threshold)
+        if not which_sensor["eeg"]:
 
-        elif which_sensor["eeg"]:
+            ch_types = data.get_channel_types()
+
+            if "mag" in ch_types:
+                if "grad" in ch_types:
+                    reject = dict(
+                        mag=mag_var_threshold,
+                        grad=grad_var_threshold,
+                        )
+                    flat = dict(
+                        mag=mag_flat_threshold,
+                        grad=grad_flat_threshold,
+                    )
+
+                else:
+                    reject = dict(mag=mag_var_threshold)
+                    flat = dict(mag=mag_flat_threshold)
+            else:
+                reject = dict(grad=grad_var_threshold)
+                flat = dict(grad=grad_flat_threshold)
+
+        else:
             reject = dict(eeg=eeg_var_threshold)
             flat = dict(eeg=eeg_flat_threshold)
 
@@ -928,7 +932,8 @@ def apply_gradient_comp(ctf_meg_data, empty_room_recording=None, grade=3):
                                   method=method)
     
     ctf_meg_data.apply_gradient_compensation(grade=grade) 
-    empty_room_recording.apply_gradient_compensation(grade=grade) 
+    if empty_room_recording:
+        empty_room_recording.apply_gradient_compensation(grade=grade) 
 
     logger.info(f"Gradient compensation with level of {grade} has been applied to the data.")
 
