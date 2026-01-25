@@ -48,10 +48,14 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
 
     corr = np.corrcoef(components, physiological_signal)[-1, :-1]
 
-    if np.max(corr) >= auto_ica_corr_thr:
+    if np.max(np.abs(corr)) >= auto_ica_corr_thr:
         componentIndx = [int(np.argmax(corr))]
     else:
         componentIndx = []
+
+    logger.info(
+    f"The highest correlation between the independent components and the physiological signal was: {np.max(corr):.4f}"
+    )
 
     return componentIndx
 
@@ -100,7 +104,7 @@ def auto_ica_with_corr(
 
     # Pick MEG/EEG for ICA
     data = data.pick_types(
-        meg=which_sensor.get("meg", False),
+        meg=which_sensor.get("meg", False) | which_sensor.get("mag", False) | which_sensor.get("grad", False),
         eeg=which_sensor.get("eeg", False),
         ref_meg=False,
         eog=True,
@@ -115,7 +119,7 @@ def auto_ica_with_corr(
         random_state=42,
         verbose=False,
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg"])
+    ica.fit(data, verbose=False, picks=["eeg", "meg", "grad", "mag"])
 
     # Detect components correlated with physiological signal
     bad_components = []
@@ -191,10 +195,11 @@ def auto_ica_with_mean(
     )
     ica.fit(data, verbose=False, picks=["eeg", "meg"])
 
-    ecg_indices, _ = ica.find_bads_ecg(
+    ecg_indices, ecg_socre = ica.find_bads_ecg(
         data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
     )
 
+    logger.info(f"The highest correlation between the independent components and the physiological signal was: {np.max(ecg_socre)}")
     logger.info(f"Number of bad ICA components detected by creating synthetic ECG signal: {len(ecg_indices)}")
     ica.exclude = ecg_indices
     ica.apply(data, verbose=False)
@@ -299,6 +304,7 @@ def apply_auto_ica_pipeline(
         if which_sensor.get("meg") or which_sensor.get("mag") or which_sensor.get("grad"):
 
             if if_elec_exist:
+                logger.info(f"Removing {phys_activity_type.upper()} noise using auto_ica_with_corr function.")
                 data, _, number_of_reduced_ic = auto_ica_with_corr(
                     data=data,
                     n_components=n_component,
@@ -310,6 +316,7 @@ def apply_auto_ica_pipeline(
                 )
 
             elif not if_elec_exist and phys_activity_type == "ecg":
+                logger.info(f"Removing {phys_activity_type.upper()} noise using auto_ica_with_mean function.")
                 data, number_of_reduced_ic = auto_ica_with_mean(
                     data=data,
                     n_components=n_component,
@@ -323,6 +330,7 @@ def apply_auto_ica_pipeline(
         if which_sensor.get("eeg"):
 
             if if_elec_exist:
+                logger.info(f"Removing {phys_activity_type.upper()()} noise using auto_ica_with_corr function.")
                 data, ICA_flag, number_of_reduced_ic = auto_ica_with_corr(
                     data=data,
                     n_components=n_component,
@@ -334,6 +342,7 @@ def apply_auto_ica_pipeline(
                 )
 
             elif not if_elec_exist and ICA_flag:
+                logger.info(f"Removing {phys_activity_type.upper()} noise using AutoIca_with_IcaLabel function.")
                 data, number_of_reduced_ic = AutoIca_with_IcaLabel(
                     data=data,
                     n_components=n_component,
@@ -405,9 +414,10 @@ def prepare_eeg_data(data, path):
 
 def segment_epoch(
     data: mne.io.Raw,
-    tmin: float,
-    tmax: float,
+    which_sensor: dict,
     sampling_rate: float,
+    tmin: float = 20,
+    tmax: float = -20,
     segments_length: float = 10,
     overlap: float = 0,
     ica_if_reject_by_annotation: bool = True,
@@ -488,17 +498,29 @@ def segment_epoch(
     data.crop(tmin=tmin, tmax=tmax)
 
     if remove_bad_segments:
-        reject = dict(
-            mag=mag_var_threshold,
-            grad=grad_var_threshold,
-            eeg=eeg_var_threshold
+
+        if which_sensor["meg"]:
+            reject = dict(
+                mag=mag_var_threshold,
+                grad=grad_var_threshold,
+                )
+            flat = dict(
+                mag=mag_flat_threshold,
+                grad=grad_flat_threshold,
             )
         
-        flat = dict(
-            mag=mag_flat_threshold,
-            grad=grad_flat_threshold,
-            eeg=eeg_flat_threshold
-        )
+        if  which_sensor["mag"]: 
+            reject = dict(mag=mag_var_threshold)
+            flat = dict(mag=mag_flat_threshold)
+        
+        if which_sensor["grad"]:
+            reject = dict(grad=grad_var_threshold)
+            flat = dict(grad=grad_flat_threshold)
+
+        elif which_sensor["eeg"]:
+            reject = dict(eeg=eeg_var_threshold)
+            flat = dict(eeg=eeg_flat_threshold)
+
     else:
         reject = None; flat = None
 
@@ -513,9 +535,10 @@ def segment_epoch(
         events,
         reject=reject,
         flat=flat,
-        overlap=overlap,
         reject_by_annotation=ica_if_reject_by_annotation,
         verbose=False,
+        tmin = 0,
+        tmax=segments_length - 1/sampling_rate,
         baseline=None
     )
 
@@ -614,7 +637,7 @@ def preprocess(
     """
     # since pick_channels can not seperate mag and grad signals
     # if not (which_sensor["meg"] or which_sensor["eeg"]):
-    if which_sensor["grad"] or which_sensor["meg"]:
+    if which_sensor["grad"] or which_sensor["mag"]:
         data, empty_room_recording = drop_mag_or_grad(data, empty_room_recording, which_sensor)
 
     channel_types = set(data.get_channel_types())
@@ -631,6 +654,8 @@ def preprocess(
     # flux jumps (SQUID jumps) ---------------------
     if apply_oversampled_temporal_projection and not which_sensor.get("eeg", False):
         data = mne.preprocessing.oversampled_temporal_projection(data)
+        msg = "Flux jumps were removed using oversampled temporal projection."
+        logger.info(msg)
     
     # power line -----------------------------------
     data.notch_filter(
@@ -742,6 +767,7 @@ def preprocess(
             ecg=False,
         )
 
+    logger.info("Preprocessing is finished.")
     return data, data.info["ch_names"], int(sampling_rate), empty_room_recording, number_of_reduced_ic
 
 
@@ -1198,9 +1224,11 @@ def head_motion_correction(data,
 
     """    
     if check_tsss(data):
+        msg = "Head motion correction was not applied since tSSS has already been applied to the data."
+        logger.info(msg)
         return data, empty_room_recording
     
-    # MEGIN devices
+    # MEGIN devicesEpoch
     if device == "MEGIN":
         
         chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
@@ -1286,11 +1314,16 @@ def remove_environmental_noise(data,
     # gradient compensation for CTF datasets
     if device == "CTF":
         data, empty_room_recording = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+        msg = "The data was preprocessed for environmental noise using gradient compensation."
+        logger.info(msg)
 
     # If MEGIN device, apply tsss
     elif device == "MEGIN":
         if not check_tsss(data):
             pass # TODO: to be added
+        else:
+            msg = "The data has already been preprocessed for environmental noise using tSSS."
+            logger.info(msg)
 
     elif apply_environmental_noise_ssp_with_eroom:        
         if empty_room_recording:
@@ -1321,6 +1354,11 @@ def remove_environmental_noise(data,
 
             data = ica.apply(data, exclude=bad_ic)
 
-            logger.info(f"Number of components, removed by ICA for suppressing environmental noise using ref MEG: {len(bad_ic)}")
+            msg = f"Number of components, removed by ICA for suppressing environmental noise using ref MEG: {len(bad_ic)}"
+            logger.info(msg)
+        
+        else: 
+            msg = "Reference MEG was not found to apply environmental noise removal using ICA."
+            logger.info(msg)
 
     return data, empty_room_recording
