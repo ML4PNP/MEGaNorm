@@ -646,7 +646,7 @@ def preprocess(
     sampling_rate = data.info["sfreq"]
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
-        sampling_rate = resampling_rate.copy()
+        sampling_rate = resampling_rate
         # resampling empty room recording
         if empty_room_recording:
             empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
@@ -682,7 +682,7 @@ def preprocess(
             )
 
     # remove cHPI noise ---------------------------
-    has_chpi = bool(mne.chpi.get_chpi_info(data.info))
+    has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
     if apply_chpi_filter and has_chpi and not which_sensor.get("eeg", False):
         data = mne.chpi.filter_chpi(data, include_line=False)
         logger.info("cHPI filter was applied.")
@@ -826,7 +826,9 @@ def drop_noisy_meg_channels(
         auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
             data, return_scores=False, verbose=True, coord_frame="meg"
         )
-        data.info["bads"] += auto_noisy_chs + auto_flat_chs + empty_room_recording.info["bads"]
+        data.info["bads"] += auto_noisy_chs + auto_flat_chs 
+        if empty_room_recording:
+            data.info["bads"] += empty_room_recording.info["bads"]
 
     if empty_room_recording:
         empty_room_recording.info["bads"] = data.info["bads"].copy()
@@ -876,7 +878,7 @@ def apply_chpi(meg_data, movement_limit, head_pos_save_path, device):
     mne.chpi.write_head_pos(head_pos_save_path, head_pos)
 
 
-def apply_gradient_comp(ctf_meg_data, empty_room_recording, grade=3):
+def apply_gradient_comp(ctf_meg_data, empty_room_recording=None, grade=3):
     """
     Interpolate bad channels and apply gradient compensation to CTF MEG data.
 
@@ -1263,7 +1265,8 @@ def head_motion_correction(data,
     else:
         # check if cHPI data is available and then apply annotate_movement func
         # TODO: use mne.chpi.extract_chpi_locs_ctf or extract_chpi_locs_kit
-        if len(mne.chpi.get_chpi_info(data.infp)):
+        has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+        if has_chpi:
             if device == "CTF":
                 chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
             
@@ -1313,7 +1316,9 @@ def remove_environmental_noise(data,
 
     # gradient compensation for CTF datasets
     if device == "CTF":
-        data, empty_room_recording = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+        data, empty_room_recording = apply_gradient_comp(data,
+                                                        empty_room_recording=empty_room_recording,
+                                                        grade=ctf_gradient_comp_level)
         msg = "The data was preprocessed for environmental noise using gradient compensation."
         logger.info(msg)
 
