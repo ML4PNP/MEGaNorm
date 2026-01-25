@@ -718,7 +718,6 @@ def preprocess(
 
         data, number_of_reduced_ic = apply_auto_ica_pipeline(
             data,
-            apply_ica,
             channel_types,
             which_sensor,
             n_component,
@@ -726,7 +725,6 @@ def preprocess(
             IcaMethod,
             auto_ica_corr_thr
             )
-
 
     data = data.pick_types(
         meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
@@ -808,11 +806,12 @@ def drop_noisy_meg_channels(
         empty_room_recording.info["bads"] = data.info["bads"].copy()
 
     data.drop_channels(data.info["bads"])
-    empty_room_recording.drop_channels(empty_room_recording.info["bads"])
+    if empty_room_recording:
+        empty_room_recording.drop_channels(empty_room_recording.info["bads"])
 
     logger.warning(f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}")
     logger.warning(f"Number of flat channels that were droped from the subject's recording: {len(auto_flat_chs)}")
-    logging.warning(f"Total number of dropped channels: {len(data.info["bads"])}")
+    logger.warning(f"Total number of dropped channels: {len(data.info["bads"])}")
 
     return data, empty_room_recording
 
