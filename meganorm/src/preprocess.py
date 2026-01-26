@@ -49,15 +49,13 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     corr = np.corrcoef(components, physiological_signal)[-1, :-1]
 
     if np.max(np.abs(corr)) >= auto_ica_corr_thr:
-        componentIndx = [int(np.argmax(corr))]
+        componentIndx = [int(np.argmax(np.abs(corr)))]
+        max_corr = [corr[componentIndx][0]]
     else:
         componentIndx = []
+        max_corr = []
 
-    logger.info(
-    f"The highest correlation between the independent components and the physiological signal was: {np.max(corr):.4f}"
-    )
-
-    return componentIndx
+    return componentIndx, max_corr
 
 
 def auto_ica_with_corr(
@@ -79,7 +77,7 @@ def auto_ica_with_corr(
     data : mne.io.Raw
         Raw MEG/EEG data.
     physiological_sensor : str
-        Name of the physiological sensor ('ECG' or 'EOG').
+        Name of the physiological sensor ('ecg' or 'eog').
     n_components : int or float
         Number of ICA components to retain.
     ica_max_iter : int
@@ -123,17 +121,28 @@ def auto_ica_with_corr(
 
     # Detect components correlated with physiological signal
     bad_components = []
+    max_corrs = []
     for sensor in physiological_signal:
-        bad_components.extend(
-            find_ica_component(
+
+        bad_component, max_corr = find_ica_component(
                 ica=ica,
                 data=data,
                 physiological_signal=sensor,
                 auto_ica_corr_thr=auto_ica_corr_thr,
             )
-        )
+        bad_components.extend(bad_component); max_corrs.extend(max_corr)
 
-    logger.info(f"Number of bad ICA components: {len(bad_components)}")
+    if bad_components:
+        most_noisy_comp_ind = bad_components[int(np.argmax(np.abs(max_corrs)))]
+        logger.info(
+            f"In ICA for removing physiological artifacts, component {most_noisy_comp_ind} was removed. " \
+            f"Its correlation with a {physiological_sensor} channels was: {max_corrs[np.argmax(np.abs(max_corrs))]}",
+        )
+    else:
+        logger.info("In ICA for removing physiological artifacts, no component had a" \
+                    f" high correlation with {physiological_sensor} channels")
+
+
 
     if bad_components:
         ica.exclude = bad_components.copy()
@@ -193,16 +202,17 @@ def auto_ica_with_mean(
         random_state=42,
         verbose=False,
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg"])
+    ica.fit(data, verbose=False, picks=["eeg", "meg", "mag", "grad"])
 
-    ecg_indices, ecg_socre = ica.find_bads_ecg(
+    ecg_indices, ecg_scores = ica.find_bads_ecg(
         data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
     )
 
-    logger.info(f"The highest correlation between the independent components and the physiological signal was: {np.max(ecg_socre)}")
-    logger.info(f"Number of bad ICA components detected by creating synthetic ECG signal: {len(ecg_indices)}")
     ica.exclude = ecg_indices
     ica.apply(data, verbose=False)
+
+    if ecg_indices:
+        logger.info(f"One cardiac-related ICA components was detected and removed by creating synthetic ECG signal. The correlation was: {ecg_scores[ecg_indices]}")
 
     return data, len(ecg_indices)
 
@@ -330,7 +340,7 @@ def apply_auto_ica_pipeline(
         if which_sensor.get("eeg"):
 
             if if_elec_exist:
-                logger.info(f"Removing {phys_activity_type.upper()()} noise using auto_ica_with_corr function.")
+                logger.info(f"Removing {phys_activity_type.upper()} noise using auto_ica_with_corr function.")
                 data, ICA_flag, number_of_reduced_ic = auto_ica_with_corr(
                     data=data,
                     n_components=n_component,
@@ -1357,8 +1367,11 @@ def remove_environmental_noise(data,
                 environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
                 environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure)
 
-            logger.info(f"Number of components, removed by ICA for suppressing " \
-                        f"environmental noise using ref MEG: {len(bad_ic)} with these scores: {scores}")
+            logger.info(
+                "Number of components removed by ICA for suppressing environmental noise using reference MEG: %d",
+                len(bad_ic)
+            )
+
 
     return data, empty_room_recording
 
