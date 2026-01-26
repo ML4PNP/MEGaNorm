@@ -1349,26 +1349,62 @@ def remove_environmental_noise(data,
     elif apply_environmental_noise_ica_with_ref_meg:
 
         has_ref_meg = "ref_meg" in data.get_channel_types()
-        
         if has_ref_meg:
-            all_picks = mne.pick_types(data.info, meg=True, ref_meg=True)
-            ica = mne.preprocessing.ICA(n_components=60, max_iter="auto", allow_ref_meg=True)
-            ica.fit(data, picks=all_picks)
-
-            bad_ic, scores = ica.find_bads_ref(
+            data, bad_ic, scores = find_ref_meg_artifact(
                 data, 
-                threshold = environmental_noise_ica_with_ref_meg_thr,
-                reject_by_annotation = ica_if_reject_by_annotation,
-                method = environmental_noise_ica_with_ref_meg_method,
-                measure = environmental_noise_ica_with_ref_meg_measure)
+                environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+                ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+                environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+                environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure)
 
-            data = ica.apply(data, exclude=bad_ic)
-
-            msg = f"Number of components, removed by ICA for suppressing environmental noise using ref MEG: {len(bad_ic)}"
-            logger.info(msg)
-        
-        else: 
-            msg = "Reference MEG was not found to apply environmental noise removal using ICA."
-            logger.info(msg)
+            logger.info(f"Number of components, removed by ICA for suppressing " \
+                        f"environmental noise using ref MEG: {len(bad_ic)} with these scores: {scores}")
 
     return data, empty_room_recording
+
+
+def find_ref_meg_artifact(
+    data, 
+    environmental_noise_ica_with_ref_meg_thr,
+    ica_if_reject_by_annotation=True,
+    environmental_noise_ica_with_ref_meg_method="together",
+    environmental_noise_ica_with_ref_meg_measure="zscore"
+):
+    data_tog = data.copy()
+
+    all_picks = mne.pick_types(data_tog.info, meg=True, ref_meg=True)
+    tog_ica = mne.preprocessing.ICA(n_components=20, max_iter="auto", allow_ref_meg=True)
+    tog_ica.fit(data_tog, picks=all_picks)
+    bad_comps, scores = tog_ica.find_bads_ref(
+        data_tog, 
+        reject_by_annotation=ica_if_reject_by_annotation, 
+        method="together", 
+        threshold=environmental_noise_ica_with_ref_meg_thr,
+        measure=environmental_noise_ica_with_ref_meg_measure,
+    )
+
+    if environmental_noise_ica_with_ref_meg_method == "separate":
+
+        data_sep = data.copy()
+        ref_picks = mne.pick_types(data_sep.info, meg=False, ref_meg=True)
+        ref_ica = mne.preprocessing.ICA(n_components=2, max_iter="auto", allow_ref_meg=True)
+        ref_ica.fit(data_sep, picks=ref_picks)
+
+        ica_sep = tog_ica.copy()
+        ref_comps = ref_ica.get_sources(data_sep)
+        for ic in ref_comps.ch_names:
+            ref_comps.rename_channels({ic: "REF_ICA" + ic})
+        data_sep.add_channels([ref_comps])
+
+        bad_comps, scores = ica_sep.find_bads_ref(data_sep, 
+                                                method="separate",
+                                                )
+        
+        data = ica_sep.apply(data_sep, exclude=bad_comps)
+
+    else:
+        data = tog_ica.apply(data_tog, exclude=bad_comps)
+
+        # TODO: data_clean.drop_channels(ref_comps.ch_names)
+
+    return data, bad_comps, scores
