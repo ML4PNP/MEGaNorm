@@ -853,7 +853,6 @@ def drop_noisy_meg_channels(
 
     logger.warning(f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}")
     logger.warning(f"Number of flat channels that were droped from the subject's recording: {len(auto_flat_chs)}")
-    logger.warning(f"Total number of dropped channels: {len(data.info["bads"])}")
 
     return data, empty_room_recording
 
