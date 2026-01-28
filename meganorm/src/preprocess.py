@@ -838,22 +838,19 @@ def drop_noisy_meg_channels(
         
     else:
         auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-            data, return_scores=False, verbose=True, coord_frame="meg"
+            data, return_scores=False, verbose=True, coord_frame="meg", ignore_ref=True
         )
         data.info["bads"] += auto_noisy_chs + auto_flat_chs 
         if empty_room_recording:
             data.info["bads"] += empty_room_recording.info["bads"]
 
-    if empty_room_recording:
-        empty_room_recording.info["bads"] = data.info["bads"].copy()
+        logger.warning(f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}")
+        logger.warning(f"Number of flat channels that were droped from the subject's recording: {len(auto_flat_chs)}")
 
     data.drop_channels(data.info["bads"])
     if empty_room_recording:
-        empty_room_recording.drop_channels(empty_room_recording.info["bads"])
-
-    logger.warning(f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}")
-    logger.warning(f"Number of flat channels that were droped from the subject's recording: {len(auto_flat_chs)}")
-
+        empty_room_recording.drop_channels(data.info["bads"])
+        
     return data, empty_room_recording
 
 
