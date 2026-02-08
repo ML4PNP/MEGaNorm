@@ -518,6 +518,7 @@ def forward_solution(
 def inverse_solution(
         subject,
         data,
+        segments,
         fwd,
         inverse_operator,
         figures_path,
@@ -525,7 +526,6 @@ def inverse_solution(
         source_space=None,
         empty_room_recording=None,
         qc_ignore=[],
-        number_of_reduced_ic=0,
         **kwargs
 ):
     """
@@ -576,12 +576,10 @@ def inverse_solution(
     """
     # if tSSS has already been applied, return the rank in info
     if check_tsss(meg_data=data):
-        data_rank = mne.compute_rank(data, rank="info")
-        # since ICA has also removed some components
-        data_rank[list(data_rank.keys())[0]] -= number_of_reduced_ic # TODO: not accuarte
+        segments_rank = mne.compute_rank(segments, rank="info")
     else:
         # this estimates the rank after scaling 
-        data_rank = mne.compute_rank(data)
+        segments_rank = mne.compute_rank(segments, rank=None)
     
     if empty_room_recording:
         noise_cov = mne.compute_raw_covariance(
@@ -595,13 +593,18 @@ def inverse_solution(
 
         noise_rank = mne.compute_rank(empty_room_recording)
         
-        if data_rank["mag"] < noise_rank["mag"]:
-            noise_rank["mag"] = data_rank["mag"].copy()
-        if data_rank["grad"] < noise_rank["grad"]:
-            noise_rank["grad"] = data_rank["grad"].copy()
+        mag_in_data = bool("mag" in segments_rank)
+        grad_in_data = bool("grad" in segments_rank)
+        if mag_in_data:
+            if segments_rank["mag"] < noise_rank["mag"]:
+                noise_rank["mag"] = segments_rank["mag"].copy()
+        if grad_in_data:
+            if segments_rank["grad"] < noise_rank["grad"]:
+                noise_rank["grad"] = segments_rank["grad"].copy()
 
-        # If empty room recording is available, the rank for
-        # lcmv should be the rank of this recording
+        # According to MNE: When a noise covariance is used for whitening, 
+        # this should reflect the rank of that covariance, otherwise 
+        # amplification of noise components can occur in whitening
         lcmv_rank = noise_rank.copy()
 
     else:
@@ -613,31 +616,22 @@ def inverse_solution(
         logger.info("Empty room recording is not available. Therefore, a diagonal covariance matrix where the" \
         " diagonals represent channel wise variance and off-diagonals are zero is used to whitten the data.")
 
-        noise_cov = mne.make_ad_hoc_cov(info=data.info,
+        noise_cov = mne.make_ad_hoc_cov(info=segments.info,
                                         std=kwargs.get("ad_hoc_cov_std", None))
-        lcmv_rank = data_rank.copy()
+        lcmv_rank = segments_rank.copy()
 
     if inverse_operator == "lcmv":
         logger.info(f"Solving the inverse problem using {inverse_operator} algorithm. "\
                     f"A regularization of {kwargs.get('inverse_regularization_value', 0.05)} will be used " \
                     f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', "max-power")} for `pick_ori`.")
         
-        # compute data covaraince
-        data_cov = mne.compute_raw_covariance(
-            data,
+        # compute segments covaraince
+        segments_cov = mne.compute_covariance(
+            segments,
             method=kwargs.get("covariance_method", "empirical"),
-            rank=lcmv_rank,
+            rank=lcmv_rank, #TODO: this should be removed
             n_jobs=kwargs.get("n_jobs", 1)
         )
-        
-        if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
-            kwargs.get("beamformer_weight_norm", "unit-noise-gain") != "unit-noise-gain-invariant"):
-            error_msg = "If you wish to compute a vector beamformer, it is necessary to use" \
-                        " unit-noise-gain-invariant for weight_norm argument. This is for addressing" \
-                        " the center of head bias where deeper sources can have larger scale than" \
-                        " superfacial sources."
-            logger.error(error_msg)
-            raise Exception(error_msg)
         
         if not kwargs.get("beamforme_depth") and source_space == "volumetric":
             error_msg = "If you want to use volumetric source space (interested in deeper sources)," \
@@ -661,9 +655,9 @@ def inverse_solution(
         logger.info(f"Condition number of data covariance After regularization: {cond_after}")
 
         filters = mne.beamformer.make_lcmv(
-            data.info,
+            segments.info,
             forward=fwd,
-            data_cov=data_cov,
+            data_cov=segments_cov,
             noise_cov=noise_cov,
             reg=kwargs.get("inverse_regularization_value", 0.05), # for regularization (shifting the matrix)
             pick_ori=kwargs.get("beamformer_pick_ori", "max-power"),
@@ -672,8 +666,8 @@ def inverse_solution(
             depth=kwargs.get("beamforme_depth", None),
         )
 
-    stc = mne.beamformer.apply_lcmv_raw(
-        data,
+    stc = mne.beamformer.apply_lcmv_epochs(
+        segments,
         filters=filters
     )
 
@@ -803,8 +797,8 @@ def morph_stc(
 def parcellate(
         subject,
         subjects_dir,
-        stc_fsaverage,
-        src_morph,
+        stc,
+        src,
         source_space,
         **kwargs
     ):
@@ -822,7 +816,7 @@ def parcellate(
         The subject name to use for anatomical labels and source space setup (typically 'fsaverage').
     subjects_dir : str
         Path to the FreeSurfer subjects directory containing anatomical reconstructions.
-    stc_fsaverage : mne.SourceEstimate | list of SourceEstimate
+    stc : mne.SourceEstimate | list of SourceEstimate
         The source estimate(s) already morphed to `subject`. Can be a single STC or a list.
     source_space : str
         Type of source space to create. Must be either "surface" or "volumetric".
@@ -882,10 +876,10 @@ def parcellate(
         raise ValueError(error_msg)
 
     parcelled_stc = mne.extract_label_time_course(
-        stcs=stc_fsaverage,
+        stcs=stc,
         labels=labels,
-        src=src_morph,
-        mode=kwargs.get("parcellation_mode", "mean"),
+        src=src,
+        mode=kwargs.get("parcellation_mode", "auto"),
         return_generator=False 
     )
 
@@ -899,6 +893,7 @@ def source_localization(
         subjects_dir,
         subject_to,
         data,
+        segments,
         figures_path,
         which_sensor_dict,
         source_space="surface",
@@ -907,7 +902,6 @@ def source_localization(
         plot_3d=False,
         qc_ignore=[],
         empty_room_recording=None,
-        number_of_reduced_ic=0,
         **kwargs
 ):
     """
@@ -987,13 +981,13 @@ def source_localization(
     stc = inverse_solution(
         subject=subject,
         data=data,
+        segments=segments,
         fwd=fwd,
         inverse_operator=inverse_operator,
         source_space=source_space,
         empty_room_recording=empty_room_recording,
         figures_path=figures_path,
         qc_ignore=qc_ignore,
-        number_of_reduced_ic=number_of_reduced_ic,
         which_sensor_dict=which_sensor_dict,
         **kwargs
     )
@@ -1020,8 +1014,8 @@ def source_localization(
     stc, labels = parcellate(
             subject=subject,
             subjects_dir=subjects_dir,
-            stc_fsaverage=stc,
-            src_morph=src,
+            stc=stc,
+            src=src,
             source_space=source_space,
             **kwargs
     )
@@ -1069,8 +1063,8 @@ def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     """
     ch_types = [ch_name] * len(labels)
     info = mne.create_info(ch_names=labels, sfreq=sampling_rate, ch_types=ch_types)
-    raw_parc = mne.io.RawArray(stc, info)
-    return raw_parc
+    epochs = mne.EpochsArray(stc, info)
+    return epochs
 
 
 def regularized_cov_condition(X, shrinkage=0.05, diag_scale='auto'):
