@@ -1,10 +1,12 @@
 import argparse
 import json
+import numpy as np
 import os
 import sys
 import mne
 import logging
 import pandas as pd
+from pathlib import Path
 import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
@@ -101,7 +103,10 @@ def set_logger(args, pakcages_to_silent):
     - Existing root handlers are removed before setting up the new logger.
     - Silenced packages will not log INFO or DEBUG messages.
     """
-    save_dir = os.path.join(args.save_dir, "log_summary")
+    save_dir = os.path.join(Path(args.save_dir).parent,
+                                       "Saved_outputs", 
+                                       "log_summary")
+    
     os.makedirs(save_dir, exist_ok=True)
 
     for handler in logging.root.handlers[:]:
@@ -197,6 +202,14 @@ def main(args):
     paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
     path = paths[0]
+
+    if args.empty_room_recording_path:
+        empty_room_recording_paths = args.empty_room_recording_path.split("*")
+        empty_room_recording_paths = list(filter(lambda x: len(x), empty_room_recording_paths))
+        empty_room_recording_path = empty_room_recording_paths[0]
+    else:
+        empty_room_recording_path = None
+    
     logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
                     " will be used in this analysis.")
     
@@ -219,8 +232,8 @@ def main(args):
     # ------------------------------------------------------------
     if not device == "BTI":
         data = mne.io.read_raw(path, preload=True)
-        if args.empty_room_recording_path:
-            empty_room_recording = mne.io.read_raw(args.empty_room_recording_path, preload=True)
+        if empty_room_recording_path:
+            empty_room_recording = mne.io.read_raw(empty_room_recording_path, preload=True)
         else:
             empty_room_recording = None
 
@@ -231,10 +244,10 @@ def main(args):
             head_shape_fname=None,
             preload=True
         )
-        if args.empty_room_recording_path:
+        if empty_room_recording_path:
             empty_room_recording = mne.io.read_raw_bti(
-                pdf_fname=os.path.join(args.empty_room_recording_path, "c,rfDC"),
-                config_fname=os.path.join(args.empty_room_recording_path, "config"),
+                pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
+                config_fname=os.path.join(empty_room_recording_path, "config"),
                 head_shape_fname=None,
                 preload=True
             )
@@ -261,6 +274,7 @@ def main(args):
                                             subID=args.subject, 
                                             args=args, 
                                             configs=configs, 
+                                            device=device,
                                             empty_room_recording=empty_room_recording)
     
     which_sensor_dict = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
@@ -268,7 +282,7 @@ def main(args):
 
     # preproces
     # ------------------------------------------------------------
-    filtered_data, channel_names, sampling_rate, empty_room_recording, number_of_reduced_ic = preprocess(
+    filtered_data, channel_names, sampling_rate, empty_room_recording, _ = preprocess(
         data=data,
         n_component=configs.ica_n_component,
         ica_max_iter=configs.ica_max_iter,
@@ -332,18 +346,18 @@ def main(args):
                 subjects_dir=args.surfaces_dir, 
                 subject_to="fsaverage",
                 data=filtered_data,
+                segments=segments,
                 empty_room_recording=empty_room_recording,
                 source_space=configs.SL_source_space,
                 conductivity=configs.SL_conductivity,
                 inverse_operator=configs.SL_inverse_operator,
                 figures_path=os.path.join(args.save_dir, "figures"),
-                number_of_reduced_ic=number_of_reduced_ic,
                 which_sensor_dict=which_sensor_dict,
                 plot_3d=False,
                 **configs.model_dump()
             )
-        filtered_data = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
-        channel_names = filtered_data.info["ch_names"]
+        segments = numpy_to_mne_raw(stc, labels, "meg", sampling_rate)
+        channel_names = segments.info["ch_names"]
 
 
     # fooof analysis 
@@ -365,9 +379,6 @@ def main(args):
         aperiodic_mode=configs.aperiodic_mode,
     )
 
-    if configs.fooof_res_save_path:
-        storeFooofModels(configs.fooof_res_save_path, args.subject, fmGroup, psds, freqs)
-
     # feature extraction 
     # ------------------------------------------------------------
     features = feature_extract(
@@ -385,7 +396,7 @@ def main(args):
         aperiodic_mode=configs.aperiodic_mode,
         min_r_squared=configs.min_r_squared,
     )
-
+        
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 
     logger.info(f"The feature extraction process for the subject {args.subject} is complete.")
@@ -393,6 +404,31 @@ def main(args):
     elapsed = start_time - end_time
     logger.info(f"Script ended at {end_time}")
     logger.info(f"Total elapsed time: {elapsed}")
+
+    
+    if configs.save_source_localized_epochs:
+        save_epoch_path = os.path.join(Path(args.save_dir).parent,
+                                       "Saved_outputs",
+                                        "Epochs",
+                                        args.subject)
+        if not os.path.exists(save_epoch_path):
+            os.mkdir(save_epoch_path)
+        segments.save(f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True)
+
+    if configs.save_psds:
+        save_psds_path = os.path.join(Path(args.save_dir).parent,
+                                       "Saved_outputs", 
+                                       "PSDs", 
+                                       args.subject)
+        if not os.path.exists(save_psds_path):
+            os.mkdir(save_psds_path)
+        np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
+        np.save(f"{save_psds_path}/{args.subject}-freqs.npy", freqs)
+
+
+    if configs.fooof_res_save_path:
+        storeFooofModels(configs.fooof_res_save_path, args.subject, fmGroup, psds, freqs)
+
 
 if __name__ == "__main__":
 

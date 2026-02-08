@@ -296,6 +296,9 @@ class Config(BaseModel):
     fooof_min_peak_height: int = 0
     fooof_peak_threshold: PositiveInt = 2
     
+    save_source_localized_epochs: bool = True
+    save_psds : bool = True
+
     # Feature extraction
     freq_bands: Dict[str, Tuple[int, int]] = {
         "Theta": (3, 8),
@@ -1166,10 +1169,17 @@ def set_path(project_dir):
     features_temp_path = os.path.join(features_dir,'temp')
     figures_dir = os.path.join(features_dir, "figures")
 
+    saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
+    save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
+    save_psds_path = os.path.join(saved_outputs_path, "PSDs")
+
     make_folder(features_dir)
     make_folder(features_log_path)
     make_folder(features_temp_path)
     make_folder(figures_dir)
+    make_folder(saved_outputs_path)
+    make_folder(save_epochs_path)
+    make_folder(save_psds_path)
 
     nm_dir = os.path.join(project_dir, "Normative_modeling")
     run_dir = os.path.join(nm_dir, "Runs")
