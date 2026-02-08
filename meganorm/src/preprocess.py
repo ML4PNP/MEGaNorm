@@ -786,7 +786,7 @@ def preprocess(
 
 
 def drop_noisy_meg_channels(
-    data: Any, subID: str, args: Any, configs: Dict[str, str], empty_room_recording=None
+    data: Any, subID: str, args: Any, configs: Dict[str, str], device: str, empty_room_recording=None
 ) -> Any:
     """
     Identifies and removes noisy or flat MEG/EEG channels using Maxwell filtering,
@@ -837,6 +837,9 @@ def drop_noisy_meg_channels(
         auto_noisy_chs = []; auto_flat_chs = []
         
     else:
+        if device == "CTF":
+            data.apply_gradient_compensation(0)
+
         auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
             data, return_scores=False, verbose=True, coord_frame="meg", ignore_ref=True
         )
