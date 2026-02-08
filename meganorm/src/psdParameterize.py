@@ -3,6 +3,7 @@ import sys
 import json
 import mne
 import argparse
+import numpy as np
 from tqdm import tqdm
 from glob import glob
 import fooof as f
@@ -68,7 +69,7 @@ def computePsd(
         .average()
         .get_data(return_freqs=True)
     )
-
+    
     return psds, freqs
 
 
