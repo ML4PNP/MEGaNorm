@@ -5,195 +5,199 @@ import tqdm
 import json
 import pickle
 import argparse
-import pandas as pd
-import fooof as f
-from typing import Dict, List
-from typing import Union
 import logging
-
+import pyrasa
+import fooof as f
+import pandas as pd
+from typing import Union
+from typing import Dict, List
+from abc import ABC, abstractmethod
+from pyrasa.irasa_mne import irasa_epochs
 # from layouts import load_specific_layout
 from meganorm.utils.IO import make_config
 from meganorm.layouts.layouts import load_specific_layout
 
+
 logger = logging.getLogger(__name__)
 
-def offset(fm: f.FOOOF) -> float:
-    """
-    Extract the offset parameter from the aperiodic component of a FOOOF model.
 
-    Parameters
-    ----------
-    fm : f.FOOOF
-        A FOOOF model object that has been fit to data and contains aperiodic parameters.
+# def offset(fm: f.FOOOF) -> float:
+#     """
+#     Extract the offset parameter from the aperiodic component of a FOOOF model.
 
-    Returns
-    -------
-    float
-        The offset value, which is the first element of the aperiodic parameters.
+#     Parameters
+#     ----------
+#     fm : f.FOOOF
+#         A FOOOF model object that has been fit to data and contains aperiodic parameters.
 
-    Raises
-    ------
-    TypeError
-        Expected a FOOOF model instance.
-    """
-    if not isinstance(fm, f.FOOOF):
-        raise TypeError("Expected a FOOOF model instance.")
+#     Returns
+#     -------
+#     float
+#         The offset value, which is the first element of the aperiodic parameters.
 
-    return fm.get_params("aperiodic_params")[0]
+#     Raises
+#     ------
+#     TypeError
+#         Expected a FOOOF model instance.
+#     """
+#     if not isinstance(fm, f.FOOOF):
+#         raise TypeError("Expected a FOOOF model instance.")
 
-
-def exponent(fm: f.FOOOF, aperiodic_mode: str) -> float:
-    """
-    Extract the exponent value from the aperiodic component of a FOOOF model.
-
-    Parameters
-    ----------
-    fm : f.FOOOF
-        A FOOOF model object that has been fit to data and contains aperiodic parameters.
-    aperiodic_mode : str
-        The aperiodic mode that has been used to fit the model. Must be one of ['knee', 'fixed'].
-
-    Returns
-    -------
-    float
-        The exponent value corresponding to the specified mode ('knee' or 'fixed')
-
-    Raises
-    ------
-    ValueError
-        Unknown aperiodic_mode; Expected 'knee' or 'fixed'.
-    """
-    if aperiodic_mode == "knee":
-        exponent_index = 2
-    elif aperiodic_mode == "fixed":
-        exponent_index = 1
-    else:
-        raise ValueError(
-            f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
-        )
-
-    return fm.get_params("aperiodic_params")[exponent_index]
+#     return fm.get_params("aperiodic_params")[0]
 
 
-def find_peak_in_band(
-    fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, float]
-) -> list:
-    """
-    Find peaks in a specified frequency band (determined by fmin and fmax) from the peak parameters of a FOOOF model.
+# def exponent(fm: f.FOOOF, aperiodic_mode: str) -> float:
+#     """
+#     Extract the exponent value from the aperiodic component of a FOOOF model.
 
-    Parameters
-    ----------
-    fm : f.FOOOF
-        A FOOOF model object that contains peak parameters.
-    fmin : Union[int, float]
-        The lower frequency of the band.
-    fmax : Union[int, float]
-        The upper frequency of the band.
+#     Parameters
+#     ----------
+#     fm : f.FOOOF
+#         A FOOOF model object that has been fit to data and contains aperiodic parameters.
+#     aperiodic_mode : str
+#         The aperiodic mode that has been used to fit the model. Must be one of ['knee', 'fixed'].
 
-    Returns
-    -------
-    list
-        A list of tuples where each tuple represents a peak. In the tuples, the first element is the
-        frequency of the corresponding peak, the second element is the peak value (power), and the third element is the width of the peak.
-    """
-    peaks = fm.get_params("peak_params")
+#     Returns
+#     -------
+#     float
+#         The exponent value corresponding to the specified mode ('knee' or 'fixed')
 
-    # filter peaks: check for NaNs and then within thee frequency band
-    band_peaks = [
-        peak for peak in peaks if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
-    ]
+#     Raises
+#     ------
+#     ValueError
+#         Unknown aperiodic_mode; Expected 'knee' or 'fixed'.
+#     """
+#     if aperiodic_mode == "knee":
+#         exponent_index = 2
+#     elif aperiodic_mode == "fixed":
+#         exponent_index = 1
+#     else:
+#         raise ValueError(
+#             f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
+#         )
 
-    return band_peaks
-
-
-def peak_center(band_peaks: list):
-    """
-    Returns the frequency of the center of a dominant peak.
-
-    Parameters
-    ----------
-    band_peaks : list
-        A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-        function. In the tuples, the first element is the frequency, the second element is the peak value,
-        and the third element is the width of the dominant peak.
-    Returns
-    -------
-    float
-        The frequency of the dominant peak, or np.nan if the list is empty.
-    """
-    if not band_peaks:
-        return np.nan
-
-    # Get the dominant peak by selecting the one with the maximum second element (e.g., power)
-    dominant_peak = max(band_peaks, key=lambda x: x[1])
-
-    # Return the frequency of the dominant peak (first element of the tuple)
-    return dominant_peak[0]
+#     return fm.get_params("aperiodic_params")[exponent_index]
 
 
-def peak_power(band_peaks: list):
-    """
-    Returns the power of the center of a dominant peak from a list of peaks.
+# def find_peak_in_band(
+#     fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, float]
+# ) -> list:
+#     """
+#     Find peaks in a specified frequency band (determined by fmin and fmax) from the peak parameters of a FOOOF model.
 
-    Parameters
-    ----------
-    band_peaks : list
-        A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-        function. In the tuples, the first element is the frequency, the second element is the peak value,
-        and the third element is the width of the dominant peak.
+#     Parameters
+#     ----------
+#     fm : f.FOOOF
+#         A FOOOF model object that contains peak parameters.
+#     fmin : Union[int, float]
+#         The lower frequency of the band.
+#     fmax : Union[int, float]
+#         The upper frequency of the band.
 
-    Returns
-    -------
-    float
-        The power of the dominant peak, or np.nan if the list is empty.
-    """
-    if not band_peaks:
-        return np.nan
+#     Returns
+#     -------
+#     list
+#         A list of tuples where each tuple represents a peak. In the tuples, the first element is the
+#         frequency of the corresponding peak, the second element is the peak value (power), and the third element is the width of the peak.
+#     """
+#     peaks = fm.get_params("peak_params")
 
-    dominant_peak = max(band_peaks, key=lambda x: x[1])
-    return dominant_peak[1]
+#     # filter peaks: check for NaNs and then within thee frequency band
+#     band_peaks = [
+#         peak for peak in peaks if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
+#     ]
 
-
-def peak_width(band_peaks: list):
-    """
-    Returns the width of the dominant peak from a list of peaks.
-
-    Parameters
-    ----------
-    band_peaks : A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-                function. In the tuples, the first element is the frequency, the second
-                element is the peak value, and the third element is the width of the dominant peak.
-
-    Returns
-    -------
-    float
-        The width of the dominant peak, or np.nan if the list is empty.
-    """
-    if not band_peaks:
-        return np.nan
-
-    dominant_peak = max(band_peaks, key=lambda x: x[1])
-    return dominant_peak[2]
+#     return band_peaks
 
 
-def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
-    """
-    Isolates the periodic component of the power spectrum by subtracting the aperiodic fit
-    from the original pwer spectrum density.
+# def peak_center(band_peaks: list):
+#     """
+#     Returns the frequency of the center of a dominant peak.
 
-    Parameters
-    ----------
-    fm : f.FOOOF
-        An already fitted FOOOF model object.
-    psd : np.ndarray
-        Original power spectrum in linear scale.
+#     Parameters
+#     ----------
+#     band_peaks : list
+#         A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
+#         function. In the tuples, the first element is the frequency, the second element is the peak value,
+#         and the third element is the width of the dominant peak.
+#     Returns
+#     -------
+#     float
+#         The frequency of the dominant peak, or np.nan if the list is empty.
+#     """
+#     if not band_peaks:
+#         return np.nan
 
-    Returns
-    -------
-    np.ndarray
-        A 1D array of the peridic component of the power spectrum.
-    """
-    return psd - 10**fm._ap_fit
+#     # Get the dominant peak by selecting the one with the maximum second element (e.g., power)
+#     dominant_peak = max(band_peaks, key=lambda x: x[1])
+
+#     # Return the frequency of the dominant peak (first element of the tuple)
+#     return dominant_peak[0]
+
+
+# def peak_power(band_peaks: list):
+#     """
+#     Returns the power of the center of a dominant peak from a list of peaks.
+
+#     Parameters
+#     ----------
+#     band_peaks : list
+#         A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
+#         function. In the tuples, the first element is the frequency, the second element is the peak value,
+#         and the third element is the width of the dominant peak.
+
+#     Returns
+#     -------
+#     float
+#         The power of the dominant peak, or np.nan if the list is empty.
+#     """
+#     if not band_peaks:
+#         return np.nan
+
+#     dominant_peak = max(band_peaks, key=lambda x: x[1])
+#     return dominant_peak[1]
+
+
+# def peak_width(band_peaks: list):
+#     """
+#     Returns the width of the dominant peak from a list of peaks.
+
+#     Parameters
+#     ----------
+#     band_peaks : A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
+#                 function. In the tuples, the first element is the frequency, the second
+#                 element is the peak value, and the third element is the width of the dominant peak.
+
+#     Returns
+#     -------
+#     float
+#         The width of the dominant peak, or np.nan if the list is empty.
+#     """
+#     if not band_peaks:
+#         return np.nan
+
+#     dominant_peak = max(band_peaks, key=lambda x: x[1])
+#     return dominant_peak[2]
+
+
+# def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
+#     """
+#     Isolates the periodic component of the power spectrum by subtracting the aperiodic fit
+#     from the original pwer spectrum density.
+
+#     Parameters
+#     ----------
+#     fm : f.FOOOF
+#         An already fitted FOOOF model object.
+#     psd : np.ndarray
+#         Original power spectrum in linear scale.
+
+#     Returns
+#     -------
+#     np.ndarray
+#         A 1D array of the peridic component of the power spectrum.
+#     """
+#     return psd - 10**fm._ap_fit
 
 
 def abs_canonical_power(
@@ -559,7 +563,7 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
 
 def feature_extract(
     subject_id: str,
-    fmGroup: f.FOOOF,
+    spectral_models,
     psds: np.ndarray,
     feature_categories: Dict[str, bool],
     freqs: np.ndarray,
@@ -583,8 +587,8 @@ def feature_extract(
     ----------
     subject_id : str
         The unique identifier for the subject whose data is being processed.
-    fmGroup : f.FOOOF
-        Group of FOOOF models, where each model corresponds to a channel and
+    spectral_models : 
+        Group of FOOOF models or PYRASA models, where each model corresponds to a channel and
         its power spectral data.
     psds : np.ndarray
         Original power spectral density values, with shape (n_channels, n_freqs).
@@ -627,7 +631,7 @@ def feature_extract(
     ValueError
         If `aperiodic_mode` is not 'knee' or 'fixed'.
     TypeError
-        If `fmGroup` is not an instance of f.FOOOF.
+        If `spectral_models` is not an instance of f.FOOOF.
     ValueError
         If `min_r_squared` is not between 0 and 1.
     """
@@ -636,10 +640,8 @@ def feature_extract(
         raise ValueError(
             f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
         )
-    if not isinstance(fmGroup, f.FOOOF):
-        raise TypeError("Expected a FOOOF model instance.")
-    if not 0 <= min_r_squared <= 1:
-        raise ValueError("Minimum R squared should be between zero and 1")
+    if not isinstance(spectral_models, f.FOOOF) and not isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
+        raise TypeError("Expected a f.FOOOF or pyrasa.irasa_mne.mne_objs.IrasaEpoched object instance.")
 
     # Store features in a pandas DataFrame with channel names as columns
     # and feature names as the index,
@@ -647,69 +649,81 @@ def feature_extract(
         feature_categories, freq_bands, channel_names
     )
 
+    if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
+        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode)
+
     for channel_num, channel_name in enumerate(channel_names):
 
-        # getting the fooof model of ith channel
-        fm = fmGroup.get_fooof(ind=channel_num)
+        if isinstance(spectral_models, f.FOOOF):
+            spectral_model = FOOOFDecomposer(spectral_models, 
+                                            mode=aperiodic_mode, 
+                                            ch_num=channel_num)
 
-        # fooof fitness
-        # TODO, this needs to go out of feature exctraction
-        r_squared = fm.r_squared_
-        if r_squared < min_r_squared:
+        elif isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
+            spectral_model = PYRASADecomposer(spectral_models, 
+                                            mode=aperiodic_mode, 
+                                            ch_name=channel_name, 
+                                            ch_num=channel_num, 
+                                            aperiodic=ap)
+            
+        else:
+            raise TypeError(f"Unknown spectral model type: {type(spectral_models)}")
+
+        # fitness SQC
+        if spectral_model.get_r_squared() < min_r_squared:
+            logger.info(f"The {channel_num}th channel, {channel_name}, was removed" \
+                        " since it's corresponding R2 score in PSD parametrization " \
+                        f"was less than the threshold: {spectral_model.get_r_squared()} > min_r_squared")
             continue
 
-        # offset ==================================
+        # # offset ==================================
         if feature_categories["Offset"]:
-            feature_arr = offset(fm)
+            feature_arr = spectral_model.get_aperiodic_params()[0]
             feature_container = add_feature(
                 feature_container, feature_arr, "Offset", channel_name, ""
             )
-        # Exponent ==================================
+        # # Exponent ==================================
         if feature_categories["Exponent"]:
-            feature_arr = exponent(fm, aperiodic_mode)
+            feature_arr = spectral_model.get_aperiodic_params()[1]
             feature_container = add_feature(
                 feature_container, feature_arr, "Exponent", channel_name, ""
             )
 
-        original_psd = psds[channel_num, :]
         # isolate periodic parts of signals
-        flattened_psd = np.asarray(isolate_periodic(fm, original_psd))
+        flattened_psd = spectral_model.get_periodic_spectrum(original_psds=psds)
+        original_psd = psds[channel_num, :]
 
-        # whenever aperidic activity is higher than periodic activity
-        # => set the preiodic acitivity to zero
+        # # whenever aperidic activity is higher than periodic activity
+        # # => set the preiodic acitivity to zero
         flattened_psd = np.array(list(map(lambda x: max(0, x), flattened_psd)))
 
         # Loop through each frequency band
         for band_name, (fmin, fmax) in freq_bands.items():
 
             # Peak Features ==================================
-            band_peaks = find_peak_in_band(fm, fmin, fmax)
-
-            if feature_categories["Peak_Center"]:
-                feature_arr = peak_center(band_peaks)
+            peak_params, band_peaks = spectral_model.get_peak_params(fmin=fmin, fmax=fmax)
+            if feature_categories["Peak_Center"] and peak_params:
                 feature_container = add_feature(
                     feature_container,
-                    feature_arr,
+                    peak_params[0],
                     "Peak_Center",
                     channel_name,
                     band_name,
                 )
 
-            if feature_categories["Peak_Power"]:
-                feature_arr = peak_power(band_peaks)
+            if feature_categories["Peak_Power"] and peak_params:
                 feature_container = add_feature(
                     feature_container,
-                    feature_arr,
+                    peak_params[1],
                     "Peak_Power",
                     channel_name,
                     band_name,
                 )
 
-            if feature_categories["Peak_Width"]:
-                feature_arr = peak_width(band_peaks)
+            if feature_categories["Peak_Width"] and peak_params:
                 feature_container = add_feature(
                     feature_container,
-                    feature_arr,
+                    peak_params[2],
                     "Peak_Width",
                     channel_name,
                     band_name,
@@ -859,3 +873,117 @@ def feature_extract(
     final_df.index = [subject_id]
 
     return final_df
+
+
+
+
+
+
+class SpectralDecomposer(ABC):
+    """Abstract base class for spectral decomposition methods"""
+    
+    @abstractmethod
+    def get_aperiodic_params(self):
+        """Return aperiodic parameters (offset, exponent, knee if applicable)"""
+        pass
+    
+    @abstractmethod
+    def get_periodic_spectrum(self, original_psds):
+        """Return isolated periodic component"""
+        pass
+    
+    @abstractmethod
+    def get_peak_params(self, fmin, fmax):
+        """Return peak parameters"""
+        pass
+    
+    @abstractmethod
+    def get_r_squared(self):
+        """Return goodness of fit metric"""
+        pass
+
+
+class FOOOFDecomposer(SpectralDecomposer):
+    def __init__(self, fooof_model, mode, ch_num):
+        self.ch_num = ch_num
+        self.model = fooof_model.get_fooof(ind=ch_num)
+        self.mode = mode
+
+    def get_aperiodic_params(self):
+        
+        reordered_params = []
+        params = self.model.get_params("aperiodic_params")
+        # offset
+        reordered_params.append(params[0])
+
+        # exponent
+        if self.mode == "knee":
+            exponent_index = 2
+        elif self.mode == "fixed":
+            exponent_index = 1
+        else:
+            raise ValueError(
+                f"Unknown aperiodic_mode: {self.mode}. Expected 'knee' or 'fixed'."
+            )
+        reordered_params.append(params[exponent_index])
+        
+        return reordered_params
+    
+    def get_periodic_spectrum(self, original_psds):
+        original_psd = original_psds[self.ch_num, :]
+        return original_psd - 10**self.model._ap_fit
+    
+    def get_peak_params(self, fmin, fmax):
+
+        peaks = self.model.get_params("peak_params")
+
+        # filter peaks: check for NaNs and then within thee frequency band
+        band_peaks = [
+            peak for peak in peaks if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
+        ]
+
+        if not band_peaks:
+            return None, None
+        
+        # Get the dominant peak by selecting the one with the maximum second element (e.g., power)
+        dominant_peak = max(band_peaks, key=lambda x: x[1])
+        # Return the frequency of the dominant peak (first element of the tuple)
+
+        return dominant_peak, band_peaks
+    
+    def get_r_squared(self):
+        return self.model.r_squared_
+
+class PYRASADecomposer(SpectralDecomposer):
+    def __init__(self, model, mode, ch_name, ch_num, aperiodic):
+        self.mode = mode
+        self.model = model
+        self.aperiodic = aperiodic
+        self.ch_name = ch_name
+        self.ch_num = ch_num
+
+
+    def get_aperiodic_params(self):
+        
+        aperiodic_params = self.aperiodic.aperiodic_params
+        aperiodic_params_of_interest = aperiodic_params[aperiodic_params["ch_name"] == self.ch_name]
+
+        params = []
+
+        # offset
+        params.append(aperiodic_params_of_interest["Offset"].item())
+        # exponent 
+        params.append(aperiodic_params_of_interest["Exponent_1"].item())
+
+        return params
+    
+    def get_periodic_spectrum(self, original_psds=None):
+        # print(self.model.periodic.get_data().squeeze().shape)
+        return self.model.periodic.get_data().squeeze()[self.ch_num, :]
+    
+    def get_peak_params(self, fmin, fmax):
+        return None, None # TODO
+        
+    def get_r_squared(self):
+        gof = self.aperiodic.gof
+        return gof[gof["ch_name"] == self.ch_name]["R2"].item()
