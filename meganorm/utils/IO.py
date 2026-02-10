@@ -287,6 +287,9 @@ class Config(BaseModel):
     psd_n_fft: PositiveInt = 2
     psd_n_per_seg: PositiveInt = 2
 
+    parametrization_method: Literal["fooof", "irasa"] = "irasa"
+    # PYRASA
+    irasa_hset: Tuple(float, float, float) = (1.05, 2.0, 0.05)
 
     # FOOOF analysis
     fooof_freq_range_low: PositiveInt = 3

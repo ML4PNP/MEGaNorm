@@ -11,7 +11,7 @@ import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
 from meganorm.utils.IO import make_config, storeFooofModels, Config
-from meganorm.src.psdParameterize import psdParameterize
+from meganorm.src.psdParameterize import parameterize_psds
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
@@ -362,7 +362,7 @@ def main(args):
 
     # fooof analysis 
     # ------------------------------------------------------------
-    fmGroup, psds, freqs = psdParameterize(
+    spectral_models, psds, freqs = parameterize_psds(
         segments=segments,
         sampling_rate=sampling_rate,
         # psd parameters
@@ -370,20 +370,24 @@ def main(args):
         psd_n_overlap=configs.psd_n_overlap,
         psd_n_fft=configs.psd_n_fft,
         n_per_seg=configs.psd_n_per_seg,
-        # fooof parameters
+        # parametrization method
+        parametrization_method=configs.parametrization_method,
+        aperiodic_mode=configs.aperiodic_mode,
         freq_range_low=configs.fooof_freq_range_low,
         freq_range_high=configs.fooof_freq_range_high,
+        # fooof parameters
         min_peak_height=configs.fooof_min_peak_height,
         peak_threshold=configs.fooof_peak_threshold,
         peak_width_limits=configs.fooof_peak_width_limits,
-        aperiodic_mode=configs.aperiodic_mode,
+        # pyrasa parameters
+        irasa_hset=configs.irasa_hset,
     )
 
     # feature extraction 
     # ------------------------------------------------------------
     features = feature_extract(
         subject_id=args.subject,
-        fmGroup=fmGroup,
+        spectral_models=spectral_models,
         psds=psds,
         freqs=freqs,
         freq_bands=configs.freq_bands,
