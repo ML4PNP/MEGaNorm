@@ -1278,7 +1278,6 @@ def head_motion_correction(data,
 
     else:
         # check if cHPI data is available and then apply annotate_movement func
-        # TODO: use mne.chpi.extract_chpi_locs_ctf or extract_chpi_locs_kit
         has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
         if has_chpi:
             if device == "CTF":
