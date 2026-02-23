@@ -597,10 +597,10 @@ def inverse_solution(
         grad_in_data = bool("grad" in segments_rank)
         if mag_in_data:
             if segments_rank["mag"] < noise_rank["mag"]:
-                noise_rank["mag"] = segments_rank["mag"].copy()
+                noise_rank["mag"] = segments_rank["mag"]
         if grad_in_data:
             if segments_rank["grad"] < noise_rank["grad"]:
-                noise_rank["grad"] = segments_rank["grad"].copy()
+                noise_rank["grad"] = segments_rank["grad"]
 
         # According to MNE: When a noise covariance is used for whitening, 
         # this should reflect the rank of that covariance, otherwise 
@@ -640,19 +640,19 @@ def inverse_solution(
             logger.error(error_msg)
             raise Exception(error_msg)
 
-        rank_based_quality_control(
-            data_cov=data_cov,
-            info=data.info,
-            subject=subject,
-            figures_path=figures_path,
-            exclude=[], #TODO
-            qc_ignore=qc_ignore)
+        # rank_based_quality_control(
+        #     data_cov=data_cov,
+        #     info=data.info,
+        #     subject=subject,
+        #     figures_path=figures_path,
+        #     exclude=[], #TODO
+        #     qc_ignore=qc_ignore)
         
-        _, cond_before, cond_after = regularized_cov_condition(data_cov.data, 
-                shrinkage=0.05, 
-                diag_scale='auto')
-        logger.info(f"Condition number of data covariance before regularization: {cond_before}")
-        logger.info(f"Condition number of data covariance After regularization: {cond_after}")
+        # _, cond_before, cond_after = regularized_cov_condition(data_cov.data, 
+        #         shrinkage=0.05, 
+        #         diag_scale='auto')
+        # logger.info(f"Condition number of data covariance before regularization: {cond_before}")
+        # logger.info(f"Condition number of data covariance After regularization: {cond_after}")
 
         filters = mne.beamformer.make_lcmv(
             segments.info,
