@@ -213,7 +213,6 @@ def main(args):
     logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
                     " will be used in this analysis.")
     
-    # Extracting file format (device) for loading layout
     if not configs.which_sensor == "eeg":
         if "4D" in path: # TODO: it was originaly path[0]. Check if this correction is correct.
             device = "BTI" 
@@ -228,7 +227,6 @@ def main(args):
     else:
         device = path.split(".")[-1] # TODO: it was originaly path[0]. Check if this correction is correct.
     
-    # read the data
     # ------------------------------------------------------------
     if not device == "BTI":
         data = mne.io.read_raw(path, preload=True)
@@ -254,7 +252,6 @@ def main(args):
         else:
             empty_room_recording = None
 
-    # extract power line freq
     # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
@@ -262,12 +259,10 @@ def main(args):
         "; therefore, it was set to 60 Hz")
         power_line_freq = 60
 
-    # set eeg info (channel types and electrode montage) when it is not there yet
     # ------------------------------------------------------------
     if configs.which_sensor == "eeg":
         data = prepare_eeg_data(data, path)
 
-    # drop noisy channels for MEG
     # ------------------------------------------------------------
     if configs.which_sensor in ["meg", "grad", "mag"] and configs.drop_noisy_flat_channel:
         data, empty_room_recording = drop_noisy_meg_channels(data=data, 
@@ -280,7 +275,6 @@ def main(args):
     which_sensor_dict = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor_dict[configs.which_sensor] = True
 
-    # preproces
     # ------------------------------------------------------------
     filtered_data, channel_names, sampling_rate, empty_room_recording, _ = preprocess(
         data=data,
@@ -316,8 +310,6 @@ def main(args):
         environmental_noise_ica_with_ref_meg_measure = configs.environmental_noise_ica_with_ref_meg_measure
     )
 
-
-    # segmentation 
     # ------------------------------------------------------------
     segments = segment_epoch(
         data = filtered_data,
@@ -337,7 +329,6 @@ def main(args):
         eeg_flat_threshold = configs.eeg_flat_threshold,
     )
 
-    # Source localization 
     # ------------------------------------------------------------
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
@@ -359,8 +350,15 @@ def main(args):
         segments = numpy_to_mne_raw(stc, labels, "meg", sampling_rate)
         channel_names = segments.info["ch_names"]
 
+    if configs.save_source_localized_epochs:
+        save_epoch_path = os.path.join(Path(args.save_dir).parent,
+                                       "Saved_outputs",
+                                        "Epochs",
+                                        args.subject)
+        if not os.path.exists(save_epoch_path):
+            os.mkdir(save_epoch_path)
+        segments.save(f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True)
 
-    # fooof analysis 
     # ------------------------------------------------------------
     spectral_models, psds, freqs = parameterize_psds(
         segments=segments,
@@ -383,7 +381,16 @@ def main(args):
         irasa_hset=configs.irasa_hset,
     )
 
-    # feature extraction 
+    if configs.save_psds:
+        save_psds_path = os.path.join(Path(args.save_dir).parent,
+                                       "Saved_outputs", 
+                                       "PSDs", 
+                                       args.subject)
+        if not os.path.exists(save_psds_path):
+            os.mkdir(save_psds_path)
+        np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
+        np.save(f"{save_psds_path}/{args.subject}-freqs.npy", freqs)
+
     # ------------------------------------------------------------
     features = feature_extract(
         subject_id=args.subject,
@@ -409,29 +416,8 @@ def main(args):
     logger.info(f"Script ended at {end_time}")
     logger.info(f"Total elapsed time: {elapsed}")
 
-    
-    if configs.save_source_localized_epochs:
-        save_epoch_path = os.path.join(Path(args.save_dir).parent,
-                                       "Saved_outputs",
-                                        "Epochs",
-                                        args.subject)
-        if not os.path.exists(save_epoch_path):
-            os.mkdir(save_epoch_path)
-        segments.save(f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True)
-
-    if configs.save_psds:
-        save_psds_path = os.path.join(Path(args.save_dir).parent,
-                                       "Saved_outputs", 
-                                       "PSDs", 
-                                       args.subject)
-        if not os.path.exists(save_psds_path):
-            os.mkdir(save_psds_path)
-        np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
-        np.save(f"{save_psds_path}/{args.subject}-freqs.npy", freqs)
-
-
-    if configs.fooof_res_save_path:
-        storeFooofModels(configs.fooof_res_save_path, args.subject, fmGroup, psds, freqs)
+    # if configs.fooof_res_save_path:
+    #     storeFooofModels(configs.fooof_res_save_path, args.subject, fmGroup, psds, freqs)
 
 
 if __name__ == "__main__":
