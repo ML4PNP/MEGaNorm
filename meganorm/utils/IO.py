@@ -199,7 +199,7 @@ class Config(BaseModel):
     ica_max_iter: PositiveInt = 800
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
-    cutoffFreqLow: PositiveInt = 1
+    cutoffFreqLow: float = 1.0
     cutoffFreqHigh: PositiveInt = 40
 
     resampling_rate: PositiveInt = 1000
@@ -289,7 +289,7 @@ class Config(BaseModel):
 
     parametrization_method: Literal["fooof", "irasa"] = "irasa"
     # PYRASA
-    irasa_hset: Tuple(float, float, float) = (1.05, 2.0, 0.05)
+    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
 
     # FOOOF analysis
     fooof_freq_range_low: PositiveInt = 3
