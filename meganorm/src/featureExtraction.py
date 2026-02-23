@@ -228,7 +228,7 @@ def abs_canonical_power(
     """
 
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
-    band_power = np.trapz(psd[band_indices], freqs[band_indices])
+    band_power = np.trapezoid(psd[band_indices], freqs[band_indices])
 
     return np.log10(band_power)
 
@@ -261,8 +261,8 @@ def rel_canonical_power(
     """
 
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
-    band_power = np.trapz(psd[band_indices], freqs[band_indices])
-    total_power = np.trapz(psd, freqs)
+    band_power = np.trapezoid(psd[band_indices], freqs[band_indices])
+    total_power = np.trapezoid(psd, freqs)
 
     if total_power == 0:
         return np.nan
@@ -309,7 +309,7 @@ def abs_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
         freqs >= peak_freq + lower_offset, freqs <= peak_freq + upper_offset
     )
 
-    band_power = np.trapz(psd[peak_range_indices], freqs[peak_range_indices])
+    band_power = np.trapezoid(psd[peak_range_indices], freqs[peak_range_indices])
     return np.log10(band_power)
 
 
@@ -353,8 +353,8 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
         freqs >= peak_freq + lower_offset, freqs <= peak_freq + upper_offset
     )
 
-    band_power = np.trapz(psd[peak_range_indices], freqs[peak_range_indices])
-    total_power = np.trapz(psd, freqs)
+    band_power = np.trapezoid(psd[peak_range_indices], freqs[peak_range_indices])
+    total_power = np.trapezoid(psd, freqs)
 
     if total_power == 0:
         return np.nan
@@ -471,13 +471,13 @@ def psd_ratio(
     bandIndices = np.logical_and(
         freqs >= freqRangeNumerator[0], freqs <= freqRangeNumerator[1]
     )
-    powerNumerator = np.trapz(psd[bandIndices], freqs[bandIndices])
+    powerNumerator = np.trapezoid(psd[bandIndices], freqs[bandIndices])
 
     # Denominator
     bandIndices = np.logical_and(
         freqs >= freqRangeDenominator[0], freqs <= freqRangeDenominator[1]
     )
-    powerDenominator = np.trapz(psd[bandIndices], freqs[bandIndices])
+    powerDenominator = np.trapezoid(psd[bandIndices], freqs[bandIndices])
 
     # ratio
     featRow = np.log10(powerNumerator) / np.log10(powerDenominator)
@@ -650,7 +650,7 @@ def feature_extract(
     )
 
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode)
+        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=True)
 
     for channel_num, channel_name in enumerate(channel_names):
 
@@ -670,6 +670,7 @@ def feature_extract(
             raise TypeError(f"Unknown spectral model type: {type(spectral_models)}")
 
         # fitness SQC
+        logger.info(f"The R**2 in PSD parametrization of the channel {channel_name} was {spectral_model.get_r_squared()}")
         if spectral_model.get_r_squared() < min_r_squared:
             logger.info(f"The {channel_num}th channel, {channel_name}, was removed" \
                         " since it's corresponding R2 score in PSD parametrization " \
