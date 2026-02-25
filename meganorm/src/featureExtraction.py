@@ -14,190 +14,12 @@ from typing import Dict, List
 from abc import ABC, abstractmethod
 from pyrasa.irasa_mne import irasa_epochs
 # from layouts import load_specific_layout
-from meganorm.utils.IO import make_config
 from meganorm.layouts.layouts import load_specific_layout
 
 
 logger = logging.getLogger(__name__)
 
 
-# def offset(fm: f.FOOOF) -> float:
-#     """
-#     Extract the offset parameter from the aperiodic component of a FOOOF model.
-
-#     Parameters
-#     ----------
-#     fm : f.FOOOF
-#         A FOOOF model object that has been fit to data and contains aperiodic parameters.
-
-#     Returns
-#     -------
-#     float
-#         The offset value, which is the first element of the aperiodic parameters.
-
-#     Raises
-#     ------
-#     TypeError
-#         Expected a FOOOF model instance.
-#     """
-#     if not isinstance(fm, f.FOOOF):
-#         raise TypeError("Expected a FOOOF model instance.")
-
-#     return fm.get_params("aperiodic_params")[0]
-
-
-# def exponent(fm: f.FOOOF, aperiodic_mode: str) -> float:
-#     """
-#     Extract the exponent value from the aperiodic component of a FOOOF model.
-
-#     Parameters
-#     ----------
-#     fm : f.FOOOF
-#         A FOOOF model object that has been fit to data and contains aperiodic parameters.
-#     aperiodic_mode : str
-#         The aperiodic mode that has been used to fit the model. Must be one of ['knee', 'fixed'].
-
-#     Returns
-#     -------
-#     float
-#         The exponent value corresponding to the specified mode ('knee' or 'fixed')
-
-#     Raises
-#     ------
-#     ValueError
-#         Unknown aperiodic_mode; Expected 'knee' or 'fixed'.
-#     """
-#     if aperiodic_mode == "knee":
-#         exponent_index = 2
-#     elif aperiodic_mode == "fixed":
-#         exponent_index = 1
-#     else:
-#         raise ValueError(
-#             f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
-#         )
-
-#     return fm.get_params("aperiodic_params")[exponent_index]
-
-
-# def find_peak_in_band(
-#     fm: f.FOOOF, fmin: Union[int, float], fmax: Union[int, float]
-# ) -> list:
-#     """
-#     Find peaks in a specified frequency band (determined by fmin and fmax) from the peak parameters of a FOOOF model.
-
-#     Parameters
-#     ----------
-#     fm : f.FOOOF
-#         A FOOOF model object that contains peak parameters.
-#     fmin : Union[int, float]
-#         The lower frequency of the band.
-#     fmax : Union[int, float]
-#         The upper frequency of the band.
-
-#     Returns
-#     -------
-#     list
-#         A list of tuples where each tuple represents a peak. In the tuples, the first element is the
-#         frequency of the corresponding peak, the second element is the peak value (power), and the third element is the width of the peak.
-#     """
-#     peaks = fm.get_params("peak_params")
-
-#     # filter peaks: check for NaNs and then within thee frequency band
-#     band_peaks = [
-#         peak for peak in peaks if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
-#     ]
-
-#     return band_peaks
-
-
-# def peak_center(band_peaks: list):
-#     """
-#     Returns the frequency of the center of a dominant peak.
-
-#     Parameters
-#     ----------
-#     band_peaks : list
-#         A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-#         function. In the tuples, the first element is the frequency, the second element is the peak value,
-#         and the third element is the width of the dominant peak.
-#     Returns
-#     -------
-#     float
-#         The frequency of the dominant peak, or np.nan if the list is empty.
-#     """
-#     if not band_peaks:
-#         return np.nan
-
-#     # Get the dominant peak by selecting the one with the maximum second element (e.g., power)
-#     dominant_peak = max(band_peaks, key=lambda x: x[1])
-
-#     # Return the frequency of the dominant peak (first element of the tuple)
-#     return dominant_peak[0]
-
-
-# def peak_power(band_peaks: list):
-#     """
-#     Returns the power of the center of a dominant peak from a list of peaks.
-
-#     Parameters
-#     ----------
-#     band_peaks : list
-#         A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-#         function. In the tuples, the first element is the frequency, the second element is the peak value,
-#         and the third element is the width of the dominant peak.
-
-#     Returns
-#     -------
-#     float
-#         The power of the dominant peak, or np.nan if the list is empty.
-#     """
-#     if not band_peaks:
-#         return np.nan
-
-#     dominant_peak = max(band_peaks, key=lambda x: x[1])
-#     return dominant_peak[1]
-
-
-# def peak_width(band_peaks: list):
-#     """
-#     Returns the width of the dominant peak from a list of peaks.
-
-#     Parameters
-#     ----------
-#     band_peaks : A list of tuples where each tuple represents a peak. This list is the output of 'find_peak_in_band'
-#                 function. In the tuples, the first element is the frequency, the second
-#                 element is the peak value, and the third element is the width of the dominant peak.
-
-#     Returns
-#     -------
-#     float
-#         The width of the dominant peak, or np.nan if the list is empty.
-#     """
-#     if not band_peaks:
-#         return np.nan
-
-#     dominant_peak = max(band_peaks, key=lambda x: x[1])
-#     return dominant_peak[2]
-
-
-# def isolate_periodic(fm: f.FOOOF, psd: np.ndarray) -> np.ndarray:
-#     """
-#     Isolates the periodic component of the power spectrum by subtracting the aperiodic fit
-#     from the original pwer spectrum density.
-
-#     Parameters
-#     ----------
-#     fm : f.FOOOF
-#         An already fitted FOOOF model object.
-#     psd : np.ndarray
-#         Original power spectrum in linear scale.
-
-#     Returns
-#     -------
-#     np.ndarray
-#         A 1D array of the peridic component of the power spectrum.
-#     """
-#     return psd - 10**fm._ap_fit
 
 
 def abs_canonical_power(
@@ -650,7 +472,7 @@ def feature_extract(
     )
 
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=True)
+        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=False)
 
     for channel_num, channel_name in enumerate(channel_names):
 
