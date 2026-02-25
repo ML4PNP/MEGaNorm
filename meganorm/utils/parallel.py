@@ -4,7 +4,12 @@ import shutil
 import subprocess
 from datetime import datetime
 import pandas as pd
+import json
+import meganorm
+from meganorm.src import mainParallel
+from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
+from meganorm.utils.IO import merge_fidp_demo
 
 
 def progress_bar(current, total, bar_length=20):
@@ -427,6 +432,7 @@ def auto_parallel_feature_extraction(
     mainParallel_path,
     features_dir,
     subjects,
+    datasets,
     job_configs,
     config_file=None,
     username=None,
@@ -527,4 +533,100 @@ def auto_parallel_feature_extraction(
             clean=False,
         )
 
+
+    # Merge demographic data and extracted f-IDPS
+    data_base_dirs = [values["base_dir"] for values in datasets.values()]
+    dataset_names = list(datasets.keys())
+    df = merge_fidp_demo(datasets_paths=data_base_dirs,
+            features_dir=features_dir,
+            dataset_names=dataset_names)
+    df.to_csv(os.path.join(features_dir, "all_features.csv"))
+
+
     return failed_jobs
+
+
+def sbatch_feature_extraction_runner(
+        project_dir,
+        datasets,
+        config_file,
+        job_configs,
+        time="48:00:00", 
+        mem="16GB", 
+        freesurfer_home=None,
+        freesurfer_license=None,
+        auto_rerun=True,
+        auto_collect=True,
+        max_try=5,
+        which_subejects=None
+        ):
+    
+    features_dir, features_log_path = set_path(project_dir)
+    job_configs["log_path"] = features_log_path
+
+    subjects = merge_datasets_with_glob(datasets)
+    if which_subejects:
+        subjects_temp = subjects.copy()
+        for subj in subjects.keys():
+            if subj not in which_subejects:
+                subjects_temp.pop(subj)
+        subjects = subjects_temp.copy()
+            
+
+
+    config_file.save(
+        save_path = os.path.join(features_dir, "Configurations", "Configuration.json"),
+        overwrite=True
+    )
+    
+    params = {
+        "mainParallel_path": os.path.abspath(meganorm.src.mainParallel.__file__),
+        "features_dir": features_dir,
+        "job_configs": job_configs,
+        "config_file": os.path.join(project_dir, "Features", "Configurations", 'Configuration.json'),
+        "username": job_configs["slurm_username"],
+        "freesurfer_home": freesurfer_home,
+        "freesurfer_license": freesurfer_license,
+        "auto_rerun": auto_rerun,
+        "auto_collect": auto_collect,
+        "max_try": max_try,
+        "datasets" : datasets,
+        "subjects": subjects,
+    }
+
+    save_path = os.path.join(features_dir, "Configurations", "runner_params.json")
+    with open(save_path, "w") as f:
+        json.dump(params, f, indent=4)
+    
+    sbatch_text = f"""#!/bin/bash
+#SBATCH --job-name=feature_extraction_runner
+#SBATCH --output=feature_extraction_runner.out
+#SBATCH --error=feature_extraction_runner.err
+#SBATCH --time={time}
+#SBATCH --mem={mem}
+#SBATCH --cpus-per-task=1
+#SBATCH --partition={job_configs["partition"]}
+
+# Activate your environment
+source activate {job_configs["module"]}
+
+python {os.path.abspath(meganorm.utils.parallel.__file__)}
+"""
+
+    save_path = os.path.join(features_dir, "feature_extraction_runner.sbatch")
+    with open(save_path, "w") as f:
+        f.write(sbatch_text)
+
+    print("Created run_driver.sbatch")
+
+
+if __name__ == "__main__":
+
+    with open("Features/Configurations/runner_params.json") as f:
+        params = json.load(f)
+
+    if params.get("mainParallel_path", None) is None:
+        params["mainParallel_path"] = os.path.abspath(mainParallel.__file__)
+
+    # Run
+    auto_parallel_feature_extraction(**params)
