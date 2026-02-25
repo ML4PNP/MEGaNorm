@@ -10,7 +10,7 @@ from pathlib import Path
 import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
-from meganorm.utils.IO import make_config, storeFooofModels, Config
+from meganorm.utils.IO import storeFooofModels, Config
 from meganorm.src.psdParameterize import parameterize_psds
 from meganorm.src.preprocess import (
     preprocess,
@@ -347,7 +347,7 @@ def main(args):
                 plot_3d=False,
                 **configs.model_dump()
             )
-        segments = numpy_to_mne_raw(stc, labels, "meg", sampling_rate)
+        segments = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
         channel_names = segments.info["ch_names"]
 
     if configs.save_source_localized_epochs:

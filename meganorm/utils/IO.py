@@ -406,9 +406,8 @@ class Config(BaseModel):
             raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
 
 
-    def save(self, path:str, overwrite=False):
+    def save(self, save_path:str, overwrite=False):
         "save the configurations to a JSON file"
-        save_path = os.path.join(path, "Features", "Configuration.json")
 
         if os.path.exists(save_path) and overwrite == False:
             err_msg = f"A configuration file already exists in this directory: {save_path}. Set the overwrite to True."
@@ -806,6 +805,7 @@ def merge_datasets_with_glob(datasets):
         task = dataset_info["task"]
         ending = dataset_info["ending"]
         empty_room_task = dataset_info["empty_room_task"]
+        empty_room_path = dataset_info["empty_room_path"]
         surfaces = dataset_info["surfaces_dir"]
 
         dirs = [
@@ -821,7 +821,7 @@ def merge_datasets_with_glob(datasets):
             
             if empty_room_task:
                 er_record_paths = glob.glob(
-                    f"{base_dir}/{subj}/**/*{empty_room_task}*{ending}",
+                    f"{empty_room_path}/{subj}/**/*{empty_room_task}*{ending}",
                     recursive=True
                     )
             else: 
@@ -839,7 +839,7 @@ def merge_datasets_with_glob(datasets):
                 {subj: 
                     {
                     "rest_record": join_with_star(rs_record_paths),
-                    "empty_room_record":er_record_paths,
+                    "empty_room_record":join_with_star(er_record_paths),
                     "mri_surface":surface
                     }
                 }
@@ -986,6 +986,8 @@ def set_path(project_dir):
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
 
+    configurations = os.path.join(features_dir, "Configurations")
+
     make_folder(features_dir)
     make_folder(features_log_path)
     make_folder(features_temp_path)
@@ -993,6 +995,7 @@ def set_path(project_dir):
     make_folder(saved_outputs_path)
     make_folder(save_epochs_path)
     make_folder(save_psds_path)
+    make_folder(configurations)
 
     nm_dir = os.path.join(project_dir, "Normative_modeling")
     run_dir = os.path.join(nm_dir, "Runs")
