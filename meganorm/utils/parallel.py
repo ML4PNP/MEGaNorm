@@ -430,11 +430,11 @@ def collect_results(target_dir, subjects, temp_path, file_name="features", clean
 
 def auto_parallel_feature_extraction(
     mainParallel_path,
-    features_dir,
-    subjects,
+    project_dir,
     datasets,
     job_configs,
-    config_file=None,
+    config_file_path,
+    which_subjects=None,
     username=None,
     auto_rerun=True,
     auto_collect=True,
@@ -477,15 +477,33 @@ def auto_parallel_feature_extraction(
         A list of failed jobs after all attempts. If no jobs failed, the list will be empty.
 
     """
+
+
+    features_dir, features_log_path = set_path(project_dir)
+    job_configs["log_path"] = features_log_path
+
+    subjects = merge_datasets_with_glob(datasets)
+    
+    conf = conf.load(path=config_file_path)
+    all_qc_passed_samples = []
+    if conf["apply_source_localization"] and conf["apply_mri_QC"]:
+        for keys, values in datasets.items():
+            (qc_passed_samples, 
+            _, 
+            _) = meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
+            all_qc_passed_samples.extend(qc_passed_samples)
+      
+    subjects_temp = subjects.copy()
+    for subj in subjects.keys():
+        if (all_qc_passed_samples and subj not in all_qc_passed_samples) or \
+        (which_subjects and subj not in which_subjects):
+            subjects_temp.pop(subj)
+    subjects = subjects_temp.copy()
+
     features_temp_path = os.path.join(features_dir, "temp")
 
     if username is None:
         username = os.environ.get("USER")
-
-    if not config_file:
-        config_file = os.path.join(features_dir, 'Configuration.json')
-        conf = Config()
-        conf.save(path=config_file)
 
     # Running Jobs
     start_time = submit_jobs(
@@ -494,7 +512,7 @@ def auto_parallel_feature_extraction(
         subjects,
         features_temp_path,
         job_configs=job_configs,
-        config_file=config_file,
+        config_file=config_file_path,
         freesurfer_home=freesurfer_home,
         freesurfer_license=freesurfer_license
     )
@@ -514,7 +532,7 @@ def auto_parallel_feature_extraction(
             falied_subjects,
             features_temp_path,
             job_configs=job_configs,
-            config_file=config_file,
+            config_file=config_file_path,
             freesurfer_home=freesurfer_home,
             freesurfer_license=freesurfer_license
         )
@@ -549,8 +567,8 @@ def auto_parallel_feature_extraction(
 def sbatch_feature_extraction_runner(
         project_dir,
         datasets,
-        config_file,
         job_configs,
+        config_file=None,
         time="48:00:00", 
         mem="16GB", 
         freesurfer_home=None,
@@ -558,32 +576,24 @@ def sbatch_feature_extraction_runner(
         auto_rerun=True,
         auto_collect=True,
         max_try=5,
-        which_subejects=None
+        which_subjects=None
         ):
     
-    features_dir, features_log_path = set_path(project_dir)
-    job_configs["log_path"] = features_log_path
-
-    subjects = merge_datasets_with_glob(datasets)
-    if which_subejects:
-        subjects_temp = subjects.copy()
-        for subj in subjects.keys():
-            if subj not in which_subejects:
-                subjects_temp.pop(subj)
-        subjects = subjects_temp.copy()
-            
-
-
-    config_file.save(
-        save_path = os.path.join(features_dir, "Configurations", "Configuration.json"),
-        overwrite=True
-    )
+    features_dir = os.path.join(project_dir, "Features")
+    config_file_path = os.path.join(features_dir, "Configurations", "Configuration.json")
+    if config_file:
+        config_file.save(
+            save_path = config_file_path,
+            overwrite=True)
+    else:
+        conf = Config()
+        conf.save(path=config_file_path)
     
     params = {
         "mainParallel_path": os.path.abspath(meganorm.src.mainParallel.__file__),
-        "features_dir": features_dir,
+        "project_dir": project_dir,
+        "config_file_path":config_file_path,
         "job_configs": job_configs,
-        "config_file": os.path.join(project_dir, "Features", "Configurations", 'Configuration.json'),
         "username": job_configs["slurm_username"],
         "freesurfer_home": freesurfer_home,
         "freesurfer_license": freesurfer_license,
@@ -591,9 +601,10 @@ def sbatch_feature_extraction_runner(
         "auto_collect": auto_collect,
         "max_try": max_try,
         "datasets" : datasets,
-        "subjects": subjects,
+        "which_subjects": which_subjects
     }
 
+    features_dir = os.path.join(project_dir, "Features")
     save_path = os.path.join(features_dir, "Configurations", "runner_params.json")
     with open(save_path, "w") as f:
         json.dump(params, f, indent=4)
