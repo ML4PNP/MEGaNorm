@@ -249,6 +249,7 @@ class Config(BaseModel):
     # Source localization
     apply_source_localization: bool = False
     apply_empty_room_recording: bool = True
+    apply_mri_QC: bool = False
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
