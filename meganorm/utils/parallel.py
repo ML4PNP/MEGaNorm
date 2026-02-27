@@ -4,6 +4,12 @@ import shutil
 import subprocess
 from datetime import datetime
 import pandas as pd
+import json
+import meganorm
+from meganorm.src import mainParallel
+from meganorm.utils.IO import set_path, merge_datasets_with_glob
+from meganorm.utils.IO import Config
+from meganorm.utils.IO import merge_fidp_demo
 
 
 def progress_bar(current, total, bar_length=20):
@@ -43,6 +49,9 @@ def sbatchfile(
     batch_file_name="batch_job",
     freesurfer_home=None,
     freesurfer_license=None,
+    with_config = None,
+    # with_source_localization = None,
+    # with_empty_room_recording = None
 ):
     """
     Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
@@ -89,6 +98,7 @@ def sbatchfile(
         "source activate " + module + "\n" +
         f"export FREESURFER_HOME={freesurfer_home}\n" +
         f"export FREESURFER_LICENSE={freesurfer_license}\n" +
+        # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
         "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
         )
     else:
@@ -109,17 +119,17 @@ def sbatchfile(
 
     # if with_config:
     command = (
-        "srun python "
+        "srun --cpus-per-task=" + str(core) + " python "
         + mainParallel_path
-        + " $source $target $subject --configs $config"
+        + " $source $target $subject $config"
         )
     # else:
-    #     command = "srun python " + mainParallel_path + " $source $target $subject"
+        # command = "srun python " + mainParallel_path + " $source $target $subject"
 
     # if with_source_localization:
     command += f" --surfaces_dir $surfaces_dir"
     
-        # if with_empty_room_recording:
+    # if with_empty_room_recording:
     command += " --empty_room_recording_path $empty_room_recording_path"
 
     bash_environment = [
@@ -143,7 +153,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_4
     # if with_source_localization:
     bash_environment[0] += sbatch_input_5
-        # if with_empty_room_recording:
+    # if with_empty_room_recording:
     bash_environment[0] += sbatch_input_6
 
     bash_environment[0] += command
@@ -155,7 +165,7 @@ def sbatchfile(
 
     # changes permissoins for bash.sh file
     os.chmod(job_path, 0o770)
-
+    
     return job_path
 
 
@@ -225,8 +235,8 @@ def submit_jobs(
         node=job_configs["node"],
         batch_file_name=job_configs["batch_file_name"],
         freesurfer_home=freesurfer_home,
-        freesurfer_license=freesurfer_license
-        # with_config=config_file is not None,
+        freesurfer_license=freesurfer_license,
+        with_config=config_file is not None,
         # with_source_localization=surfaces_dir is not None,
         # with_empty_room_recording=empty_room_recording is not None
     )
@@ -239,15 +249,19 @@ def submit_jobs(
         er_fname = subjects[subject]["empty_room_record"]
         mri_surface = subjects[subject]["mri_surface"]
         
-        command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject}"
+        command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject} {config_file}"
         # if config_file:
-        command += f" {config_file}"
+        # command += f" {config_file}"
 
-        # if mri_surface:
-        command += f" {mri_surface}"
+        if mri_surface:
+            command += f" {mri_surface}"
+        else:
+            command += f" None"
             
-            # if er_fname:
-        command += f" {er_fname}"
+        if er_fname:
+            command += f" {er_fname}"
+        else:
+            command += f" None"
         
         subprocess.check_call(command, shell=True)
 
@@ -285,7 +299,7 @@ def check_jobs_status(username, start_time, delay=20):
                 print("Failed Jobs:", ", ".join(failed_job_names))
         else:
             print("No job data available.")
-        n = job_counts["PENDING"] + job_counts["RUNNING"]
+        n = job_counts["PENDING"] + job_counts["RUNNING"] - 1 # TODO: this "-1" should be removed: solution use job-id instead of time
         time.sleep(delay)
 
     return failed_job_names
@@ -418,6 +432,7 @@ def auto_parallel_feature_extraction(
     mainParallel_path,
     features_dir,
     subjects,
+    datasets,
     job_configs,
     config_file=None,
     username=None,
@@ -467,6 +482,11 @@ def auto_parallel_feature_extraction(
     if username is None:
         username = os.environ.get("USER")
 
+    if not config_file:
+        config_file = os.path.join(features_dir, 'Configuration.json')
+        conf = Config()
+        conf.save(path=config_file)
+
     # Running Jobs
     start_time = submit_jobs(
         mainParallel_path,
@@ -478,6 +498,7 @@ def auto_parallel_feature_extraction(
         freesurfer_home=freesurfer_home,
         freesurfer_license=freesurfer_license
     )
+
     # Checking jobs
     failed_jobs = check_jobs_status(username, start_time)
 
@@ -499,6 +520,7 @@ def auto_parallel_feature_extraction(
         )
         # Checking jobs
         failed_jobs = check_jobs_status(username, start_time)
+        falied_subjects = {failed_job: subjects[failed_job] for failed_job in failed_jobs}
 
         try_num += 1
 
@@ -511,4 +533,100 @@ def auto_parallel_feature_extraction(
             clean=False,
         )
 
+
+    # Merge demographic data and extracted f-IDPS
+    data_base_dirs = [values["base_dir"] for values in datasets.values()]
+    dataset_names = list(datasets.keys())
+    df = merge_fidp_demo(datasets_paths=data_base_dirs,
+            features_dir=features_dir,
+            dataset_names=dataset_names)
+    df.to_csv(os.path.join(features_dir, "all_features.csv"))
+
+
     return failed_jobs
+
+
+def sbatch_feature_extraction_runner(
+        project_dir,
+        datasets,
+        config_file,
+        job_configs,
+        time="48:00:00", 
+        mem="16GB", 
+        freesurfer_home=None,
+        freesurfer_license=None,
+        auto_rerun=True,
+        auto_collect=True,
+        max_try=5,
+        which_subejects=None
+        ):
+    
+    features_dir, features_log_path = set_path(project_dir)
+    job_configs["log_path"] = features_log_path
+
+    subjects = merge_datasets_with_glob(datasets)
+    if which_subejects:
+        subjects_temp = subjects.copy()
+        for subj in subjects.keys():
+            if subj not in which_subejects:
+                subjects_temp.pop(subj)
+        subjects = subjects_temp.copy()
+            
+
+
+    config_file.save(
+        save_path = os.path.join(features_dir, "Configurations", "Configuration.json"),
+        overwrite=True
+    )
+    
+    params = {
+        "mainParallel_path": os.path.abspath(meganorm.src.mainParallel.__file__),
+        "features_dir": features_dir,
+        "job_configs": job_configs,
+        "config_file": os.path.join(project_dir, "Features", "Configurations", 'Configuration.json'),
+        "username": job_configs["slurm_username"],
+        "freesurfer_home": freesurfer_home,
+        "freesurfer_license": freesurfer_license,
+        "auto_rerun": auto_rerun,
+        "auto_collect": auto_collect,
+        "max_try": max_try,
+        "datasets" : datasets,
+        "subjects": subjects,
+    }
+
+    save_path = os.path.join(features_dir, "Configurations", "runner_params.json")
+    with open(save_path, "w") as f:
+        json.dump(params, f, indent=4)
+    
+    sbatch_text = f"""#!/bin/bash
+#SBATCH --job-name=feature_extraction_runner
+#SBATCH --output=feature_extraction_runner.out
+#SBATCH --error=feature_extraction_runner.err
+#SBATCH --time={time}
+#SBATCH --mem={mem}
+#SBATCH --cpus-per-task=1
+#SBATCH --partition={job_configs["partition"]}
+
+# Activate your environment
+source activate {job_configs["module"]}
+
+python {os.path.abspath(meganorm.utils.parallel.__file__)}
+"""
+
+    save_path = os.path.join(features_dir, "feature_extraction_runner.sbatch")
+    with open(save_path, "w") as f:
+        f.write(sbatch_text)
+
+    print("Created run_driver.sbatch")
+
+
+if __name__ == "__main__":
+
+    with open("Features/Configurations/runner_params.json") as f:
+        params = json.load(f)
+
+    if params.get("mainParallel_path", None) is None:
+        params["mainParallel_path"] = os.path.abspath(mainParallel.__file__)
+
+    # Run
+    auto_parallel_feature_extraction(**params)

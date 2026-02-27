@@ -3,6 +3,9 @@ import statsmodels.api as sm
 import matplotlib
 import pickle
 import numpy as np
+import nilearn
+import nibabel as nib
+from nilearn import plotting
 from matplotlib.colors import ListedColormap
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -12,6 +15,9 @@ import pandas as pd
 from typing import Union
 import plotly.graph_objects as go
 from scipy.stats import chi2
+from sklearn.neighbors import KernelDensity
+import matplotlib.gridspec as grid_spec
+
 
 
 # ***
@@ -1609,3 +1615,225 @@ def plot_site_diff(
             fname_base = f"{biomarker_idx}_{biomarker_name}_site_diff"
             fig.savefig(os.path.join(save_dir, fname_base + ".svg"), dpi=600)
             fig.savefig(os.path.join(save_dir, fname_base + ".png"), dpi=600)
+
+
+
+def define_lut(lut_path):
+    """
+    Load a lookup table (LUT) from a text file and return a dictionary mapping
+    region names to integer label indices.
+
+    The LUT file is expected to be whitespace-separated with at least two
+    columns per line:
+        <index> <region_name>
+
+    Lines starting with '#' or empty lines are ignored.
+
+    Parameters
+    ----------
+    lut_path : str
+        Path to the LUT text file.
+
+    Returns
+    -------
+    dict
+        A dictionary where keys are region names (str) and values are label
+        indices (int).
+    """
+    lut = {}
+    with open(lut_path) as f:
+        
+        for line in f:
+            if line.startswith("#") or len(line.strip()) == 0:
+                continue
+            parts = line.strip().split()
+
+            idx = int(parts[0])
+            name = parts[1]
+            lut[name] = idx
+
+    return lut
+
+
+def plot_statistics_on_brain(
+        parcellation_atlas_path,
+        lut_path,
+        df_stats,
+        which_feature,
+        cmap="Reds",
+        vmin=None,
+        vmax=None,
+        title=None,
+        save_fig_path=None,
+):
+    """
+    Project region-wise statistical values onto a brain surface using a
+    parcellation atlas and display or save the resulting visualization.
+
+    This function:
+    - Loads a NIfTI parcellation atlas.
+    - Uses a LUT file to map region names to atlas label indices.
+    - Extracts region-wise statistics from a dataframe based on a feature name.
+    - Builds a volumetric image where each labeled voxel is assigned the
+      corresponding region statistic.
+    - Plots the resulting image on an inflated cortical surface.
+
+    Parameters
+    ----------
+    parcellation_atlas_path : str
+        Path to the NIfTI parcellation atlas file.
+
+    lut_path : str
+        Path to the lookup table (LUT) text file mapping region names to label
+        indices.
+
+    df_stats : pandas.DataFrame
+        DataFrame containing region-wise statistics. Column names must include
+        `which_feature` followed by the region name.
+
+    which_feature : str
+        Substring used to identify relevant columns and extract region names
+        from the dataframe (e.g., "mean_", "tstat_", etc.).
+
+    cmap : str, optional
+        Matplotlib colormap name used for visualization (default: "Reds").
+
+    vmin : float or None, optional
+        Minimum value used for color scaling. If None, it is inferred from the
+        data.
+
+    vmax : float or None, optional
+        Maximum value used for color scaling. If None, it is inferred from the
+        data.
+
+    title : str or None, optional
+        Title of the plot. If None, no title is shown.
+
+    save_fig_path : str or None, optional
+        If provided, the figure is saved to this path.
+
+    Returns
+    -------
+    None
+        This function displays the plot and optionally saves it to disk.
+    """
+    # read the file and create a nifti image
+    parcell_atlas_img = nib.load(parcellation_atlas_path)
+    # extract voxel values and convert them to a ndarray
+    parcell_atlas_data = parcell_atlas_img.get_fdata()
+    # Each number in parcell_atlas_data is a label ID ==> A 3D grid of labels
+    # Zeros represent Unlabeled space
+
+    lut = define_lut(lut_path)
+
+    roi_dict = {}
+    for column in df_stats.columns:
+        ind = column.find(which_feature) + len(which_feature)
+        roi = column[ind:]
+        roi_dict[roi] = df_stats[column].item()
+
+
+    volume_img = np.zeros(parcell_atlas_data.shape)
+    for region_name, region_ind in lut.items():
+        roi_stats = roi_dict.get(region_name, 0)
+        volume_img[parcell_atlas_data==region_ind] = roi_stats
+
+    # create a nifti image
+    img = nib.Nifti1Image(volume_img, parcell_atlas_img.affine)
+
+    
+    kwargs = {"alpha" : 1,
+            "darkness":1.5,
+            "cbar_tick_format":"%.2g"
+            }
+
+    plotting.plot_img_on_surf(
+        img,
+        views=["lateral", "medial"],
+        hemispheres=["left", "right"],
+        colorbar=True,
+        bg_on_data=True,
+        cmap= cmap,
+        vmax=vmax,
+        vmin=vmin,
+        title=title,
+        output_file=save_fig_path,
+        **kwargs
+
+    )
+
+    plt.show()
+
+
+
+def plot_mass_metrics(df,
+                      feature_categories,
+                      save_path,
+                      colors,
+                      xlabel,
+                      figsize=(12,10),
+                      kernel="epanechnikov",
+                      dpi=600,
+                      xlim=None,
+                      ylim=None,
+                      bandwidth=0.5,
+                      ):
+
+    gs = grid_spec.GridSpec(len(feature_categories),1)
+    fig = plt.figure(figsize=figsize)
+
+    i = 0
+    ax_objs = []
+    for counter, feature_category in enumerate(feature_categories):
+        
+        x= df.iloc[:, df.columns.str.startswith(feature_category)]
+        x.dropna(inplace=True, axis=1)
+        x = x.to_numpy()[0]
+        
+        x_d = np.linspace(x.min()-4, x.max()+4, 1000)
+
+        kde = KernelDensity(bandwidth=bandwidth, kernel=kernel)
+        kde.fit(x[:, None])
+
+        logprob = kde.score_samples(x_d[:, None])
+
+        ax_objs.append(fig.add_subplot(gs[i:i+1, 0:]))
+
+        ax_objs[-1].plot(x_d, np.exp(logprob),color="#f0f0f0",lw=1)
+        ax_objs[-1].fill_between(x_d, np.exp(logprob), alpha=1,color=colors[i])
+
+
+        if xlim:
+            ax_objs[-1].set_xlim(xlim)
+        if ylim:
+            ax_objs[-1].set_ylim(ylim)
+
+        rect = ax_objs[-1].patch
+        rect.set_alpha(0)
+
+        ax_objs[-1].set_yticklabels([])
+
+        if i == len(feature_categories)-1:
+            ax_objs[-1].set_xlabel(xlabel, 
+                                   fontsize=30,
+                                   fontweight="bold")
+        else:
+            ax_objs[-1].set_xticklabels([])
+
+        spines = ["top","right","left","bottom"]
+        for s in spines:
+            ax_objs[-1].spines[s].set_visible(False)
+        ax_objs[-1].tick_params(axis='x', labelsize=20)
+
+        ax_objs[-1].text(11.5,
+                        0,
+                        feature_category[counter],
+                        fontweight="bold",
+                        fontsize=19,
+                        ha="right")
+        i += 1
+
+    gs.update(hspace=-0.8)
+    plt.tight_layout()
+
+    plt.savefig(save_path, dpi=dpi)

@@ -1,10 +1,13 @@
 import matplotlib.pyplot as plt
 from pathlib import Path
+from joblib import parallel_config, parallel_backend
 import subprocess
 import numpy as np
 import logging
 import shutil
+import time
 import mne
+import joblib
 import os
 
 from meganorm.src.preprocess import check_tsss
@@ -346,7 +349,9 @@ def corregistration(data,
             "inner_skull.surf"
         )
     ):
-        logger.info("Creating a bem surface for the subject")
+        
+        logger.info("bem surface was not found; Creating a bem surface for the subject")
+
         mne.bem.make_watershed_bem(
             subject=subject,
             subjects_dir=subjects_dir,
@@ -376,6 +381,9 @@ def corregistration(data,
     coreg.fit_icp(n_iterations=kwargs.get("coregisteration_final_n_iterations", 20), 
                 nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0), 
                 verbose=True)
+    
+    distance_head_mri = coreg.compute_dig_mri_distances()
+    logger.info(f"Average and STD distance between head shape points and MRI surface: {np.mean(distance_head_mri)} and {np.std(distance_head_mri)}")
 
     if plot_3d:
         plot_kwargs = dict(
@@ -402,6 +410,7 @@ def forward_solution(
         transformation_matrix,
         conductivity,
         source_space,
+        which_sensor_dict,
         **kwargs
 ):
     """
@@ -431,9 +440,9 @@ def forward_solution(
 
         - source_space_spacing : str, default="oct6"
             Spacing for surface source space (e.g., "oct6", "ico5").
-        - source-space_add_dist : str, default="patch"
+        - source_space_add_dist : str, default="patch"
             Whether to add patch information to the surface source space.
-        - forward_ico : int, default=5
+        - source_space_spacing : int, default=5
             BEM surface tessellation grade (higher = finer mesh).
         - meg : bool, default=True
             Whether to include MEG channels in the forward model.
@@ -456,13 +465,15 @@ def forward_solution(
       subjects_dir/subject/bem/inner_skull.surf
     """
     
+    logger.info(f"Setting up a {source_space} source space")
     # source space
     if source_space == "surface":
         src = mne.setup_source_space(
                 subject=subject,
                 subjects_dir=subjects_dir,
-                spacing=kwargs.get("source_space_spacing", "oct6"),
-                add_dist=kwargs.get("source-space_add_dist", "patch")
+                spacing=kwargs.get("source_space_spacing", "ico6"),
+                add_dist=kwargs.get("source_space_add_dist", "patch"),
+                n_jobs=kwargs.get("n_jobs", 1)
         )
 
     elif source_space == "volumetric":
@@ -471,17 +482,18 @@ def forward_solution(
                 subjects_dir=subjects_dir,
                 surface= Path(subjects_dir) / subject / "bem" / "inner_skull.surf",
                 add_interpolator=True,
+                n_jobs=kwargs.get("n_jobs", 1)
         )
 
     # forward model
-    model = mne.make_bem_model(
+    bem_model = mne.make_bem_model(
         subject=subject,
-        ico=kwargs.get("forward_ico", 5),
+        ico=kwargs.get("source_space_spacing_number", 6),
         conductivity=conductivity,
         subjects_dir=subjects_dir
     )
 
-    bem = mne.make_bem_solution(model)
+    bem = mne.make_bem_solution(bem_model)
     logger.info(f"{source_space} BEM model with {len(conductivity)} layer/s was constructed.")
 
     lead_field_matrix = mne.make_forward_solution(
@@ -489,27 +501,31 @@ def forward_solution(
         trans=transformation_matrix,
         src=src,
         bem=bem,
-        meg=kwargs.get("meg", True),
-        eeg=kwargs.get("eeg", False),
+        meg=bool(which_sensor_dict.get("meg") or which_sensor_dict.get("grad") or which_sensor_dict.get("mag")),
+        eeg=which_sensor_dict.get("eeg", False),
         mindist=kwargs.get("forward_mindist", 5.0),
-        n_jobs=kwargs.get("n_jobs", -1),
+        n_jobs=kwargs.get("n_jobs", 1),
         verbose=True,
         ignore_ref=kwargs.get("source_localization_ignore_ref", True)
     )
     logger.info("Lead field matrix was estimated.")
 
+    # You need to use src for further analysis (morphing) from fwd since vertices can be excluded
+    # due to their proximity to inner skull surface
     return lead_field_matrix, lead_field_matrix["src"]
+
 
 def inverse_solution(
         subject,
         data,
+        segments,
         fwd,
         inverse_operator,
         figures_path,
-        which_sensor,
+        which_sensor_dict,
+        source_space=None,
         empty_room_recording=None,
         qc_ignore=[],
-        number_of_reduced_ic=0,
         **kwargs
 ):
     """
@@ -527,9 +543,12 @@ def inverse_solution(
         The forward solution (lead field matrix).
     inverse_operator : str
         The type of inverse method to use. Currently only supports "lcmv".
+    source_space : str
+        Type of source space to create. Must be either "surface" or "volumetric".
     empty_room_recording : mne.io.Raw
         Empty-room MEG recording used to estimate noise covariance.
         If None, no noise covariance will be used.
+
 
     **kwargs : dict, optional
         Optional parameters to control the inverse solution:
@@ -557,88 +576,98 @@ def inverse_solution(
     """
     # if tSSS has already been applied, return the rank in info
     if check_tsss(meg_data=data):
-        data_rank = mne.compute_rank(data, rank="info")
-        # since ICA has also removed some components
-        data_rank[list(data_rank.keys())[0]] -= number_of_reduced_ic # TODO: not accuarte
+        segments_rank = mne.compute_rank(segments, rank="info")
     else:
-        data_rank = mne.compute_rank(data)
+        # this estimates the rank after scaling 
+        segments_rank = mne.compute_rank(segments, rank=None)
     
     if empty_room_recording:
         noise_cov = mne.compute_raw_covariance(
             empty_room_recording,
-            method=kwargs.get("covariance_method", "empirical")
+            method=kwargs.get("covariance_method", "empirical"),
+            n_jobs=kwargs.get("n_jobs", 1)
         ) # TODO: change to epoch later
+
         logger.info("Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten" \
                     "the data")
-        # If empty room recording is available, the rank for
-        # lcmv should be the ranke of this recording
-        lcmv_rank = mne.compute_rank(empty_room_recording)
+
+        noise_rank = mne.compute_rank(empty_room_recording)
         
-        if data_rank["mag"] < lcmv_rank["mag"]:
-            lcmv_rank["mag"] = data_rank["mag"].copy()
-        if data_rank["grad"] < lcmv_rank["grad"]:
-            lcmv_rank["grad"] = data_rank["grad"].copy()
-    
-    elif which_sensor["meg"]:
+        mag_in_data = bool("mag" in segments_rank)
+        grad_in_data = bool("grad" in segments_rank)
+        if mag_in_data:
+            if segments_rank["mag"] < noise_rank["mag"]:
+                noise_rank["mag"] = segments_rank["mag"]
+        if grad_in_data:
+            if segments_rank["grad"] < noise_rank["grad"]:
+                noise_rank["grad"] = segments_rank["grad"]
+
+        # According to MNE: When a noise covariance is used for whitening, 
+        # this should reflect the rank of that covariance, otherwise 
+        # amplification of noise components can occur in whitening
+        lcmv_rank = noise_rank.copy()
+
+    else:
         # If both MAG and Grad are present, having a noise cov is necessary
         # to scale the data. If empty room recording is not available,
         # make_ad_hoc_cov make a diagonal covariance matrix where the 
         # diagonals represent channel wise variance and off-diagonals are zero.
         # The default noise values are 5 fT/cm, 20 fT for gradiometers, magnetometers
-        noise_cov = mne.make_ad_hoc_cov(info=data.info,
-                                        std=kwargs.get("ad_hoc_cov_std", None))
-        lcmv_rank = data_rank.copy()
+        logger.info("Empty room recording is not available. Therefore, a diagonal covariance matrix where the" \
+        " diagonals represent channel wise variance and off-diagonals are zero is used to whitten the data.")
 
-    else:
-        logger.warning("Noise covariance is not calculated due to missing empty room recordings. Noise covariance can be" \
-        "benefitial for prewhitenning activities across sensors with different scale and noise." \
-        "Consider using noise covariance for a better results.")
-        noise_cov=None
-        # If empty room recording is not available, the rank for
-        # lcmv should be the ranke of the data itself
-        lcmv_rank = data_rank.copy()
+        noise_cov = mne.make_ad_hoc_cov(info=segments.info,
+                                        std=kwargs.get("ad_hoc_cov_std", None))
+        lcmv_rank = segments_rank.copy()
 
     if inverse_operator == "lcmv":
         logger.info(f"Solving the inverse problem using {inverse_operator} algorithm. "\
                     f"A regularization of {kwargs.get('inverse_regularization_value', 0.05)} will be used " \
                     f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', "max-power")} for `pick_ori`.")
-        # compute data covaraince
-        data_cov = mne.compute_raw_covariance(
-            data,
+        
+        # compute segments covaraince
+        segments_cov = mne.compute_covariance(
+            segments,
             method=kwargs.get("covariance_method", "empirical"),
-            rank=data_rank
+            rank=lcmv_rank, #TODO: this should be removed
+            n_jobs=kwargs.get("n_jobs", 1)
         )
         
-        if (kwargs.get("beamformer_pick_ori", "max_power") == "vector" and
-            kwargs.get("beamformer_weight_norm", "unit-noise-gain") != "unit-noise-gain-invariant"):
-            error_msg = "If you wish to compute a vector beamformer, it is necessary to use" \
-                        " unit-noise-gain-invariant for weight_norm argument."
+        if not kwargs.get("beamforme_depth") and source_space == "volumetric":
+            error_msg = "If you want to use volumetric source space (interested in deeper sources)," \
+            " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address" \
+            " the center of head bias."
             logger.error(error_msg)
             raise Exception(error_msg)
 
-        rank_based_quality_control(
-            data_cov=data_cov,
-            info=data.info,
-            subject=subject,
-            figures_path=figures_path,
-            exclude=[], #TODO
-            qc_ignore=qc_ignore)
+        # rank_based_quality_control(
+        #     data_cov=data_cov,
+        #     info=data.info,
+        #     subject=subject,
+        #     figures_path=figures_path,
+        #     exclude=[], #TODO
+        #     qc_ignore=qc_ignore)
         
+        # _, cond_before, cond_after = regularized_cov_condition(data_cov.data, 
+        #         shrinkage=0.05, 
+        #         diag_scale='auto')
+        # logger.info(f"Condition number of data covariance before regularization: {cond_before}")
+        # logger.info(f"Condition number of data covariance After regularization: {cond_after}")
+
         filters = mne.beamformer.make_lcmv(
-            data.info,
+            segments.info,
             forward=fwd,
-            data_cov=data_cov,
+            data_cov=segments_cov,
             noise_cov=noise_cov,
             reg=kwargs.get("inverse_regularization_value", 0.05), # for regularization (shifting the matrix)
             pick_ori=kwargs.get("beamformer_pick_ori", "max-power"),
             weight_norm=kwargs.get("beamformer_weight_norm", "unit-noise-gain"),
-            # TODO: if rank==None, it will compute the rank
-            # If rank==info, it will read from the info
-            rank=lcmv_rank,
+            rank=lcmv_rank, # if er_recording available ==> noise rank, otherwise, data rank
+            depth=kwargs.get("beamforme_depth", None),
         )
 
-    stc = mne.beamformer.apply_lcmv_raw(
-        data,
+    stc = mne.beamformer.apply_lcmv_epochs(
+        segments,
         filters=filters
     )
 
@@ -709,12 +738,15 @@ def morph_stc(
     logger.info("Morphing the estimated source data onto a common space")
 
     if source_space == "surface":
+        
         src_morph_to = mne.setup_source_space(
             subject=subject_to,
             subjects_dir=subjects_dir,
             spacing=kwargs.get("source_space_spacing", "ico6"),
             add_dist=kwargs.get("source_space_add_dist", "patch"),
+            n_jobs=kwargs.get("n_jobs", 1)
         )
+
     elif source_space == "volumetric": # TODO
 
         inner_skull_path = Path(subjects_dir) / subject_to / "bem" / "inner_skull.surf"
@@ -733,17 +765,22 @@ def morph_stc(
                 subjects_dir=subjects_dir,
                 surface= inner_skull_path,
                 add_interpolator=True,
+                n_jobs=kwargs.get("n_jobs", 1)
         )
 
-    morph = mne.compute_source_morph(src_from, 
-                                    subject_from=subject, 
-                                    subject_to=subject_to, 
-                                    subjects_dir=subjects_dir, 
-                                    spacing=kwargs.get("spacing", 5),
-                                    src_to=src_morph_to
-                                    )
-    
-    stc_fsaverage = morph.apply(stc)
+    with parallel_backend("threading"):
+        with parallel_config(n_jobs=1):
+            morph = mne.compute_source_morph(src_from, 
+                                        subject_from=subject,
+                                        src_to=src_morph_to, 
+                                        subject_to=subject_to, 
+                                        subjects_dir=subjects_dir, 
+                                        spacing=kwargs.get("source_space_spacing_number", 6),
+                                        )
+        
+            logger.info("Starting the morphing process")
+            start_time = time.time()
+            stc_fsaverage = morph.apply(stc)
 
     if plot_3d:
         brain = stc_fsaverage.plot(
@@ -752,15 +789,16 @@ def morph_stc(
             smoothing_steps=7,
         )
 
-    logger.info("Morphing is finised!")
+    elapsed = time.time() - start_time
+    logger.info(f"Morphing complete. Elapsed time: {elapsed:.2f} seconds.")
     return stc_fsaverage, src_morph_to
 
 
 def parcellate(
         subject,
         subjects_dir,
-        stc_fsaverage,
-        src_morph,
+        stc,
+        src,
         source_space,
         **kwargs
     ):
@@ -778,7 +816,7 @@ def parcellate(
         The subject name to use for anatomical labels and source space setup (typically 'fsaverage').
     subjects_dir : str
         Path to the FreeSurfer subjects directory containing anatomical reconstructions.
-    stc_fsaverage : mne.SourceEstimate | list of SourceEstimate
+    stc : mne.SourceEstimate | list of SourceEstimate
         The source estimate(s) already morphed to `subject`. Can be a single STC or a list.
     source_space : str
         Type of source space to create. Must be either "surface" or "volumetric".
@@ -815,16 +853,18 @@ def parcellate(
         os.path.join(
             subjects_dir,
             subject
-        )):
+        )) and kwargs.apply_morphing:
         mne.datasets.fetch_fsaverage()
 
     if source_space == "surface":
         labels = mne.read_labels_from_annot(
             subject=subject,
             subjects_dir=subjects_dir,
-            parc=kwargs.get("parcellation_parc", "aparc.a2009s")
+            parc=kwargs.get("parcellation_parc", "aparc.a2009s"),
+            annot_fname=kwargs.get("parcellation_annot_fname", None)
         )
         labels_list = [label.name for label in labels]
+        
     elif source_space == "volumetric":
         parc = kwargs.get("parcellation_parc", "aparc.a2009s")
         labels = os.path.join(subjects_dir, subject, "mri", f"{parc}+aseg.mgz")
@@ -836,11 +876,11 @@ def parcellate(
         raise ValueError(error_msg)
 
     parcelled_stc = mne.extract_label_time_course(
-        stcs=stc_fsaverage,
+        stcs=stc,
         labels=labels,
-        src=src_morph,
-        mode=kwargs.get("parcellation_mode", "mean"),
-        return_generator=False
+        src=src,
+        mode=kwargs.get("parcellation_mode", "auto"),
+        return_generator=False 
     )
 
     logger.info("Parcellation is finised!")
@@ -853,15 +893,15 @@ def source_localization(
         subjects_dir,
         subject_to,
         data,
+        segments,
         figures_path,
-        which_sensor,
+        which_sensor_dict,
         source_space="surface",
         conductivity=(0.3,),
         inverse_operator="lcmv",
         plot_3d=False,
         qc_ignore=[],
         empty_room_recording=None,
-        number_of_reduced_ic=0,
         **kwargs
 ):
     """
@@ -921,7 +961,8 @@ def source_localization(
         data=data, 
         subject=subject,
         subjects_dir=subjects_dir, 
-        plot_3d=plot_3d
+        plot_3d=plot_3d,
+        **kwargs
     )
 
     fwd, src = forward_solution(
@@ -930,42 +971,59 @@ def source_localization(
         data=data,
         transformation_matrix=coreg.trans,
         conductivity=conductivity,
-        source_space=source_space
+        source_space=source_space,
+        which_sensor_dict=which_sensor_dict,
+        **kwargs
     )
+
+    del coreg
 
     stc = inverse_solution(
         subject=subject,
         data=data,
+        segments=segments,
         fwd=fwd,
         inverse_operator=inverse_operator,
+        source_space=source_space,
         empty_room_recording=empty_room_recording,
         figures_path=figures_path,
         qc_ignore=qc_ignore,
-        number_of_reduced_ic=number_of_reduced_ic,
-        which_sensor=which_sensor
+        which_sensor_dict=which_sensor_dict,
+        **kwargs
     )
 
-    stc_fsaveage, src_morph = morph_stc(
-        subject=subject,
-        subject_to=subject_to,
-        subjects_dir=subjects_dir,
-        stc=stc,
-        src_from=src,
-        source_space=source_space,
-        plot_3d=plot_3d,
-        )
-    
-    stc, labels = parcellate(
-            subject=subject_to,
+    del fwd
+
+
+    # using the variable apply_morphing, you can choose whether you need
+    # morphing stc to a common source space or not
+    if kwargs.get("apply_morphing", False):
+        stc, src = morph_stc(
+            subject=subject,
+            subject_to=subject_to,
             subjects_dir=subjects_dir,
-            stc_fsaverage=stc_fsaveage,
-            src_morph=src_morph,
-            source_space=source_space
+            stc=stc,
+            src_from=src,
+            source_space=source_space,
+            plot_3d=plot_3d,
+            **kwargs
+            )
+        subject = subject_to.copy()
+        
+
+    stc, labels = parcellate(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            stc=stc,
+            src=src,
+            source_space=source_space,
+            **kwargs
     )
 
     logger.info("Done; congrats! ")
 
     return stc, labels
+
 
 def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     """
@@ -1005,5 +1063,52 @@ def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
     """
     ch_types = [ch_name] * len(labels)
     info = mne.create_info(ch_names=labels, sfreq=sampling_rate, ch_types=ch_types)
-    raw_parc = mne.io.RawArray(stc, info)
-    return raw_parc
+    epochs = mne.EpochsArray(stc, info)
+    return epochs
+
+
+def regularized_cov_condition(X, shrinkage=0.05, diag_scale='auto'):
+    """
+    Compute empirical covariance, apply linear shrinkage regularization,
+    and return both the regularized covariance and condition numbers.
+
+    Parameters
+    ----------
+    X : array, shape (n_samples, n_channels)
+        Data matrix (zero-mean not required; will be centered internally).
+    shrinkage : float
+        Shrinkage factor (0 = no regularization, 1 = full diagonal).
+    diag_scale : 'auto' or float
+        Scaling for identity target. If 'auto', uses mean channel variance.
+
+    Returns
+    -------
+    C_reg : ndarray
+        Regularized covariance matrix.
+    cond_before : float
+        Condition number of empirical covariance (np.linalg.cond).
+    cond_after : float
+        Condition number of regularized covariance (np.linalg.cond).
+    """
+    # Center the data
+    Xc = X - X.mean(axis=0, keepdims=True)
+    n_samples = Xc.shape[0]
+
+    # Empirical covariance
+    C = (Xc.T @ Xc) / (n_samples - 1)
+
+    # Compute target (scaled identity)
+    if diag_scale == 'auto':
+        alpha = np.trace(C) / C.shape[0]
+    else:
+        alpha = float(diag_scale)
+    target = alpha * np.eye(C.shape[0])
+
+    # Regularize covariance
+    C_reg = (1 - shrinkage) * C + shrinkage * target
+
+    # Compute condition numbers
+    cond_before = np.linalg.cond(C)
+    cond_after = np.linalg.cond(C_reg)
+
+    return C_reg, cond_before, cond_after

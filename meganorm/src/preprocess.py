@@ -9,6 +9,7 @@ from typing import Any, Dict
 import pandas as pd
 from scipy.stats import zscore
 import warnings
+from kneed import KneeLocator
 
 warnings.filterwarnings("ignore")
 
@@ -47,15 +48,17 @@ def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
 
     corr = np.corrcoef(components, physiological_signal)[-1, :-1]
 
-    if np.max(corr) >= auto_ica_corr_thr:
-        componentIndx = [int(np.argmax(corr))]
+    if np.max(np.abs(corr)) >= auto_ica_corr_thr:
+        componentIndx = [int(np.argmax(np.abs(corr)))]
+        max_corr = [corr[componentIndx][0]]
     else:
         componentIndx = []
+        max_corr = []
 
-    return componentIndx
+    return componentIndx, max_corr
 
 
-def auto_ica(
+def auto_ica_with_corr(
     data,
     physiological_sensor,
     n_components=30,
@@ -74,7 +77,7 @@ def auto_ica(
     data : mne.io.Raw
         Raw MEG/EEG data.
     physiological_sensor : str
-        Name of the physiological sensor ('ECG' or 'EOG').
+        Name of the physiological sensor ('ecg' or 'eog').
     n_components : int or float
         Number of ICA components to retain.
     ica_max_iter : int
@@ -99,7 +102,7 @@ def auto_ica(
 
     # Pick MEG/EEG for ICA
     data = data.pick_types(
-        meg=which_sensor.get("meg", False),
+        meg=which_sensor.get("meg", False) | which_sensor.get("mag", False) | which_sensor.get("grad", False),
         eeg=which_sensor.get("eeg", False),
         ref_meg=False,
         eog=True,
@@ -114,21 +117,32 @@ def auto_ica(
         random_state=42,
         verbose=False,
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg"])
+    ica.fit(data, verbose=False, picks=["eeg", "meg", "grad", "mag"])
 
     # Detect components correlated with physiological signal
     bad_components = []
+    max_corrs = []
     for sensor in physiological_signal:
-        bad_components.extend(
-            find_ica_component(
+
+        bad_component, max_corr = find_ica_component(
                 ica=ica,
                 data=data,
                 physiological_signal=sensor,
                 auto_ica_corr_thr=auto_ica_corr_thr,
             )
-        )
+        bad_components.extend(bad_component); max_corrs.extend(max_corr)
 
-    logger.info(f"Number of bad ICA components: {len(bad_components)}")
+    if bad_components:
+        most_noisy_comp_ind = bad_components[int(np.argmax(np.abs(max_corrs)))]
+        logger.info(
+            f"In ICA for removing physiological artifacts, component {most_noisy_comp_ind} was removed. " \
+            f"Its correlation with a {physiological_sensor} channels was: {max_corrs[np.argmax(np.abs(max_corrs))]}",
+        )
+    else:
+        logger.info("In ICA for removing physiological artifacts, no component had a" \
+                    f" high correlation with {physiological_sensor} channels")
+
+
 
     if bad_components:
         ica.exclude = bad_components.copy()
@@ -188,15 +202,17 @@ def auto_ica_with_mean(
         random_state=42,
         verbose=False,
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg"])
+    ica.fit(data, verbose=False, picks=["eeg", "meg", "mag", "grad"])
 
-    ecg_indices, _ = ica.find_bads_ecg(
+    ecg_indices, ecg_scores = ica.find_bads_ecg(
         data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
     )
 
-    logger.info(f"Number of bad ICA components detected by creating synthetic ECG signal: {len(ecg_indices)}")
     ica.exclude = ecg_indices
     ica.apply(data, verbose=False)
+
+    if ecg_indices:
+        logger.info(f"One cardiac-related ICA components was detected and removed by creating synthetic ECG signal. The correlation was: {ecg_scores[ecg_indices]}")
 
     return data, len(ecg_indices)
 
@@ -243,6 +259,111 @@ def AutoIca_with_IcaLabel(
     ica.apply(data, verbose=False)
 
     return data, len(bad_components)
+
+
+def apply_auto_ica_pipeline(
+    data,
+    channel_types,
+    which_sensor,
+    n_component,
+    ica_max_iter,
+    IcaMethod,
+    auto_ica_corr_thr,
+):
+    """
+    Apply ICA automatically depending on available physiological channels
+    and sensor types (MEG / EEG).
+
+
+    Parameters
+    ----------
+    data : mne.raw
+        mne.raw data.
+    channel_types : list of str
+        List of channel type names present in the data (e.g., ``["eeg", "ecg", "eog"]``).
+    which_sensor : dict
+        Dictionary specifying available sensor modalities. 
+    n_component : int
+        Number of ICA components to compute.
+    ica_max_iter : int
+        Maximum number of iterations for ICA convergence.
+    IcaMethod : str
+        ICA algorithm to use (e.g., ``"fastica"``, ``"picard"``).
+    auto_ica_corr_thr : float
+        Threshold used for correlation-based artifact detection or ICLabel
+        classification.
+
+    Returns
+    -------
+    data : object
+        The input data after automatic ICA artifact removal.
+    number_of_reduced_ic : int
+        Total number of ICA components identified and removed.
+    """
+
+    physiological_electrods = {
+        channel: channel in channel_types for channel in ["ecg", "eog"]
+    }
+
+    ICA_flag = True
+    number_of_reduced_ic = 0
+
+    for phys_activity_type, if_elec_exist in physiological_electrods.items():
+
+        # -------- MEG / MAG / GRAD --------
+        if which_sensor.get("meg") or which_sensor.get("mag") or which_sensor.get("grad"):
+
+            if if_elec_exist:
+                logger.info(f"Removing {phys_activity_type.upper()} noise using auto_ica_with_corr function.")
+                data, _, number_of_reduced_ic = auto_ica_with_corr(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    physiological_sensor=phys_activity_type,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
+
+            elif not if_elec_exist and phys_activity_type == "ecg":
+                logger.info(f"Removing {phys_activity_type.upper()} noise using auto_ica_with_mean function.")
+                data, number_of_reduced_ic = auto_ica_with_mean(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
+
+        # -------- EEG --------
+        if which_sensor.get("eeg"):
+
+            if if_elec_exist:
+                logger.info(f"Removing {phys_activity_type.upper()} noise using auto_ica_with_corr function.")
+                data, ICA_flag, number_of_reduced_ic = auto_ica_with_corr(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    which_sensor=which_sensor,
+                    physiological_sensor=phys_activity_type,
+                    auto_ica_corr_thr=auto_ica_corr_thr,
+                )
+
+            elif not if_elec_exist and ICA_flag:
+                logger.info(f"Removing {phys_activity_type.upper()} noise using AutoIca_with_IcaLabel function.")
+                data, number_of_reduced_ic = AutoIca_with_IcaLabel(
+                    data=data,
+                    n_components=n_component,
+                    ica_max_iter=ica_max_iter,
+                    IcaMethod=IcaMethod,
+                    iclabel_thr=auto_ica_corr_thr,
+                    physiological_noise_type=phys_activity_type,
+                )
+
+    return data, number_of_reduced_ic
+
 
 
 def prepare_eeg_data(data, path):
@@ -303,37 +424,80 @@ def prepare_eeg_data(data, path):
 
 def segment_epoch(
     data: mne.io.Raw,
-    tmin: float,
-    tmax: float,
+    which_sensor: dict,
     sampling_rate: float,
-    segmentsLength: float,
-    overlap: float,
+    tmin: float = 20,
+    tmax: float = -20,
+    segments_length: float = 10,
+    overlap: float = 0,
+    ica_if_reject_by_annotation: bool = True,
+    remove_bad_segments: bool = True,
+    mag_var_threshold: float = 5000e-15,
+    grad_var_threshold: float = 5000e-13,
+    eeg_var_threshold: float = 40e-6,
+    mag_flat_threshold: float = 10e-15,
+    grad_flat_threshold: float = 10e-13,
+    eeg_flat_threshold: float = 40e-6,
 ):
     """
-    Segments continuous raw data into epochs of fixed length.
+    Segment continuous MEG/EEG data into fixed-length overlapping epochs.
+
+    This function crops the input raw data to a specified time window, removes
+    edge portions to avoid artifacts, and then segments the data into
+    fixed-length epochs using MNE-Python. Automatic rejection and flat-channel
+    criteria can be applied separately for MEG magnetometers, gradiometers,
+    and EEG channels.
 
     Parameters
     ----------
     data : mne.io.Raw
-        MEG/EEG recording.
+        Continuous MEG/EEG recording.
     tmin : float
         Start time (in seconds) for cropping the raw data.
     tmax : float
-        End time (in seconds) for cropping the raw data. 'tmax' must be a
-        negative number, indicating the time difference between the crop
-        end point and the total recording duration.
+        End time (in seconds) for cropping the raw data. Must be a negative
+        value, indicating the offset (in seconds) from the end of the
+        recording.
     sampling_rate : float
-        Sampling rate of the data (Hz).
-    segmentsLength : float
-        Length of each epoch in seconds.
-    overlap : float
-        Overlap between successive epochs in seconds.
+        Sampling rate of the data in Hz.
+    segments_length : float, optional
+        Length of each epoch in seconds. Default is 10.
+    overlap : float, optional
+        Overlap between successive epochs in seconds. Default is 0.
+    ica_if_reject_by_annotation : bool, optional
+        Whether to reject epochs based on annotations (e.g., ICA-identified
+        artifacts). Passed to ``reject_by_annotation`` in ``mne.Epochs``.
+        Default is True.
+    mag_var_threshold : float, optional
+        Peak-to-peak amplitude threshold for rejecting epochs containing
+        artifacts in magnetometer channels (in Tesla). Default is 5000e-15.
+    grad_var_threshold : float, optional
+        Peak-to-peak amplitude threshold for rejecting epochs containing
+        artifacts in gradiometer channels (in Tesla/m). Default is 5000e-13.
+    eeg_var_threshold : float, optional
+        Peak-to-peak amplitude threshold for rejecting epochs containing
+        artifacts in EEG channels (in Volts). Default is 40e-6.
+    mag_flat_threshold : float, optional
+        Flatness threshold for magnetometer channels (in Tesla). Epochs with
+        signals below this threshold are rejected. Default is 10e-15.
+    grad_flat_threshold : float, optional
+        Flatness threshold for gradiometer channels (in Tesla/m). Default is
+        10e-13.
+    eeg_flat_threshold : float, optional
+        Flatness threshold for EEG channels (in Volts). Default is 40e-6.
 
     Returns
     -------
-    mne.Epochs
-        Segmented data with fixed-length segments.
+    segments : mne.Epochs
+        An ``Epochs`` object containing fixed-length segments extracted from
+        the continuous data.
+
+    Raises
+    ------
+    ValueError
+        If ``tmax`` is not a negative number.
     """
+
     if tmax > 0:
         raise ValueError("The 'tmax' must be a negative number")
 
@@ -343,13 +507,53 @@ def segment_epoch(
     # Crop 20 seconds from both ends to avoid eye-open/close artifacts
     data.crop(tmin=tmin, tmax=tmax)
 
-    # Create fixed-length overlapping epochs
-    segments = mne.make_fixed_length_epochs(
+    if remove_bad_segments:
+
+        if not which_sensor["eeg"]:
+
+            ch_types = data.get_channel_types()
+
+            if "mag" in ch_types:
+                if "grad" in ch_types:
+                    reject = dict(
+                        mag=mag_var_threshold,
+                        grad=grad_var_threshold,
+                        )
+                    flat = dict(
+                        mag=mag_flat_threshold,
+                        grad=grad_flat_threshold,
+                    )
+
+                else:
+                    reject = dict(mag=mag_var_threshold)
+                    flat = dict(mag=mag_flat_threshold)
+            else:
+                reject = dict(grad=grad_var_threshold)
+                flat = dict(grad=grad_flat_threshold)
+
+        else:
+            reject = dict(eeg=eeg_var_threshold)
+            flat = dict(eeg=eeg_flat_threshold)
+
+    else:
+        reject = None; flat = None
+
+    events = mne.make_fixed_length_events(
+        raw = data, 
+        duration = segments_length,
+        overlap = overlap
+        )
+    
+    segments = mne.Epochs(
         data,
-        duration=segmentsLength,
-        overlap=overlap,
-        reject_by_annotation=True,
+        events,
+        reject=reject,
+        flat=flat,
+        reject_by_annotation=ica_if_reject_by_annotation,
         verbose=False,
+        tmin = 0,
+        tmax=segments_length - 1/sampling_rate,
+        baseline=None
     )
 
     return segments
@@ -357,7 +561,7 @@ def segment_epoch(
 
 def preprocess(
     data,
-    extention,
+    device,
     which_sensor: dict,
     empty_room_recording=None,
     resampling_rate: int = 1000,
@@ -371,20 +575,31 @@ def preprocess(
     apply_ica=True,
     power_line_freq: int = 60,
     auto_ica_corr_thr: float = 0.9,
-    ctf_gradient_comp_level=3,
     muscle_activity_thr=4.0,
     muscle_activity_min_length_good=0.1,
-    muscle_activity_filter_freq=(110, 140)
+    muscle_activity_filter_freq=(110, 140),
+    apply_ica_elbow_detection = False, 
+    apply_oversampled_temporal_projection = True,
+    apply_Head_movement_correction=True,
+    Head_movement_limit_from_mean = 0.0015,
+    apply_chpi_filter=False,
+    apply_environmental_noise_correction=True,
+    ctf_gradient_comp_level=3,
+    apply_environmental_noise_ssp_with_eroom=False,
+    apply_environmental_noise_ica_with_ref_meg=False,
+    environmental_noise_ica_with_ref_meg_thr=2.5,
+    ica_if_reject_by_annotation=True,
+    environmental_noise_ica_with_ref_meg_method="together",
+    environmental_noise_ica_with_ref_meg_measure="zscore"
 ):
     """
-    Applies a preprocessing pipeline on MEG/EEG data, including filtering, re-referencing (for EEG),
-    ICA for artifact removal, and optional downsampling.
+    Applies a preprocessing pipeline on MEG/EEG data.
 
     Parameters
     ----------
     data : mne.io.Raw
         Raw MEG/EEG data.
-    extention : str
+    device : str
         The extension of the subject's recording (e.g., 'FIF', 'DS'). Used to read the
         appropriate layout file from the layout directory.
     which_sensor : dict
@@ -426,62 +641,37 @@ def preprocess(
     muscle_activity_filter_freq: tuple, optional
         Cutoff frequencies for the band-pass filter used in muscle activity detection.
         Muscle activity is typically more prominent in higher frequency ranges (e.g., 110–140 Hz).
+    apply_ica_elbow_detection: bool: False
 
 
     Returns
     -------
     mne.io.Raw
         Preprocessed MEG/EEG data.
-
-    Raises
-    ------
-    ValueError
-        auto_ica_corr_thr must be between 0 and 1.
-    ValueError
-        ICA method must be one of: 'fastica', 'picard', 'infomax'.
     """
-    if not 0 < auto_ica_corr_thr <= 1:
-        err_msg = "auto_ica_corr_thr must be between 0 and 1."
-        logger.error(err_msg)
-        raise ValueError(err_msg)
-    if IcaMethod not in ["fastica", "picard", "infomax"]:
-        err_msg = "ICA method must be one of: 'fastica', 'picard', 'infomax'."
-        logger.error(err_msg)
-        raise ValueError(err_msg)
-
-
     # since pick_channels can not seperate mag and grad signals
-    if not (which_sensor["meg"] or which_sensor["eeg"]):
-        if not which_sensor["mag"]:
-            logger.info("Dropping magnetometer sensors.")
-            dropping_channels = [
-                ch
-                for ch, ch_type in zip(data.ch_names, data.get_channel_types())
-                if ch_type == "mag"
-            ]
-        elif not which_sensor["grad"]:
-            logger.info("Dropping gradiometer sensors.")
-            dropping_channels = [
-                ch
-                for ch, ch_type in zip(data.ch_names, data.get_channel_types())
-                if ch_type == "grad"
-            ]
-        data.drop_channels(dropping_channels)
-        if empty_room_recording:
-            empty_room_recording.drop_channels(dropping_channels)
+    # if not (which_sensor["meg"] or which_sensor["eeg"]):
+    if which_sensor["grad"] or which_sensor["mag"]:
+        data, empty_room_recording = drop_mag_or_grad(data, empty_room_recording, which_sensor)
 
     channel_types = set(data.get_channel_types())
 
+    # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
-    # resample & band pass filter
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
-        sampling_rate = data.info["sfreq"]
+        sampling_rate = resampling_rate
         # resampling empty room recording
         if empty_room_recording:
             empty_room_recording.resample(int(resampling_rate), verbose=False, n_jobs=-1)
 
-
+    # flux jumps (SQUID jumps) ---------------------
+    if apply_oversampled_temporal_projection and not which_sensor.get("eeg", False):
+        data = mne.preprocessing.oversampled_temporal_projection(data)
+        msg = "Flux jumps were removed using oversampled temporal projection."
+        logger.info(msg)
+    
+    # power line -----------------------------------
     data.notch_filter(
         freqs=np.arange(
             int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
@@ -496,17 +686,23 @@ def preprocess(
             n_jobs=-1,
         )
 
-    # remove cHPI noise:
-    if data.info["hpi_meas"] and data.info["hpi_subsystem"]:
-        data = mne.chpi.filter_chpi(data,
-                                    include_line=False)
-        logger.info("Filtering CHPI noise.")
-    else:
-        if cutoffFreqHigh > 100: # TODO check this
-            logger.warning("hpi_meas and hpi_subsystem info are missing; Therefore"\
-            " cHPI noise can not be filtered. In case you have cHPI coils, please put"
-            "this information in the data, otherwise you can ignore this error.")
+    # head motion correction ----------------------
+    if apply_Head_movement_correction and not which_sensor.get("eeg", False):
+        data, empty_room_recording = head_motion_correction(
+            data,
+            empty_room_recording,
+            device,
+            Head_movement_limit_from_mean=Head_movement_limit_from_mean
+            )
 
+    # remove cHPI noise ---------------------------
+    has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+    if apply_chpi_filter and has_chpi and not which_sensor.get("eeg", False):
+        data = mne.chpi.filter_chpi(data, include_line=False)
+        logger.info("cHPI filter was applied.")
+
+
+    # digital filter --------------------------------
     if digital_filter:
         data.filter(
             l_freq=int(cutoffFreqLow),
@@ -522,7 +718,7 @@ def preprocess(
                 verbose=False,
             )      
 
-    # Muscle artifact detection
+    # Muscle artifact detection ---------------------
     if cutoffFreqHigh > muscle_activity_filter_freq[0]:
         muscle_annot, _ = mne.preprocessing.annotate_muscle_zscore(data,
                                                 min_length_good=muscle_activity_min_length_good,
@@ -532,80 +728,42 @@ def preprocess(
         data.set_annotations(muscle_annot)
         logger.info(f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} seconds of"\
                     " the signal.")
-        # TODO: MNE doc: The type of sensors to use. If None it will take the first type in mag, grad, eeg.
-        # You need to apply muscle artifact detection on both
-        # MAG and Grad seperately.
 
-    # rereference
+    # rereference -----------------------------------
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
         if empty_room_recording:
             empty_room_recording = empty_room_recording.set_eeg_reference(rereference_method)
 
-    # gradient compensation for CTF datasets
-    if extention == "CTF":
-        data = apply_gradient_comp(data, grade=ctf_gradient_comp_level)
+    # remove environmental noise ---------------------
+    if apply_environmental_noise_correction:
+        data, empty_room_recording = remove_environmental_noise(
+            data,
+            device,
+            empty_room_recording=empty_room_recording,
+            ctf_gradient_comp_level=ctf_gradient_comp_level,
+            apply_environmental_noise_ssp_with_eroom=apply_environmental_noise_ssp_with_eroom,
+            apply_environmental_noise_ica_with_ref_meg=apply_environmental_noise_ica_with_ref_meg,
+            environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+            ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+            environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+            environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure
+            )
 
+    # physiological noise ----------------------------
+    if apply_ica:
+        if apply_ica_elbow_detection:
+            n_component = pca_elbow_locator(data, which_sensor)
 
-    ICA_flag = True  # initialize flag
-
-    physiological_electrods = {
-        channel: channel in channel_types for channel in ["ecg", "eog"]
-    }
-
-    for phys_activity_type, if_elec_exist in physiological_electrods.items():
-        
-        # number of reduced independent components for rank computation
-        number_of_reduced_ic = 0
-        
-        if which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"]:  
-            # ======================================================================
-            # 1
-            if if_elec_exist and apply_ica:
-                data, _, number_of_reduced_ic  = auto_ica(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    physiological_sensor=phys_activity_type,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                )
-            # 2
-            elif not if_elec_exist and apply_ica and phys_activity_type == "ecg":
-                data, number_of_reduced_ic = auto_ica_with_mean(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                )
-
-        if which_sensor[
-            "eeg"
-        ]:  # ======================================================================
-            # 1
-            if if_elec_exist and apply_ica:
-                data, ICA_flag, number_of_reduced_ic = auto_ica(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    physiological_sensor=phys_activity_type,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                )
-            # 2
-            elif not if_elec_exist and apply_ica and ICA_flag:
-                data, number_of_reduced_ic = AutoIca_with_IcaLabel(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    iclabel_thr=auto_ica_corr_thr,
-                    physiological_noise_type=phys_activity_type,
-                )
+        data, number_of_reduced_ic = apply_auto_ica_pipeline(
+            data,
+            channel_types,
+            which_sensor,
+            n_component,
+            ica_max_iter,
+            IcaMethod,
+            auto_ica_corr_thr
+            )
 
     data = data.pick_types(
         meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
@@ -614,7 +772,6 @@ def preprocess(
         eog=False,
         ecg=False,
     )
-
     if empty_room_recording:
         empty_room_recording = empty_room_recording.pick_types(
             meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
@@ -624,11 +781,12 @@ def preprocess(
             ecg=False,
         )
 
+    logger.info("Preprocessing is finished.")
     return data, data.info["ch_names"], int(sampling_rate), empty_room_recording, number_of_reduced_ic
 
 
 def drop_noisy_meg_channels(
-    data: Any, subID: str, args: Any, configs: Dict[str, str], empty_room_recording=None
+    data: Any, subID: str, args: Any, configs: Dict[str, str], device: str, empty_room_recording=None
 ) -> Any:
     """
     Identifies and removes noisy or flat MEG/EEG channels using Maxwell filtering,
@@ -670,42 +828,46 @@ def drop_noisy_meg_channels(
     logger = logging.getLogger(__name__)
 
     which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
-    which_sensor[configs.get("which_sensor")] = True
+    which_sensor[configs.which_sensor] = True
 
-    try:
+    if check_tsss(data):
+        msg = "Maxwell filter has already been applied. " \
+            "Therefore, bad channel detection using maxwell will be not applied."
+        logger.info(msg)
+        auto_noisy_chs = []; auto_flat_chs = []
+        
+    else:
+        if device == "CTF":
+            data.apply_gradient_compensation(0)
+
         auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-            data, return_scores=False, verbose=True, coord_frame="meg"
+            data, return_scores=False, verbose=True, coord_frame="meg", ignore_ref=True
         )
-        data.info["bads"] += auto_noisy_chs + auto_flat_chs
+        data.info["bads"] += auto_noisy_chs + auto_flat_chs 
+        if empty_room_recording:
+            data.info["bads"] += empty_room_recording.info["bads"]
 
-    except RuntimeError as e:
-        if "Maxwell filtering SSS step has already been applied" in str(e):
-            logger.info("Skipping: SSS already applied.")
-        else:
-            raise
+        logger.warning(f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}")
+        logger.warning(f"Number of flat channels that were droped from the subject's recording: {len(auto_flat_chs)}")
 
+    data.drop_channels(data.info["bads"])
     if empty_room_recording:
-        empty_room_recording.info["bads"] = data.info["bads"].copy()
-        empty_room_recording = empty_room_recording.copy().drop_channels(empty_room_recording.info["bads"])
+        empty_room_recording.drop_channels(data.info["bads"])
+        
+    return data, empty_room_recording
 
-    # Always proceed to log and drop marked bads
-    droped_ch_len = len(data.info["bads"])
-    logger.warning(f"{droped_ch_len} channels were droped from the subject's recording")
 
-    dropped_data = data.copy().drop_channels(data.info["bads"])
-    return dropped_data, empty_room_recording
-
-def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
+def apply_chpi(meg_data, movement_limit, head_pos_save_path, device):
 
     if meg_data.info["hpi_results"]:
 
         # BTi/4D MEG recordings do not support cHPI and don't have 
         # real time recordings  of the brain pos
-        if extention == "fif":
+        if device == "fif":
             amp = mne.chpi.compute_chpi_amplitudes(meg_data)
             locs = mne.chpi.compute_chpi_locs(meg_data.info, amp)
 
-        if extention == "ds":
+        if device == "ds":
             locs = mne.chpi.extract_chpi_locs_ctf(meg_data)
 
         head_pos = mne.chpi.compute_head_pos(meg_data.info, locs)
@@ -729,7 +891,7 @@ def apply_chpi(meg_data, movement_limit, head_pos_save_path, extention):
     mne.chpi.write_head_pos(head_pos_save_path, head_pos)
 
 
-def apply_gradient_comp(ctf_meg_data, grade=3):
+def apply_gradient_comp(ctf_meg_data, empty_room_recording=None, grade=3):
     """
     Interpolate bad channels and apply gradient compensation to CTF MEG data.
 
@@ -779,10 +941,12 @@ def apply_gradient_comp(ctf_meg_data, grade=3):
                                   method=method)
     
     ctf_meg_data.apply_gradient_compensation(grade=grade) 
+    if empty_room_recording:
+        empty_room_recording.apply_gradient_compensation(grade=grade) 
 
     logger.info(f"Gradient compensation with level of {grade} has been applied to the data.")
 
-    return ctf_meg_data
+    return ctf_meg_data, empty_room_recording
 
 
 def apply_tsss(
@@ -967,5 +1131,291 @@ def check_tsss(meg_data):
     if not proc_history:
         return False
     max_info = proc_history[0].get('max_info', {})
-    sss_cal = max_info.get('sss_cal', [])
+    sss_cal = max_info.get('sss_info', [])
     return len(sss_cal) > 0
+
+
+
+def pca_elbow_locator(raw, which_sensor):
+
+    raw = raw.copy().pick_types(
+        meg=which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"],
+        eeg=which_sensor["eeg"],
+        ref_meg=False,
+        eog=False,
+        ecg=False,
+    )
+
+    # Use sklearn PCA via MNE
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=None, whiten=True)
+    _ = pca.fit_transform(raw.get_data().T)
+
+    explained_var = pca.explained_variance_ratio_
+
+    # Find elbow
+    knee_locator = KneeLocator(
+        x=np.arange(1, len(explained_var) + 1),
+        y=explained_var,
+        curve="concave",
+        direction="decreasing"
+    )
+
+    elbow_index = knee_locator.knee
+
+    # Handle None and enforce min
+    if elbow_index is None or elbow_index < 15:
+        elbow_index = 30
+
+    return int(elbow_index)
+
+
+
+def drop_mag_or_grad(data, empty_room_recording, which_sensor):
+
+    # since pick_channels can not seperate mag and grad signals
+    # if not (which_sensor["meg"] or which_sensor["eeg"]):
+    dropping_channels = []
+
+    if which_sensor["grad"]:
+        logger.info("Dropping magnetometer sensors.")
+        dropping_channels = [
+            ch
+            for ch, ch_type in zip(data.ch_names, data.get_channel_types())
+            if ch_type == "mag"
+        ]
+
+    elif which_sensor["mag"]:
+        logger.info("Dropping gradiometer sensors.")
+        dropping_channels = [
+            ch
+            for ch, ch_type in zip(data.ch_names, data.get_channel_types())
+            if ch_type == "grad"
+        ]
+    
+    data.drop_channels(dropping_channels)
+    if empty_room_recording:
+        empty_room_recording.drop_channels(dropping_channels)
+
+    return data, empty_room_recording
+
+
+def head_motion_correction(data,
+                empty_room_recording,
+                device,
+                Head_movement_limit_from_mean=0.0015):
+    """
+    Perform head-motion–correction.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG recording from a subject. Must contain cHPI channels if
+        head-movement estimation is desired.
+
+    empty_room_recording : mne.io.Raw | None
+        Empty-room MEG recording corresponding to the subject data.
+        If provided, it will be prepared and Maxwell-filtered using the
+        sensor geometry of the subject data.
+
+    device : str
+        File extension identifying the MEG vendor. 
+
+    Head_position_limit_from_mean : float, default=0.0015
+        Threshold (in meters) for annotating excessive head movement.
+        Time segments where the head position deviates from the mean
+        position by more than this value will be annotated.
+
+    Returns
+    -------
+    data : mne.io.Raw
+        The processed subject MEG data. If cHPI data are present, the output
+        includes movement annotations and an updated ``dev_head_t`` based on
+        the average head position.
+
+    empty_room_recording : mne.io.Raw | None
+        The processed empty-room recording, filtered using the same Maxwell
+        filtering parameters as the subject data but without movement
+        compensation. Returned unchanged if ``None`` was provided.
+
+    """    
+    if check_tsss(data):
+        msg = "Head motion correction was not applied since tSSS has already been applied to the data."
+        logger.info(msg)
+        return data, empty_room_recording
+    
+    # MEGIN devicesEpoch
+    if device == "MEGIN":
+        
+        chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
+        chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
+        head_pos = mne.chpi.compute_head_pos(data, 
+                                            chpi_locs,
+                                            verbose=False)
+
+        data = mne.preprocessing.maxwell_filter(
+            data,
+            head_pos=head_pos,
+            cross_talk=None, # TODO: this should be changed to the real cross_talk file
+            calibration=None, # TODO: this should be changed to the real calibration file
+        )
+
+        logger.info("Movement compensation was applied for the subject using maxwell filter.")
+
+        if empty_room_recording:
+            empty_room_recording = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+                empty_room_recording,
+                raw=data,
+                bads="keep"
+            )
+
+            empty_room_recording = mne.preprocessing.maxwell_filter(
+                empty_room_recording,
+                head_pos=None, #If array, movement compensation will be performed. 
+                cross_talk=None, # TODO: this should be changed to the real cross_talk file
+                calibration=None, # TODO: this should be changed to the real calibration file
+            )
+
+    else:
+        # check if cHPI data is available and then apply annotate_movement func
+        has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+        if has_chpi:
+            if device == "CTF":
+                chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
+            
+            elif device == "KIT":
+                chpi_locs = mne.chpi.extract_chpi_locs_kit(data, verbose=False)
+
+            else:
+                chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
+                chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
+
+            head_pos = mne.chpi.compute_head_pos(data, 
+                                                chpi_locs,
+                                                verbose=False)
+
+            movement_annotation, Head_position_over_time = mne.preprocessing.annotate_movement(
+                data,
+                head_pos=head_pos,
+                mean_distance_limit=Head_movement_limit_from_mean
+            )
+
+            data.set_annotation(movement_annotation)
+            logger.info(f"Movement annotation algorithm using cHPI coils detected {sum(movement_annotation.duration)}" \
+                        " seconds of motion.")
+
+            # Calculate the new device head transformation
+            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos, verbos=False)
+            data.info["dev_head_t"] = new_dev_head_t
+        
+        else:
+            logger.info("Movemet correction was not done for the subject.")
+
+    return data, empty_room_recording
+
+
+
+def remove_environmental_noise(data,
+                               device,
+                               empty_room_recording=None,
+                               ctf_gradient_comp_level=3,
+                               apply_environmental_noise_ssp_with_eroom=False,
+                               apply_environmental_noise_ica_with_ref_meg=False,
+                               environmental_noise_ica_with_ref_meg_thr=2.5,
+                               ica_if_reject_by_annotation=True,
+                               environmental_noise_ica_with_ref_meg_method="together",
+                               environmental_noise_ica_with_ref_meg_measure="zscore"):
+        
+
+    # gradient compensation for CTF datasets
+    if device == "CTF":
+        data, empty_room_recording = apply_gradient_comp(data,
+                                                        empty_room_recording=empty_room_recording,
+                                                        grade=ctf_gradient_comp_level)
+        msg = "The data was preprocessed for environmental noise using gradient compensation."
+        logger.info(msg)
+
+    # If MEGIN device, apply tsss
+    elif device == "MEGIN":
+        if not check_tsss(data):
+            pass # TODO: to be added
+        else:
+            msg = "The data has already been preprocessed for environmental noise using tSSS."
+            logger.info(msg)
+
+    elif apply_environmental_noise_ssp_with_eroom:        
+        if empty_room_recording:
+            empty_room_projs = mne.compute_proj_raw(empty_room_recording, n_grad=3, n_mag=3)
+            data.add_proj(empty_room_projs)
+            data.apply_proj()
+            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info["projs"])}"
+        else:
+            msg = "Empty_room_recording is inavailable to perform SSP for environmental noise suppression." \
+            " Please, use another method to remove environmental noise."
+            logger.info(msg)
+
+    elif apply_environmental_noise_ica_with_ref_meg:
+
+        has_ref_meg = "ref_meg" in data.get_channel_types()
+        if has_ref_meg:
+            data, bad_ic, scores = find_ref_meg_artifact(
+                data, 
+                environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+                ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+                environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+                environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure)
+
+            logger.info(
+                "Number of components removed by ICA for suppressing environmental noise using reference MEG: %d",
+                len(bad_ic)
+            )
+
+
+    return data, empty_room_recording
+
+
+def find_ref_meg_artifact(
+    data, 
+    environmental_noise_ica_with_ref_meg_thr,
+    ica_if_reject_by_annotation=True,
+    environmental_noise_ica_with_ref_meg_method="together",
+    environmental_noise_ica_with_ref_meg_measure="zscore"
+):
+    data_tog = data.copy()
+
+    all_picks = mne.pick_types(data_tog.info, meg=True, ref_meg=True)
+    tog_ica = mne.preprocessing.ICA(n_components=20, max_iter="auto", allow_ref_meg=True)
+    tog_ica.fit(data_tog, picks=all_picks)
+    bad_comps, scores = tog_ica.find_bads_ref(
+        data_tog, 
+        reject_by_annotation=ica_if_reject_by_annotation, 
+        method="together", 
+        threshold=environmental_noise_ica_with_ref_meg_thr,
+        measure=environmental_noise_ica_with_ref_meg_measure,
+    )
+
+    if environmental_noise_ica_with_ref_meg_method == "separate":
+
+        data_sep = data.copy()
+        ref_picks = mne.pick_types(data_sep.info, meg=False, ref_meg=True)
+        ref_ica = mne.preprocessing.ICA(n_components=2, max_iter="auto", allow_ref_meg=True)
+        ref_ica.fit(data_sep, picks=ref_picks)
+
+        ica_sep = tog_ica.copy()
+        ref_comps = ref_ica.get_sources(data_sep)
+        for ic in ref_comps.ch_names:
+            ref_comps.rename_channels({ic: "REF_ICA" + ic})
+        data_sep.add_channels([ref_comps])
+
+        bad_comps, scores = ica_sep.find_bads_ref(data_sep, 
+                                                method="separate",
+                                                )
+        
+        data = ica_sep.apply(data_sep, exclude=bad_comps)
+
+    else:
+        data = tog_ica.apply(data_tog, exclude=bad_comps)
+
+        # TODO: data_clean.drop_channels(ref_comps.ch_names)
+
+    return data, bad_comps, scores
