@@ -503,7 +503,7 @@ def check_log_for_success(
     return failed_details if return_details else failed_ids
 
 
-def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None):
+def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None, verbose=False):
     """
     This function receives the freesurfer directory (including processed data 
     for several subjects) and retrieves the Euler number from the log files. If
@@ -545,7 +545,9 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None):
         log_file = os.path.join(sub_dir, "scripts", "recon-all.log")
 
         if not os.path.isdir(sub_dir):
-            missing_subjects.append(sub); print(f"{s}: Subject {sub} is missing.")
+            missing_subjects.append(sub)
+            if verbose:  
+                print(f"{s}: Subject {sub} is missing.")
             continue
 
         if os.path.exists(log_file):
@@ -561,11 +563,13 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None):
                     df.at[sub,"lh_en"] = eno_l
                     df.at[sub,"rh_en"] = eno_r
                     df.at[sub,"avg_en"] = (eno_l + eno_r)/2.0
-                    print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
+                    if verbose: 
+                        print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
                     continue
                 except Exception:
                     pass  # fall through to recompute
-            print(f"{s}: Subject {sub} missing EN line, recomputing ...")
+            if verbose:    
+                print(f"{s}: Subject {sub} missing EN line, recomputing ...")
 
         try:
             # recompute with mris_euler_number
@@ -579,10 +583,12 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None):
             df.at[sub,"lh_en"] = eno_l
             df.at[sub,"rh_en"] = eno_r
             df.at[sub,"avg_en"] = (eno_l + eno_r)/2.0
-            print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
+            if verbose:  
+                print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
         except Exception as e:
             missing_subjects.append(sub)
-            print(f"{s}: QC failed for {sub}: {e}")
+            if verbose:  
+                print(f"{s}: QC failed for {sub}: {e}")
 
     df = df.dropna()
     if save_path is not None:
@@ -593,26 +599,135 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None):
 
 
 
-def freesurfer_QC(results_directory):
-    """Performs Euler number based quality control on the results of Freesurfer.
+def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False):
+    """
+    Perform Euler-number–based quality control (QC) on FreeSurfer outputs.
 
-    Args:
-        results_directory (str): The path to the Freesurfer results directory.
+    This function retrieves Euler numbers for all subjects in a FreeSurfer
+    results directory and performs outlier detection based on the distribution
+    of Euler numbers across subjects. The worst hemisphere (i.e., most negative
+    Euler number) is used per subject as the QC metric.
 
-    Returns:
-        qc_passed_samples (list): List of passed QC subjects.
-        qc_failed_samples (list): List of failed QC subjects.
-        missing_samples (list): List of missing subjects.
+    Two QC strategies are supported:
+
+    1. MAD-based robust z-score (default, recommended)
+       Computes a robust z-score using the median and median absolute deviation
+       (MAD). Subjects with |z| > threshold are flagged as QC failures.
+       This approach is robust and recommended for large multi-site datasets.
+
+    2. Absolute deviation from median
+       Computes absolute deviation from the median Euler number and excludes
+       subjects whose deviation exceeds the specified threshold (in Euler units).
+
+    Parameters
+    ----------
+    results_directory : str
+        Path to the FreeSurfer results directory containing subject folders.
+
+    method : {'MAD', 'ABS'}, optional
+        QC method to use:
+        - 'MAD' : Median absolute deviation–based robust z-score (default).
+        - 'ABS' : Absolute deviation from median Euler number.
+        The default is 'MAD'.
+
+    threshold : float, optional
+        Threshold for exclusion.
+        - If method='MAD': threshold is the robust z-score cutoff (default=3).
+        - If method='ABS': threshold is in Euler-number units.
+        The default is 3.0.
+
+    verbose : bool, optional
+        If True, prints progress and diagnostic information during execution.
+        The default is False.
+
+    Returns
+    -------
+    qc_passed_samples : list of str
+        List of subject IDs that passed QC.
+
+    qc_failed_samples : list of str
+        List of subject IDs that failed QC.
+
+    missing_samples : list of str
+        List of subjects for which Euler numbers could not be retrieved or
+        computed.
+
+    Notes
+    -----
+    - Euler numbers are extracted from FreeSurfer outputs using
+      ``retrieve_freesurfer_eulernum``.
+    - The worst hemisphere (most negative Euler number) is used per subject,
+      as more negative values typically indicate poorer surface reconstruction.
+    - For MAD-based QC, the robust z-score is computed as:
+
+          z = (x - median) / (1.4826 * MAD)
+
+      where MAD is the median absolute deviation.
+    - If MAD is zero (rare but possible), an IQR-based fallback is used to
+      estimate scale.
+    - This function assumes all subjects in ``results_directory`` belong to a
+      single site. For multi-site studies, QC should ideally be performed
+      separately per site.
+
+    Examples
+    --------
+    >>> passed, failed, missing = freesurfer_QC("/path/to/freesurfer_dir")
+
+    >>> passed, failed, missing = freesurfer_QC(
+    ...     "/path/to/freesurfer_dir",
+    ...     method="MAD",
+    ...     threshold=2.5,
+    ...     verbose=True
+    ... )
     """
 
-    euler_numbers, missing_samples = retrieve_freesurfer_eulernum(results_directory)
+    euler_numbers, missing_samples = retrieve_freesurfer_eulernum(
+        results_directory, verbose=verbose
+    )
 
-    euler_nums = euler_numbers["avg_en"].to_numpy(dtype=np.float32)
+    if euler_numbers is None or len(euler_numbers) == 0:
+        return [], [], missing_samples
 
-    qc_measure = np.sqrt(-(euler_nums)) - np.median(np.sqrt(-(euler_nums)))
+    # Ensure numeric and remove incomplete rows
+    df = euler_numbers.copy()
+    df[["lh_en", "rh_en"]] = df[["lh_en", "rh_en"]].apply(pd.to_numeric, errors="coerce")
+    df = df.dropna(subset=["lh_en", "rh_en"])
 
-    qc_passed_samples = list(euler_numbers.loc[qc_measure <= 5].index)
-    qc_failed_samples = list(euler_numbers.loc[qc_measure > 5].index)
+    if df.empty:
+        return [], [], list(set(missing_samples) | set(euler_numbers.index))
+
+    # Worst hemisphere per subject (most negative Euler)
+    e = df[["lh_en", "rh_en"]].to_numpy(float)
+    per_subj = np.min(e, axis=1)
+
+    method_u = method.upper()
+
+    if method_u == "MAD":
+        med = np.median(per_subj)
+        mad = np.median(np.abs(per_subj - med))
+
+        # Handle zero MAD robustly
+        if mad == 0:
+            q25, q75 = np.percentile(per_subj, [25, 75])
+            iqr = q75 - q25
+            scale = iqr / 1.349 if iqr > 0 else 1.0
+        else:
+            scale = 1.4826 * mad
+
+        qc_measure = (per_subj - med) / scale
+        failed_mask = qc_measure < -float(threshold)
+
+    else:
+        # Absolute deviation from median (threshold in Euler units)
+        qc_measure = np.abs(per_subj - np.median(per_subj))
+        failed_mask = qc_measure > float(threshold)
+
+    qc_failed_samples = list(df.index[failed_mask])
+    qc_passed_samples = list(df.index[~failed_mask])
+
+    # Subjects dropped due to missing hemisphere values
+    dropped = set(euler_numbers.index) - set(df.index)
+    missing_samples = list(set(missing_samples) | dropped)
 
     return qc_passed_samples, qc_failed_samples, missing_samples
 
