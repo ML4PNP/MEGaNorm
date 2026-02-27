@@ -60,16 +60,8 @@ def find_bids_t1w_files(subjects_directory: str, subject_id: str):
     for pat in patterns:
         t1_files.extend(glob.glob(pat))
 
-    # De-duplicate preserving order
-    seen = set()
-    unique_t1_files = []
-    for p in t1_files:
-        if p not in seen:
-            seen.add(p)
-            unique_t1_files.append(p)
-
     results = []
-    for t1 in unique_t1_files:
+    for t1 in t1_files:
         t1_path = Path(t1)
         ses_match = re.search(r"(ses-[^/\\]+)", str(t1_path))
         session = ses_match.group(1) if ses_match else None
@@ -77,6 +69,7 @@ def find_bids_t1w_files(subjects_directory: str, subject_id: str):
         results.append(
             {"subject_id": subject_id, "session": session, "t1_path": str(t1_path), "job_label": job_label}
         )
+        break # TODO: For now ignores multiple runs and only run it for one available run
     return results
 
 def prepare_mri_data(mri_directory):
@@ -129,7 +122,6 @@ def create_slurm_script(
         if i_option else
         f"recon-all -s ${{SUBJECT_ID}} -all -no-isrunning"
     )
-    bids_out_cmd = f"recon-all -s ${{SUBJECT_ID}} --bids-out || true"
 
     script_content = f"""#!/bin/bash
 #SBATCH --job-name={job_label}
@@ -157,9 +149,6 @@ SUBJECT_ID="$1"
 echo "Running recon-all for ${{SUBJECT_ID}} with input ${{VOLUME}}"
 {recon_all_command}
 
-# export BIDS-derivatives friendly outputs
-{bids_out_cmd}
-
 echo "Done: ${{SUBJECT_ID}}"
 """
 
@@ -178,7 +167,7 @@ def is_success(
     fresh_minutes: int = 30,
     stalled_hours: int = 24,
 ) -> bool:
-    """Thin wrapper that reuses the unified classifier."""
+    
     status, _ = classify_subject_status(
         results_directory,
         subject_id,
@@ -198,7 +187,7 @@ def run_parallel_reconall(
     file_postfix=".nii",
     skip_completed: bool = True,
     skip_running: bool = True,                         # NEW: avoid double-submitting active jobs
-    resubmit_statuses: tuple[str, ...] = ("failed", "missing", "stalled"),  # NEW
+    resubmit_statuses: tuple[str, ...] = ("failed", "missing", "stalled"),  
     success_token: str = "finished without error",
     tail_lines_to_scan: int = 200,
     fresh_minutes: int = 30,
@@ -251,21 +240,14 @@ def run_parallel_reconall(
         # Discover T1w inputs
         t1_entries = find_bids_t1w_files(subjects_directory, subject_id)
         if not t1_entries:
-            fallback = os.path.join(subjects_directory, subject_id, "anat", subject_id + file_postfix)
-            if os.path.isfile(fallback):
-                t1_entries = [{
-                    "subject_id": subject_id, "session": None,
-                    "t1_path": fallback, "job_label": subject_id
-                }]
-            else:
-                print(f"[WARN] No T1w for {subject_id}; skipping")
-                failed_job_submissions.append(subject_id)
-                failed_records.append({
-                    "subject_id": subject_id,
-                    "reason": "no_T1w_found",
-                    "attempt_time": datetime.now().isoformat(timespec="seconds"),
-                })
-                continue
+            print(f"[WARN] No T1w for {subject_id}; skipping")
+            failed_job_submissions.append(subject_id)
+            failed_records.append({
+                "subject_id": subject_id,
+                "reason": "no_T1w_found",
+                "attempt_time": datetime.now().isoformat(timespec="seconds"),
+            })
+            continue
 
         # Avoid re-importing T1 on reruns (keeps mri/orig clean)
         subj_fs_dir = Path(results_directory) / subject_id
