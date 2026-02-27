@@ -795,6 +795,8 @@ def merge_datasets_with_glob(datasets):
     """
 
     def join_with_star(lst):
+        if not lst:
+            return None
         if len(lst) == 1:
             return lst[0] + "*"
         return "*".join(lst)

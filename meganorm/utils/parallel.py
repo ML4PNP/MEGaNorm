@@ -433,6 +433,7 @@ def auto_parallel_feature_extraction(
     project_dir,
     datasets,
     job_configs,
+    subjects,
     config_file_path,
     which_subjects=None,
     username=None,
@@ -482,7 +483,7 @@ def auto_parallel_feature_extraction(
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path
 
-    subjects = merge_datasets_with_glob(datasets)
+    
     
     conf = conf.load(path=config_file_path)
     all_qc_passed_samples = []
@@ -579,6 +580,8 @@ def sbatch_feature_extraction_runner(
         which_subjects=None
         ):
     
+    subjects = merge_datasets_with_glob(datasets)
+    
     features_dir = os.path.join(project_dir, "Features")
     config_file_path = os.path.join(features_dir, "Configurations", "Configuration.json")
     if config_file:
@@ -600,8 +603,9 @@ def sbatch_feature_extraction_runner(
         "auto_rerun": auto_rerun,
         "auto_collect": auto_collect,
         "max_try": max_try,
+        "which_subjects": which_subjects,
         "datasets" : datasets,
-        "which_subjects": which_subjects
+        "subjects" : subjects
     }
 
     features_dir = os.path.join(project_dir, "Features")
