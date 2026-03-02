@@ -502,7 +502,7 @@ def auto_parallel_feature_extraction(
         runner_params = json.load(file)
         runner_params["subjects"] = subjects
     with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "w") as file:
-        json.dump(runner_params, file)
+        json.dump(runner_params, file, indent=4)
 
     features_temp_path = os.path.join(features_dir, "temp")
 
