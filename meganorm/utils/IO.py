@@ -807,9 +807,11 @@ def merge_datasets_with_glob(datasets):
         base_dir = dataset_info["base_dir"]
         task = dataset_info["task"]
         ending = dataset_info["ending"]
+        line_freq = dataset_info["line_freq"]
         empty_room_task = dataset_info["empty_room_task"]
         empty_room_path = dataset_info["empty_room_path"]
         surfaces = dataset_info["surfaces_dir"]
+        
 
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
@@ -842,6 +844,7 @@ def merge_datasets_with_glob(datasets):
                 {subj: 
                     {
                     "rest_record": join_with_star(rs_record_paths),
+                    "line_freq": line_freq,
                     "empty_room_record":join_with_star(er_record_paths),
                     "mri_surface":surface
                     }
@@ -978,17 +981,15 @@ def set_path(project_dir):
         if not os.path.isdir(path):
             os.makedirs(path)
 
+    # Feature extraction
     features_dir = os.path.join(project_dir, 'Features')
-    # a log file to save logs of feature extraction
-    features_log_path = os.path.join(features_dir, 'log')
-    # a directory to save extracted features temporarily
+    features_log_path = os.path.join(features_dir, 'log_slurm_jobs')
     features_temp_path = os.path.join(features_dir,'temp')
     figures_dir = os.path.join(features_dir, "figures")
-
+    exluded_participants_path = os.path.join(features_dir, "excluded_participants")
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
-
     configurations = os.path.join(features_dir, "Configurations")
 
     make_folder(features_dir)
@@ -999,7 +1000,9 @@ def set_path(project_dir):
     make_folder(save_epochs_path)
     make_folder(save_psds_path)
     make_folder(configurations)
+    make_folder(exluded_participants_path)
 
+    # Normative models
     nm_dir = os.path.join(project_dir, "Normative_modeling")
     run_dir = os.path.join(nm_dir, "Runs")
     figures_dir = os.path.join(nm_dir, "Figures")
