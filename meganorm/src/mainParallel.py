@@ -60,7 +60,10 @@ def main_argparser(args=None):
     parser.add_argument("save_dir", type=str, help="Where to save extracted features")
     parser.add_argument("subject", type=str, help="Participant ID")
     parser.add_argument("configs", type=str) # TODO: make it optional for both sequential and parallel computing
-    
+    # Optional arguments
+    parser.add_argument("--line_freq", default=60,
+                        help="The line power frequency; This will be used for notch filter." \
+                        " If None is passed, 60 Hz will be used.")
     parser.add_argument("--surfaces_dir", type=str, default=None,
                         help="If you need to apply source localization, set this to the"\
                         "directory in which freesurfer results are saved")
@@ -185,6 +188,8 @@ def main(args):
     start_time = datetime.now()
     logger.info(f"Starting the process for the subject {args.subject} at {start_time}:")
 
+    if args.line_freq == "None":
+        args.line_freq = None
     if args.empty_room_recording_path == "None":
         args.empty_room_recording_path = None
     if args.surfaces_dir == "None":
@@ -255,9 +260,10 @@ def main(args):
     # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
-        logger.warning("Power line frequency was not detected" \
-        "; therefore, it was set to 60 Hz")
-        power_line_freq = 60
+        power_line_freq = args.line_freq
+        if not power_line_freq:
+            logger.warning("Power line frequency could not be detected; defaulting to 60 Hz.")
+            power_line_freq = 60
 
     # ------------------------------------------------------------
     if configs.which_sensor == "eeg":
