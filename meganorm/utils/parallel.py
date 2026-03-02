@@ -114,8 +114,9 @@ def sbatchfile(
     sbatch_input_2 = "target=$2\n"
     sbatch_input_3 = "subject=$3\n"
     sbatch_input_4 = "config=$4\n"
-    sbatch_input_5 = "surfaces_dir=$5\n"
-    sbatch_input_6 = "empty_room_recording_path=$6\n"
+    sbatch_input_5 = "line_freq=$5\n"
+    sbatch_input_6 = "surfaces_dir=$6\n"
+    sbatch_input_7 = "empty_room_recording_path=$7\n"
 
     # if with_config:
     command = (
@@ -123,13 +124,9 @@ def sbatchfile(
         + mainParallel_path
         + " $source $target $subject $config"
         )
-    # else:
-        # command = "srun python " + mainParallel_path + " $source $target $subject"
 
-    # if with_source_localization:
+    command += f" --line_freq $line_freq"
     command += f" --surfaces_dir $surfaces_dir"
-    
-    # if with_empty_room_recording:
     command += " --empty_room_recording_path $empty_room_recording_path"
 
     bash_environment = [
@@ -149,12 +146,10 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_1
     bash_environment[0] += sbatch_input_2
     bash_environment[0] += sbatch_input_3
-    # if with_config:
     bash_environment[0] += sbatch_input_4
-    # if with_source_localization:
     bash_environment[0] += sbatch_input_5
-    # if with_empty_room_recording:
     bash_environment[0] += sbatch_input_6
+    bash_environment[0] += sbatch_input_7
 
     bash_environment[0] += command
 
@@ -208,6 +203,14 @@ def submit_jobs(
     str
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
     """
+
+    def add_command(new_arg, command):
+        if new_arg:
+            command += f" {line_freq}"
+        else:
+            command += " None"
+        return command
+
     if not os.path.isdir(temp_path):
         os.makedirs(temp_path)
 
@@ -244,24 +247,17 @@ def submit_jobs(
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects.keys()):
-        # fname = os.path.join(subjects[subject], 'meg', subject + '_task-rest_meg.fif')
+        
         rs_fname = subjects[subject]["rest_record"]
         er_fname = subjects[subject]["empty_room_record"]
         mri_surface = subjects[subject]["mri_surface"]
+        line_freq = subjects[subject]["line_freq"]
         
         command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject} {config_file}"
-        # if config_file:
-        # command += f" {config_file}"
 
-        if mri_surface:
-            command += f" {mri_surface}"
-        else:
-            command += f" None"
-            
-        if er_fname:
-            command += f" {er_fname}"
-        else:
-            command += f" None"
+        add_command(line_freq, command)
+        add_command(mri_surface, command)
+        add_command(er_fname, command)
         
         subprocess.check_call(command, shell=True)
 
@@ -433,7 +429,6 @@ def auto_parallel_feature_extraction(
     project_dir,
     datasets,
     job_configs,
-    subjects,
     config_file_path,
     which_subjects=None,
     username=None,
@@ -478,21 +473,23 @@ def auto_parallel_feature_extraction(
         A list of failed jobs after all attempts. If no jobs failed, the list will be empty.
 
     """
+    features_dir = os.path.join(project_dir, "Features")
+    subjects = merge_datasets_with_glob(datasets)
+    conf = meganorm.utils.IO.Config.load(path=config_file_path)
 
-
-    features_dir, features_log_path = set_path(project_dir)
-    job_configs["log_path"] = features_log_path
-
-    
-    
-    conf = conf.load(path=config_file_path)
+    # TODO: We need to remove the subjects that are not in which_subjects list
+    # and run the QC only on them; However, the problem is that 
+    # freesurfer_QC does not accept which_subjects.
     all_qc_passed_samples = []
-    if conf["apply_source_localization"] and conf["apply_mri_QC"]:
+    if conf.apply_source_localization and conf.apply_mri_QC:
         for keys, values in datasets.items():
             (qc_passed_samples, 
-            _, 
-            _) = meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
+            qc_failed_samples, 
+            missing_samples) = meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
             all_qc_passed_samples.extend(qc_passed_samples)
+
+    with open(os.path.join(features_dir, "excluded_participants", "failed_mri_qc.json"), "w") as file:
+        json.dump(qc_failed_samples+missing_samples, file)
       
     subjects_temp = subjects.copy()
     for subj in subjects.keys():
@@ -500,6 +497,12 @@ def auto_parallel_feature_extraction(
         (which_subjects and subj not in which_subjects):
             subjects_temp.pop(subj)
     subjects = subjects_temp.copy()
+
+    with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "r") as file:
+        runner_params = json.load(file)
+        runner_params["subjects"] = subjects
+    with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "w") as file:
+        json.dump(runner_params, file)
 
     features_temp_path = os.path.join(features_dir, "temp")
 
@@ -552,7 +555,6 @@ def auto_parallel_feature_extraction(
             clean=False,
         )
 
-
     # Merge demographic data and extracted f-IDPS
     data_base_dirs = [values["base_dir"] for values in datasets.values()]
     dataset_names = list(datasets.keys())
@@ -560,7 +562,6 @@ def auto_parallel_feature_extraction(
             features_dir=features_dir,
             dataset_names=dataset_names)
     df.to_csv(os.path.join(features_dir, "all_features.csv"))
-
 
     return failed_jobs
 
@@ -580,7 +581,8 @@ def sbatch_feature_extraction_runner(
         which_subjects=None
         ):
     
-    subjects = merge_datasets_with_glob(datasets)
+    features_dir, features_log_path = set_path(project_dir)
+    job_configs["log_path"] = features_log_path
     
     features_dir = os.path.join(project_dir, "Features")
     config_file_path = os.path.join(features_dir, "Configurations", "Configuration.json")
@@ -604,8 +606,7 @@ def sbatch_feature_extraction_runner(
         "auto_collect": auto_collect,
         "max_try": max_try,
         "which_subjects": which_subjects,
-        "datasets" : datasets,
-        "subjects" : subjects
+        "datasets" : datasets
     }
 
     features_dir = os.path.join(project_dir, "Features")
@@ -615,8 +616,8 @@ def sbatch_feature_extraction_runner(
     
     sbatch_text = f"""#!/bin/bash
 #SBATCH --job-name=feature_extraction_runner
-#SBATCH --output=feature_extraction_runner.out
-#SBATCH --error=feature_extraction_runner.err
+#SBATCH --output=Features/feature_extraction_runner.out
+#SBATCH --error=Features/feature_extraction_runner.err
 #SBATCH --time={time}
 #SBATCH --mem={mem}
 #SBATCH --cpus-per-task=1
