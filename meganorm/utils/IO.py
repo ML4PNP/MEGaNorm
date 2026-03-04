@@ -200,7 +200,7 @@ class Config(BaseModel):
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
     cutoffFreqLow: float = 1.0
-    cutoffFreqHigh: PositiveInt = 40
+    cutoffFreqHigh: PositiveInt = 80
 
     resampling_rate: PositiveInt = 1000
     digital_filter: bool = True
