@@ -556,6 +556,12 @@ def segment_epoch(
         baseline=None
     )
 
+    if segments.get_data().shape[0] == 0:
+        err_msg = "All channels were identified as either noisy or flat across every epoch. " \
+            "Therefore, further processing for this participant cannot proceed."
+        logger.error(err_msg)
+        raise Exception(err_msg)
+
     return segments
 
 
