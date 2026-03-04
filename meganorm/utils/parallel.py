@@ -206,7 +206,7 @@ def submit_jobs(
 
     def add_command(new_arg, command):
         if new_arg:
-            command += f" {line_freq}"
+            command += f" {new_arg}"
         else:
             command += " None"
         return command
@@ -255,9 +255,9 @@ def submit_jobs(
         
         command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject} {config_file}"
 
-        add_command(line_freq, command)
-        add_command(mri_surface, command)
-        add_command(er_fname, command)
+        command = add_command(line_freq, command)
+        command = add_command(mri_surface, command)
+        command = add_command(er_fname, command)
         
         subprocess.check_call(command, shell=True)
 
