@@ -1004,16 +1004,6 @@ def set_path(project_dir):
 
     # Normative models
     nm_dir = os.path.join(project_dir, "Normative_models")
-    run_dir = os.path.join(nm_dir, "Runs")
-    figures_dir = os.path.join(nm_dir, "Figures")
-    models_summary = os.path.join(nm_dir, "Models_summary")
-    nm_parallel_logs = os.path.join(nm_dir, "nm_parallel_logs")
-    nm_temp = os.path.join(nm_dir, "nm_temp")
-
-    make_folder(nm_dir)
-    make_folder(run_dir)
-    make_folder(figures_dir)
-    make_folder(models_summary)
 
     return features_dir, features_log_path
 
