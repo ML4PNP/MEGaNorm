@@ -8,14 +8,14 @@ import scipy.stats as st
 from scipy.stats import shapiro
 import itertools
 from scipy.stats import skew, kurtosis
-from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
+# from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
 from scipy.stats import ranksums
 from sklearn.model_selection import train_test_split
 
 
 # **
-def hbr_data_split(
+def haddbr_data_split(
     data,
     save_path,
     covariates=["age"],
@@ -773,84 +773,84 @@ def cal_stats_for_INOCs(
 
 
 # **
-def abnormal_probability(
-    processing_dir: str,
-    nm_processing_dir: str,
-    n_permutation: int = 1000,
-    site_id: int = None,
-    healthy_data_prefix: str = "",
-    patient_data_prefix: str = "",
-):
-    """
-    Computes the abnormality probability index for both control and patient groups
-    based on z-scores from normative modeling. Then calculates the AUC between
-    these two groups and estimates the statistical significance of AUC values using
-    permutation testing. Finally, it applies false discovery rate (FDR) correction
-    to the p-values.
+# def abnormal_probability(
+#     processing_dir: str,
+#     nm_processing_dir: str,
+#     n_permutation: int = 1000,
+#     site_id: int = None,
+#     healthy_data_prefix: str = "",
+#     patient_data_prefix: str = "",
+# ):
+#     """
+#     Computes the abnormality probability index for both control and patient groups
+#     based on z-scores from normative modeling. Then calculates the AUC between
+#     these two groups and estimates the statistical significance of AUC values using
+#     permutation testing. Finally, it applies false discovery rate (FDR) correction
+#     to the p-values.
 
-    Parameters
-    ----------
-    processing_dir : str
-        Path to the directory containing z-score files.
-    nm_processing_dir : str
-        Path to normative modeling directory containing batch info.
-    n_permutation : int, optional
-        Number of permutations for statistical testing (default is 1000).
-    site_id : int, optional
-        If provided, filters both healthy and patient data by this site ID.
-    healthy_data_prefix : str, optional
-        Prefix used for healthy subject files (e.g., 'control').
-    patient_data_prefix : str, optional
-        Prefix used for patient subject files (e.g., 'patient').
+#     Parameters
+#     ----------
+#     processing_dir : str
+#         Path to the directory containing z-score files.
+#     nm_processing_dir : str
+#         Path to normative modeling directory containing batch info.
+#     n_permutation : int, optional
+#         Number of permutations for statistical testing (default is 1000).
+#     site_id : int, optional
+#         If provided, filters both healthy and patient data by this site ID.
+#     healthy_data_prefix : str, optional
+#         Prefix used for healthy subject files (e.g., 'control').
+#     patient_data_prefix : str, optional
+#         Prefix used for patient subject files (e.g., 'patient').
 
-    Returns
-    -------
-    p_val : np.ndarray
-        Adjusted p-values for each biomarker based on FDR correction.
-    auc : np.ndarray
-        AUC values comparing abnormal probability between groups.
-    """
+#     Returns
+#     -------
+#     p_val : np.ndarray
+#         Adjusted p-values for each biomarker based on FDR correction.
+#     auc : np.ndarray
+#         AUC values comparing abnormal probability between groups.
+#     """
 
-    # Load z-scores
-    with open(
-        os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb"
-    ) as file:
-        z_patient = pickle.load(file)
-    with open(
-        os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb"
-    ) as file:
-        z_healthy = pickle.load(file)
+#     # Load z-scores
+#     with open(
+#         os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb"
+#     ) as file:
+#         z_patient = pickle.load(file)
+#     with open(
+#         os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb"
+#     ) as file:
+#         z_healthy = pickle.load(file)
 
-    # Filter by site if specified
-    if site_id is not None:
-        # Control group
-        with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
-            b_healthy = pickle.load(file)
-        z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
+#     # Filter by site if specified
+#     if site_id is not None:
+#         # Control group
+#         with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
+#             b_healthy = pickle.load(file)
+#         z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
 
-        # Patient group
-        with open(
-            os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb"
-        ) as file:
-            b_patient = pickle.load(file)
-        z_patient = z_patient.iloc[np.where(b_patient["site"] == site_id)[0], :]
+#         # Patient group
+#         with open(
+#             os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb"
+#         ) as file:
+#             b_patient = pickle.load(file)
+#         z_patient = z_patient.iloc[np.where(b_patient["site"] == site_id)[0], :]
 
-    # Convert z-scores to abnormal probabilities
-    p_patient = z_to_abnormal_p(z_patient)
-    p_healthy = z_to_abnormal_p(z_healthy)
+#     # Convert z-scores to abnormal probabilities
+#     p_patient = z_to_abnormal_p(z_patient)
+#     p_healthy = z_to_abnormal_p(z_healthy)
 
-    # Combine for AUC analysis
-    p = np.concatenate([p_patient, p_healthy])
-    # Assign 0 to control group and 1 to patient group as label
-    labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
+#     # Combine for AUC analysis
+#     p = np.concatenate([p_patient, p_healthy])
+#     # Assign 0 to control group and 1 to patient group as label
+#     labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
 
-    # Compute AUC and p-values
-    auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
+#     # Compute AUC and p-values
+#     auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
 
-    # FDR correction
-    p_val = false_discovery_control(p_val)
+#     # FDR correction
+#     p_val = false_discovery_control(p_val)
 
-    return p_val, auc
+#     return p_val, auc
 
 
 # **
