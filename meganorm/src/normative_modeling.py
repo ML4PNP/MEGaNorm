@@ -49,14 +49,11 @@ def impute_by_subgroup(df, group_cols, continous_cov_col='age', imputation_con_v
                 else:
                     # Fallback 1: same group, any age
                     fallback_group = df.loc[group_mask, col].dropna()
-                    print("nooo")
                     if len(fallback_group) > 0:
                         df_imputed.at[idx, col] = agg_fn(fallback_group)
-                        print("yes")
                     else:
                         # Fallback 2: global statistic
                         df_imputed.at[idx, col] = agg_fn(df[col].dropna())
-                        print("shit")
 
     return df_imputed
 
@@ -249,5 +246,5 @@ def nm_model_train(
     if if_model_diagnosis:
         model_diagnostics(
             models_path=f"{project_dir}/model",
-            save_path=os.path.join(nm_dir, "model_diagnosis"),
+            save_path=os.path.join(nm_dir, "results"),
         )
