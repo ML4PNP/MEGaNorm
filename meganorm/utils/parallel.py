@@ -477,9 +477,6 @@ def auto_parallel_feature_extraction(
     subjects = merge_datasets_with_glob(datasets)
     conf = meganorm.utils.IO.Config.load(path=config_file_path)
 
-    # TODO: We need to remove the subjects that are not in which_subjects list
-    # and run the QC only on them; However, the problem is that 
-    # freesurfer_QC does not accept which_subjects.
     all_qc_passed_samples = []
     if conf.apply_source_localization and conf.apply_mri_QC:
         for keys, values in datasets.items():
@@ -488,15 +485,24 @@ def auto_parallel_feature_extraction(
             missing_samples) = meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
             all_qc_passed_samples.extend(qc_passed_samples)
 
-    with open(os.path.join(features_dir, "excluded_participants", "failed_mri_qc.json"), "w") as file:
-        json.dump(qc_failed_samples+missing_samples, file)
+        with open(os.path.join(features_dir, "excluded_participants", "failed_mri_qc_participants.json"), "w") as file:
+            json.dump(qc_failed_samples, file, indent=4)
+        with open(os.path.join(features_dir, "excluded_participants", "missing_mri_participants.json"), "w") as file:
+            json.dump(missing_samples, file, indent=4)
       
+    missing_meg_participants = []
     subjects_temp = subjects.copy()
-    for subj in subjects.keys():
+    for subj, meta in subjects.items():
+        if not meta["rest_record"]:
+            missing_meg_participants.append(subj)
+            subjects_temp.pop(subj)
         if (all_qc_passed_samples and subj not in all_qc_passed_samples) or \
         (which_subjects and subj not in which_subjects):
             subjects_temp.pop(subj)
     subjects = subjects_temp.copy()
+
+    with open(os.path.join(features_dir, "excluded_participants", "missing_meg_participants.json"), "w") as file:
+        json.dump(missing_meg_participants, file, indent=4)
 
     with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "r") as file:
         runner_params = json.load(file)
