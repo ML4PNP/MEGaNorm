@@ -1620,149 +1620,218 @@ def plot_site_diff(
 
 def define_lut(lut_path):
     """
-    Load a lookup table (LUT) from a text file and return a dictionary mapping
-    region names to integer label indices.
+    Load a FreeSurfer Look-Up Table (LUT) and return it as a dictionary.
 
-    The LUT file is expected to be whitespace-separated with at least two
-    columns per line:
-        <index> <region_name>
-
-    Lines starting with '#' or empty lines are ignored.
+    A LUT file maps region names to integer indices. This function reads
+    the file, skips comments and empty lines, and builds a dict of
+    {region_name: region_index}.
 
     Parameters
     ----------
     lut_path : str
-        Path to the LUT text file.
+        Path to the FreeSurfer LUT file
+        (e.g. FreeSurferColorLUT.txt).
 
     Returns
     -------
     dict
-        A dictionary where keys are region names (str) and values are label
-        indices (int).
+        A dictionary mapping region name (str) to region index (int).
+        Example: {"Left-Hippocampus": 17, "Right-Hippocampus": 53, ...}
     """
     lut = {}
     with open(lut_path) as f:
-        
         for line in f:
             if line.startswith("#") or len(line.strip()) == 0:
                 continue
             parts = line.strip().split()
-
-            idx = int(parts[0])
-            name = parts[1]
-            lut[name] = idx
-
+            lut[parts[1]] = int(parts[0])
     return lut
 
 
 def plot_statistics_on_brain(
         parcellation_atlas_path,
         lut_path,
-        df_stats,
-        which_feature,
+        stats,
+        fsaverage="fsaverage5",
+        surface_mesh_type="pial",
+        bg_map_mesh_type="sulc",
+        abs_threshold=None,
         cmap="Reds",
+        alpha=0.7,
+        symmetric_cbar="auto",
+        bg_on_data=True,
+        show_colorbar=False,
+        title=None,
         vmin=None,
         vmax=None,
-        title=None,
         save_fig_path=None,
+        views=("lateral", "medial"),
+        hemispheres=("left", "right"),
 ):
     """
-    Project region-wise statistical values onto a brain surface using a
-    parcellation atlas and display or save the resulting visualization.
+    Project region-wise statistics onto the brain surface and plot them.
 
-    This function:
-    - Loads a NIfTI parcellation atlas.
-    - Uses a LUT file to map region names to atlas label indices.
-    - Extracts region-wise statistics from a dataframe based on a feature name.
-    - Builds a volumetric image where each labeled voxel is assigned the
-      corresponding region statistic.
-    - Plots the resulting image on an inflated cortical surface.
+    Takes a parcellation atlas and a set of statistics (one value per brain
+    region) and visualizes them on the cortical surface in three steps:
+
+        1. Builds a 3D volume where each voxel takes the stat value of
+           its region (matched by name via the LUT).
+        2. Projects that volume onto the 2D surface mesh (vol_to_surf).
+        3. Plots the result for each hemisphere × view combination.
 
     Parameters
     ----------
     parcellation_atlas_path : str
-        Path to the NIfTI parcellation atlas file.
+        Path to the parcellation atlas file (.mgz or .nii.gz). Each voxel
+        holds an integer index identifying the brain region it belongs to.
 
     lut_path : str
-        Path to the lookup table (LUT) text file mapping region names to label
-        indices.
+        Path to the FreeSurfer LUT file (e.g. FreeSurferColorLUT.txt).
+        Used to map region names to the integer indices in the atlas.
 
-    df_stats : pandas.DataFrame
-        DataFrame containing region-wise statistics. Column names must include
-        `which_feature` followed by the region name.
+    stats : dict or pd.Series
+        One scalar value per region name. Keys/index must match region
+        names in the LUT.
+        Example: {"Left-Hippocampus": 0.42, "Right-Hippocampus": 0.38}
 
-    which_feature : str
-        Substring used to identify relevant columns and extract region names
-        from the dataframe (e.g., "mean_", "tstat_", etc.).
+    fsaverage : str, optional
+        fsaverage resolution to use. Default is "fsaverage5" (10,242
+        vertices per hemisphere). Options: "fsaverage3" through "fsaverage7".
+
+    surface_mesh_type : str, optional
+        Surface mesh to project the stats onto. Default is "pial" (outer
+        gray matter surface). Options: "pial", "white", "infl", "flat",
+        "sphere".
+
+    bg_map_mesh_type : str, optional
+        Background shading map. Default is "sulc" (sulcal depth), which
+        gives the brain its natural light/dark folding pattern.
+        Options: "sulc", "curv", "thick", "area".
+
+    abs_threshold : float or None, optional
+        Absolute threshold below which stat values are not shown
+        (rendered transparent). If None, all values are shown.
+        Default is None.
 
     cmap : str, optional
-        Matplotlib colormap name used for visualization (default: "Reds").
+        Matplotlib colormap for the stat values. Default is "Reds".
 
-    vmin : float or None, optional
-        Minimum value used for color scaling. If None, it is inferred from the
-        data.
+    alpha : float, optional
+        Opacity of the stat map overlay, between 0 (transparent) and 1
+        (opaque). Default is 0.7.
 
-    vmax : float or None, optional
-        Maximum value used for color scaling. If None, it is inferred from the
-        data.
+    symmetric_cbar : bool or "auto", optional
+        Whether to make the colorbar symmetric around zero. If "auto",
+        nilearn decides based on the data. Default is "auto".
+
+    bg_on_data : bool, optional
+        If True, blends the background shading on top of the stat map,
+        giving a more 3D appearance. Default is True.
+
+    show_colorbar : bool, optional
+        Whether to show a colorbar on each subplot. Default is False.
 
     title : str or None, optional
-        Title of the plot. If None, no title is shown.
+        Base title for each subplot. If None, titles are auto-generated
+        as "hemi - view". If provided, becomes "title | hemi - view".
+
+    vmin : float or None, optional
+        Lower bound of the colormap scale. If None, uses the data minimum.
+
+    vmax : float or None, optional
+        Upper bound of the colormap scale. If None, uses the data maximum.
 
     save_fig_path : str or None, optional
-        If provided, the figure is saved to this path.
+        File path to save the figure (e.g. "brain.png"). If None, the
+        figure is not saved. Default is None.
+
+    views : tuple of str, optional
+        Views to plot — each becomes one column in the figure.
+        Default is ("lateral", "medial").
+
+    hemispheres : tuple of str, optional
+        Hemispheres to plot — each becomes one row in the figure.
+        Default is ("left", "right").
 
     Returns
     -------
     None
-        This function displays the plot and optionally saves it to disk.
+        Displays the figure and optionally saves it to disk.
+
+    Examples
+    --------
+    >>> plot_statistics_on_brain(
+    ...     parcellation_atlas_path="aparc.a2009s+aseg.mgz",
+    ...     lut_path="FreeSurferColorLUT.txt",
+    ...     stats={"Left-Hippocampus": 0.42, "Right-Hippocampus": 0.38},
+    ...     vmin=0, vmax=1,
+    ...     cmap="Reds",
+    ...     views=("lateral",),
+    ...     hemispheres=("left",),
+    ... )
     """
-    # read the file and create a nifti image
     parcell_atlas_img = nib.load(parcellation_atlas_path)
-    # extract voxel values and convert them to a ndarray
     parcell_atlas_data = parcell_atlas_img.get_fdata()
-    # Each number in parcell_atlas_data is a label ID ==> A 3D grid of labels
-    # Zeros represent Unlabeled space
+
+    if isinstance(stats, pd.DataFrame):
+        stats = stats.to_dict()
 
     lut = define_lut(lut_path)
 
-    roi_dict = {}
-    for column in df_stats.columns:
-        ind = column.find(which_feature) + len(which_feature)
-        roi = column[ind:]
-        roi_dict[roi] = df_stats[column].item()
-
-
+    missing_regions = []
     volume_img = np.zeros(parcell_atlas_data.shape)
     for region_name, region_ind in lut.items():
-        roi_stats = roi_dict.get(region_name, 0)
-        volume_img[parcell_atlas_data==region_ind] = roi_stats
+        roi_stats = stats.get(region_name)
+        if roi_stats is not None:
+            volume_img[parcell_atlas_data == region_ind] = roi_stats
+        else:
+            missing_regions.append(region_name)
+    print(f"Statistics for the following regions are missing: {missing_regions}")
 
-    # create a nifti image
     img = nib.Nifti1Image(volume_img, parcell_atlas_img.affine)
 
-    
-    kwargs = {"alpha" : 1,
-            "darkness":1.5,
-            "cbar_tick_format":"%.2g"
-            }
+    fsaverage_meshes = datasets.fetch_surf_fsaverage(fsaverage)
 
-    plotting.plot_img_on_surf(
-        img,
-        views=["lateral", "medial"],
-        hemispheres=["left", "right"],
-        colorbar=True,
-        bg_on_data=True,
-        cmap= cmap,
-        vmax=vmax,
-        vmin=vmin,
-        title=title,
-        output_file=save_fig_path,
-        **kwargs
-
+    n_rows = len(hemispheres)
+    n_cols = len(views)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        subplot_kw={"projection": "3d"},
+        figsize=(6 * n_cols, 5 * n_rows),
+        squeeze=False,
     )
 
+    for row, hemi in enumerate(hemispheres):
+        surf_mesh = fsaverage_meshes[f"{surface_mesh_type}_{hemi}"]
+        bg_map = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
+        texture = surface.vol_to_surf(img, surf_mesh)
+
+        for col, view in enumerate(views):
+            plotting.plot_surf_stat_map(
+                surf_mesh=surf_mesh,
+                stat_map=texture,
+                hemi=hemi,
+                view=view,
+                bg_map=bg_map,
+                bg_on_data=bg_on_data,
+                colorbar=show_colorbar,
+                threshold=abs_threshold,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                symmetric_cbar=symmetric_cbar,
+                title=f"{hemi} - {view}" if title is None else f"{title} | {hemi} - {view}",
+                axes=axes[row, col],
+                figure=fig,
+                cbar_tick_format="%.2g",
+            )
+
+    plt.tight_layout()
+    if save_fig_path:
+        fig.savefig(save_fig_path, dpi=150, bbox_inches="tight")
     plt.show()
+
+    return None
 
 
 
