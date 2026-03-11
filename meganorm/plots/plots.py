@@ -1,23 +1,31 @@
 import os
-import statsmodels.api as sm
-import matplotlib
 import pickle
-import numpy as np
-import nilearn
-import nibabel as nib
-from nilearn import plotting
-from matplotlib.colors import ListedColormap
-import matplotlib.colors as mcolors
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.gridspec as grid_spec
+import numpy as np
+import pandas as pd
 import scipy.stats as st
 import seaborn as sns
-import pandas as pd
-from typing import Union
+import statsmodels.api as sm
+import nibabel as nib
 import plotly.graph_objects as go
+
+from typing import Union
 from scipy.stats import chi2
 from sklearn.neighbors import KernelDensity
-import matplotlib.gridspec as grid_spec
+from matplotlib.colors import ListedColormap
 
+from nilearn import surface, plotting, datasets
+from nilearn.surface import PolyMesh, SurfaceImage
+from nilearn.datasets import (
+    fetch_atlas_surf_destrieux,
+    load_fsaverage,
+    load_fsaverage_data,
+    load_nki,
+)
+from nilearn.plotting import plot_surf_roi, plot_surf_contours 
 
 
 # ***
@@ -1617,6 +1625,197 @@ def plot_site_diff(
             fig.savefig(os.path.join(save_dir, fname_base + ".png"), dpi=600)
 
 
+
+def parse_aparc2009_name(region_name):
+    """
+    Convert aparc.a2009s+aseg region name to Destrieux surface label.
+    
+    Examples
+    --------
+    ctx_lh_G_front_sup  → G_front_sup  (left hemisphere)
+    ctx_rh_G_front_sup  → G_front_sup  (right hemisphere)
+    """
+    if region_name.startswith("ctx_lh_"):
+        return region_name[len("ctx_lh_"):], ["left"]
+    elif region_name.startswith("ctx_rh_"):
+        return region_name[len("ctx_rh_"):], ["right"]
+    elif region_name.startswith("ctx_"):
+        return region_name[len("ctx_"):], ["left", "right"]
+    else:
+        return region_name, ["left", "right"]
+    
+    
+def plot_roi(
+    region_name,
+    fsaverage="fsaverage5",
+    mesh_type="pial",
+    hemispheres=["left", "right"],
+    fsaverage_sulcal_type="curvature",
+    views=["lateral"],
+    plot_contour=True,
+    colorbar=False,
+    contour_color=None,
+    cmap="Oranges",
+    **kwargs
+):
+    """
+    Plot a Destrieux atlas ROI on a cortical surface mesh.
+
+    Displays a named region from the Destrieux parcellation on an fsaverage
+    surface, with optional sulcal background shading and ROI contour overlay.
+    Supports multiple hemispheres and views arranged in a grid layout.
+
+    Parameters
+    ----------
+    region_name : str
+        Name of the Destrieux atlas region to plot (e.g. "G_cingul-Post-dorsal").
+        Must exactly match a label in ``fetch_atlas_surf_destrieux().labels``.
+    fsaverage : str, optional
+        Name of the fsaverage template mesh to use. Default is "fsaverage5".
+        Common options: "fsaverage3", "fsaverage4", "fsaverage5", "fsaverage6",
+        "fsaverage".
+    mesh_type : str, optional
+        Surface mesh type to use for plotting. Default is "pial".
+        Options: "pial", "white_matter", "inflated", "sphere", "flat".
+    hemispheres : list of str, optional
+        Hemispheres to plot. Default is ["left", "right"].
+        Each entry becomes a row in the output figure.
+    fsaverage_sulcal_type : str, optional
+        Type of sulcal background data to use. Default is "curvature".
+        Options: "curvature", "sulcal".
+    views : list of str, optional
+        Camera views to render. Default is ["lateral"].
+        Each entry becomes a column in the output figure.
+        Options: "lateral", "medial", "dorsal", "ventral", "anterior",
+        "posterior".
+    plot_contour : bool, optional
+        Whether to draw a contour outline around the ROI boundary.
+        Default is True.
+    colorbar : bool, optional
+        Whether to display a colorbar on each subplot. Default is False.
+    contour_color : str, tuple, or None, optional
+        Color for the ROI contour. Accepts any matplotlib-compatible color
+        (e.g. "black", "#ff0000", (0, 0, 0)). If None, defaults to black.
+    cmap : str, optional
+        Colormap for the ROI fill. Default is "Oranges".
+        Accepts any matplotlib colormap name.
+    **kwargs
+        Additional keyword arguments passed to ``plot_surf_roi``.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure containing all subplots.
+    axes : numpy.ndarray of matplotlib.axes.Axes
+        2D array of axes with shape (n_hemispheres, n_views).
+
+    Examples
+    --------
+    Plot a single hemisphere and view:
+
+    >>> plot_roi(
+    ...     region_name="G_cingul-Post-dorsal",
+    ...     hemispheres=["left"],
+    ...     views=["medial"],
+    ... )
+
+    Plot both hemispheres with multiple views and no contour:
+
+    >>> plot_roi(
+    ...     region_name="G_cingul-Post-dorsal",
+    ...     hemispheres=["left", "right"],
+    ...     views=["medial", "lateral"],
+    ...     plot_contour=False,
+    ...     cmap="Blues",
+    ... )
+
+    Notes
+    -----
+    The figure layout is a grid of shape (n_hemispheres x n_views), where each
+    row corresponds to a hemisphere and each column to a view.
+
+    The Destrieux atlas is fetched via ``fetch_atlas_surf_destrieux()`` and the
+    background sulcal map via ``load_fsaverage_data()``. Both are filtered to
+    the requested hemispheres to ensure mesh compatibility.
+    """
+    fsaverage_meshes = load_fsaverage(mesh=fsaverage)
+    destrieux = fetch_atlas_surf_destrieux(verbose=False)
+
+    # ✅ Handle aparc.a2009s+aseg style names
+    destrieux_label, inferred_hemis = parse_aparc2009_name(region_name)
+    
+    # Inferred hemisphere from name takes priority unless user overrides both
+    # e.g. ctx_lh_ forces left only, unless user explicitly passes hemispheres
+    if region_name.startswith("ctx_lh_"):
+        hemispheres = [h for h in hemispheres if h == "left"] or ["left"]
+    elif region_name.startswith("ctx_rh_"):
+        hemispheres = [h for h in hemispheres if h == "right"] or ["right"]
+
+    # Validate label exists
+    if destrieux_label not in destrieux.labels:
+        close = [l for l in destrieux.labels if destrieux_label.lower() in l.lower()]
+        raise ValueError(
+            f"'{destrieux_label}' not found in Destrieux labels.\n"
+            f"Did you mean one of: {close}"
+        )
+
+    map_destrieux = {}
+    if "left" in hemispheres:
+        map_destrieux["left"] = destrieux.map_left
+    if "right" in hemispheres:
+        map_destrieux["right"] = destrieux.map_right
+
+    full_mesh = fsaverage_meshes[mesh_type]
+    filtered_mesh = PolyMesh(**{hemi: full_mesh.parts[hemi] for hemi in hemispheres})
+    destrieux_atlas = SurfaceImage(mesh=filtered_mesh, data=map_destrieux)
+
+    fsaverage_sulcal_full = load_fsaverage_data(data_type=fsaverage_sulcal_type)
+    fsaverage_sulcal = SurfaceImage(
+        mesh=filtered_mesh,
+        data={hemi: fsaverage_sulcal_full.data.parts[hemi] for hemi in hemispheres}
+    )
+
+    label_region = destrieux.labels.index(destrieux_label)  # ✅ use cleaned label
+    mask = {
+        hemi: data == label_region
+        for hemi, data in destrieux_atlas.data.parts.items()
+    }
+    surface_mask = SurfaceImage(mesh=filtered_mesh, data=mask)
+    
+    n_rows = len(hemispheres)
+    n_cols = len(views)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        subplot_kw={"projection": "3d"},
+        figsize=(6 * n_cols, 5 * n_rows),
+        squeeze=False,
+    )
+
+    for row, hemi in enumerate(hemispheres):
+        for col, view in enumerate(views):
+            fig_roi = plot_surf_roi(
+                roi_map=surface_mask,
+                hemi=hemi,
+                view=view,
+                bg_map=fsaverage_sulcal,
+                bg_on_data=True,
+                colorbar=colorbar,
+                cmap=cmap,
+                alpha=1,
+                axes=axes[row, col],
+                figure=fig,
+                **kwargs
+            )
+            if plot_contour:
+                _contour_color = contour_color if contour_color else ListedColormap(["black"])            
+                plot_surf_contours(
+                    roi_map=surface_mask,
+                    figure=fig_roi, 
+                    hemi=hemi,
+                    axes=axes[row, col],  
+                    cmap=_contour_color,
+                    # **kwargs
+                )
 
 def define_lut(lut_path):
     """
