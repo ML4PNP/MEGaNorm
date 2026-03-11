@@ -215,7 +215,7 @@ def nm_model_train(
 
     else:
         if not job_configs:
-            err = "job configuration should be passed."
+            err = "jobs configuration should be passed."
             raise ValueError(err)
 
         runner = Runner(
@@ -224,6 +224,7 @@ def nm_model_train(
             n_batches=len(train.response_vars),
             environment=job_configs["env_path"],
             job_type=job_configs["job_type"],
+            time_limit=job_configs["time_limit"],
             memory=job_configs["memory"],
             n_cores=job_configs["n_cores"],
             preamble=job_configs["preamble"],
@@ -243,8 +244,8 @@ def nm_model_train(
                 observe=False
             )
 
-    if if_model_diagnosis:
-        model_diagnostics(
-            models_path=f"{project_dir}/model",
-            save_path=os.path.join(nm_dir, "results"),
-        )
+    # if if_model_diagnosis:
+    #     model_diagnostics(
+    #         models_path=f"{nm_dir}/model",
+    #         save_path=os.path.join(nm_dir, "results"),
+    #     )
