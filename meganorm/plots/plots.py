@@ -16,7 +16,9 @@ from typing import Union
 from scipy.stats import chi2
 from sklearn.neighbors import KernelDensity
 from matplotlib.colors import ListedColormap
-
+import matplotlib.colors as mcolors
+from sklearn.neighbors import KernelDensity
+from typing import Optional
 from nilearn import surface, plotting, datasets
 from nilearn.surface import PolyMesh, SurfaceImage
 from nilearn.datasets import (
@@ -2034,74 +2036,137 @@ def plot_statistics_on_brain(
 
 
 
-def plot_mass_metrics(df,
-                      feature_categories,
-                      save_path,
-                      colors,
-                      xlabel,
-                      figsize=(12,10),
-                      kernel="epanechnikov",
-                      dpi=600,
-                      xlim=None,
-                      ylim=None,
-                      bandwidth=0.5,
-                      ):
+def plot_mass_metrics(
+    df,
+    save_path: str,
+    name: str,
+    *,
+    feature_categories: list[str],
+    colors: list[str],
+    figsize: tuple[int, int] = (9, 6),
+    kernel: str = "epanechnikov",
+    dpi: int = 600,
+    xlim: Optional[tuple[float, float]] = None,
+    ylim: Optional[tuple[float, float]] = None,
+    bandwidth: float = 0.05,
+    show_row_labels: bool = False,
+    hspace: float = -0.8,
+    new_names = None,
+) -> plt.Figure:
+    """
+    Plot stacked KDE ridge lines for a set of feature columns.
 
-    gs = grid_spec.GridSpec(len(feature_categories),1)
-    fig = plt.figure(figsize=figsize)
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Source data. Columns are matched with ``str.startswith(feature_category)``.
+    save_path : str
+        Directory where the PNG will be saved.
+    name : str
+        Filename stem (also used as the x-axis label on the bottom strip).
+    feature_categories : list[str]
+        Column prefixes to plot, one ridge per entry.
+    colors : list[str]
+        Fill colours, one per ridge (must be at least as long as ``feature_categories``).
+    figsize : tuple[int, int]
+        Figure size in inches.
+    kernel : str
+        KDE kernel passed to ``sklearn.neighbors.KernelDensity``.
+    dpi : int
+        Resolution for the saved PNG.
+    xlim : tuple[float, float] | None
+        Optional shared x-axis limits.
+    ylim : tuple[float, float] | None
+        Optional shared y-axis limits.
+    bandwidth : float
+        KDE bandwidth.
+    show_row_labels : bool
+        When True, print the feature name to the right of each strip.
+    hspace : float
+        Vertical spacing between subplots (negative values create overlap).
 
-    i = 0
-    ax_objs = []
-    for counter, feature_category in enumerate(feature_categories):
-        
-        x= df.iloc[:, df.columns.str.startswith(feature_category)]
-        x.dropna(inplace=True, axis=1)
-        x = x.to_numpy()[0]
-        
-        x_d = np.linspace(x.min()-4, x.max()+4, 1000)
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure (also saved to disk).
+    """
 
+    def _generate_colors(n: int) -> list[str]:
+        "generate colors, interpolated from blue to red"
+        cmap = plt.cm.get_cmap("RdYlBu_r")
+        return [mcolors.to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
+
+    if not colors:
+        colors = _generate_colors(len(feature_categories))
+    
+    if len(colors) < len(feature_categories):
+        raise ValueError(
+            f"Need at least {len(feature_categories)} colours, got {len(colors)}."
+        )
+
+    n = len(feature_categories)
+    gs = grid_spec.GridSpec(n, 1)
+    fig = plt.figure(figsize=figsize, facecolor="white")
+
+    for i, feature_category in enumerate(feature_categories):
+        # ── Extract & validate data ──────────────────────────────────────────
+        cols = df.loc[:, df.columns.str.startswith(feature_category)]
+        values = cols.to_numpy()[0]
+
+        # ── KDE ──────────────────────────────────────────────────────────────
+        x_grid = np.linspace(values.min() - 4, values.max() + 4, 1000)
         kde = KernelDensity(bandwidth=bandwidth, kernel=kernel)
-        kde.fit(x[:, None])
+        kde.fit(values[:, None])
+        density = np.exp(kde.score_samples(x_grid[:, None]))
 
-        logprob = kde.score_samples(x_d[:, None])
+        # ── Axes setup ───────────────────────────────────────────────────────
+        ax = fig.add_subplot(gs[i : i + 1, 0:])
+        ax.set_yticks([])
+        ax.set_yticklabels([])
+        ax.set_facecolor("none")
 
-        ax_objs.append(fig.add_subplot(gs[i:i+1, 0:]))
+        for spine in ("top", "right", "left", "bottom"):
+            ax.spines[spine].set_visible(False)
 
-        ax_objs[-1].plot(x_d, np.exp(logprob),color="#f0f0f0",lw=1)
-        ax_objs[-1].fill_between(x_d, np.exp(logprob), alpha=1,color=colors[i])
+        is_last = i == n - 1
 
+        if not is_last:
+            ax.set_xticks([])
+            ax.set_xticklabels([])
+        else:
+            ax.tick_params(axis="x", labelsize=15)
+            ax.set_xlabel(name, fontsize=18, fontweight="bold")
+
+        # ── Plot ─────────────────────────────────────────────────────────────
+        ax.plot(x_grid, density, color="#f0f0f0", lw=1)
+        ax.fill_between(x_grid, density, alpha=1, color=colors[i])
 
         if xlim:
-            ax_objs[-1].set_xlim(xlim)
+            ax.set_xlim(xlim)
         if ylim:
-            ax_objs[-1].set_ylim(ylim)
+            ax.set_ylim(ylim)
 
-        rect = ax_objs[-1].patch
-        rect.set_alpha(0)
+        if show_row_labels:
+            if xlim:
+                x_pos = xlim[1] + 0.5
+            else: 
+                x_pos = values.max() + 2
+            if new_names:
+                feature_category = new_names[i]
+            ax.text(
+                x_pos,
+                0,
+                feature_category,
+                fontweight="bold",
+                fontsize=10,
+                ha="right",
+            )
+            
 
-        ax_objs[-1].set_yticklabels([])
-
-        if i == len(feature_categories)-1:
-            ax_objs[-1].set_xlabel(xlabel, 
-                                   fontsize=30,
-                                   fontweight="bold")
-        else:
-            ax_objs[-1].set_xticklabels([])
-
-        spines = ["top","right","left","bottom"]
-        for s in spines:
-            ax_objs[-1].spines[s].set_visible(False)
-        ax_objs[-1].tick_params(axis='x', labelsize=20)
-
-        ax_objs[-1].text(11.5,
-                        0,
-                        feature_category[counter],
-                        fontweight="bold",
-                        fontsize=19,
-                        ha="right")
-        i += 1
-
-    gs.update(hspace=-0.8)
+    gs.update(hspace=hspace)
     plt.tight_layout()
 
-    plt.savefig(save_path, dpi=dpi)
+    os.makedirs(save_path, exist_ok=True)
+    fig.savefig(os.path.join(save_path, f"{name}.png"), dpi=dpi)
+
+    return fig
