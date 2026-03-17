@@ -1743,11 +1743,8 @@ def plot_roi(
     fsaverage_meshes = load_fsaverage(mesh=fsaverage)
     destrieux = fetch_atlas_surf_destrieux(verbose=False)
 
-    # ✅ Handle aparc.a2009s+aseg style names
     destrieux_label, inferred_hemis = parse_aparc2009_name(region_name)
     
-    # Inferred hemisphere from name takes priority unless user overrides both
-    # e.g. ctx_lh_ forces left only, unless user explicitly passes hemispheres
     if region_name.startswith("ctx_lh_"):
         hemispheres = [h for h in hemispheres if h == "left"] or ["left"]
     elif region_name.startswith("ctx_rh_"):
@@ -1777,7 +1774,7 @@ def plot_roi(
         data={hemi: fsaverage_sulcal_full.data.parts[hemi] for hemi in hemispheres}
     )
 
-    label_region = destrieux.labels.index(destrieux_label)  # ✅ use cleaned label
+    label_region = destrieux.labels.index(destrieux_label) 
     mask = {
         hemi: data == label_region
         for hemi, data in destrieux_atlas.data.parts.items()
@@ -2051,7 +2048,11 @@ def plot_mass_metrics(
     bandwidth: float = 0.05,
     show_row_labels: bool = False,
     hspace: float = -0.8,
-    new_names = None,
+    new_names: Optional[list[str]] = None,
+    row_label_fontsize=10,
+    x_label_fontsize= 18,
+    x_ticks_fontsize=15,
+    kde_samples=4000,
 ) -> plt.Figure:
     """
     Plot stacked KDE ridge lines for a set of feature columns.
@@ -2068,6 +2069,7 @@ def plot_mass_metrics(
         Column prefixes to plot, one ridge per entry.
     colors : list[str]
         Fill colours, one per ridge (must be at least as long as ``feature_categories``).
+        Pass an empty list to auto-generate a blue-to-red palette.
     figsize : tuple[int, int]
         Figure size in inches.
     kernel : str
@@ -2084,6 +2086,9 @@ def plot_mass_metrics(
         When True, print the feature name to the right of each strip.
     hspace : float
         Vertical spacing between subplots (negative values create overlap).
+    new_names : list[str] | None
+        Optional display names for each ridge, replacing ``feature_categories``
+        in row labels. Must match the length of ``feature_categories``.
 
     Returns
     -------
@@ -2092,37 +2097,52 @@ def plot_mass_metrics(
     """
 
     def _generate_colors(n: int) -> list[str]:
-        "generate colors, interpolated from blue to red"
-        cmap = plt.cm.get_cmap("RdYlBu_r")
+        """Generate n colors interpolated from blue to red."""
+        cmap = matplotlib.colormaps["RdYlBu_r"]  
         return [mcolors.to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
+
+    if new_names is not None and len(new_names) != len(feature_categories):
+        raise ValueError(
+            f"new_names length ({len(new_names)}) must match "
+            f"feature_categories length ({len(feature_categories)})."
+        )
 
     if not colors:
         colors = _generate_colors(len(feature_categories))
-    
+
     if len(colors) < len(feature_categories):
         raise ValueError(
             f"Need at least {len(feature_categories)} colours, got {len(colors)}."
         )
 
     n = len(feature_categories)
-    gs = grid_spec.GridSpec(n, 1)
     fig = plt.figure(figsize=figsize, facecolor="white")
+    gs = grid_spec.GridSpec(n, 1, figure=fig)  # attach GridSpec to figure
 
     for i, feature_category in enumerate(feature_categories):
-        # ── Extract & validate data ──────────────────────────────────────────
+        
         cols = df.loc[:, df.columns.str.startswith(feature_category)]
-        values = cols.to_numpy()[0]
+        values = cols.to_numpy().ravel() 
 
-        # ── KDE ──────────────────────────────────────────────────────────────
-        x_grid = np.linspace(values.min() - 4, values.max() + 4, 1000)
+        if values.size == 0:
+            raise ValueError(f"No columns found starting with '{feature_category}'.")
+
+        if xlim:
+            x_min, x_max = xlim
+        else:
+            data_min, data_max = values.min(), values.max()
+            pad = (data_max - data_min) * 0.05  # 5% padding on each side
+            x_min = data_min - pad
+            x_max = data_max + pad
+
+        x_grid = np.linspace(x_min, x_max, kde_samples)
+
         kde = KernelDensity(bandwidth=bandwidth, kernel=kernel)
         kde.fit(values[:, None])
         density = np.exp(kde.score_samples(x_grid[:, None]))
-
-        # ── Axes setup ───────────────────────────────────────────────────────
+    
         ax = fig.add_subplot(gs[i : i + 1, 0:])
         ax.set_yticks([])
-        ax.set_yticklabels([])
         ax.set_facecolor("none")
 
         for spine in ("top", "right", "left", "bottom"):
@@ -2132,41 +2152,32 @@ def plot_mass_metrics(
 
         if not is_last:
             ax.set_xticks([])
-            ax.set_xticklabels([])
         else:
-            ax.tick_params(axis="x", labelsize=15)
-            ax.set_xlabel(name, fontsize=18, fontweight="bold")
+            ax.tick_params(axis="x", labelsize=x_ticks_fontsize)
+            ax.set_xlabel(name, fontsize=x_label_fontsize, fontweight="bold")
 
-        # ── Plot ─────────────────────────────────────────────────────────────
         ax.plot(x_grid, density, color="#f0f0f0", lw=1)
         ax.fill_between(x_grid, density, alpha=1, color=colors[i])
 
-        if xlim:
-            ax.set_xlim(xlim)
-        if ylim:
-            ax.set_ylim(ylim)
-
         if show_row_labels:
-            if xlim:
-                x_pos = xlim[1] + 0.5
-            else: 
-                x_pos = values.max() + 2
-            if new_names:
-                feature_category = new_names[i]
+            label = new_names[i] if new_names else feature_category
+            x_pos = xlim[0] if xlim else x_min
             ax.text(
                 x_pos,
                 0,
-                feature_category,
-                fontweight="bold",
-                fontsize=10,
-                ha="right",
+                label,
+                # fontweight="bold",
+                fontsize=row_label_fontsize,
+                ha="right",  
+                va="bottom",
+                transform=ax.transData,
+                clip_on=False,
             )
-            
 
     gs.update(hspace=hspace)
     plt.tight_layout()
 
     os.makedirs(save_path, exist_ok=True)
-    fig.savefig(os.path.join(save_path, f"{name}.png"), dpi=dpi)
+    fig.savefig(os.path.join(save_path, f"{name}.png"), dpi=dpi, bbox_inches="tight")
 
     return fig
