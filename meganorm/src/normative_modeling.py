@@ -140,13 +140,13 @@ def model_diagnostics(
     save_path,
     if_loo_cv=False, # TODO 
 ):
-    if not os.path.isdir(save_path):
+    if save_path and not os.path.isdir(save_path):
         os.mkdir(save_path)
 
     records = []
     models = os.listdir(models_path)
 
-    for model in models:
+    for model in tqdm(models):
         if "normative_model.json" in model:
             continue
 
