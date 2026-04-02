@@ -213,6 +213,20 @@ class Config(BaseModel):
 
     apply_chpi_filter: bool = False
 
+    # gedai settings
+    apply_gedai: bool = True
+    gedai_method: Literal["both", "spectral", "broadband"] = "both"
+    sensai_method: Literal["optimize", "gridsearch"] = "optimize"
+    gedai_duration: Union[float, int] = 12
+    gedai_overlap: Union[float, int] = 0.5
+    gedai_preliminary_broadband_noise_multiplier: float r = 6.0
+    gedai_noise_multiplier: float = 3.0
+    gedai_wavelet_type: str ="haar"
+    gedai_wavelet_level: Union["auto", PositiveInt, 0] = "auto"
+    gedai_wavelet_low_cutoff: Union[None, "float"] = None
+    gedai_epoch_size_in_cycles: PositiveInt = 12
+    gedai_highpass_cutoff: float = 0.1
+
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
     muscle_activity_filter_freq: Tuple[int, int] = (110, 140)
@@ -406,6 +420,23 @@ class Config(BaseModel):
         if not self.parcellation_parc and not self.parcellation_annot_fname:
             raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
 
+    @model_validator(mode="after")
+    def gedai_params_check(self):
+        method = self.gedai_method
+        wavelet_level = self.gedai_wavelet_level
+        duration = self.gedai_duration
+        broadband_multiplier = self.gedai_preliminary_broadband_noise_multiplier
+
+        if method == "broadband" and wavelet_level != 0:
+            raise ValueError("broadband method requires wavelet_level=0")
+        if method == "broadband" and not duration:
+            raise ValueError("broadband method requires gedai_duration")
+        if method == "spectral" and wavelet_level == 0:
+            raise ValueError("spectral method requires wavelet_level > 0")
+        if method == "both" and not broadband_multiplier:
+            raise ValueError("both method requires gedai_preliminary_broadband_noise_multiplier")
+
+    return self
 
     def save(self, save_path:str, overwrite=False):
         "save the configurations to a JSON file"
