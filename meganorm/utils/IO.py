@@ -1004,6 +1004,7 @@ def set_path(project_dir):
 
     # Normative models
     nm_dir = os.path.join(project_dir, "Normative_models")
+    make_folder(nm_dir)
 
     return features_dir, features_log_path
 
