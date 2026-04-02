@@ -571,6 +571,8 @@ def segment_epoch(
 def preprocess(
     data,
     device,
+    subject,
+    freesurfer_dir,
     which_sensor: dict,
     empty_room_recording=None,
     resampling_rate: int = 1000,
@@ -599,7 +601,43 @@ def preprocess(
     environmental_noise_ica_with_ref_meg_thr=2.5,
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
-    environmental_noise_ica_with_ref_meg_measure="zscore"
+    environmental_noise_ica_with_ref_meg_measure="zscore",
+    apply_gedai=True,
+    gedai_method="both",
+    sensai_method="optimize",
+    conductivity=(0.3,),
+    source_space="volumetric",
+    gedai_duration=None,
+    gedai_overlap=0.5,
+    gedai_preliminary_broadband_noise_multiplier=6.0,
+    gedai_noise_multiplier=3.0,
+    gedai_wavelet_type="haar",
+    gedai_wavelet_level="auto",
+    gedai_wavelet_low_cutoff=None,
+    gedai_epoch_size_in_cycles=12,
+    gedai_highpass_cutoff=0.1,
+    source_space_spacing="ico4",
+    source_space_spacing_number=4,
+
+
+
+    subject,
+    freesurfer_dir,
+    gedai_method="both",
+    sensai_method="optimize",
+    conductivity=(0.3,),
+    source_space="volumetric",
+    gedai_duration=None,
+    gedai_overlap=0.5,
+    gedai_preliminary_broadband_noise_multiplier=6.0,
+    gedai_noise_multiplier=3.0,
+    gedai_wavelet_type="haar",
+    gedai_wavelet_level="auto",
+    gedai_wavelet_low_cutoff=None,
+    gedai_epoch_size_in_cycles=12,
+    gedai_highpass_cutoff=0.1,
+    source_space_spacing="ico4",
+    source_space_spacing_number=4,
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data.
@@ -1429,6 +1467,63 @@ def find_ref_meg_artifact(
 
     return data, bad_comps, scores
 
+
+
+def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier):
+    if method == "broadband" and wavelet_level != 0:
+        raise ValueError("broadband method requires wavelet_level=0")
+    if method == "broadband" and not duration:
+        raise ValueError("broadband method requires gedai_duration")
+    if method == "spectral" and wavelet_level == 0:
+        raise ValueError("spectral method requires wavelet_level > 0")
+    if method == "both" and not broadband_multiplier:
+        raise ValueError("both method requires gedai_preliminary_broadband_noise_multiplier")
+
+
+def _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=False):
+    temp_data = data.copy()
+    if signal_type in ["mag", "grad"]:
+        temp_data.pick_types(meg=signal_type)
+    else:
+        temp_data.pick_types(eeg=True)
+
+    gedai = Gedai(
+        wavelet_type=gedai_params["wavelet_type"],       # Default
+        wavelet_level=gedai_params["wavelet_level"],     # TODO
+        wavelet_low_cutoff=gedai_params["wavelet_low_cutoff"],  # This should be set to lower cutoff frequency band in the highpass filter
+        epoch_size_in_cycles=gedai_params["epoch_size_in_cycles"],  # 12 is the default for their matlab code, this ensures at least 12 cycles per frequency range
+        signal_type="auto",                              # default
+        highpass_cutoff=gedai_params["highpass_cutoff"], # default
+        preliminary_broadband_noise_multiplier=gedai_params["preliminary_broadband_noise_multiplier"]
+    )
+
+    gedai.fit_raw(
+        temp_data,
+        duration=gedai_params["duration"],
+        overlap=gedai_params["overlap"],
+        reference_cov=fwd,
+        sensai_method=gedai_params["sensai_method"],
+        noise_multiplier=gedai_params["noise_multiplier"],
+        verbose=False,
+        n_jobs=-1
+    )
+
+    data_corrected = gedai.transform_raw(
+        temp_data,
+        duration=gedai_params["duration"],
+        overlap=gedai_params["overlap"],
+        verbose=False
+    )
+
+    if plot:
+        data_viz = data.copy()
+        fig = gedai.plot_fit()
+        plt.show()
+        plot_mne_style_overlay_interactive(temp_data, data_corrected, duration=10)
+        plt.show()
+
+    return data_corrected
+    
 
 def gedai_preprocess(
         data,
