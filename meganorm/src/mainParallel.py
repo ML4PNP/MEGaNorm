@@ -11,7 +11,6 @@ import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
 from meganorm.utils.IO import storeFooofModels, Config
-from meganorm.src.psdParameterize import parameterize_psds
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
@@ -284,6 +283,9 @@ def main(args):
     # ------------------------------------------------------------
     filtered_data, channel_names, sampling_rate, empty_room_recording, _ = preprocess(
         data=data,
+        device=device,
+        subject=args.subject,
+        freesurfer_dir=args.surfaces_dir,
         n_component=configs.ica_n_component,
         ica_max_iter=configs.ica_max_iter,
         IcaMethod=configs.ica_method,
@@ -300,7 +302,6 @@ def main(args):
         muscle_activity_min_length_good=configs.muscle_activity_min_length_good,
         muscle_activity_filter_freq=configs.muscle_activity_filter_freq,
         muscle_activity_thr=configs.muscle_activity_thr,
-        device=device,
         apply_ica_elbow_detection=configs.apply_ica_elbow_detection,
         apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection,
         apply_Head_movement_correction=configs.apply_Head_movement_correction,
@@ -313,7 +314,22 @@ def main(args):
         environmental_noise_ica_with_ref_meg_thr = configs.environmental_noise_ica_with_ref_meg_thr,
         ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
         environmental_noise_ica_with_ref_meg_method = configs.environmental_noise_ica_with_ref_meg_method,
-        environmental_noise_ica_with_ref_meg_measure = configs.environmental_noise_ica_with_ref_meg_measure
+        environmental_noise_ica_with_ref_meg_measure = configs.environmental_noise_ica_with_ref_meg_measure,
+        gedai_method=configs.gedai_method,
+        sensai_method=configs.sensai_method,
+        conductivity=configs.SL_conductivity,
+        source_space=configs.SL_source_space,
+        gedai_duration=configs.gedai_duration,
+        gedai_overlap=configs.gedai_overlap,
+        gedai_preliminary_broadband_noise_multiplier=configs.gedai_preliminary_broadband_noise_multiplier,
+        gedai_noise_multiplier=configs.gedai_noise_multiplier,
+        gedai_wavelet_type=configs.gedai_wavelet_type,
+        gedai_wavelet_level=configs.gedai_wavelet_level,
+        gedai_wavelet_low_cutoff=configs.gedai_wavelet_low_cutoff,
+        gedai_epoch_size_in_cycles=configs.gedai_epoch_size_in_cycles,
+        gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
+        source_space_spacing=configs.source_space_spacing,
+        source_space_spacing_number=configs.source_space_spacing_number,
     )
 
     # ------------------------------------------------------------

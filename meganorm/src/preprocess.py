@@ -618,26 +618,6 @@ def preprocess(
     gedai_highpass_cutoff=0.1,
     source_space_spacing="ico4",
     source_space_spacing_number=4,
-
-
-
-    subject,
-    freesurfer_dir,
-    gedai_method="both",
-    sensai_method="optimize",
-    conductivity=(0.3,),
-    source_space="volumetric",
-    gedai_duration=None,
-    gedai_overlap=0.5,
-    gedai_preliminary_broadband_noise_multiplier=6.0,
-    gedai_noise_multiplier=3.0,
-    gedai_wavelet_type="haar",
-    gedai_wavelet_level="auto",
-    gedai_wavelet_low_cutoff=None,
-    gedai_epoch_size_in_cycles=12,
-    gedai_highpass_cutoff=0.1,
-    source_space_spacing="ico4",
-    source_space_spacing_number=4,
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data.
@@ -764,6 +744,29 @@ def preprocess(
                 n_jobs=-1,
                 verbose=False,
             )      
+
+    if apply_gedai:
+        data = gedai_preprocess(
+            data=data,
+            subject=subject,
+            freesurfer_dir=freesurfer_dir,
+            which_sensor_dict=which_sensor,
+            gedai_method=configs.gedai_method,
+            sensai_method=configs.sensai_method,
+            conductivity=configs.SL_conductivity,
+            source_space=configs.SL_source_space,
+            gedai_duration=configs.gedai_duration,
+            gedai_overlap=configs.gedai_overlap,
+            gedai_preliminary_broadband_noise_multiplier=configs.gedai_preliminary_broadband_noise_multiplier,
+            gedai_noise_multiplier=configs.gedai_noise_multiplier,
+            gedai_wavelet_type=configs.gedai_wavelet_type,
+            gedai_wavelet_level=configs.gedai_wavelet_level,
+            gedai_wavelet_low_cutoff=configs.gedai_wavelet_low_cutoff,
+            gedai_epoch_size_in_cycles=configs.gedai_epoch_size_in_cycles,
+            gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
+            source_space_spacing=configs.source_space_spacing,
+            source_space_spacing_number=configs.source_space_spacing_number,
+        ) 
 
     # Muscle artifact detection ---------------------
     if cutoffFreqHigh > muscle_activity_filter_freq[0]:
@@ -1523,7 +1526,7 @@ def _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=False):
         plt.show()
 
     return data_corrected
-    
+
 
 def gedai_preprocess(
         data,
