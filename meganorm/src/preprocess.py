@@ -1,18 +1,21 @@
 import os
 import mne
-from mne_icalabel import label_components
 import json
-import numpy as np
 import glob
 import logging
-from typing import Any, Dict
-import pandas as pd
-from scipy.stats import zscore
 import warnings
+import numpy as np
+import pandas as pd
+from typing import Any, Dict
+from scipy.stats import zscore
 from kneed import KneeLocator
+import matplotlib.pyplot as plt
+from gedai.gedai.gedai import Gedai # TODO: This needs to be changed when meg branch is released
+from mne_icalabel import label_components
+from gedai.gedai.viz import plot_mne_style_overlay_interactive
+from meganorm.src.source_localization import corregistration, forward_solution
 
 warnings.filterwarnings("ignore")
-
 logger = logging.getLogger(__name__)
 
 
@@ -1425,3 +1428,169 @@ def find_ref_meg_artifact(
         # TODO: data_clean.drop_channels(ref_comps.ch_names)
 
     return data, bad_comps, scores
+
+
+def gedai_preprocess(
+        data,
+        subject,
+        freesurfer_dir,
+        which_sensor_dict,
+        gedai_method="both",
+        sensai_method="optimize",
+        conductivity=(0.3,),
+        source_space="volumetric",
+        gedai_duration=None,
+        gedai_overlap=0.5,
+        gedai_preliminary_broadband_noise_multiplier=6.0,
+        gedai_noise_multiplier=3.0,
+        gedai_wavelet_type="haar",
+        gedai_wavelet_level="auto",
+        gedai_wavelet_low_cutoff=None,
+        gedai_epoch_size_in_cycles=12,
+        gedai_highpass_cutoff=0.1,
+        source_space_spacing="ico4",
+        source_space_spacing_number=4,
+        plot=False
+    ):
+    """
+    Preprocess MEG/EEG data using GEDAI artifact removal.
+
+    Performs coregistration, computes a forward solution, and applies GEDAI
+    artifact suppression separately for each sensor type (magnetometers,
+    gradiometers, EEG). Non-MEG/EEG channels are preserved and recombined
+    in the output.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG/EEG recording to be cleaned.
+    subject : str
+        Subject identifier, must match the corresponding FreeSurfer subject
+        directory name.
+    freesurfer_dir : str or path-like
+        Path to the FreeSurfer subjects directory. If None, a template will be used.
+    which_sensor_dict : dict
+        Dictionary specifying which sensor types to include in the forward
+        solution.
+    gedai_method : {"both", "broadband", "spectral"}, optional
+        GEDAI artifact removal strategy. "broadband" applies suppression
+        across the full frequency range (requires wavelet_level=0 and
+        gedai_duration). "spectral" applies suppression per frequency band
+        (requires wavelet_level > 0). "both" runs a preliminary broadband
+        pass followed by spectral suppression. Default is "both".
+    sensai_method : str, optional
+        Method used by SensAI for noise estimation. Options are:
+        "optimize" and "gridsearch". Default is "optimize".
+    conductivity : tuple of float, optional
+        Conductivity values (in S/m) for the BEM layers. Use a 1-tuple for
+        a single-shell model (MEG only) or a 3-tuple for a three-layer model
+        (MEG+EEG). Default is (0.3,).
+    source_space : {"volumetric", "surface"}, optional
+        Type of source space to use for the forward solution.
+        Default is "volumetric".
+    gedai_duration : float or None, optional
+        Duration (in seconds) of each data segment used during fitting.
+        Required when gedai_method is "broadband". Default is None.
+    gedai_overlap : float, optional
+        Fractional overlap between consecutive segments, between 0 and 1.
+        Default is 0.5.
+    gedai_preliminary_broadband_noise_multiplier : float, optional
+        Noise multiplier for the preliminary broadband suppression pass when
+        gedai_method is "both". Default is 6.0.
+    gedai_noise_multiplier : float, optional
+        Noise multiplier threshold for the main GEDAI suppression step.
+        Default is 3.0.
+    gedai_wavelet_type : str, optional
+        Wavelet family to use for the spectral decomposition. Default is
+        "haar".
+    gedai_wavelet_level : int or "auto", optional
+        Number of wavelet decomposition levels. Set to 0 for broadband mode,
+        or "auto" to determine the level automatically. Default is "auto".
+    gedai_wavelet_low_cutoff : float or None, optional
+        Lower cutoff frequency (in Hz) for the wavelet decomposition. Should
+        match the highpass filter cutoff. Default is None.
+    gedai_epoch_size_in_cycles : int, optional
+        Minimum number of cycles per frequency band used to determine epoch
+        length. Default is 12.
+    gedai_highpass_cutoff : float, optional
+        Highpass filter cutoff frequency (in Hz) applied before GEDAI fitting.
+        Default is 0.1.
+    source_space_spacing : str, optional
+        Spacing parameter for surface source spaces (e.g. "ico4").
+        Default is "ico4".
+    source_space_spacing_number : int, optional
+        Numeric spacing value corresponding to source_space_spacing.
+        Default is 4.
+    plot : bool, optional
+        If True, displays GEDAI fit diagnostics and an interactive overlay
+        of the cleaned vs. original signal for each sensor type.
+        Default is False.
+
+    Returns
+    -------
+    mne.io.Raw
+        Cleaned raw recording with MEG/EEG channels replaced by their
+        GEDAI-suppressed counterparts. All other channels are unchanged.
+    """
+
+    _validate_gedai_params(gedai_method,
+        gedai_wavelet_level,
+        gedai_duration,
+        gedai_preliminary_broadband_noise_multiplier)
+
+    if freesurfer_dir:
+        transformation_matrix = corregistration(
+            data,
+            subject=subject,
+            subjects_dir=freesurfer_dir,
+            plot_3d=False,
+        )
+
+        fwd, _ = forward_solution(
+            subject=subject,
+            subjects_dir=freesurfer_dir,
+            data=data,
+            transformation_matrix=transformation_matrix.trans,
+            conductivity=conductivity,
+            source_space=source_space,
+            which_sensor_dict=which_sensor_dict,
+            source_space_spacing=source_space_spacing,
+            source_space_spacing_number=source_space_spacing_number,
+        )
+    else:
+        fwd = "Leadfield"
+
+    gedai_params = {
+        "wavelet_type": gedai_wavelet_type,
+        "wavelet_level": gedai_wavelet_level,
+        "wavelet_low_cutoff": gedai_wavelet_low_cutoff,
+        "epoch_size_in_cycles": gedai_epoch_size_in_cycles,
+        "highpass_cutoff": gedai_highpass_cutoff,
+        "preliminary_broadband_noise_multiplier": gedai_preliminary_broadband_noise_multiplier,
+        "duration": gedai_duration,
+        "overlap": gedai_overlap,
+        "sensai_method": sensai_method,
+        "noise_multiplier": gedai_noise_multiplier,
+    }
+
+    meg_eeg_chs = mne.pick_types(data.info, meg=True, eeg=True)
+    other_signals = data.copy()
+    if len(meg_eeg_chs) != len(data.ch_names):
+        other_signals.drop_channels([data.ch_names[i] for i in meg_eeg_chs])
+    else:
+        other_signals = None
+
+    data.pick_types(meg=True, eeg=which_sensor_dict["eeg"])
+    sensor_types_of_interest = np.unique(data.get_channel_types()).tolist()
+
+    cleaned_signals = [
+        _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=plot)
+        for signal_type in sensor_types_of_interest
+    ]
+
+    if other_signals is not None:
+        return other_signals.add_channels(cleaned_signals, force_update_info=True)
+    elif len(cleaned_signals) == 1:
+        return cleaned_signals[0]
+    else:
+        return cleaned_signals[0].add_channels(cleaned_signals[1:], force_update_info=True)
