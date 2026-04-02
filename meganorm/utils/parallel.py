@@ -478,24 +478,30 @@ def auto_parallel_feature_extraction(
     conf = meganorm.utils.IO.Config.load(path=config_file_path)
 
     all_qc_passed_samples = []
+    all_qc_failed_samples = []
+    all_missing_samples = []
     if conf.apply_source_localization and conf.apply_mri_QC:
         for keys, values in datasets.items():
             (qc_passed_samples, 
             qc_failed_samples, 
             missing_samples) = meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
             all_qc_passed_samples.extend(qc_passed_samples)
+            all_missing_samples.extend(missing_samples)
+            all_qc_failed_samples.extend(qc_failed_samples)
 
-        with open(os.path.join(features_dir, "excluded_participants", "failed_mri_qc_participants.json"), "w") as file:
-            json.dump(qc_failed_samples, file, indent=4)
-        with open(os.path.join(features_dir, "excluded_participants", "missing_mri_participants.json"), "w") as file:
-            json.dump(missing_samples, file, indent=4)
+    with open(os.path.join(features_dir, "excluded_participants", "failed_mri_qc_participants.json"), "w") as file:
+        json.dump(all_qc_failed_samples, file, indent=4)
+    with open(os.path.join(features_dir, "excluded_participants", "missing_mri_participants.json"), "w") as file:
+        json.dump(all_missing_samples, file, indent=4)
       
     missing_meg_participants = []
     subjects_temp = subjects.copy()
+    print(subjects)
     for subj, meta in subjects.items():
         if not meta["rest_record"]:
             missing_meg_participants.append(subj)
             subjects_temp.pop(subj)
+            continue
         if (all_qc_passed_samples and subj not in all_qc_passed_samples) or \
         (which_subjects and subj not in which_subjects):
             subjects_temp.pop(subj)
