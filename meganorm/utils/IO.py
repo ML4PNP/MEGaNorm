@@ -222,7 +222,7 @@ class Config(BaseModel):
     gedai_preliminary_broadband_noise_multiplier: float = 6.0
     gedai_noise_multiplier: float = 3.0
     gedai_wavelet_type: str ="haar"
-    gedai_wavelet_level: Union["auto", PositiveInt, 0] = "auto"
+    gedai_wavelet_level: Union[Literal["auto"], PositiveInt, Literal[0]] = "auto"
     gedai_wavelet_low_cutoff: Union[None, float] = None
     gedai_epoch_size_in_cycles: PositiveInt = 12
     gedai_highpass_cutoff: float = 0.1
