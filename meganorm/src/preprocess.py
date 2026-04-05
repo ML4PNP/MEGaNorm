@@ -12,7 +12,8 @@ from kneed import KneeLocator
 import matplotlib.pyplot as plt
 from gedai.gedai.gedai import Gedai # TODO: This needs to be changed when meg branch is released
 from mne_icalabel import label_components
-from gedai.gedai.viz import plot_mne_style_overlay_interactive
+from meganorm.src.source_localization import check_tsss
+from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
 
 warnings.filterwarnings("ignore")
@@ -1156,31 +1157,6 @@ def drop_noisy_segments(
                 f"The final number of used segments: {segments.__len__()}")
     
     return segments
-
-
-def check_tsss(meg_data):
-    """
-    Check if Maxwell filtering (tSSS) was applied to raw/epochs data.
-
-    This inspects the processing history for presence of maxfilter info.
-
-    Parameters
-    ----------
-    meg_data : mne.io.BaseRaw | mne.Epochs
-        The MEG data object.
-
-    Returns
-    -------
-    bool
-        True if tSSS has been applied, False otherwise.
-    """
-    proc_history = meg_data.info.get('proc_history', [])
-    if not proc_history:
-        return False
-    max_info = proc_history[0].get('max_info', {})
-    sss_cal = max_info.get('sss_info', [])
-    return len(sss_cal) > 0
-
 
 
 def pca_elbow_locator(raw, which_sensor):
