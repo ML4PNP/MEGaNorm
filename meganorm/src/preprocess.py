@@ -1301,7 +1301,7 @@ def head_motion_correction(data,
 
     else:
         # check if cHPI data is available and then apply annotate_movement func
-        has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+        has_chpi = bool(data.info["hpi_results"] or mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
         if has_chpi:
             if device == "CTF":
                 chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
@@ -1313,13 +1313,13 @@ def head_motion_correction(data,
                 chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
                 chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
 
-            head_pos = mne.chpi.compute_head_pos(data, 
+            head_pos = mne.chpi.compute_head_pos(data.info, 
                                                 chpi_locs,
                                                 verbose=False)
 
             movement_annotation, Head_position_over_time = mne.preprocessing.annotate_movement(
                 data,
-                head_pos=head_pos,
+                pos=head_pos,
                 mean_distance_limit=Head_movement_limit_from_mean
             )
 
@@ -1603,6 +1603,7 @@ def gedai_preprocess(
         Cleaned raw recording with MEG/EEG channels replaced by their
         GEDAI-suppressed counterparts. All other channels are unchanged.
     """
+    logger.info("Preprocessing the data using the gedai algorithm.")
 
     _validate_gedai_params(gedai_method,
         gedai_wavelet_level,
