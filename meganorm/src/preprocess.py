@@ -1645,14 +1645,14 @@ def gedai_preprocess(
         "noise_multiplier": gedai_noise_multiplier,
     }
 
-    meg_eeg_chs = mne.pick_types(data.info, meg=True, eeg=True)
+    meg_eeg_chs = mne.pick_types(data.info, meg=True, eeg=True, ref_meg=False)
     other_signals = data.copy()
     if len(meg_eeg_chs) != len(data.ch_names):
         other_signals.drop_channels([data.ch_names[i] for i in meg_eeg_chs])
     else:
         other_signals = None
 
-    data.pick_types(meg=True, eeg=which_sensor_dict["eeg"])
+    data.pick_types(meg=True, eeg=which_sensor_dict["eeg"], ref_meg=False)
     sensor_types_of_interest = np.unique(data.get_channel_types()).tolist()
 
     cleaned_signals = [
