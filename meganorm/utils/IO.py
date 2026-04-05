@@ -219,11 +219,11 @@ class Config(BaseModel):
     sensai_method: Literal["optimize", "gridsearch"] = "optimize"
     gedai_duration: Union[float, int] = 12
     gedai_overlap: Union[float, int] = 0.5
-    gedai_preliminary_broadband_noise_multiplier: float r = 6.0
+    gedai_preliminary_broadband_noise_multiplier: float = 6.0
     gedai_noise_multiplier: float = 3.0
     gedai_wavelet_type: str ="haar"
     gedai_wavelet_level: Union["auto", PositiveInt, 0] = "auto"
-    gedai_wavelet_low_cutoff: Union[None, "float"] = None
+    gedai_wavelet_low_cutoff: Union[None, float] = None
     gedai_epoch_size_in_cycles: PositiveInt = 12
     gedai_highpass_cutoff: float = 0.1
 
@@ -419,6 +419,7 @@ class Config(BaseModel):
     def pacellation_checker(self):
         if not self.parcellation_parc and not self.parcellation_annot_fname:
             raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
+        return self
 
     @model_validator(mode="after")
     def gedai_params_check(self):
@@ -435,8 +436,8 @@ class Config(BaseModel):
             raise ValueError("spectral method requires wavelet_level > 0")
         if method == "both" and not broadband_multiplier:
             raise ValueError("both method requires gedai_preliminary_broadband_noise_multiplier")
-
-    return self
+        
+        return self
 
     def save(self, save_path:str, overwrite=False):
         "save the configurations to a JSON file"
