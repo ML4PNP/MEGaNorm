@@ -751,21 +751,21 @@ def preprocess(
             subject=subject,
             freesurfer_dir=freesurfer_dir,
             which_sensor_dict=which_sensor,
-            gedai_method=configs.gedai_method,
-            sensai_method=configs.sensai_method,
-            conductivity=configs.SL_conductivity,
-            source_space=configs.SL_source_space,
-            gedai_duration=configs.gedai_duration,
-            gedai_overlap=configs.gedai_overlap,
-            gedai_preliminary_broadband_noise_multiplier=configs.gedai_preliminary_broadband_noise_multiplier,
-            gedai_noise_multiplier=configs.gedai_noise_multiplier,
-            gedai_wavelet_type=configs.gedai_wavelet_type,
-            gedai_wavelet_level=configs.gedai_wavelet_level,
-            gedai_wavelet_low_cutoff=configs.gedai_wavelet_low_cutoff,
-            gedai_epoch_size_in_cycles=configs.gedai_epoch_size_in_cycles,
-            gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
-            source_space_spacing=configs.source_space_spacing,
-            source_space_spacing_number=configs.source_space_spacing_number,
+            gedai_method=gedai_method,
+            sensai_method=sensai_method,
+            conductivity=conductivity,
+            source_space=source_space,
+            gedai_duration=gedai_duration,
+            gedai_overlap=gedai_overlap,
+            gedai_preliminary_broadband_noise_multiplier=gedai_preliminary_broadband_noise_multiplier,
+            gedai_noise_multiplier=gedai_noise_multiplier,
+            gedai_wavelet_type=gedai_wavelet_type,
+            gedai_wavelet_level=gedai_wavelet_level,
+            gedai_wavelet_low_cutoff=gedai_wavelet_low_cutoff,
+            gedai_epoch_size_in_cycles=gedai_epoch_size_in_cycles,
+            gedai_highpass_cutoff=gedai_highpass_cutoff,
+            source_space_spacing=source_space_spacing,
+            source_space_spacing_number=source_space_spacing_number,
         ) 
 
     # Muscle artifact detection ---------------------
@@ -836,7 +836,7 @@ def preprocess(
 
 
 def drop_noisy_meg_channels(
-    data: Any, subID: str, args: Any, configs: Dict[str, str], device: str, empty_room_recording=None
+    data: Any, subID: str, args: Any, device: str, which_sensor,  empty_room_recording=None
 ) -> Any:
     """
     Identifies and removes noisy or flat MEG/EEG channels using Maxwell filtering,
@@ -853,7 +853,7 @@ def drop_noisy_meg_channels(
     args : argparse.Namespace or similar
         Object containing runtime arguments, including 'saveDir'.
 
-    configs : dict
+    which_sensor : dict
         Configuration dictionary containing:
             - 'which_sensor': one of {"meg", "mag", "grad", "eeg", "opm"}
 
@@ -876,9 +876,6 @@ def drop_noisy_meg_channels(
     'log_droped_channels'.
     """
     logger = logging.getLogger(__name__)
-
-    which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
-    which_sensor[configs.which_sensor] = True
 
     if check_tsss(data):
         msg = "Maxwell filter has already been applied. " \
@@ -1350,12 +1347,12 @@ def head_motion_correction(data,
                 mean_distance_limit=Head_movement_limit_from_mean
             )
 
-            data.set_annotation(movement_annotation)
+            data.set_annotations(movement_annotation)
             logger.info(f"Movement annotation algorithm using cHPI coils detected {sum(movement_annotation.duration)}" \
                         " seconds of motion.")
 
             # Calculate the new device head transformation
-            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos, verbos=False)
+            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos, verbose=False)
             data.info["dev_head_t"] = new_dev_head_t
         
         else:
@@ -1398,7 +1395,7 @@ def remove_environmental_noise(data,
             empty_room_projs = mne.compute_proj_raw(empty_room_recording, n_grad=3, n_mag=3)
             data.add_proj(empty_room_projs)
             data.apply_proj()
-            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info["projs"])}"
+            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info['projs'])}"
         else:
             msg = "Empty_room_recording is inavailable to perform SSP for environmental noise suppression." \
             " Please, use another method to remove environmental noise."

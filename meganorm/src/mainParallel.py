@@ -17,6 +17,7 @@ from meganorm.src.preprocess import (
     drop_noisy_meg_channels,
     prepare_eeg_data,
 )
+from meganorm.src.psdParameterize import parameterize_psds
 from meganorm.src.featureExtraction import feature_extract
 
 
@@ -268,17 +269,18 @@ def main(args):
     if configs.which_sensor == "eeg":
         data = prepare_eeg_data(data, path)
 
+    which_sensor_dict = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
+    which_sensor_dict[configs.which_sensor] = True
+
     # ------------------------------------------------------------
     if configs.which_sensor in ["meg", "grad", "mag"] and configs.drop_noisy_flat_channel:
         data, empty_room_recording = drop_noisy_meg_channels(data=data, 
                                             subID=args.subject, 
                                             args=args, 
-                                            configs=configs, 
                                             device=device,
+                                            which_sensor=which_sensor_dict,
                                             empty_room_recording=empty_room_recording)
     
-    which_sensor_dict = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
-    which_sensor_dict[configs.which_sensor] = True
 
     # ------------------------------------------------------------
     filtered_data, channel_names, sampling_rate, empty_room_recording, _ = preprocess(
@@ -315,6 +317,7 @@ def main(args):
         ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
         environmental_noise_ica_with_ref_meg_method = configs.environmental_noise_ica_with_ref_meg_method,
         environmental_noise_ica_with_ref_meg_measure = configs.environmental_noise_ica_with_ref_meg_measure,
+        apply_gedai = configs.apply_gedai,
         gedai_method=configs.gedai_method,
         sensai_method=configs.sensai_method,
         conductivity=configs.SL_conductivity,
@@ -434,7 +437,7 @@ def main(args):
 
     logger.info(f"The feature extraction process for the subject {args.subject} is complete.")
     end_time = datetime.now()
-    elapsed = start_time - end_time
+    elapsed =  end_time - start_time
     logger.info(f"Script ended at {end_time}")
     logger.info(f"Total elapsed time: {elapsed}")
 
