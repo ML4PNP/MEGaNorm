@@ -700,19 +700,18 @@ def preprocess(
         logger.info(msg)
     
     # power line -----------------------------------
-    data.notch_filter(
-        freqs=np.arange(
-            int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
-        ),
-        n_jobs=-1,
+    nyquist = sampling_rate / 2
+    freqs = np.arange(
+        int(power_line_freq),
+        4 * int(power_line_freq) + 1,
+        int(power_line_freq)
     )
+    freqs = freqs[freqs <= nyquist]  # keep only valid frequencies
+
+    data.notch_filter(freqs=freqs, n_jobs=-1)
+
     if empty_room_recording:
-        empty_room_recording.notch_filter(
-            freqs=np.arange(
-                int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
-            ),
-            n_jobs=-1,
-        )
+        empty_room_recording.notch_filter(freqs=freqs, n_jobs=-1)
 
     # head motion correction ----------------------
     if apply_Head_movement_correction and not which_sensor.get("eeg", False):
@@ -1460,9 +1459,10 @@ def _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=False):
     temp_data = data.copy()
     if signal_type in ["mag", "grad"]:
         temp_data.pick_types(meg=signal_type)
-    else:
+    elif signal_type == "eeg":
         temp_data.pick_types(eeg=True)
 
+    logger.info(f"Applying GEDAI on {signal_type} signals; number of channels: {temp_data.get_data().shape}")
     gedai = Gedai(
         wavelet_type=gedai_params["wavelet_type"],       # Default
         wavelet_level=gedai_params["wavelet_level"],     # TODO
@@ -1490,6 +1490,7 @@ def _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=False):
         overlap=gedai_params["overlap"],
         verbose=False
     )
+    logger.info(f"GEDAI was successfuly applied on the {signal_type} signals")
 
     if plot:
         data_viz = data.copy()
@@ -1651,10 +1652,11 @@ def gedai_preprocess(
         other_signals.drop_channels([data.ch_names[i] for i in meg_eeg_chs])
     else:
         other_signals = None
-
+    # TODO: meg=True should be changed for EEG as well
     data.pick_types(meg=True, eeg=which_sensor_dict["eeg"], ref_meg=False)
     sensor_types_of_interest = np.unique(data.get_channel_types()).tolist()
 
+    logger.info(f"Detected signal types for the GEDAI algorithms are: {sensor_types_of_interest}")
     cleaned_signals = [
         _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=plot)
         for signal_type in sensor_types_of_interest
