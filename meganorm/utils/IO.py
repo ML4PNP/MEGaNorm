@@ -293,7 +293,7 @@ class Config(BaseModel):
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
 
     # A custom parcellation file
-    parcellation_annot_fname: Literal[Path, None] = None
+    parcellation_annot_fname: Optional[Path] = None
 
 
     # PSD
@@ -314,8 +314,8 @@ class Config(BaseModel):
     fooof_min_peak_height: int = 0
     fooof_peak_threshold: PositiveInt = 2
     
-    save_source_localized_epochs: bool = True
-    save_psds : bool = True
+    save_source_localized_epochs: bool = False
+    save_psds : bool = False
 
     # Feature extraction
     freq_bands: Dict[str, Tuple[int, int]] = {

@@ -496,7 +496,7 @@ def auto_parallel_feature_extraction(
       
     missing_meg_participants = []
     subjects_temp = subjects.copy()
-    print(subjects)
+
     for subj, meta in subjects.items():
         if not meta["rest_record"]:
             missing_meg_participants.append(subj)
