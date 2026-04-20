@@ -7,10 +7,10 @@ from pyrasa.irasa_mne.mne_objs import (
     IrasaEpoched,
     PeriodicEpochsSpectrum,
 )
-
+import logging
 import warnings
-
 warnings.filterwarnings("ignore")
+logger = logging.getLogger(__name__)
 
 
 def computePsd(
