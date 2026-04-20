@@ -441,9 +441,6 @@ def main(args):
     logger.info(f"Script ended at {end_time}")
     logger.info(f"Total elapsed time: {elapsed}")
 
-    # if configs.fooof_res_save_path:
-    #     storeFooofModels(configs.fooof_res_save_path, args.subject, fmGroup, psds, freqs)
-
 
 if __name__ == "__main__":
 
