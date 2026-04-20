@@ -19,9 +19,6 @@ from meganorm.layouts.layouts import load_specific_layout
 
 logger = logging.getLogger(__name__)
 
-
-
-
 def abs_canonical_power(
     psd: np.ndarray, freqs: np.ndarray, fmin: Union[int, float], fmax: Union[int, float]
 ) -> float:
@@ -332,7 +329,7 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
     # data frame with name (df.at())
 
     # Features that do not need frequency band appended
-    no_freq = ["Offset", "Exponent", "Peak_Center", "Peak_Power", "Peak_Width"]
+    no_freq = ["Offset", "Exponent", "Exponent_2", "Peak_Center", "Peak_Power", "Peak_Width"]
 
     feature_names = []
 
@@ -472,7 +469,11 @@ def feature_extract(
     )
 
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=False)
+        try :
+            ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=False)
+        except Exception as e: 
+            ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=True)
+            logger.info(f"Data was rescaled in PYRASA due to numerical instability!")
 
     for channel_num, channel_name in enumerate(channel_names):
 
@@ -511,6 +512,13 @@ def feature_extract(
             feature_container = add_feature(
                 feature_container, feature_arr, "Exponent", channel_name, ""
             )
+        
+            if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
+                feature_arr = spectral_model.get_aperiodic_params()[2]
+                feature_container = add_feature(
+                    feature_container, feature_arr, "Exponent_2", channel_name, ""
+                )
+
 
         # isolate periodic parts of signals
         flattened_psd = spectral_model.get_periodic_spectrum(original_psds=psds)
@@ -797,6 +805,7 @@ class PYRASADecomposer(SpectralDecomposer):
         params.append(aperiodic_params_of_interest["Offset"].item())
         # exponent 
         params.append(aperiodic_params_of_interest["Exponent_1"].item())
+        params.append(aperiodic_params_of_interest["Exponent_2"].item())
 
         return params
     
