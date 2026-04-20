@@ -252,7 +252,6 @@ class Config(BaseModel):
     mag_flat_threshold: float = 10e-15
     grad_flat_threshold: float = 10e-13
     eeg_flat_threshold: float = 40e-6
-
     zscore_std_thresh: PositiveInt = 15
 
     segments_tmin: PositiveInt = 20
