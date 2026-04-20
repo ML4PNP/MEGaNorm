@@ -1083,3 +1083,32 @@ def find_other_mri_session(base_mri_path, missing_mri_subjects, str_mri_ending, 
         
     return new_paths
 
+def find_failed_meg_subjects(log_path):
+    
+    missing_meg_subjects = []
+    paths = os.scandir(log_path)
+    paths = list(filter(lambda x: "err" in x.name, paths))
+    for path in paths:
+        with open(path, "r") as f:
+            content = f.read()
+            if "error" in content:
+                subject = os.path.basename(path).split(".")[0].split("_")[0]
+                missing_meg_subjects.append(subject)
+
+    return set(missing_meg_subjects)
+
+def find_other_meg_session(base_meg_path,
+                           missing_meg_subjects,
+                           str_meg_ending,
+                           task_name,
+                           which_session):
+    
+    new_paths = {}
+    for subject in missing_meg_subjects:
+        rs_record_paths = glob(
+                    f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
+                    recursive=True
+                    )
+        if len(rs_record_paths) > which_session - 1:
+            new_paths.update({subject: rs_record_paths[which_session - 1]})
+    return new_paths
