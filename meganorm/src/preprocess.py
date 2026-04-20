@@ -15,7 +15,7 @@ from mne_icalabel import label_components
 from meganorm.src.source_localization import check_tsss
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
-
+from meganorm.utils.remove_later import compute_fooof
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
@@ -715,12 +715,18 @@ def preprocess(
 
     # head motion correction ----------------------
     if apply_Head_movement_correction and not which_sensor.get("eeg", False):
-        data, empty_room_recording = head_motion_correction(
-            data,
-            empty_room_recording,
-            device,
-            Head_movement_limit_from_mean=Head_movement_limit_from_mean
-            )
+        data_temp = data.copy()
+        if empty_room_recording:
+            empty_room_recording_temp = empty_room_recording.copy()
+        try:
+            data, empty_room_recording = head_motion_correction(
+                data_temp,
+                empty_room_recording_temp,
+                device,
+                Head_movement_limit_from_mean=Head_movement_limit_from_mean
+                )
+        except Exception as e:
+            logger.warning(f"Head motion correction failed: {e}")
 
     # remove cHPI noise ---------------------------
     has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
@@ -814,6 +820,8 @@ def preprocess(
             IcaMethod,
             auto_ica_corr_thr
             )
+    else:
+        number_of_reduced_ic = 0
 
     data = data.pick_types(
         meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
@@ -1481,6 +1489,7 @@ def _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=False):
         sensai_method=gedai_params["sensai_method"],
         noise_multiplier=gedai_params["noise_multiplier"],
         verbose=False,
+        reject_by_annotation=True,
         n_jobs=-1
     )
 
@@ -1668,3 +1677,71 @@ def gedai_preprocess(
         return cleaned_signals[0]
     else:
         return cleaned_signals[0].add_channels(cleaned_signals[1:], force_update_info=True)
+
+
+def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
+    if reject is None and flat is None:
+        return mne.Annotations(onset=[], duration=[], description=[])
+
+    sfreq = raw.info['sfreq']
+    win_samples = int(window * sfreq)
+    step_samples = int(step * sfreq)
+    n_samples = len(raw.times)  # fixed
+
+    ch_types_in_raw = set(raw.get_channel_types())
+    types_to_check = set()
+    if reject:
+        types_to_check.update(k for k in reject if k in ch_types_in_raw)
+    if flat:
+        types_to_check.update(k for k in flat if k in ch_types_in_raw)
+
+    type_data = {}
+    for ch_type in types_to_check:
+        if ch_type in ("mag", "grad"):
+            picks = mne.pick_types(raw.info, meg=ch_type, ref_meg=False, exclude='bads')
+        elif ch_type == "eeg":
+            picks = mne.pick_types(raw.info, eeg=True, exclude='bads')
+        if len(picks) == 0:
+            continue
+        type_data[ch_type] = raw.get_data(picks=picks)
+    
+    times = raw.times
+    n_samples = raw._data.shape[1] if raw.preload else len(times)
+
+    bad_peak_onsets = []
+    bad_flat_onsets = []
+
+    i = 0
+    while i + win_samples <= n_samples:
+        t_onset = times[i]
+        is_peak_bad = False
+        is_flat_bad = False
+
+        for ch_type, data_arr in type_data.items():
+            segment = data_arr[:, i:i + win_samples]
+            ptp = np.ptp(segment, axis=1)  # peak-to-peak per channel, shape (n_ch,)
+
+            if reject and ch_type in reject:
+                if np.any(ptp > reject[ch_type]):
+                    print(ptp)
+                    is_peak_bad = True
+
+            if flat and ch_type in flat:
+                if np.any(ptp < flat[ch_type]):
+                    print("no")
+                    is_flat_bad = True
+
+        if is_peak_bad:
+            bad_peak_onsets.append(t_onset)
+        elif is_flat_bad:
+            bad_flat_onsets.append(t_onset)
+
+        i += step_samples
+
+    # Build annotations
+    onsets = bad_peak_onsets + bad_flat_onsets
+    durations = [window] * len(onsets)
+    descriptions = (['BAD_peak'] * len(bad_peak_onsets) +
+                    ['BAD_flat'] * len(bad_flat_onsets))
+
+    return mne.Annotations(onset=onsets, duration=durations, description=descriptions, orig_time=raw.info["meas_date"])    
