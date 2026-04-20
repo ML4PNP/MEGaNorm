@@ -206,7 +206,7 @@ def main(args):
 
     paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
-    path = paths[0]
+    path = paths[configs.which_meg_session]
 
     if args.empty_room_recording_path:
         empty_room_recording_paths = args.empty_room_recording_path.split("*")

@@ -187,6 +187,7 @@ class Config(BaseModel):
         Validator for EEG conductivity.
     """
 
+    which_meg_session : int = 0 # the first session
 
     which_layout: Literal["all", "lobe", None] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
@@ -1068,3 +1069,17 @@ def clean_nan_columns(df, nan_threshold):
                 df[col] = df[col].fillna(median_value)
 
     return df
+
+
+
+def find_other_mri_session(base_mri_path, missing_mri_subjects, str_mri_ending, which_session):
+
+    new_paths = {}
+    for subject in missing_mri_subjects:
+        mri_paths = glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
+
+        if len(mri_paths) > which_session-1:
+            new_paths.update({subject: mri_paths[which_session-1]})
+        
+    return new_paths
+
