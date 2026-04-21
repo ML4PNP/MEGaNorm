@@ -6,16 +6,24 @@ import numpy as np
 import arviz as az
 import sys
 import os
+import re
 
 
 
-def impute_by_subgroup(df, group_cols, continous_cov_col='age', imputation_con_var_window=5, strategy='mean', customized_age_window=None):
+def impute_by_subgroup(df, 
+    group_cols, 
+    subject_removal_nan_thr=0.2, 
+    continous_cov_col='age', 
+    imputation_con_var_window=5, 
+    strategy='mean', 
+    customized_age_window=None
+    ):
 
     if not isinstance(continous_cov_col, str):
         err_msg = "continous_cov_col should be a string. Multiple covriates are not supported yet."
         raise ValueError(err_msg)
 
-    df = df.loc[:, df.isna().mean(axis=0) < 0.2]
+    df = df.loc[:, df.isna().mean(axis=0) < subject_removal_nan_thr]
 
     df_imputed = df.copy()
     agg_fn = np.nanmean if strategy == 'mean' else np.nanmedian
@@ -65,8 +73,9 @@ def prepare_nm_data(
     covariate_list,
     batch_effect_list,
     subject_id_col_name,
-    including_brain_regions=None,
-    excluding_brain_regions=None,
+    subject_removal_nan_thr=0.2,
+    including_ROIs=None,
+    excluding_ROIs=None,
     name_data="reference_data",
     missing_value_handling_method=None,
     customized_con_var_imputation_window = None,
@@ -83,13 +92,17 @@ def prepare_nm_data(
     if which_cohorts:
         df = df[df["diagnosis"].isin(which_cohorts)]
 
-    if excluding_brain_regions:
-        df = df.drop(columns=df.filter(regex="|".join(excluding_brain_regions)).columns)
-        response_vars = [var for var in response_vars if not any(excl in var for excl in excluding_brain_regions)]
+    if excluding_ROIs:
+        df = df.drop(columns=df.filter(regex="|".join(excluding_ROIs)).columns)
+        response_vars = [var for var in response_vars if not any(excl in var for excl in excluding_ROIs)]
 
-    if including_brain_regions:
-        df = df[df.filter(regex="|".join(including_brain_regions)).columns]
-        response_vars = [var for var in response_vars if any(incl in var for incl in including_brain_regions)]
+    if including_ROIs:
+        stripped_ROIs = [re.sub(r'-(lh|rh)$', '', roi) for roi in including_ROIs]
+        pattern = "|".join(map(re.escape, stripped_ROIs + batch_effect_list + [subject_id_col_name] + which_cohorts + covariate_list))
+        df= df.loc[:, df.columns.str.contains(pattern)]
+
+        response_vars = [var for var in response_vars if any(incl in var for incl in stripped_ROIs)]
+    print("Number of response variables: ", len(response_vars))
         
         
     if which_subjects:
@@ -97,8 +110,9 @@ def prepare_nm_data(
 
     if missing_value_handling_method in ["mean", "median"]:
         df = impute_by_subgroup(
-            df,
+            df=df,
             group_cols=batch_effect_list,
+            subject_removal_nan_thr=subject_removal_nan_thr,
             continous_cov_col=covariate_list[0],
             imputation_con_var_window=5,
             strategy=missing_value_handling_method,
@@ -110,8 +124,10 @@ def prepare_nm_data(
         remove_nan = True
 
     
-    if removing_outliers_thr: remove_outlier = True
-    else: remove_outlier = False
+    if removing_outliers_thr: 
+        remove_outlier = True
+    else: 
+        remove_outlier = False
 
     reference_data = NormData.from_dataframe(
         name=name_data,
