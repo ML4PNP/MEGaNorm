@@ -65,7 +65,8 @@ def prepare_nm_data(
     covariate_list,
     batch_effect_list,
     subject_id_col_name,
-    excluding_brain_region=None,
+    including_brain_regions=None,
+    excluding_brain_regions=None,
     name_data="reference_data",
     missing_value_handling_method=None,
     customized_con_var_imputation_window = None,
@@ -82,9 +83,13 @@ def prepare_nm_data(
     if which_cohorts:
         df = df[df["diagnosis"].isin(which_cohorts)]
 
-    if excluding_brain_region:
-        df = df.drop(columns=df.filter(regex="|".join(excluding_brain_region)).columns)
-        response_vars = [var for var in response_vars if not any(excl in var for excl in excluding_brain_region)]
+    if excluding_brain_regions:
+        df = df.drop(columns=df.filter(regex="|".join(excluding_brain_regions)).columns)
+        response_vars = [var for var in response_vars if not any(excl in var for excl in excluding_brain_regions)]
+
+    if including_brain_regions:
+        df = df[df.filter(regex="|".join(including_brain_regions)).columns]
+        response_vars = [var for var in response_vars if any(incl in var for incl in including_brain_regions)]
         
         
     if which_subjects:
