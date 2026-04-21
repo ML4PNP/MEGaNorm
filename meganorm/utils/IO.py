@@ -1076,7 +1076,7 @@ def find_other_mri_session(base_mri_path, missing_mri_subjects, str_mri_ending, 
 
     new_paths = {}
     for subject in missing_mri_subjects:
-        mri_paths = glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
+        mri_paths = glob.glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
 
         if len(mri_paths) > which_session-1:
             new_paths.update({subject: mri_paths[which_session-1]})
@@ -1105,7 +1105,7 @@ def find_other_meg_session(base_meg_path,
     
     new_paths = {}
     for subject in missing_meg_subjects:
-        rs_record_paths = glob(
+        rs_record_paths = glob.glob(
                     f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
                     recursive=True
                     )
