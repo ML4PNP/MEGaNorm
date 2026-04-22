@@ -1,9 +1,13 @@
 from pcntoolkit import NormativeModel, HBR, BLR, Runner
 from pcntoolkit import NormData
 from tqdm.notebook import tqdm
+import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import arviz as az
+import xarray as xr
+import pymc as pm
+import json
 import sys
 import os
 import re
@@ -270,3 +274,145 @@ def nm_model_train(
     #         models_path=f"{nm_dir}/model",
     #         save_path=os.path.join(nm_dir, "results"),
     #     )
+
+
+
+def prior_predictive_check(
+    idata_path,
+    regression_model_path,
+    model,
+    X,
+    Y,
+    be,
+    be_maps,
+    n_samples=500,
+    random_seed=None
+):
+    """
+    Perform a prior predictive check for a fitted normative model.
+
+    Loads a fitted model and its inference data, rebuilds the PyMC model
+    with the provided data, samples from the prior predictive distribution,
+    and plots the resulting prior predictive check.
+
+    Parameters
+    ----------
+    idata_path : str
+        Path to the NetCDF file containing the fitted inference data
+        (e.g., ``"path/to/idata.nc"``).
+    regression_model_path : str
+        Path to the JSON file containing the serialized regression model
+        (e.g., ``"path/to/regression_model.json"``).
+    model : {"hbr"}
+        Name of the normative model to use. Currently only ``"hbr"``
+        (Hierarchical Bayesian Regression) is supported.
+    X : numpy.ndarray of shape (n_samples, n_covariates)
+        Covariate matrix (e.g., age, brain volume).
+    Y : numpy.ndarray of shape (n_samples,)
+        Response variable (e.g., neuroimaging measure).
+    be : numpy.ndarray of shape (n_samples, 2)
+        Batch effects array with columns corresponding to ``["sex", "site"]``.
+    be_maps : dict of {str : dict}
+        Mapping of batch effect names to label-to-integer encodings. Expected
+        keys are ``"sex"`` and ``"site"``. For example::
+
+            {
+                "sex":  {"Female": 0, "Male": 1},
+                "site": {"BTNRH": 0, "CAMCAN": 1}
+            }
+
+    n_samples : int, optional
+        Number of prior predictive samples to draw. Default is ``500``.
+    random_seed : int or None, optional
+        Random seed for reproducibility. If ``None``, no seed is set.
+        Default is ``None``.
+
+    Returns
+    -------
+    pymc_model : pymc.Model
+        The compiled PyMC model used for prior predictive sampling.
+
+    Raises
+    ------
+    ValueError
+        If ``model`` is not ``"hbr"``.
+
+    Notes
+    -----
+    The function prints the PyMC model string representation before sampling.
+    The prior predictive plot is displayed inline via ``plt.show()``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> n = 50
+    >>> X = np.random.uniform(-1.5, 2.3, (n, 1))
+    >>> Y = np.random.randn(n)
+    >>> be = np.column_stack([
+    ...     np.random.randint(0, 2, n),
+    ...     np.random.randint(0, 6, n),
+    ... ])
+    >>> be_maps = {
+    ...     "sex":  {"Female": 0, "Male": 1},
+    ...     "site": {"BTNRH": 0, "CAMCAN": 1, "MOUS": 2,
+    ...              "NIMH": 3, "OMEGA": 4, "WAND": 5}
+    ... }
+    >>> pymc_model = prior_predictive_check(
+    ...     idata_path="path/to/idata.nc",
+    ...     regression_model_path="path/to/regression_model.json",
+    ...     model="hbr",
+    ...     X=X,
+    ...     Y=Y,
+    ...     be=be,
+    ...     be_maps=be_maps,
+    ...     n_samples=500,
+    ...     random_seed=42,
+    ... )
+    """
+    idata = az.from_netcdf(idata_path)
+    with open(regression_model_path, "rb") as file:
+        m = json.load(file)
+
+    if model == "hbr":
+        hbr = HBR()
+        hbr.is_fitted = True
+    else:
+        err_msg = "Did not have time to implement for all models!"
+        raise ValueError(err_msg)
+
+    hbr.from_dict(my_dict=m["model"])
+    hbr.load_idata(path=idata_path)
+
+    n = len(Y) 
+    X = xr.DataArray(
+        X,
+        dims=["observations", "covariates"],
+        coords={"observations": np.arange(n)}
+    )
+
+    Y = xr.DataArray(
+        Y,
+        dims=["observations"],
+        coords={"observations": np.arange(n)}
+    )
+    be = xr.DataArray(
+        be,
+        dims=["observations", "batch_effect_dims"],
+        coords={"batch_effect_dims": ["sex", "site"]}  # named coordinate
+    )
+
+    # Rebuild the PyMC model with dummy data
+    pymc_model = hbr.likelihood.compile(X, be, be_maps, Y)
+
+    print("The model:\n" , pymc_model.str_repr())
+
+    with pymc_model:
+        prior_idata = pm.sample_prior_predictive(
+            draws=n_samples,
+            random_seed=random_seed,
+        )
+    
+    az.plot_ppc(prior_idata, group="prior", observed=True)
+    plt.show()
+
+    return pymc_model
