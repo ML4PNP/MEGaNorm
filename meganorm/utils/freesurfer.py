@@ -33,14 +33,7 @@ def get_freesurfer_home(freesurfer_path: str | None) -> str:
 def find_bids_t1w_files(subjects_directory: str, subject_id: str):
     """
     Return a list of dicts for all T1w files for a BIDS subject.
-    Handles no-session and multi-session.
-    Each item:
-      {
-        "subject_id": "sub-01",
-        "session": "ses-01" or None,
-        "t1_path": "/.../sub-01/ses-01/anat/sub-01_ses-01_T1w.nii.gz",
-        "job_label": "sub-01_ses-01" or "sub-01"
-      }
+    Handles no-session, multi-session, and multi-run cases.
     """
     bids_root = Path(subjects_directory)
     subj_dir = bids_root / subject_id
@@ -60,16 +53,36 @@ def find_bids_t1w_files(subjects_directory: str, subject_id: str):
     for pat in patterns:
         t1_files.extend(glob.glob(pat))
 
+    t1_files = sorted(set(t1_files))
+
     results = []
     for t1 in t1_files:
         t1_path = Path(t1)
-        ses_match = re.search(r"(ses-[^/\\]+)", str(t1_path))
+
+        ses_match = re.search(r"(ses-[^_/\\]+)", t1_path.name)
+        run_match = re.search(r"(run-[^_/\\]+)", t1_path.name)
+
         session = ses_match.group(1) if ses_match else None
-        job_label = f"{subject_id}_{session}" if session else subject_id
+        run = run_match.group(1) if run_match else None
+
+        job_parts = [subject_id]
+        if session:
+            job_parts.append(session)
+        if run:
+            job_parts.append(run)
+
+        job_label = "_".join(job_parts)
+
         results.append(
-            {"subject_id": subject_id, "session": session, "t1_path": str(t1_path), "job_label": job_label}
+            {
+                "subject_id": subject_id,
+                "session": session,
+                "run": run,
+                "t1_path": str(t1_path),
+                "job_label": job_label,
+            }
         )
-        break # TODO: For now ignores multiple runs and only run it for one available run
+
     return results
 
 def prepare_mri_data(mri_directory):
@@ -179,6 +192,9 @@ def is_success(
     return status == "success"
 
 
+
+
+
 def run_parallel_reconall(
     subjects_directory,
     results_directory=None,
@@ -186,28 +202,72 @@ def run_parallel_reconall(
     freesurfer_path=None,
     file_postfix=".nii",
     skip_completed: bool = True,
-    skip_running: bool = True,                         # NEW: avoid double-submitting active jobs
-    resubmit_statuses: tuple[str, ...] = ("failed", "missing", "stalled"),  
+    skip_running: bool = True,
+    resubmit_statuses: tuple[str, ...] = ("failed", "missing", "stalled"),
     success_token: str = "finished without error",
     tail_lines_to_scan: int = 200,
     fresh_minutes: int = 30,
     stalled_hours: int = 24,
+    selected_subjects: list[str] | str | None = None,
+    selected_sessions: list[str] | str | None = None,
 ):
     """
-    Submit recon-all for BIDS subjects, using classify_subject_status() to decide
-    whether to (re)submit. Saves submission manifests to processing_directory.
+    Submit recon-all for BIDS subjects, with optional filtering by specific
+    subjects and sessions.
+
+    Behavior
+    --------
+    - If selected_subjects=None and selected_sessions=None:
+      behaves like the old run_parallel_reconall (one session per subject by default).
+    - If selected_subjects is provided:
+      only those subjects are considered.
+    - If selected_sessions is provided:
+      only matching sessions are considered.
+    - If first_session_only=True and selected_sessions=None:
+      only the first discovered T1/session is used per subject.
+    - If session_specific_subject_ids=True:
+      FreeSurfer subject IDs become session-specific (e.g. sub-01_ses-01).
+      This is recommended when processing multiple sessions separately.
+
+    Returns
+    -------
+    submitted : list[str]
+        Submitted job labels.
+    failed_job_submissions : list[str]
+        Subjects or job labels that could not be submitted.
     """
 
     Path(processing_directory).mkdir(parents=True, exist_ok=True)
 
     bids_root = Path(subjects_directory)
-    subject_ids = sorted(d.name for d in bids_root.glob("sub-*") if d.is_dir())
-    if not subject_ids:
-        raise RuntimeError(f"No BIDS subjects found in {subjects_directory}")
 
     if results_directory is None:
         results_directory = str(bids_root / "derivatives" / "freesurfer")
     os.makedirs(results_directory, exist_ok=True)
+
+    # Normalize selected_subjects
+    if selected_subjects is None:
+        subject_ids = sorted(d.name for d in bids_root.glob("sub-*") if d.is_dir())
+    else:
+        if isinstance(selected_subjects, str):
+            selected_subjects = [selected_subjects]
+        subject_ids = sorted(set(selected_subjects))
+
+        available_subjects = {d.name for d in bids_root.glob("sub-*") if d.is_dir()}
+        missing_subjects = [sid for sid in subject_ids if sid not in available_subjects]
+        if missing_subjects:
+            raise RuntimeError(
+                f"These selected subjects were not found in {subjects_directory}: {missing_subjects}"
+            )
+
+    if not subject_ids:
+        raise RuntimeError(f"No BIDS subjects found in {subjects_directory}")
+
+    # Normalize selected_sessions
+    if selected_sessions is not None:
+        if isinstance(selected_sessions, str):
+            selected_sessions = [selected_sessions]
+        selected_sessions = set(selected_sessions)
 
     submitted: list[str] = []
     failed_job_submissions: list[str] = []
@@ -216,7 +276,7 @@ def run_parallel_reconall(
     failed_records: list[dict] = []
 
     for subject_id in subject_ids:
-        # Decide what to do based on unified status
+        # Subject-level status check, preserves old behavior
         status, _info = classify_subject_status(
             results_directory,
             subject_id,
@@ -226,18 +286,19 @@ def run_parallel_reconall(
             stalled_hours=stalled_hours,
         )
 
-        if skip_completed and status == "success":
+        if skip_completed and status == "success" and selected_sessions is None:
             print(f"[SKIP] {subject_id} already finished without error.")
             continue
-        if skip_running and status == "running":
+
+        if skip_running and status == "running" and selected_sessions is None:
             print(f"[SKIP] {subject_id} currently running.")
             continue
-        if status not in resubmit_statuses and status != "success":
-            # e.g., you might choose not to resubmit 'idle' or other states
+
+        if status not in resubmit_statuses and status != "success" and selected_sessions is None:
             print(f"[SKIP] {subject_id}: status '{status}' not in resubmit_statuses.")
             continue
 
-        # Discover T1w inputs
+        # Discover all T1w inputs for this subject
         t1_entries = find_bids_t1w_files(subjects_directory, subject_id)
         if not t1_entries:
             print(f"[WARN] No T1w for {subject_id}; skipping")
@@ -249,11 +310,62 @@ def run_parallel_reconall(
             })
             continue
 
-        # Avoid re-importing T1 on reruns (keeps mri/orig clean)
-        subj_fs_dir = Path(results_directory) / subject_id
-        i_opt = not subj_fs_dir.exists()
+        # Filter by user-requested sessions if provided
+        if selected_sessions is not None:
+            t1_entries = [
+                entry for entry in t1_entries
+                if entry.get("session") in selected_sessions
+            ]
+
+            if not t1_entries:
+                print(f"[WARN] No matching T1w found for {subject_id} in requested sessions.")
+                failed_job_submissions.append(subject_id)
+                failed_records.append({
+                    "subject_id": subject_id,
+                    "reason": "no_matching_session_found",
+                    "requested_sessions": sorted(selected_sessions),
+                    "attempt_time": datetime.now().isoformat(timespec="seconds"),
+                })
+                continue
+
+        # Run for the first found session.
+        else:
+            t1_entries = t1_entries[:1]
 
         for entry in t1_entries:
+            # Decide the FreeSurfer subject ID used by recon-all
+            if entry.get("run") is not None:
+                fs_subject_id = entry["job_label"]
+            elif selected_sessions is not None:
+                fs_subject_id = entry["job_label"]
+            else:
+                fs_subject_id = subject_id
+
+            # If using session-specific subject IDs, classify per output target
+            entry_status, _entry_info = classify_subject_status(
+                results_directory,
+                fs_subject_id,
+                success_token=success_token,
+                tail_lines_to_scan=tail_lines_to_scan,
+                fresh_minutes=fresh_minutes,
+                stalled_hours=stalled_hours,
+            )
+
+            if skip_completed and entry_status == "success":
+                print(f"[SKIP] {fs_subject_id} already finished without error.")
+                continue
+
+            if skip_running and entry_status == "running":
+                print(f"[SKIP] {fs_subject_id} currently running.")
+                continue
+
+            if entry_status not in resubmit_statuses and entry_status != "success":
+                print(f"[SKIP] {fs_subject_id}: status '{entry_status}' not in resubmit_statuses.")
+                continue
+
+            subj_fs_dir = Path(results_directory) / fs_subject_id
+            i_opt = not subj_fs_dir.exists()
+
             script_file_path = create_slurm_script(
                 t1_path=entry["t1_path"],
                 job_label=entry["job_label"],
@@ -263,34 +375,54 @@ def run_parallel_reconall(
                 i_option=i_opt,
             )
 
-            cmd = ["sbatch", script_file_path, subject_id]
+            cmd = ["sbatch", script_file_path, fs_subject_id]
             print(f"Submitting job: {entry['job_label']} -> {' '.join(cmd)}")
 
             res = subprocess.run(cmd, check=False, capture_output=True, text=True)
 
-            # Parse SLURM job ID
             job_id = None
             m = re.search(r"Submitted batch job\s+(\d+)", (res.stdout or ""))
             if m:
                 job_id = m.group(1)
 
-            submitted.append(entry["job_label"])
-            submitted_records.append({
-                "subject_id": subject_id,
-                "job_label": entry["job_label"],
-                "session": entry.get("session"),
-                "t1_path": entry["t1_path"],
-                "script_path": script_file_path,
-                "sbatch_cmd": " ".join(cmd),
-                "job_id": job_id,
-                "sbatch_returncode": res.returncode,
-                "sbatch_stdout": (res.stdout or "").strip(),
-                "sbatch_stderr": (res.stderr or "").strip(),
-                "submit_time": datetime.now().isoformat(timespec="seconds"),
-                "pre_status": status,  # status before submitting
-            })
+            if res.returncode == 0:
+                submitted.append(entry["job_label"])
+                submitted_records.append({
+                    "subject_id": subject_id,
+                    "fs_subject_id": fs_subject_id,
+                    "job_label": entry["job_label"],
+                    "session": entry.get("session"),
+                    "run": entry.get("run"),
+                    "t1_path": entry["t1_path"],
+                    "script_path": script_file_path,
+                    "sbatch_cmd": " ".join(cmd),
+                    "job_id": job_id,
+                    "sbatch_returncode": res.returncode,
+                    "sbatch_stdout": (res.stdout or "").strip(),
+                    "sbatch_stderr": (res.stderr or "").strip(),
+                    "submit_time": datetime.now().isoformat(timespec="seconds"),
+                    "pre_status": entry_status,
+                })
+            else:
+                failed_job_submissions.append(entry["job_label"])
+                failed_records.append({
+                    "subject_id": subject_id,
+                    "fs_subject_id": fs_subject_id,
+                    "job_label": entry["job_label"],
+                    "session": entry.get("session"),
+                    "run": entry.get("run"),
+                    "t1_path": entry["t1_path"],
+                    "script_path": script_file_path,
+                    "sbatch_cmd": " ".join(cmd),
+                    "job_id": job_id,
+                    "sbatch_returncode": res.returncode,
+                    "sbatch_stdout": (res.stdout or "").strip(),
+                    "sbatch_stderr": (res.stderr or "").strip(),
+                    "reason": "sbatch_submission_failed",
+                    "attempt_time": datetime.now().isoformat(timespec="seconds"),
+                    "pre_status": entry_status,
+                })
 
-    # ---- Persist manifests ----
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     proc_dir = Path(processing_directory)
 
@@ -298,11 +430,8 @@ def run_parallel_reconall(
         json.dump(submitted_records, f, indent=2)
 
     with open(proc_dir / f"failed_jobs_{ts}.json", "w") as f:
-        if failed_records:
-            json.dump(failed_records, f, indent=2)
-        else:
-            json.dump([{"subject_id": sid, "reason": "no_T1w_found"} for sid in failed_job_submissions], f, indent=2)
-    
+        json.dump(failed_records, f, indent=2)
+
     return submitted, failed_job_submissions
 
 
