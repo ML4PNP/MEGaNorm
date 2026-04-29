@@ -6,6 +6,7 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
+from collections import Counter
 from typing import Any, Dict
 from scipy.stats import zscore
 from kneed import KneeLocator
@@ -435,7 +436,7 @@ def segment_epoch(
     segments_length: float = 10,
     overlap: float = 0,
     ica_if_reject_by_annotation: bool = True,
-    remove_bad_segments: bool = True,
+    remove_bad_segments: bool = False,
     mag_var_threshold: float = 5000e-15,
     grad_var_threshold: float = 5000e-13,
     eeg_var_threshold: float = 40e-6,
@@ -472,6 +473,9 @@ def segment_epoch(
         Whether to reject epochs based on annotations (e.g., ICA-identified
         artifacts). Passed to ``reject_by_annotation`` in ``mne.Epochs``.
         Default is True.
+    remove_bad_segments : bool, optional
+        Whether to apply amplitude and flatness thresholds to reject bad
+        epochs. Default is True.
     mag_var_threshold : float, optional
         Peak-to-peak amplitude threshold for rejecting epochs containing
         artifacts in magnetometer channels (in Tesla). Default is 5000e-15.
@@ -495,59 +499,62 @@ def segment_epoch(
     segments : mne.Epochs
         An ``Epochs`` object containing fixed-length segments extracted from
         the continuous data.
+    rejection_summary : dict
+        A dictionary summarising epoch retention and rejection, with keys:
+
+        - ``total_epochs`` : int, total epochs before rejection.
+        - ``retained_epochs`` : int, number of epochs kept.
+        - ``discarded_epochs`` : int, number of epochs removed.
+        - ``pct_discarded`` : float, percentage of epochs discarded.
+        - ``signal_retained_s`` : float, seconds of signal retained.
+        - ``signal_total_s`` : float, total seconds before rejection.
+        - ``drop_reasons`` : Counter, counts per channel name or annotation
+          label that caused rejection. Channel names indicate threshold-based
+          rejection; annotation labels (e.g. ``'IGNORED'``) indicate
+          annotation-based rejection.
 
     Raises
     ------
     ValueError
         If ``tmax`` is not a negative number.
+    Exception
+        If all epochs are rejected, with a summary of drop reasons included
+        in the message.
     """
-
     if tmax > 0:
         raise ValueError("The 'tmax' must be a negative number")
 
-    # Calculate absolute tmax based on data duration and trim beginning/end
     tmax = int(np.shape(data.get_data())[1] / sampling_rate + tmax)
-
-    # Crop 20 seconds from both ends to avoid eye-open/close artifacts
     data.crop(tmin=tmin, tmax=tmax)
 
     if remove_bad_segments:
-
+        # which_sensor["eeg"] is False for MEG-only data
         if not which_sensor["eeg"]:
-
             ch_types = data.get_channel_types()
-
             if "mag" in ch_types:
                 if "grad" in ch_types:
-                    reject = dict(
-                        mag=mag_var_threshold,
-                        grad=grad_var_threshold,
-                        )
-                    flat = dict(
-                        mag=mag_flat_threshold,
-                        grad=grad_flat_threshold,
-                    )
-
+                    reject = dict(mag=mag_var_threshold, grad=grad_var_threshold)
+                    flat = dict(mag=mag_flat_threshold, grad=grad_flat_threshold)
                 else:
                     reject = dict(mag=mag_var_threshold)
                     flat = dict(mag=mag_flat_threshold)
             else:
                 reject = dict(grad=grad_var_threshold)
                 flat = dict(grad=grad_flat_threshold)
-
         else:
             reject = dict(eeg=eeg_var_threshold)
             flat = dict(eeg=eeg_flat_threshold)
-
     else:
-        reject = None; flat = None
+        reject = None
+        flat = None
 
     events = mne.make_fixed_length_events(
-        raw = data, 
-        duration = segments_length,
-        overlap = overlap
-        )
-    
+        raw=data,
+        duration=segments_length,
+        overlap=overlap,
+    )
+    total_epochs = len(events)
+
     segments = mne.Epochs(
         data,
         events,
@@ -555,18 +562,56 @@ def segment_epoch(
         flat=flat,
         reject_by_annotation=ica_if_reject_by_annotation,
         verbose=False,
-        tmin = 0,
-        tmax=segments_length - 1/sampling_rate,
-        baseline=None
+        tmin=0,
+        tmax=segments_length - 1 / sampling_rate,
+        baseline=None,
     )
 
-    if segments.get_data().shape[0] == 0:
-        err_msg = "All channels were identified as either noisy or flat across every epoch. " \
-            "Therefore, further processing for this participant cannot proceed."
-        logger.error(err_msg)
-        raise Exception(err_msg)
+    segments.load_data()
+
+    if remove_bad_segments:
+        retained_epochs = segments.get_data().shape[0]
+        discarded_epochs = total_epochs - retained_epochs
+        pct_discarded = (discarded_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
+
+        # drop_log entries are channel names (threshold rejection) or
+        # annotation labels; empty tuple means the epoch was kept
+        all_reasons = [reason for reasons in segments.drop_log for reason in reasons]
+        drop_reasons = Counter(all_reasons)
+
+        rejection_summary = dict(
+            total_epochs=total_epochs,
+            retained_epochs=retained_epochs,
+            discarded_epochs=discarded_epochs,
+            pct_discarded=round(pct_discarded, 2),
+            signal_retained_s=retained_epochs * segments_length,
+            signal_total_s=total_epochs * segments_length,
+            drop_reasons=drop_reasons,
+        )
+
+        log_msg = (
+            f"Epoch rejection summary:\n"
+            f"  Total epochs : {total_epochs}\n"
+            f"  Retained     : {retained_epochs} "
+            f"({100 - pct_discarded:.1f}% | {retained_epochs * segments_length:.1f}s)\n"
+            f"  Discarded    : {discarded_epochs} "
+            f"({pct_discarded:.1f}% | {discarded_epochs * segments_length:.1f}s)\n"
+            f"  Drop reasons : {dict(drop_reasons)}"
+        )
+
+        if retained_epochs == 0:
+            err_msg = (
+                "All epochs were rejected. Every segment was identified as either "
+                "noisy or flat. Further processing for this participant cannot proceed.\n"
+                + log_msg
+            )
+            logger.error(err_msg)
+            raise Exception(err_msg)
+
+        logger.info(log_msg)
 
     return segments
+
 
 
 def preprocess(
