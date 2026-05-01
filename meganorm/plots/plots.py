@@ -2125,7 +2125,8 @@ def plot_mass_metrics(
         values = cols.to_numpy().ravel() 
 
         if values.size == 0:
-            raise ValueError(f"No columns found starting with '{feature_category}'.")
+            raise Warning(f"No columns found starting with '{feature_category}'.")
+            continue
 
         if xlim:
             x_min, x_max = xlim

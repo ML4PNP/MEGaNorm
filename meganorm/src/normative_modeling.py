@@ -72,11 +72,11 @@ def impute_by_subgroup(df,
 
 def prepare_nm_data(
     df,
-    which_cohorts,
     response_vars,
     covariate_list,
     batch_effect_list,
     subject_id_col_name,
+    which_cohorts=None,
     subject_removal_nan_thr=0.2,
     including_ROIs=None,
     excluding_ROIs=None,
