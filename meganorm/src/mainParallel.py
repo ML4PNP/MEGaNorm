@@ -16,6 +16,7 @@ from meganorm.src.preprocess import (
     segment_epoch,
     drop_noisy_meg_channels,
     prepare_eeg_data,
+    auto_reject_segmentation
 )
 from meganorm.src.psdParameterize import parameterize_psds
 from meganorm.src.featureExtraction import feature_extract
@@ -336,23 +337,40 @@ def main(args):
     )
 
     # ------------------------------------------------------------
-    segments = segment_epoch(
-        data = filtered_data,
-        which_sensor=which_sensor_dict,
-        sampling_rate = sampling_rate,
-        tmin = configs.segments_tmin,
-        tmax = configs.segments_tmax,
-        segments_length = configs.segments_length,
-        overlap = configs.segments_overlap,
-        ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
-        remove_bad_segments = configs.remove_bad_segments,
-        mag_var_threshold = configs.mag_var_threshold,
-        grad_var_threshold = configs.grad_var_threshold,
-        eeg_var_threshold = configs.eeg_var_threshold,
-        mag_flat_threshold = configs.mag_flat_threshold,
-        grad_flat_threshold = configs.grad_flat_threshold,
-        eeg_flat_threshold = configs.eeg_flat_threshold,
-    )
+    if configs.bad_segment_removal_method in [None, "fixed_thr"]:
+        segments = segment_epoch(
+            data = filtered_data,
+            which_sensor=which_sensor_dict,
+            sampling_rate = sampling_rate,
+            tmin = configs.segments_tmin,
+            tmax = configs.segments_tmax,
+            segments_length = configs.segments_length,
+            overlap = configs.segments_overlap,
+            ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
+            remove_bad_segments = configs.bad_segment_removal_method,
+            mag_var_threshold = configs.mag_var_threshold,
+            grad_var_threshold = configs.grad_var_threshold,
+            eeg_var_threshold = configs.eeg_var_threshold,
+            mag_flat_threshold = configs.mag_flat_threshold,
+            grad_flat_threshold = configs.grad_flat_threshold,
+            eeg_flat_threshold = configs.eeg_flat_threshold,
+        )
+
+    elif configs.bad_segment_removal_method == "autoreject":
+        segments, _ = auto_reject_segmentation(
+            raw=filtered_data,
+            sampling_rate=sampling_rate,
+            tmin = configs.segments_tmin,
+            tmax = configs.segments_tmax,
+            segments_length = configs.segments_length,
+            overlap = configs.segments_overlap,
+            ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
+            n_interpolates = configs.autoreject_n_interpolates,
+            consensus_percs = configs.autoreject_consensus_percs,
+            cv = configs.autoreject_cv,
+            thresh_method = configs.autoreject_thresh_method,
+            random_state = configs.random_state
+            )
 
     # ------------------------------------------------------------
     if configs.apply_source_localization:

@@ -246,7 +246,7 @@ class Config(BaseModel):
 
     rereference_method: Literal["average", "REST", "None"] = "average"
 
-    remove_bad_segments: bool = True
+    bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
     mag_var_threshold: float = 5000e-15
     grad_var_threshold: float = 5000e-13
     eeg_var_threshold: float = 40e-6
@@ -259,6 +259,12 @@ class Config(BaseModel):
     segments_tmax: NegativeInt = -20
     segments_length: PositiveInt = 10
     segments_overlap: int = 2
+
+    # autoreject
+    autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
+    autoreject_consensus_percs: List[float] = list(np.linspace(0, 1.0, 11))
+    autoreject_cv: Union[int, Literal["auto"]] = "auto"
+    autoreject_thresh_method: Literal['bayesian_optimization', "random_search"] = "bayesian_optimization"
 
     # Source localization
     apply_source_localization: bool = False

@@ -17,6 +17,8 @@ from meganorm.src.source_localization import check_tsss
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
 from meganorm.utils.remove_later import compute_fooof
+from autoreject import AutoReject, set_matplotlib_defaults
+import autoreject   
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
@@ -436,7 +438,7 @@ def segment_epoch(
     segments_length: float = 10,
     overlap: float = 0,
     ica_if_reject_by_annotation: bool = True,
-    remove_bad_segments: bool = False,
+    bad_segment_removal_method = "fixed_thr",
     mag_var_threshold: float = 5000e-15,
     grad_var_threshold: float = 5000e-13,
     eeg_var_threshold: float = 40e-6,
@@ -527,7 +529,7 @@ def segment_epoch(
     tmax = int(np.shape(data.get_data())[1] / sampling_rate + tmax)
     data.crop(tmin=tmin, tmax=tmax)
 
-    if remove_bad_segments:
+    if bad_segment_removal_method == "fixed_thr":
         # which_sensor["eeg"] is False for MEG-only data
         if not which_sensor["eeg"]:
             ch_types = data.get_channel_types()
@@ -569,7 +571,7 @@ def segment_epoch(
 
     segments.load_data()
 
-    if remove_bad_segments:
+    if bad_segment_removal_method == "fixed_thr":
         retained_epochs = segments.get_data().shape[0]
         discarded_epochs = total_epochs - retained_epochs
         pct_discarded = (discarded_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
@@ -1790,3 +1792,95 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
                     ['BAD_flat'] * len(bad_flat_onsets))
 
     return mne.Annotations(onset=onsets, duration=durations, description=descriptions, orig_time=raw.info["meas_date"])    
+
+
+def auto_reject_segmentation(
+    raw,
+    sampling_rate: float,
+    tmin: float = 20,
+    tmax: float = -20,
+    segments_length: float = 10,
+    overlap: float = 0,
+    ica_if_reject_by_annotation: bool = True,
+    n_interpolates = np.array([1, 4, 8, 16, 32]),
+    consensus_percs = np.linspace(0, 1.0, 11),
+    cv = "auto",
+    thresh_method='bayesian_optimization',
+    random_state=42
+    ):
+
+    if tmax >= 0:
+        raise ValueError("The 'tmax' must be a negative number")
+
+    tmax = int(np.shape(raw.get_data())[1] / sampling_rate + tmax)
+    raw.crop(tmin=tmin, tmax=tmax)
+
+
+    epochs = mne.make_fixed_length_epochs(
+        raw,
+        duration=segments_length,      # epoch length in seconds
+        preload=True,
+        reject_by_annotation=ica_if_reject_by_annotation,
+        overlap=overlap,
+    )
+
+    if len(epochs) == 0:
+        raise ValueError(
+            f"No epochs were created. The recording after cropping "
+            f"(tmin={tmin}, tmax={tmax}s) may be shorter than "
+            f"segments_length={segments_length}s, or all data is "
+            f"covered by annotations and reject_by_annotation=True."
+        )
+
+    if len(epochs) < 2:
+        raise ValueError(
+            f"Only {len(epochs)} epoch found — need at least 2 for "
+            f"cross-validation. Reduce segments_length or tmin/tmax margins."
+        )
+
+    if cv == "auto":
+        cv = max(2, min(10, len(epochs)))  # clamp between 2 and 10
+        logger.info(f"The number of CV in autoreject was set to {cv} .")
+
+    ar = AutoReject(
+        n_interpolate=n_interpolates,
+        consensus=consensus_percs,
+        cv=cv,
+        thresh_method=thresh_method,
+        random_state=random_state,
+        n_jobs=1,
+        verbose=True,
+    )
+
+    epochs.load_data()
+    
+    ar.fit(epochs)
+    epochs_clean, reject_log = ar.transform(epochs, return_log=True)
+
+    total_epochs     = len(epochs)
+    retained_epochs  = len(epochs_clean)
+    discarded_epochs = total_epochs - retained_epochs
+    pct_discarded    = (discarded_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
+    interpolated_epochs = int(np.sum(np.any(reject_log.labels == 1, axis=1)))
+    pct_interpolated = (interpolated_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
+
+    log_msg = (
+        f"Epoch rejection summary:\n"
+        f"  Total epochs   : {total_epochs}\n"
+        f"  Retained       : {retained_epochs} "
+        f"({100 - pct_discarded:.1f}% | {retained_epochs * segments_length:.1f}s)\n"
+        f"  Interpolated   : {interpolated_epochs} "
+        f"({pct_interpolated:.1f}% | {interpolated_epochs * segments_length:.1f}s)\n"
+        f"  Discarded      : {discarded_epochs} "
+        f"({pct_discarded:.1f}% | {discarded_epochs * segments_length:.1f}s)"
+    )
+
+    if retained_epochs == 0:
+        logger.error(log_msg)
+        raise ValueError(
+            "All epochs were rejected by AutoReject. "
+            "Every segment was too noisy to repair."
+        )
+
+    logger.info(log_msg)
+    return epochs_clean, reject_log
