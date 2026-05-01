@@ -13,6 +13,7 @@ import warnings
 from typing import Union
 from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
 
+
 class Config(BaseModel):
     """
     Configuration class for preprocessing, feature extraction, and analysis of 
@@ -338,22 +339,39 @@ class Config(BaseModel):
         "Gamma": (-5, 5),
     }
 
+    BandName = Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+
+    class BandRatio(BaseModel):
+        numerator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+        denominator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+
+    power_band_ratios_list: List[BandRatio] = [
+        BandRatio(numerator="Theta", denominator="Beta"),
+        BandRatio(numerator="Theta", denominator="Alpha"),
+        BandRatio(numerator="Alpha", denominator="Beta"),
+        BandRatio(numerator="Delta", denominator="Beta"),
+        BandRatio(numerator="Delta", denominator="Alpha"),
+        BandRatio(numerator="Delta", denominator="Theta"),
+    ]
+
     min_r_squared: confloat(ge=0, le=1) = 0.9
 
     feature_categories: Dict[str, bool] = {
-        "Offset": False,
-        "Exponent": False,
+        "Offset": True,
+        "Exponent": True,
         "Peak_Center": False,
         "Peak_Power": False,
         "Peak_Width": False,
         "Adjusted_Canonical_Relative_Power": True,
-        "Adjusted_Canonical_Absolute_Power": False,
+        "Adjusted_Canonical_Absolute_Power": True,
         "Adjusted_Individualized_Relative_Power": False,
         "Adjusted_Individualized_Absolute_Power": False,
-        "OriginalPSD_Canonical_Relative_Power": False,
-        "OriginalPSD_Canonical_Absolute_Power": False,
+        "OriginalPSD_Canonical_Relative_Power": True,
+        "OriginalPSD_Canonical_Absolute_Power": True,
         "OriginalPSD_Individualized_Relative_Power": False,
         "OriginalPSD_Individualized_Absolute_Power": False,
+        "Adjusted_Band_Ratio" : True, 
+        "OriginalPSD_Band_Ratio": True,
     }
 
     fooof_res_save_path: Optional[str] = None

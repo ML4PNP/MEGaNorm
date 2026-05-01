@@ -449,6 +449,7 @@ def main(args):
         which_sensor=which_sensor_dict,
         aperiodic_mode=configs.aperiodic_mode,
         min_r_squared=configs.min_r_squared,
+        power_band_ratios_list = configs.power_band_ratios_list
     )
         
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
