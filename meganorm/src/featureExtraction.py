@@ -307,7 +307,7 @@ def create_feature_container(feature_categories, freq_bands, channel_names, BAND
     ratio_features = ["Adjusted_Band_Ratio", "OriginalPSD_Band_Ratio"]
 
     # Features handled separately outside the channel loop — skip here
-    skip_features = ["Hemispheric_Asymmetry"]
+    skip_features = ["Hemispheric_Asymmetry_index"]
 
     feature_names = []
 
@@ -515,7 +515,7 @@ def feature_extract(
         # # whenever aperidic activity is higher than periodic activity
         # # => set the preiodic acitivity to zero
         flattened_psd = np.array(list(map(lambda x: max(0, x), flattened_psd)))
-        
+
         for (num_band, den_band) in power_band_ratios_list:
             if num_band not in freq_bands or den_band not in freq_bands:
                 continue  # skip if bands not defined in config
@@ -708,13 +708,37 @@ def feature_extract(
     # Flatten the DataFrame and create neww column names
     final_df = pd.DataFrame(feature_container.values.flatten()).T
     final_df.columns = [
-        f"{index}_{col}"
+        f"{index}__{col}"
         for index in feature_container.index
         for col in feature_container.columns
     ]
 
-    logger.info(f"The shape of the extracted features:{final_df.shape}")
+    if feature_categories["Hemispheric_Asymmetry_index"]:
+        base_features = ["Adjusted_Canonical_Absolute_Power", "OriginalPSD_Canonical_Absolute_Power"]
+        asymmetry_cols = {}
 
+        for base_feat in base_features:
+            df_temp = final_df.loc[:, final_df.columns.str.startswith(base_feat)]
+
+            for col in df_temp.columns:
+                if "_lh_" in col:
+                    rh_col = col.replace("_lh_", "_rh_")
+                    if rh_col in df_temp.columns:
+                        ai_col = col.replace("_lh_", "_lh_vs_rh_").replace(
+                            base_feat, f"Hemispheric_Asymmetry__{base_feat}"
+                        )
+                        asymmetry_cols[ai_col] = (
+                            df_temp[col].astype(float).values
+                            - df_temp[rh_col].astype(float).values
+                        )
+                    else:
+                        logger.warning(f"No matching rh column found for {col}, skipping.")
+
+        if asymmetry_cols:
+            df_assym = pd.DataFrame(asymmetry_cols, index=final_df.index)
+            final_df = pd.concat([final_df, df_assym], axis=1)
+
+    logger.info(f"The shape of the extracted features: {final_df.shape}")
     final_df.index = [subject_id]
 
     return final_df

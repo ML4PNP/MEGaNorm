@@ -372,6 +372,7 @@ class Config(BaseModel):
         "OriginalPSD_Individualized_Absolute_Power": False,
         "Adjusted_Band_Ratio" : True, 
         "OriginalPSD_Band_Ratio": True,
+        "Hemispheric_Asymmetry_index": True
     }
 
     fooof_res_save_path: Optional[str] = None
