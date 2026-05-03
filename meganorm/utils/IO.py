@@ -11,7 +11,12 @@ from typing import Literal, Dict, Tuple, List, Optional
 from typing import Optional
 import warnings
 from typing import Union
+from typing import ClassVar
 from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
+
+class BandRatio(BaseModel):
+    numerator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+    denominator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
 
 
 class Config(BaseModel):
@@ -339,12 +344,6 @@ class Config(BaseModel):
         "Gamma": (-5, 5),
     }
 
-    BandName = Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
-
-    class BandRatio(BaseModel):
-        numerator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
-        denominator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
-
     power_band_ratios_list: List[BandRatio] = [
         BandRatio(numerator="Theta", denominator="Beta"),
         BandRatio(numerator="Theta", denominator="Alpha"),
@@ -352,6 +351,10 @@ class Config(BaseModel):
         BandRatio(numerator="Delta", denominator="Beta"),
         BandRatio(numerator="Delta", denominator="Alpha"),
         BandRatio(numerator="Delta", denominator="Theta"),
+        BandRatio(numerator="Beta", denominator="Gamma"),
+        BandRatio(numerator="Alpha", denominator="Gamma"),
+        BandRatio(numerator="Theta", denominator="Gamma"),
+        BandRatio(numerator="Delta", denominator="Gamma"),
     ]
 
     min_r_squared: confloat(ge=0, le=1) = 0.9

@@ -320,7 +320,8 @@ def create_feature_container(feature_categories, freq_bands, channel_names, BAND
             continue
 
         elif feature in ratio_features and BAND_RATIOS:
-            for num_band, den_band in BAND_RATIOS:
+            for ratio in BAND_RATIOS:
+                num_band, den_band = ratio.numerator, ratio.denominator
                 if num_band in freq_bands and den_band in freq_bands:
                     feature_names.append(f"{feature}__{num_band}_over_{den_band}")
 
@@ -516,15 +517,16 @@ def feature_extract(
         # # => set the preiodic acitivity to zero
         flattened_psd = np.array(list(map(lambda x: max(0, x), flattened_psd)))
 
-        for (num_band, den_band) in power_band_ratios_list:
+        for ratio in power_band_ratios_list:
+            num_band, den_band = ratio.numerator, ratio.denominator
             if num_band not in freq_bands or den_band not in freq_bands:
-                continue  # skip if bands not defined in config
+                continue
 
             fmin_num, fmax_num = freq_bands[num_band]
             fmin_den, fmax_den = freq_bands[den_band]
             ratio_name = f"{num_band}_over_{den_band}"
 
-            if feature_categories.get("Adjusted_Band_Ratio"):
+            if feature_categories["Adjusted_Band_Ratio"]:
                 feature_arr = band_power_ratio(
                     psd=flattened_psd, freqs=freqs,
                     fmin_num=fmin_num, fmax_num=fmax_num,
@@ -533,7 +535,7 @@ def feature_extract(
                 feature_name = f"Adjusted_Band_Ratio__{ratio_name}"
                 feature_container.at[feature_name, channel_name] = feature_arr
 
-            if feature_categories.get("OriginalPSD_Band_Ratio"):
+            if feature_categories["OriginalPSD_Band_Ratio"]:
                 feature_arr = band_power_ratio(
                     psd=original_psd, freqs=freqs,
                     fmin_num=fmin_num, fmax_num=fmax_num,
