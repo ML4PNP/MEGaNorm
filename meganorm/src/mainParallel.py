@@ -236,8 +236,12 @@ def main(args):
     # ------------------------------------------------------------
     if not device == "BTI":
         data = mne.io.read_raw(path, preload=True)
-        if empty_room_recording_path:
+        if empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = mne.io.read_raw(empty_room_recording_path, preload=True)
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
         else:
             empty_room_recording = None
 
@@ -248,13 +252,17 @@ def main(args):
             head_shape_fname=None,
             preload=True
         )
-        if empty_room_recording_path:
+        if empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = mne.io.read_raw_bti(
                 pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
                 config_fname=os.path.join(empty_room_recording_path, "config"),
                 head_shape_fname=None,
                 preload=True
             )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
         else:
             empty_room_recording = None
 
