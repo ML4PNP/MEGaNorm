@@ -16,7 +16,6 @@ from mne_icalabel import label_components
 from meganorm.src.source_localization import check_tsss
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
-from meganorm.utils.remove_later import compute_fooof
 from autoreject import AutoReject, set_matplotlib_defaults
 import autoreject   
 warnings.filterwarnings("ignore")
@@ -1825,19 +1824,18 @@ def auto_reject_segmentation(
     )
 
     if len(epochs) == 0:
-        raise ValueError(
-            f"No epochs were created. The recording after cropping "
-            f"(tmin={tmin}, tmax={tmax}s) may be shorter than "
-            f"segments_length={segments_length}s, or all data is "
-            f"covered by annotations and reject_by_annotation=True."
-        )
+        err_msg = f"No epochs were created. The length of the signal ({raw.times[-1]}) seconds " \
+            f"is shorter than the segment length of {segments_length} seconds " \
+            f"after rejecting the annotations which was {raw.annotations.duration} seconds."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
 
-    if len(epochs) < 2:
-        raise ValueError(
-            f"Only {len(epochs)} epoch found — need at least 2 for "
-            f"cross-validation. Reduce segments_length or tmin/tmax margins."
-        )
-
+    elif 0 < len(epochs) < 3:
+        err_msg = f"Only {len(epochs)} epoch found — need at least 3 for " \
+            f"autoreject."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
+    
     if cv == "auto":
         cv = max(2, min(10, len(epochs)))  # clamp between 2 and 10
         logger.info(f"The number of CV in autoreject was set to {cv} .")
