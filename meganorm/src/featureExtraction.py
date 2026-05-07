@@ -280,6 +280,60 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     return np.log10(power_num / power_den)
 
 
+def compute_hemispheric_asymmetry(final_df: pd.DataFrame, base_features: List[str] = None) -> pd.DataFrame:
+    """
+    Computes hemispheric asymmetry indices between left and right hemisphere channels.
+
+    For each base feature, finds matching left/right hemisphere column pairs (identified
+    by '_lh_' and '_rh_' in column names) and computes their difference as an asymmetry index.
+
+    Parameters
+    ----------
+    final_df : pd.DataFrame
+        Flattened feature DataFrame with columns named in the format
+        '{feature}__{band}__{channel}'.
+    base_features : List[str], optional
+        List of feature name prefixes to compute asymmetry for.
+        Defaults to ["Adjusted_Canonical_Absolute_Power", "OriginalPSD_Canonical_Absolute_Power"].
+
+    Returns
+    -------
+    pd.DataFrame
+        Input DataFrame with additional asymmetry columns appended.
+        New columns are named with 'Hemispheric_Asymmetry__{base_feat}' and '_lh_vs_rh_'.
+    """
+    if base_features is None:
+        base_features = [
+            "Adjusted_Canonical_Absolute_Power",
+            "OriginalPSD_Canonical_Absolute_Power",
+        ]
+
+    asymmetry_cols = {}
+
+    for base_feat in base_features:
+        df_temp = final_df.loc[:, final_df.columns.str.startswith(base_feat)]
+
+        for col in df_temp.columns:
+            if "_lh_" in col:
+                rh_col = col.replace("_lh_", "_rh_")
+                if rh_col in df_temp.columns:
+                    ai_col = col.replace("_lh_", "_lh_vs_rh_").replace(
+                        base_feat, f"Hemispheric_Asymmetry__{base_feat}"
+                    )
+                    asymmetry_cols[ai_col] = (
+                        df_temp[col].astype(float).values
+                        - df_temp[rh_col].astype(float).values
+                    )
+                else:
+                    logger.warning(f"No matching rh column found for {col}, skipping.")
+
+    if asymmetry_cols:
+        df_assym = pd.DataFrame(asymmetry_cols, index=final_df.index)
+        final_df = pd.concat([final_df, df_assym], axis=1)
+
+    return final_df
+
+
 def create_feature_container(feature_categories, freq_bands, channel_names, BAND_RATIOS=None):
     """
     Creates a DataFrame to store features for each channel, with feature names corresponding to
@@ -716,29 +770,7 @@ def feature_extract(
     ]
 
     if feature_categories["Hemispheric_Asymmetry_index"]:
-        base_features = ["Adjusted_Canonical_Absolute_Power", "OriginalPSD_Canonical_Absolute_Power"]
-        asymmetry_cols = {}
-
-        for base_feat in base_features:
-            df_temp = final_df.loc[:, final_df.columns.str.startswith(base_feat)]
-
-            for col in df_temp.columns:
-                if "_lh_" in col:
-                    rh_col = col.replace("_lh_", "_rh_")
-                    if rh_col in df_temp.columns:
-                        ai_col = col.replace("_lh_", "_lh_vs_rh_").replace(
-                            base_feat, f"Hemispheric_Asymmetry__{base_feat}"
-                        )
-                        asymmetry_cols[ai_col] = (
-                            df_temp[col].astype(float).values
-                            - df_temp[rh_col].astype(float).values
-                        )
-                    else:
-                        logger.warning(f"No matching rh column found for {col}, skipping.")
-
-        if asymmetry_cols:
-            df_assym = pd.DataFrame(asymmetry_cols, index=final_df.index)
-            final_df = pd.concat([final_df, df_assym], axis=1)
+        final_df = compute_hemispheric_asymmetry(final_df)
 
     logger.info(f"The shape of the extracted features: {final_df.shape}")
     final_df.index = [subject_id]
