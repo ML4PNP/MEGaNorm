@@ -1846,11 +1846,21 @@ def define_lut(lut_path):
     return lut
 
 
+def convert_region_name(region_name):
+    """Convert ctx_lh_Region to ctx-lh-Region format."""
+    if region_name.startswith("ctx_lh_"):
+        return "ctx-lh-" + region_name[7:]
+    elif region_name.startswith("ctx_rh_"):
+        return "ctx-rh-" + region_name[7:]
+    return region_name  # subcortical names like "Left-Hippocampus" stay as-is
+
+
+
 def plot_statistics_on_brain(
-        parcellation_atlas_path,
-        lut_path,
+        lh_annot_path,
+        rh_annot_path,
         stats,
-        fsaverage="fsaverage5",
+        fsaverage="fsaverage",
         surface_mesh_type="pial",
         bg_map_mesh_type="sulc",
         abs_threshold=None,
@@ -1865,128 +1875,96 @@ def plot_statistics_on_brain(
         save_fig_path=None,
         views=("lateral", "medial"),
         hemispheres=("left", "right"),
+        show_parcel_contours=True,      
+        contour_colors=None,            
+        contour_levels=None, 
 ):
     """
     Project region-wise statistics onto the brain surface and plot them.
 
-    Takes a parcellation atlas and a set of statistics (one value per brain
-    region) and visualizes them on the cortical surface in three steps:
-
-        1. Builds a 3D volume where each voxel takes the stat value of
-           its region (matched by name via the LUT).
-        2. Projects that volume onto the 2D surface mesh (vol_to_surf).
-        3. Plots the result for each hemisphere × view combination.
+    Uses FreeSurfer .annot files to map region names directly to surface
+    vertices, bypassing the volumetric pipeline entirely.
 
     Parameters
     ----------
-    parcellation_atlas_path : str
-        Path to the parcellation atlas file (.mgz or .nii.gz). Each voxel
-        holds an integer index identifying the brain region it belongs to.
+    lh_annot_path : str
+        Path to the left hemisphere annotation file (e.g. lh.aparc.a2009s.annot).
 
-    lut_path : str
-        Path to the FreeSurfer LUT file (e.g. FreeSurferColorLUT.txt).
-        Used to map region names to the integer indices in the atlas.
+    rh_annot_path : str
+        Path to the right hemisphere annotation file (e.g. rh.aparc.a2009s.annot).
 
-    stats : dict or pd.Series
+    stats : dict or pd.Series or pd.DataFrame
         One scalar value per region name. Keys/index must match region
-        names in the LUT.
-        Example: {"Left-Hippocampus": 0.42, "Right-Hippocampus": 0.38}
+        names in the format "ctx-lh-<region>" / "ctx-rh-<region>",
+        or plain "<region>" names as they appear in the .annot file.
+        Example: {"ctx-lh-G_frontal_sup": 0.42, "ctx-rh-G_frontal_sup": 0.38}
 
     fsaverage : str, optional
-        fsaverage resolution to use. Default is "fsaverage5" (10,242
-        vertices per hemisphere). Options: "fsaverage3" through "fsaverage7".
+        fsaverage resolution to use. Default is "fsaverage".
+        Options: "fsaverage3" through "fsaverage7".
 
     surface_mesh_type : str, optional
-        Surface mesh to project the stats onto. Default is "pial" (outer
-        gray matter surface). Options: "pial", "white", "infl", "flat",
-        "sphere".
+        Surface mesh to project the stats onto. Default is "pial".
+        Options: "pial", "white", "infl", "flat", "sphere".
 
     bg_map_mesh_type : str, optional
-        Background shading map. Default is "sulc" (sulcal depth), which
-        gives the brain its natural light/dark folding pattern.
+        Background shading map. Default is "sulc".
         Options: "sulc", "curv", "thick", "area".
 
     abs_threshold : float or None, optional
-        Absolute threshold below which stat values are not shown
-        (rendered transparent). If None, all values are shown.
+        Absolute threshold below which stat values are not shown.
         Default is None.
 
     cmap : str, optional
-        Matplotlib colormap for the stat values. Default is "Reds".
+        Matplotlib colormap. Default is "Reds".
 
     alpha : float, optional
-        Opacity of the stat map overlay, between 0 (transparent) and 1
-        (opaque). Default is 0.7.
+        Opacity of the stat map overlay. Default is 0.7.
 
     symmetric_cbar : bool or "auto", optional
-        Whether to make the colorbar symmetric around zero. If "auto",
-        nilearn decides based on the data. Default is "auto".
+        Whether to make the colorbar symmetric around zero. Default is "auto".
 
     bg_on_data : bool, optional
-        If True, blends the background shading on top of the stat map,
-        giving a more 3D appearance. Default is True.
+        Blend background shading on top of stat map. Default is True.
 
     show_colorbar : bool, optional
-        Whether to show a colorbar on each subplot. Default is False.
+        Show a colorbar on each subplot. Default is False.
 
     title : str or None, optional
-        Base title for each subplot. If None, titles are auto-generated
-        as "hemi - view". If provided, becomes "title | hemi - view".
+        Base title. If None, auto-generates "hemi - view". Default is None.
 
     vmin : float or None, optional
-        Lower bound of the colormap scale. If None, uses the data minimum.
+        Lower bound of the colormap scale. Default is None.
 
     vmax : float or None, optional
-        Upper bound of the colormap scale. If None, uses the data maximum.
+        Upper bound of the colormap scale. Default is None.
 
     save_fig_path : str or None, optional
-        File path to save the figure (e.g. "brain.png"). If None, the
-        figure is not saved. Default is None.
+        File path to save the figure. Default is None.
 
     views : tuple of str, optional
-        Views to plot — each becomes one column in the figure.
-        Default is ("lateral", "medial").
+        Views to plot. Default is ("lateral", "medial").
 
     hemispheres : tuple of str, optional
-        Hemispheres to plot — each becomes one row in the figure.
-        Default is ("left", "right").
+        Hemispheres to plot. Default is ("left", "right").
 
     Returns
     -------
-    None
-        Displays the figure and optionally saves it to disk.
-
-    Examples
-    --------
-    >>> plot_statistics_on_brain(
-    ...     parcellation_atlas_path="aparc.a2009s+aseg.mgz",
-    ...     lut_path="FreeSurferColorLUT.txt",
-    ...     stats={"Left-Hippocampus": 0.42, "Right-Hippocampus": 0.38},
-    ...     vmin=0, vmax=1,
-    ...     cmap="Reds",
-    ...     views=("lateral",),
-    ...     hemispheres=("left",),
-    ... )
+    textures : dict
+        Dictionary with keys "left" and/or "right", each containing the
+        per-vertex texture array used for plotting.
     """
-    parcell_atlas_img = nib.load(parcellation_atlas_path)
-    parcell_atlas_data = parcell_atlas_img.get_fdata()
+    # Normalize all stats keys upfront
+    
 
     if isinstance(stats, pd.DataFrame):
+        stats = stats.iloc[:, 0].to_dict()
+    elif isinstance(stats, pd.Series):
         stats = stats.to_dict()
-
-    lut = define_lut(lut_path)
-
-    missing_regions = []
-    volume_img = np.zeros(parcell_atlas_data.shape)
-    for region_name, region_ind in lut.items():
-        roi_stats = stats.get(region_name)
-        if roi_stats is not None:
-            volume_img[parcell_atlas_data == region_ind] = roi_stats
-        else:
-            missing_regions.append(region_name)
-    print(f"Statistics for the following regions are missing: {missing_regions}")
-
-    img = nib.Nifti1Image(volume_img, parcell_atlas_img.affine)
+    stats = {convert_region_name(k): v for k, v in stats.items()}
+    
+    annot_paths = {"left": lh_annot_path, "right": rh_annot_path}
+    hemi_short  = {"left": "lh", "right": "rh"}
 
     fsaverage_meshes = datasets.fetch_surf_fsaverage(fsaverage)
 
@@ -1995,17 +1973,40 @@ def plot_statistics_on_brain(
     fig, axes = plt.subplots(
         n_rows, n_cols,
         subplot_kw={"projection": "3d"},
-        figsize=(6 * n_cols, 5 * n_rows),
+        figsize=(4 * n_cols, 3 * n_rows),
         squeeze=False,
+        gridspec_kw={"hspace": -0.3, "wspace": -0.25}
     )
 
+    textures = {}
+    missing_regions = []
+
     for row, hemi in enumerate(hemispheres):
+        # --- Read .annot: labels shape (n_vertices,), region_names list of bytes ---
+        labels, ctab, region_names_bytes = nib.freesurfer.read_annot(annot_paths[hemi])
+        hs = hemi_short[hemi]
+
+        # Build per-vertex texture
+        texture = np.full(labels.shape, np.nan)
+
+        for region_idx, region_name_bytes in enumerate(region_names_bytes):
+            region_name = region_name_bytes.decode("utf-8")
+            full_name   = f"ctx-{hs}-{region_name}"
+
+            stat_value = stats.get(full_name, stats.get(region_name))
+
+            if stat_value is not None:
+                texture[labels == region_idx] = stat_value
+            else:
+                missing_regions.append(full_name)
+
+        textures[hemi] = texture
+
         surf_mesh = fsaverage_meshes[f"{surface_mesh_type}_{hemi}"]
-        bg_map = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
-        texture = surface.vol_to_surf(img, surf_mesh)
+        bg_map    = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
 
         for col, view in enumerate(views):
-            plotting.plot_surf_stat_map(
+            fig = plotting.plot_surf_stat_map(
                 surf_mesh=surf_mesh,
                 stat_map=texture,
                 hemi=hemi,
@@ -2018,18 +2019,44 @@ def plot_statistics_on_brain(
                 vmin=vmin,
                 vmax=vmax,
                 symmetric_cbar=symmetric_cbar,
-                title=f"{hemi} - {view}" if title is None else f"{title} | {hemi} - {view}",
+                title=None,
                 axes=axes[row, col],
                 figure=fig,
                 cbar_tick_format="%.2g",
             )
 
+            if show_parcel_contours:
+                before = set(id(c) for c in axes[row, col].collections)
+                plotting.plot_surf_contours(
+                    surf_mesh=surf_mesh,
+                    roi_map=labels,            # integer label array from read_annot
+                    levels=contour_levels,     # None = outline all parcels
+                    colors=[contour_colors] * len(np.unique(labels)),     # None = use tab20 cmap
+                    axes=axes[row, col],
+                    figure=fig,
+                    linewidth=4.0
+                )
+                # for collection in axes[row, col].collections:
+                #     if id(collection) not in before:
+                #         collection.set_linewidth(4.0)
+
+            ax = axes[row, col]
+            ax.set_facecolor((0, 0, 0, 0))  # transparent face
+            ax.patch.set_visible(False)
+            for pane in [ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane]:
+                pane.fill = False
+                pane.set_edgecolor("none")
+
+    if missing_regions:
+        print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
+
     plt.tight_layout()
     if save_fig_path:
-        fig.savefig(save_fig_path, dpi=150, bbox_inches="tight")
+        # plt.savefig(f"{save_fig_path}.svg")
+        plt.savefig(f"{save_fig_path}.png", dpi=400)
     plt.show()
 
-    return None
+    return textures
 
 
 
