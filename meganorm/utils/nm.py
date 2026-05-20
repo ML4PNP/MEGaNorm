@@ -857,10 +857,11 @@ def cal_stats_for_INOCs(
 # **
 def calculate_skewness_and_kurtosis(
     df_zscores,
+    nan_policy="omit"
 ):
     
-    skewness = scipy.stats.skew(df_zscores)
-    kurtosis = scipy.stats.kurtosis(df_zscores)
+    skewness = scipy.stats.skew(df_zscores, nan_policy=nan_policy)
+    kurtosis = scipy.stats.kurtosis(df_zscores, nan_policy=nan_policy)
 
     df = pd.DataFrame(
         {"skewness": skewness, "kurtosis": kurtosis},
