@@ -1,5 +1,6 @@
 import os
 import pickle
+import warnings
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -11,7 +12,7 @@ import seaborn as sns
 import statsmodels.api as sm
 import nibabel as nib
 import plotly.graph_objects as go
-
+from plotly.subplots import make_subplots
 from typing import Union
 from scipy.stats import chi2
 from sklearn.neighbors import KernelDensity
@@ -2209,3 +2210,260 @@ def plot_mass_metrics(
     fig.savefig(os.path.join(save_path, f"{name}.png"), dpi=dpi, bbox_inches="tight")
 
     return fig
+
+
+def plot_statistics_on_brain_plotly(
+        lh_annot_path,
+        rh_annot_path,
+        stats,
+        fsaverage="fsaverage",
+        surface_mesh_type="pial",
+        bg_map_mesh_type="sulc",
+        abs_threshold=None,
+        cmap="Reds",
+        symmetric_cbar=False,
+        bg_on_data=True,
+        show_colorbar=False,
+        title=None,
+        vmin=None,
+        vmax=None,
+        save_fig_path=None,
+        views=("lateral", "medial"),
+        hemispheres=("left", "right"),
+        show_parcel_contours=True,
+        contour_color="black",
+        contour_linewidth=3,
+        contour_levels=None,
+        contour_elevation=0.1,
+        show_fig=True
+        
+):
+    """
+    Project region-wise statistics onto the brain surface and plot them
+    using the Plotly engine, arranged in a grid with right hemisphere in
+    column 1 and left hemisphere in column 2.
+
+    Parameters
+    ----------
+    lh_annot_path : str
+        Path to the left hemisphere annotation file.
+    rh_annot_path : str
+        Path to the right hemisphere annotation file.
+    stats : dict or pd.Series or pd.DataFrame
+        One scalar value per region name.
+    fsaverage : str, optional
+        fsaverage resolution. Default is "fsaverage".
+    surface_mesh_type : str, optional
+        Surface mesh type. Default is "pial".
+    bg_map_mesh_type : str, optional
+        Background shading map. Default is "sulc".
+    abs_threshold : float or None, optional
+        Absolute threshold below which stat values are not shown.
+    cmap : str, optional
+        Matplotlib colormap name. Default is "Reds".
+    symmetric_cbar : bool, optional
+        Symmetric colorbar. Default is False.
+    bg_on_data : bool, optional
+        Blend background on data. Default is True.
+    show_colorbar : bool, optional
+        Show colorbar. Default is False.
+    title : str or None, optional
+        Figure title. Default is None.
+    vmin : float or None, optional
+        Colormap minimum. Default is None.
+    vmax : float or None, optional
+        Colormap maximum. Default is None.
+    save_fig_path : str or None, optional
+        Path to save figure. Use .html for interactive, .png for static
+        (requires kaleido). Default is None.
+    views : tuple of str, optional
+        Views to plot. Default is ("lateral", "medial").
+    hemispheres : tuple of str, optional
+        Hemispheres to plot. Default is ("left", "right").
+    show_parcel_contours : bool, optional
+        Draw parcel boundary contours. Default is True.
+    contour_color : str, optional
+        Contour line color. Default is "black".
+    contour_linewidth : int, optional
+        Contour line width. Default is 3.
+    contour_levels : list or None, optional
+        Parcel indices to contour. None = all parcels.
+    contour_elevation : float, optional
+        Height above surface for contour lines. Default is 0.1.
+
+    Returns
+    -------
+    textures : dict
+        Per-vertex texture arrays keyed by hemisphere.
+    combined : plotly.graph_objects.Figure
+        The assembled subplot figure.
+    """
+    if isinstance(stats, pd.DataFrame):
+        stats = stats.iloc[:, 0].to_dict()
+    elif isinstance(stats, pd.Series):
+        stats = stats.to_dict()
+    stats = {convert_region_name(k): v for k, v in stats.items()}
+
+    annot_paths = {"left": lh_annot_path, "right": rh_annot_path}
+    hemi_short  = {"left": "lh", "right": "rh"}
+
+    fsaverage_meshes = datasets.fetch_surf_fsaverage(fsaverage)
+
+    # Column order: right hemisphere first, left second
+    col_order = [h for h in ("right", "left") if h in hemispheres]
+    n_rows = len(views)
+    n_cols = len(col_order)
+
+    textures = {}
+    missing_regions = []
+
+    # --- Step 1: collect one PlotlySurfaceFigure per (hemi, view) ---
+    pyfigs = {hemi: {} for hemi in col_order}
+
+    for hemi in col_order:
+        labels, ctab, region_names_bytes = nib.freesurfer.read_annot(annot_paths[hemi])
+        hs = hemi_short[hemi]
+
+        # Build per-vertex texture
+        texture = np.full(labels.shape, np.nan)
+        for region_idx, region_name_bytes in enumerate(region_names_bytes):
+            region_name = region_name_bytes.decode("utf-8")
+            full_name   = f"ctx-{hs}-{region_name}"
+            stat_value  = stats.get(full_name, stats.get(region_name))
+            if stat_value is not None:
+                texture[labels == region_idx] = stat_value
+            else:
+                missing_regions.append(full_name)
+
+        textures[hemi] = texture
+
+        surf_mesh = fsaverage_meshes[f"{surface_mesh_type}_{hemi}"]
+        bg_map    = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
+
+        levels = contour_levels if contour_levels is not None else list(np.unique(labels))
+
+        for view in views:
+            fig = plotting.plot_surf_stat_map(
+                surf_mesh=surf_mesh,
+                stat_map=texture,
+                hemi=hemi,
+                view=view,
+                bg_map=bg_map,
+                bg_on_data=bg_on_data,
+                colorbar=show_colorbar,
+                threshold=abs_threshold,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                symmetric_cbar=symmetric_cbar,
+                title=None,
+                engine="plotly",
+            )
+
+            if show_parcel_contours:
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=".*isolated vertices.*",
+                        category=UserWarning,
+                    )
+                    fig.add_contours(
+                        roi_map=labels,
+                        levels=levels,
+                        lines=[{"color": contour_color, "width": contour_linewidth}],
+                        elevation=contour_elevation,
+                    )
+
+            pyfigs[hemi][view] = fig
+
+    # --- Step 2: assemble into a single subplot grid ---
+    specs = [[{"type": "scene"} for _ in range(n_cols)] for _ in range(n_rows)]
+
+    combined = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        specs=specs,
+        subplot_titles=None,
+        horizontal_spacing=0.0,
+        vertical_spacing=0.02,
+    )
+
+    for col_idx, hemi in enumerate(col_order, start=1):
+        for row_idx, view in enumerate(views, start=1):
+            src = pyfigs[hemi][view].figure
+
+            for trace in src.data:
+                combined.add_trace(trace, row=row_idx, col=col_idx)
+
+            scene_num = (row_idx - 1) * n_cols + col_idx
+            scene_key = "scene" if scene_num == 1 else f"scene{scene_num}"
+
+            # copy camera to preserve lateral/medial view angle
+            camera = src.layout.scene.camera
+            eye = camera.eye
+
+            # Lateral views zoom out more than medial — normalize the eye distance
+            if view == "lateral":
+                zoom_factor = 0.80  # pull camera closer; tune between 0.6–0.9
+                eye = dict(x=eye.x * zoom_factor, y=eye.y * zoom_factor, z=eye.z * zoom_factor)
+
+            combined.layout[scene_key].camera = dict(
+                eye=eye,
+                up=camera.up,
+                center=camera.center,
+                projection=camera.projection,
+            )
+
+            # use data aspectmode so all subplots scale consistently
+            combined.layout[scene_key].update(
+                aspectmode="data",
+                xaxis=dict(
+                    showgrid=False,
+                    showticklabels=False,
+                    showline=False,
+                    zeroline=False,
+                    title="",
+                    backgroundcolor="white",
+                ),
+                yaxis=dict(
+                    showgrid=False,
+                    showticklabels=False,
+                    showline=False,
+                    zeroline=False,
+                    title="",
+                    backgroundcolor="white",
+                ),
+                zaxis=dict(
+                    showgrid=False,
+                    showticklabels=False,
+                    showline=False,
+                    zeroline=False,
+                    title="",
+                    backgroundcolor="white",
+                ),
+                bgcolor="white",
+            )
+
+    combined.update_layout(
+        height=400 * n_rows,
+        width=500 * n_cols,
+        title_text=title or "",
+        showlegend=False,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+
+    if missing_regions:
+        print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
+
+    combined.show()
+
+    if show_fig:
+        combined.show()
+
+    if save_fig_path:
+        combined.write_html(f"{save_fig_path}.html")
+        combined.write_image(f"{save_fig_path}.svg")
+        combined.write_image(f"{save_fig_path}.png")
+
+    return textures, combined
