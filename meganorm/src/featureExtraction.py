@@ -19,9 +19,6 @@ from meganorm.layouts.layouts import load_specific_layout
 
 logger = logging.getLogger(__name__)
 
-
-
-
 def abs_canonical_power(
     psd: np.ndarray, freqs: np.ndarray, fmin: Union[int, float], fmax: Union[int, float]
 ) -> float:
@@ -251,64 +248,93 @@ def summarizeFeatures(df, device, which_layout, which_sensor):
     return summrized_df
 
 
-def psd_ratio(
-    psd,
-    freqs,
-    freqRangeNumerator: float,
-    freqRangeDenominator: float,
-    channelNames: str,
-    name: str,
-    psdType: str,
-):
+def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     """
-    Calculates the ratio of power in two frequency bands (numerator/denominator) in the power spectral density (PSD).
+    Calculates the log ratio of power between two frequency bands.
 
     Parameters
     ----------
     psd : np.ndarray
-        A 1D array of power spectral density values (in linear scale).
+        Power spectral density values (linear scale).
     freqs : np.ndarray
-        A 1D array of frequency values corresponding to the PSD.
-    freqRangeNumerator : tuple
-        A tuple (min_freq, max_freq) representing the numerator frequency range.
-    freqRangeDenominator : tuple
-        A tuple (min_freq, max_freq) representing the denominator frequency range.
-    channelNames : str
-        Name of the channel for which the ratio is calculated.
-    name : str
-        Descriptive name for the output feature.
-    psdType : str
-        Type of the PSD (e.g., 'power', 'spectrum').
+        Frequency values corresponding to the PSD.
+    fmin_num, fmax_num : float
+        Frequency bounds for the numerator band.
+    fmin_den, fmax_den : float
+        Frequency bounds for the denominator band.
 
     Returns
     -------
-    list
-        A list with the computed PSD ratio (log of numerator/denominator)
-    list
-        A list with the generated feature name
-
+    float
+        log10(power_numerator / power_denominator), or np.nan if denominator is zero.
     """
-    # TODO check this function, seems incorrect
-    # Numerator
-    bandIndices = np.logical_and(
-        freqs >= freqRangeNumerator[0], freqs <= freqRangeNumerator[1]
-    )
-    powerNumerator = np.trapezoid(psd[bandIndices], freqs[bandIndices])
+    idx_num = np.logical_and(freqs >= fmin_num, freqs <= fmax_num)
+    idx_den = np.logical_and(freqs >= fmin_den, freqs <= fmax_den)
 
-    # Denominator
-    bandIndices = np.logical_and(
-        freqs >= freqRangeDenominator[0], freqs <= freqRangeDenominator[1]
-    )
-    powerDenominator = np.trapezoid(psd[bandIndices], freqs[bandIndices])
+    power_num = np.trapezoid(psd[idx_num], freqs[idx_num])
+    power_den = np.trapezoid(psd[idx_den], freqs[idx_den])
 
-    # ratio
-    featRow = np.log10(powerNumerator) / np.log10(powerDenominator)
-    featName = f"{psdType}_Canonical_Absolute_Power_{name}_{channelNames}"
+    if power_den == 0:
+        return np.nan
 
-    return [featRow], [featName]
+    return np.log10(power_num / power_den)
 
 
-def create_feature_container(feature_categories, freq_bands, channel_names):
+def compute_hemispheric_asymmetry(final_df: pd.DataFrame, base_features: List[str] = None) -> pd.DataFrame:
+    """
+    Computes hemispheric asymmetry indices between left and right hemisphere channels.
+
+    For each base feature, finds matching left/right hemisphere column pairs (identified
+    by '_lh_' and '_rh_' in column names) and computes their difference as an asymmetry index.
+
+    Parameters
+    ----------
+    final_df : pd.DataFrame
+        Flattened feature DataFrame with columns named in the format
+        '{feature}__{band}__{channel}'.
+    base_features : List[str], optional
+        List of feature name prefixes to compute asymmetry for.
+        Defaults to ["Adjusted_Canonical_Absolute_Power", "OriginalPSD_Canonical_Absolute_Power"].
+
+    Returns
+    -------
+    pd.DataFrame
+        Input DataFrame with additional asymmetry columns appended.
+        New columns are named with 'Hemispheric_Asymmetry__{base_feat}' and '_lh_vs_rh_'.
+    """
+    if base_features is None:
+        base_features = [
+            "Adjusted_Canonical_Absolute_Power",
+            "OriginalPSD_Canonical_Absolute_Power",
+        ]
+
+    asymmetry_cols = {}
+
+    for base_feat in base_features:
+        df_temp = final_df.loc[:, final_df.columns.str.startswith(base_feat)]
+
+        for col in df_temp.columns:
+            if "_lh_" in col:
+                rh_col = col.replace("_lh_", "_rh_")
+                if rh_col in df_temp.columns:
+                    ai_col = col.replace("_lh_", "_lh_vs_rh_").replace(
+                        base_feat, f"Hemispheric_Asymmetry__{base_feat}"
+                    )
+                    asymmetry_cols[ai_col] = (
+                        df_temp[col].astype(float).values
+                        - df_temp[rh_col].astype(float).values
+                    )
+                else:
+                    logger.warning(f"No matching rh column found for {col}, skipping.")
+
+    if asymmetry_cols:
+        df_assym = pd.DataFrame(asymmetry_cols, index=final_df.index)
+        final_df = pd.concat([final_df, df_assym], axis=1)
+
+    return final_df
+
+
+def create_feature_container(feature_categories, freq_bands, channel_names, BAND_RATIOS=None):
     """
     Creates a DataFrame to store features for each channel, with feature names corresponding to
     the specified categories and frequency bands.
@@ -318,8 +344,8 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
     feature_categories : dict
         Dictionary with feature names as keys and booleans indicating
         whether the feature should be calculated.
-    freq_bands : list
-        List of frequency bands (e.g., ['theta', 'alpha', 'beta']).
+    freq_bands : dict
+        Dictionary of frequency bands (e.g., {'Theta': (4, 8), 'Alpha': (8, 12)}).
     channel_names : list
         List of channel names (e.g., ['ch1', 'ch2', 'ch3']).
 
@@ -328,26 +354,40 @@ def create_feature_container(feature_categories, freq_bands, channel_names):
     pd.DataFrame
         A DataFrame with feature names as rows and channels as columns.
     """
-    # TODO if band_name != "broadband" although not necessary because we fill the
-    # data frame with name (df.at())
-
     # Features that do not need frequency band appended
-    no_freq = ["Offset", "Exponent", "Peak_Center", "Peak_Power", "Peak_Width"]
+    no_freq = ["Offset", "Exponent", "Exponent_2", "Peak_Center", "Peak_Power", "Peak_Width"]
+
+    # Features that are per-band but use ratio naming (num_over_den) instead of band names
+    ratio_features = ["Adjusted_Band_Ratio", "OriginalPSD_Band_Ratio"]
+
+    # Features handled separately outside the channel loop — skip here
+    skip_features = ["Hemispheric_Asymmetry_index"]
 
     feature_names = []
 
     for feature, if_calculate in feature_categories.items():
-        if if_calculate:
-            if feature not in no_freq:
-                # Append frequency bands to the feature name
-                for freq_band in freq_bands:
-                    feature_names.append(f"{feature}__{freq_band}")
-            else:
-                # For features that don't need frequency bands
-                feature += "__" # TODO: this '_' should be removed in future
-                feature_names.append(feature)
+        if not if_calculate:
+            continue
 
-    # Return an empty DataFrame with features as index and channels as columns
+        if feature in skip_features:
+            # Hemispheric asymmetry rows are added dynamically after the channel loop
+            continue
+
+        elif feature in ratio_features and BAND_RATIOS:
+            for ratio in BAND_RATIOS:
+                num_band, den_band = ratio.numerator, ratio.denominator
+                if num_band in freq_bands and den_band in freq_bands:
+                    feature_names.append(f"{feature}__{num_band}_over_{den_band}")
+
+        elif feature in no_freq:
+            feature_names.append(f"{feature}__")  # trailing __ kept for backward compat
+
+        else:
+            for band_name in freq_bands:
+                if "Relative" in feature and band_name == "Broadband":
+                    continue
+                feature_names.append(f"{feature}__{band_name}")
+
     return pd.DataFrame(columns=channel_names, index=feature_names)
 
 
@@ -397,6 +437,7 @@ def feature_extract(
     which_sensor: Dict[str, bool],
     aperiodic_mode: str,
     min_r_squared: float,
+    power_band_ratios_list: List[tuple],
 ) -> pd.DataFrame:
     """
     Extract features from FOOOF models for each channel and frequency band.
@@ -468,11 +509,15 @@ def feature_extract(
     # Store features in a pandas DataFrame with channel names as columns
     # and feature names as the index,
     feature_container = create_feature_container(
-        feature_categories, freq_bands, channel_names
+        feature_categories, freq_bands, channel_names, power_band_ratios_list
     )
 
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=False)
+        try :
+            ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=False)
+        except Exception as e: 
+            ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=True)
+            logger.info(f"Data was rescaled in PYRASA due to numerical instability!")
 
     for channel_num, channel_name in enumerate(channel_names):
 
@@ -511,6 +556,12 @@ def feature_extract(
             feature_container = add_feature(
                 feature_container, feature_arr, "Exponent", channel_name, ""
             )
+        
+            if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
+                feature_arr = spectral_model.get_aperiodic_params()[2]
+                feature_container = add_feature(
+                    feature_container, feature_arr, "Exponent_2", channel_name, ""
+                )
 
         # isolate periodic parts of signals
         flattened_psd = spectral_model.get_periodic_spectrum(original_psds=psds)
@@ -519,6 +570,33 @@ def feature_extract(
         # # whenever aperidic activity is higher than periodic activity
         # # => set the preiodic acitivity to zero
         flattened_psd = np.array(list(map(lambda x: max(0, x), flattened_psd)))
+
+        for ratio in power_band_ratios_list:
+            num_band, den_band = ratio.numerator, ratio.denominator
+            if num_band not in freq_bands or den_band not in freq_bands:
+                continue
+
+            fmin_num, fmax_num = freq_bands[num_band]
+            fmin_den, fmax_den = freq_bands[den_band]
+            ratio_name = f"{num_band}_over_{den_band}"
+
+            if feature_categories["Adjusted_Band_Ratio"]:
+                feature_arr = band_power_ratio(
+                    psd=flattened_psd, freqs=freqs,
+                    fmin_num=fmin_num, fmax_num=fmax_num,
+                    fmin_den=fmin_den, fmax_den=fmax_den
+                )
+                feature_name = f"Adjusted_Band_Ratio__{ratio_name}"
+                feature_container.at[feature_name, channel_name] = feature_arr
+
+            if feature_categories["OriginalPSD_Band_Ratio"]:
+                feature_arr = band_power_ratio(
+                    psd=original_psd, freqs=freqs,
+                    fmin_num=fmin_num, fmax_num=fmax_num,
+                    fmin_den=fmin_den, fmax_den=fmax_den
+                )
+                feature_name = f"OriginalPSD_Band_Ratio__{ratio_name}"
+                feature_container.at[feature_name, channel_name] = feature_arr
 
         # Loop through each frequency band
         for band_name, (fmin, fmax) in freq_bands.items():
@@ -686,13 +764,15 @@ def feature_extract(
     # Flatten the DataFrame and create neww column names
     final_df = pd.DataFrame(feature_container.values.flatten()).T
     final_df.columns = [
-        f"{index}_{col}"
+        f"{index}__{col}"
         for index in feature_container.index
         for col in feature_container.columns
     ]
 
-    logger.info(f"The shape of the extracted features:{final_df.shape}")
+    if feature_categories["Hemispheric_Asymmetry_index"]:
+        final_df = compute_hemispheric_asymmetry(final_df)
 
+    logger.info(f"The shape of the extracted features: {final_df.shape}")
     final_df.index = [subject_id]
 
     return final_df
@@ -797,6 +877,7 @@ class PYRASADecomposer(SpectralDecomposer):
         params.append(aperiodic_params_of_interest["Offset"].item())
         # exponent 
         params.append(aperiodic_params_of_interest["Exponent_1"].item())
+        params.append(aperiodic_params_of_interest["Exponent_2"].item())
 
         return params
     

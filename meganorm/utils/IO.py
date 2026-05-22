@@ -11,7 +11,13 @@ from typing import Literal, Dict, Tuple, List, Optional
 from typing import Optional
 import warnings
 from typing import Union
+from typing import ClassVar
 from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
+
+class BandRatio(BaseModel):
+    numerator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+    denominator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+
 
 class Config(BaseModel):
     """
@@ -187,6 +193,7 @@ class Config(BaseModel):
         Validator for EEG conductivity.
     """
 
+    which_meg_session : int = 0 # the first session
 
     which_layout: Literal["all", "lobe", None] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
@@ -200,7 +207,7 @@ class Config(BaseModel):
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
     cutoffFreqLow: float = 1.0
-    cutoffFreqHigh: PositiveInt = 40
+    cutoffFreqHigh: PositiveInt = 80
 
     resampling_rate: PositiveInt = 1000
     digital_filter: bool = True
@@ -212,6 +219,20 @@ class Config(BaseModel):
     Head_movement_limit_from_mean: float = 0.0015
 
     apply_chpi_filter: bool = False
+
+    # gedai settings
+    apply_gedai: bool = True
+    gedai_method: Literal["both", "spectral", "broadband"] = "both"
+    sensai_method: Literal["optimize", "gridsearch"] = "optimize"
+    gedai_duration: Union[float, int] = 12
+    gedai_overlap: Union[float, int] = 0.5
+    gedai_preliminary_broadband_noise_multiplier: float = 6.0
+    gedai_noise_multiplier: float = 3.0
+    gedai_wavelet_type: str ="haar"
+    gedai_wavelet_level: Union[Literal["auto"], PositiveInt, Literal[0]] = "auto"
+    gedai_wavelet_low_cutoff: Union[None, float] = None
+    gedai_epoch_size_in_cycles: PositiveInt = 12
+    gedai_highpass_cutoff: float = 0.1
 
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
@@ -231,14 +252,13 @@ class Config(BaseModel):
 
     rereference_method: Literal["average", "REST", "None"] = "average"
 
-    remove_bad_segments: bool = True
+    bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
     mag_var_threshold: float = 5000e-15
     grad_var_threshold: float = 5000e-13
     eeg_var_threshold: float = 40e-6
     mag_flat_threshold: float = 10e-15
     grad_flat_threshold: float = 10e-13
     eeg_flat_threshold: float = 40e-6
-
     zscore_std_thresh: PositiveInt = 15
 
     segments_tmin: PositiveInt = 20
@@ -246,9 +266,16 @@ class Config(BaseModel):
     segments_length: PositiveInt = 10
     segments_overlap: int = 2
 
+    # autoreject
+    autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
+    autoreject_consensus_percs: List[float] = list(np.linspace(0, 1.0, 11))
+    autoreject_cv: Union[int, Literal["auto"]] = "auto"
+    autoreject_thresh_method: Literal['bayesian_optimization', "random_search"] = "bayesian_optimization"
+
     # Source localization
     apply_source_localization: bool = False
     apply_empty_room_recording: bool = True
+    apply_mri_QC: bool = False
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
@@ -278,7 +305,7 @@ class Config(BaseModel):
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
 
     # A custom parcellation file
-    parcellation_annot_fname: Literal[Path, None] = None
+    parcellation_annot_fname: Optional[Path] = None
 
 
     # PSD
@@ -299,8 +326,8 @@ class Config(BaseModel):
     fooof_min_peak_height: int = 0
     fooof_peak_threshold: PositiveInt = 2
     
-    save_source_localized_epochs: bool = True
-    save_psds : bool = True
+    save_source_localized_epochs: bool = False
+    save_psds : bool = False
 
     # Feature extraction
     freq_bands: Dict[str, Tuple[int, int]] = {
@@ -317,22 +344,38 @@ class Config(BaseModel):
         "Gamma": (-5, 5),
     }
 
+    power_band_ratios_list: List[BandRatio] = [
+        BandRatio(numerator="Theta", denominator="Beta"),
+        BandRatio(numerator="Theta", denominator="Alpha"),
+        BandRatio(numerator="Alpha", denominator="Beta"),
+        BandRatio(numerator="Delta", denominator="Beta"),
+        BandRatio(numerator="Delta", denominator="Alpha"),
+        BandRatio(numerator="Delta", denominator="Theta"),
+        BandRatio(numerator="Beta", denominator="Gamma"),
+        BandRatio(numerator="Alpha", denominator="Gamma"),
+        BandRatio(numerator="Theta", denominator="Gamma"),
+        BandRatio(numerator="Delta", denominator="Gamma"),
+    ]
+
     min_r_squared: confloat(ge=0, le=1) = 0.9
 
     feature_categories: Dict[str, bool] = {
-        "Offset": False,
-        "Exponent": False,
+        "Offset": True,
+        "Exponent": True,
         "Peak_Center": False,
         "Peak_Power": False,
         "Peak_Width": False,
         "Adjusted_Canonical_Relative_Power": True,
-        "Adjusted_Canonical_Absolute_Power": False,
+        "Adjusted_Canonical_Absolute_Power": True,
         "Adjusted_Individualized_Relative_Power": False,
         "Adjusted_Individualized_Absolute_Power": False,
-        "OriginalPSD_Canonical_Relative_Power": False,
-        "OriginalPSD_Canonical_Absolute_Power": False,
+        "OriginalPSD_Canonical_Relative_Power": True,
+        "OriginalPSD_Canonical_Absolute_Power": True,
         "OriginalPSD_Individualized_Relative_Power": False,
         "OriginalPSD_Individualized_Absolute_Power": False,
+        "Adjusted_Band_Ratio" : True, 
+        "OriginalPSD_Band_Ratio": True,
+        "Hemispheric_Asymmetry_index": True
     }
 
     fooof_res_save_path: Optional[str] = None
@@ -404,7 +447,25 @@ class Config(BaseModel):
     def pacellation_checker(self):
         if not self.parcellation_parc and not self.parcellation_annot_fname:
             raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
+        return self
 
+    @model_validator(mode="after")
+    def gedai_params_check(self):
+        method = self.gedai_method
+        wavelet_level = self.gedai_wavelet_level
+        duration = self.gedai_duration
+        broadband_multiplier = self.gedai_preliminary_broadband_noise_multiplier
+
+        if method == "broadband" and wavelet_level != 0:
+            raise ValueError("broadband method requires wavelet_level=0")
+        if method == "broadband" and not duration:
+            raise ValueError("broadband method requires gedai_duration")
+        if method == "spectral" and wavelet_level == 0:
+            raise ValueError("spectral method requires wavelet_level > 0")
+        if method == "both" and not broadband_multiplier:
+            raise ValueError("both method requires gedai_preliminary_broadband_noise_multiplier")
+        
+        return self
 
     def save(self, save_path:str, overwrite=False):
         "save the configurations to a JSON file"
@@ -794,6 +855,8 @@ def merge_datasets_with_glob(datasets):
     """
 
     def join_with_star(lst):
+        if not lst:
+            return None
         if len(lst) == 1:
             return lst[0] + "*"
         return "*".join(lst)
@@ -804,9 +867,11 @@ def merge_datasets_with_glob(datasets):
         base_dir = dataset_info["base_dir"]
         task = dataset_info["task"]
         ending = dataset_info["ending"]
+        line_freq = dataset_info["line_freq"]
         empty_room_task = dataset_info["empty_room_task"]
         empty_room_path = dataset_info["empty_room_path"]
         surfaces = dataset_info["surfaces_dir"]
+        
 
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
@@ -839,6 +904,7 @@ def merge_datasets_with_glob(datasets):
                 {subj: 
                     {
                     "rest_record": join_with_star(rs_record_paths),
+                    "line_freq": line_freq,
                     "empty_room_record":join_with_star(er_record_paths),
                     "mri_surface":surface
                     }
@@ -975,17 +1041,15 @@ def set_path(project_dir):
         if not os.path.isdir(path):
             os.makedirs(path)
 
+    # Feature extraction
     features_dir = os.path.join(project_dir, 'Features')
-    # a log file to save logs of feature extraction
-    features_log_path = os.path.join(features_dir, 'log')
-    # a directory to save extracted features temporarily
+    features_log_path = os.path.join(features_dir, 'log_slurm_jobs')
     features_temp_path = os.path.join(features_dir,'temp')
     figures_dir = os.path.join(features_dir, "figures")
-
+    exluded_participants_path = os.path.join(features_dir, "excluded_participants")
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
-
     configurations = os.path.join(features_dir, "Configurations")
 
     make_folder(features_dir)
@@ -996,16 +1060,11 @@ def set_path(project_dir):
     make_folder(save_epochs_path)
     make_folder(save_psds_path)
     make_folder(configurations)
+    make_folder(exluded_participants_path)
 
-    nm_dir = os.path.join(project_dir, "Normative_modeling")
-    run_dir = os.path.join(nm_dir, "Runs")
-    figures_dir = os.path.join(nm_dir, "Figures")
-    models_summary = os.path.join(nm_dir, "Models summary")
-
+    # Normative models
+    nm_dir = os.path.join(project_dir, "Normative_models")
     make_folder(nm_dir)
-    make_folder(run_dir)
-    make_folder(figures_dir)
-    make_folder(models_summary)
 
     return features_dir, features_log_path
 
@@ -1038,3 +1097,46 @@ def clean_nan_columns(df, nan_threshold):
                 df[col] = df[col].fillna(median_value)
 
     return df
+
+
+
+def find_other_mri_session(base_mri_path, missing_mri_subjects, str_mri_ending, which_session):
+
+    new_paths = {}
+    for subject in missing_mri_subjects:
+        mri_paths = glob.glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
+
+        if len(mri_paths) > which_session-1:
+            new_paths.update({subject: mri_paths[which_session-1]})
+        
+    return new_paths
+
+def find_failed_meg_subjects(log_path):
+    
+    missing_meg_subjects = []
+    paths = os.scandir(log_path)
+    paths = list(filter(lambda x: "err" in x.name, paths))
+    for path in paths:
+        with open(path, "r") as f:
+            content = f.read()
+            if "error" in content:
+                subject = os.path.basename(path).split(".")[0].split("_")[0]
+                missing_meg_subjects.append(subject)
+
+    return set(missing_meg_subjects)
+
+def find_other_meg_session(base_meg_path,
+                           missing_meg_subjects,
+                           str_meg_ending,
+                           task_name,
+                           which_session):
+    
+    new_paths = {}
+    for subject in missing_meg_subjects:
+        rs_record_paths = glob.glob(
+                    f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
+                    recursive=True
+                    )
+        if len(rs_record_paths) > which_session - 1:
+            new_paths.update({subject: rs_record_paths[which_session - 1]})
+    return new_paths

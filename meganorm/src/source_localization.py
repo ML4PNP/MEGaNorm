@@ -10,7 +10,7 @@ import mne
 import joblib
 import os
 
-from meganorm.src.preprocess import check_tsss
+
 
 logger = logging.getLogger(__name__)
 
@@ -1112,3 +1112,28 @@ def regularized_cov_condition(X, shrinkage=0.05, diag_scale='auto'):
     cond_after = np.linalg.cond(C_reg)
 
     return C_reg, cond_before, cond_after
+
+
+
+def check_tsss(meg_data):
+    """
+    Check if Maxwell filtering (tSSS) was applied to raw/epochs data.
+
+    This inspects the processing history for presence of maxfilter info.
+
+    Parameters
+    ----------
+    meg_data : mne.io.BaseRaw | mne.Epochs
+        The MEG data object.
+
+    Returns
+    -------
+    bool
+        True if tSSS has been applied, False otherwise.
+    """
+    proc_history = meg_data.info.get('proc_history', [])
+    if not proc_history:
+        return False
+    max_info = proc_history[0].get('max_info', {})
+    sss_cal = max_info.get('sss_info', [])
+    return len(sss_cal) > 0

@@ -2,20 +2,21 @@ import os
 import numpy as np
 import pandas as pd
 import pickle
+import scipy
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.stats as st
 from scipy.stats import shapiro
 import itertools
 from scipy.stats import skew, kurtosis
-from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
+# from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
 from scipy.stats import ranksums
 from sklearn.model_selection import train_test_split
 
 
 # **
-def hbr_data_split(
+def haddbr_data_split(
     data,
     save_path,
     covariates=["age"],
@@ -773,231 +774,101 @@ def cal_stats_for_INOCs(
 
 
 # **
-def abnormal_probability(
-    processing_dir: str,
-    nm_processing_dir: str,
-    n_permutation: int = 1000,
-    site_id: int = None,
-    healthy_data_prefix: str = "",
-    patient_data_prefix: str = "",
-):
-    """
-    Computes the abnormality probability index for both control and patient groups
-    based on z-scores from normative modeling. Then calculates the AUC between
-    these two groups and estimates the statistical significance of AUC values using
-    permutation testing. Finally, it applies false discovery rate (FDR) correction
-    to the p-values.
+# def abnormal_probability(
+#     processing_dir: str,
+#     nm_processing_dir: str,
+#     n_permutation: int = 1000,
+#     site_id: int = None,
+#     healthy_data_prefix: str = "",
+#     patient_data_prefix: str = "",
+# ):
+#     """
+#     Computes the abnormality probability index for both control and patient groups
+#     based on z-scores from normative modeling. Then calculates the AUC between
+#     these two groups and estimates the statistical significance of AUC values using
+#     permutation testing. Finally, it applies false discovery rate (FDR) correction
+#     to the p-values.
 
-    Parameters
-    ----------
-    processing_dir : str
-        Path to the directory containing z-score files.
-    nm_processing_dir : str
-        Path to normative modeling directory containing batch info.
-    n_permutation : int, optional
-        Number of permutations for statistical testing (default is 1000).
-    site_id : int, optional
-        If provided, filters both healthy and patient data by this site ID.
-    healthy_data_prefix : str, optional
-        Prefix used for healthy subject files (e.g., 'control').
-    patient_data_prefix : str, optional
-        Prefix used for patient subject files (e.g., 'patient').
+#     Parameters
+#     ----------
+#     processing_dir : str
+#         Path to the directory containing z-score files.
+#     nm_processing_dir : str
+#         Path to normative modeling directory containing batch info.
+#     n_permutation : int, optional
+#         Number of permutations for statistical testing (default is 1000).
+#     site_id : int, optional
+#         If provided, filters both healthy and patient data by this site ID.
+#     healthy_data_prefix : str, optional
+#         Prefix used for healthy subject files (e.g., 'control').
+#     patient_data_prefix : str, optional
+#         Prefix used for patient subject files (e.g., 'patient').
 
-    Returns
-    -------
-    p_val : np.ndarray
-        Adjusted p-values for each biomarker based on FDR correction.
-    auc : np.ndarray
-        AUC values comparing abnormal probability between groups.
-    """
+#     Returns
+#     -------
+#     p_val : np.ndarray
+#         Adjusted p-values for each biomarker based on FDR correction.
+#     auc : np.ndarray
+#         AUC values comparing abnormal probability between groups.
+#     """
 
-    # Load z-scores
-    with open(
-        os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb"
-    ) as file:
-        z_patient = pickle.load(file)
-    with open(
-        os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb"
-    ) as file:
-        z_healthy = pickle.load(file)
+#     # Load z-scores
+#     with open(
+#         os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb"
+#     ) as file:
+#         z_patient = pickle.load(file)
+#     with open(
+#         os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb"
+#     ) as file:
+#         z_healthy = pickle.load(file)
 
-    # Filter by site if specified
-    if site_id is not None:
-        # Control group
-        with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
-            b_healthy = pickle.load(file)
-        z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
+#     # Filter by site if specified
+#     if site_id is not None:
+#         # Control group
+#         with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
+#             b_healthy = pickle.load(file)
+#         z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
 
-        # Patient group
-        with open(
-            os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb"
-        ) as file:
-            b_patient = pickle.load(file)
-        z_patient = z_patient.iloc[np.where(b_patient["site"] == site_id)[0], :]
+#         # Patient group
+#         with open(
+#             os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb"
+#         ) as file:
+#             b_patient = pickle.load(file)
+#         z_patient = z_patient.iloc[np.where(b_patient["site"] == site_id)[0], :]
 
-    # Convert z-scores to abnormal probabilities
-    p_patient = z_to_abnormal_p(z_patient)
-    p_healthy = z_to_abnormal_p(z_healthy)
+#     # Convert z-scores to abnormal probabilities
+#     p_patient = z_to_abnormal_p(z_patient)
+#     p_healthy = z_to_abnormal_p(z_healthy)
 
-    # Combine for AUC analysis
-    p = np.concatenate([p_patient, p_healthy])
-    # Assign 0 to control group and 1 to patient group as label
-    labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
+#     # Combine for AUC analysis
+#     p = np.concatenate([p_patient, p_healthy])
+#     # Assign 0 to control group and 1 to patient group as label
+#     labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
 
-    # Compute AUC and p-values
-    auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
+#     # Compute AUC and p-values
+#     auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
 
-    # FDR correction
-    p_val = false_discovery_control(p_val)
+#     # FDR correction
+#     p_val = false_discovery_control(p_val)
 
-    return p_val, auc
+#     return p_val, auc
 
 
 # **
-def aggregate_metrics_across_runs(
-    path: str,
-    method_name: str,
-    biomarker_names: list,
-    valcovfile_path: str,
-    valrespfile_path: str,  # Corrected semicolon to colon
-    valbefile: str,
-    metrics: list = ["skewness", "kurtosis", "W", "MACE", "SMSE"],
-    num_runs: int = 10,
-    quantiles: list = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99],
-    outputsuffix: str = "estimate",
-    zscore_clipping_value: float = 8.0,
+def calculate_skewness_and_kurtosis(
+    df_zscores,
+    nan_policy="omit"
 ):
-    """
-    Aggregates statistical metrics across multiple runs for given biomarkers.
+    
+    skewness = scipy.stats.skew(df_zscores, nan_policy=nan_policy)
+    kurtosis = scipy.stats.kurtosis(df_zscores, nan_policy=nan_policy)
 
-    This function evaluates and aggregates 4 statistical metrics, namely skewness, kurtosis, mean absolute
-    centiles error (MACE), and W, for a set of biomarkers across multiple runs. The resulting data can be
-    used later for plotting. See also: `plot_metrics()`.
-
-    Parameters
-    ----------
-    path : str
-        The directory path containing the individual run folders.
-    method_name : str
-        The name of the method folder within each run's directory. Since different HBR configurations can
-        be saved in each run directory, method_name should be specified.
-    biomarker_names : list of str
-        A list of biomarker names for which metrics are to be calculated.
-    valcovfile_path : str
-        The file path to the validation covariance matrix.
-    valrespfile_path : str
-        The file path to the validation response file.
-    valbefile : str
-        The file path to the validation bivariate evaluation file.
-    metrics : list of str, optional
-        A list of metrics to compute for each biomarker. Options include "skewness", "kurtosis", "W", and "MACE".
-        Default is ["skewness", "kurtosis", "W", "MACE"].
-    num_runs : int, optional
-        The number of runs to aggregate metrics across. Default is 10.
-    quantiles : list of float, optional
-        A list of quantiles to use for MACE evaluation. Default is [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99].
-        This tells the function to calculate MACE for these centiles.
-    outputsuffix : str, optional
-        The suffix to append to output files (e.g., for naming model outputs). Default is "estimate".
-    zscore_clipping_value : float, optional
-        The maximum z-score value for clipping. Any z-score above this threshold will be clipped to this value. Default is 8.0.
-        This is due to the sensitivity of kurtosis to noise. Given that |z| > 8 is almost as equal as |z| = 8, we clip them to 8.
-
-    Returns
-    -------
-    data : dict
-        A dictionary where keys are the metric names (e.g., "skewness", "kurtosis", "W", "MACE") and values
-        are dictionaries with biomarker names as keys and lists of aggregated metric values across runs as values.
-
-    Notes
-    -----
-    The function performs z-score clipping to limit extreme values, applies the skewness and kurtosis calculations,
-    evaluates MACE using the provided validation data, and computes the W statistic for the test data.
-
-    Example
-    -------
-    data = aggregate_metrics_across_runs(
-        path='/path/to/runs',
-        method_name='method_A',
-        biomarker_names=['biomarker_1', 'biomarker_2'],
-        valcovfile_path='/path/to/valcovfile',
-        valrespfile_path='/path/to/valrespfile',
-        valbefile='/path/to/valbefile',
-        metrics=['MACE', 'W'],
-        num_runs=5
+    df = pd.DataFrame(
+        {"skewness": skewness, "kurtosis": kurtosis},
+        index=df_zscores.columns  # ← one row per feature
     )
-    """
-    # Check if all requested metrics are supported
-    for elem in metrics:
-        if elem not in ["skewness", "kurtosis", "W", "MACE", "SMSE"]:
-            raise ValueError(
-                f"{elem} is not supported. Supported metrics include 'skewness', 'kurtosis', 'W', 'MACE'."
-            )
 
-    data = {
-        metric: {biomarker_name: [] for biomarker_name in biomarker_names}
-        for metric in metrics
-    }
-
-    # Loop through each run
-    for run in range(num_runs):
-        run_path = path.replace("Run_0", f"Run_{run}")
-        valcovfile_path = valcovfile_path.replace("Run_0", f"Run_{run}")
-        valrespfile_path = valrespfile_path.replace("Run_0", f"Run_{run}")
-        valbefile = valbefile.replace("Run_0", f"Run_{run}")
-
-        # Load z-scores for the current run
-        temp_path = os.path.join(run_path, method_name, f"Z_{outputsuffix}.pkl")
-        with open(temp_path, "rb") as file:
-            z_scores = pickle.load(file)
-
-        # Apply z-score clipping
-        z_scores = z_scores.applymap(
-            lambda x: zscore_clipping_value if abs(x) > zscore_clipping_value else x
-        )
-
-        # Evaluate metrics for the current run
-        for metric in metrics:
-            values = []
-
-            if metric == "MACE":
-                for ind in range(len(biomarker_names)):
-                    values.append(
-                        evaluate_mace(
-                            os.path.join(run_path, method_name, "Models"),
-                            valcovfile_path,
-                            valrespfile_path,
-                            valbefile,
-                            model_id=ind,
-                            quantiles=quantiles,
-                            outputsuffix=outputsuffix,
-                        )
-                    )
-
-            if metric == "SMSE":
-                temp_path = os.path.join(
-                    run_path, method_name, f"SMSE_{outputsuffix}.pkl"
-                )
-                with open(temp_path, "rb") as file:
-                    smse = pickle.load(file)
-                values.extend(smse.iloc[:, 0].tolist())
-
-            if metric == "W":
-                with open(os.path.join(run_path, "x_test.pkl"), "rb") as file:
-                    cov = pickle.load(file)
-                values.extend(shapiro_stat(z_scores, cov))
-
-            if metric == "skewness":
-                values.extend(skew(z_scores))
-
-            if metric == "kurtosis":
-                values.extend(kurtosis(z_scores))
-
-            # Store values in the data dictionary for each biomarker
-            for counter, name in enumerate(biomarker_names):
-                data[metric][name].append(values[counter])
-
-    return data
+    return df.T
 
 
 def wilcoxon_rank_test(proposed_dict, baseline_dict):

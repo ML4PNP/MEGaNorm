@@ -7,10 +7,10 @@ from pyrasa.irasa_mne.mne_objs import (
     IrasaEpoched,
     PeriodicEpochsSpectrum,
 )
-
+import logging
 import warnings
-
 warnings.filterwarnings("ignore")
+logger = logging.getLogger(__name__)
 
 
 def computePsd(
@@ -322,3 +322,113 @@ def irasa_epochs(
             psds_aperiodic, info, freqs=irasa_spectrum.freqs, events=np.array([[0, 0, 1]]*1), event_id={'1': 1}
         ),
     )
+
+
+
+
+def sqc_parameterize_psds(
+    segments,
+    parametrization_method,
+    freq_range_low=3,
+    freq_range_high=40,
+    min_peak_height=0,
+    peak_threshold=2,
+    sampling_rate=1000,
+    psd_method="welch",
+    psd_n_overlap=1,
+    psd_n_fft=2,
+    n_per_seg=2,
+    peak_width_limits=[1, 12.0],
+    aperiodic_mode="knee",
+    irasa_hset = (1.05, 2.0, 0.05)
+):
+    """
+    Runs the complete pipeline for spectral parameterization using FOOOF.
+    This includes computing the PSD and fitting FOOOF models for each channel.
+
+    Parameters
+    ----------
+    segments : mne.Epochs
+        Epoched MNE object containing segmented data.
+    freq_range_low : float
+        Lower bound of frequency range for PSD and FOOOF (Hz).
+    freq_range_high : float
+        Upper bound of frequency range for PSD and FOOOF (Hz).
+    min_peak_height : float
+        Minimum height of peaks to be detected by FOOOF.
+    peak_threshold : float
+        Threshold for peak detection relative to the aperiodic fit.
+    sampling_rate : int
+        Sampling frequency of the signal (Hz).
+    psd_method : str
+        Method used to compute PSD. Options: "welch", "multitaper".
+    psd_n_overlap : int
+        Overlap (in seconds) between segments in PSD computation.
+    psd_n_fft : int
+        Number of FFT points (in seconds) used in PSD.
+    n_per_seg : int
+        Length (in seconds) of each segment used in PSD.
+    peak_width_limits : list of float, optional
+        Lower and upper bounds on peak width (Hz). Default is [1, 12.0].
+    aperiodic_mode : str
+        Mode of aperiodic fit. Options: "fixed" or "knee".
+
+    Returns
+    -------
+    spectral_models : FOOOFGroup | pyrasa.irasa_mne.mne_objs.IrasaEpoched
+        Fitted spectral models for each channel.
+    psds : np.ndarray
+        Power spectral densities.
+    freqs : np.ndarray
+        Corresponding frequency values.
+
+    Raises
+    ------
+    ValueError
+        If `psd_method` is not 'welch' or 'multitaper'.
+    ValueError
+        If `aperiodic_mode` is not 'fixed' or 'knee'.
+    """
+    if psd_method not in ["multitaper", "welch"]:
+        raise ValueError("psd_method must be either 'welch' or 'multitaper'")
+
+    if aperiodic_mode not in ["fixed", "knee"]:
+        raise ValueError("aperiodic_mode must be either 'fixed' or 'knee'")
+    
+    if parametrization_method == "fooof":
+
+        psds, freqs = computePsd(
+            segments=segments,
+            freq_range_low=freq_range_low,
+            freq_range_high=freq_range_high,
+            sampling_rate=sampling_rate,
+            psd_method=psd_method,
+            psd_n_overlap=psd_n_overlap,
+            psd_n_fft=psd_n_fft,
+            n_per_seg=n_per_seg,
+        )
+
+        spectral_models, psds, freqs = fooof(
+            psds=psds,
+            freqs=freqs,
+            freq_range_low=freq_range_low,
+            freq_range_high=freq_range_high,
+            min_peak_height=min_peak_height,
+            peak_threshold=peak_threshold,
+            peak_width_limits=peak_width_limits,
+            aperiodic_mode=aperiodic_mode,
+        )
+
+    elif parametrization_method == "irasa":
+        psds, freqs, spectral_models = irasa_epochs(
+            segments,
+            band=(freq_range_low, freq_range_high),
+            hset_info=irasa_hset,
+            )
+        
+        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=True)
+        gof = ap.gof
+
+        low_r2_channels = gof[gof["R2"] < 0.9]["ch_name"].to_list()
+        
+    return low_r2_channels

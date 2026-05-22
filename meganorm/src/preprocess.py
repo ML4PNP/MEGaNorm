@@ -1,18 +1,24 @@
 import os
 import mne
-from mne_icalabel import label_components
 import json
-import numpy as np
 import glob
 import logging
-from typing import Any, Dict
-import pandas as pd
-from scipy.stats import zscore
 import warnings
+import numpy as np
+import pandas as pd
+from collections import Counter
+from typing import Any, Dict
+from scipy.stats import zscore
 from kneed import KneeLocator
-
+import matplotlib.pyplot as plt
+from gedai.gedai.gedai import Gedai # TODO: This needs to be changed when meg branch is released
+from mne_icalabel import label_components
+from meganorm.src.source_localization import check_tsss
+from gedai.viz import plot_mne_style_overlay_interactive
+from meganorm.src.source_localization import corregistration, forward_solution
+from autoreject import AutoReject, set_matplotlib_defaults
+import autoreject   
 warnings.filterwarnings("ignore")
-
 logger = logging.getLogger(__name__)
 
 
@@ -431,7 +437,7 @@ def segment_epoch(
     segments_length: float = 10,
     overlap: float = 0,
     ica_if_reject_by_annotation: bool = True,
-    remove_bad_segments: bool = True,
+    bad_segment_removal_method = "fixed_thr",
     mag_var_threshold: float = 5000e-15,
     grad_var_threshold: float = 5000e-13,
     eeg_var_threshold: float = 40e-6,
@@ -468,6 +474,9 @@ def segment_epoch(
         Whether to reject epochs based on annotations (e.g., ICA-identified
         artifacts). Passed to ``reject_by_annotation`` in ``mne.Epochs``.
         Default is True.
+    remove_bad_segments : bool, optional
+        Whether to apply amplitude and flatness thresholds to reject bad
+        epochs. Default is True.
     mag_var_threshold : float, optional
         Peak-to-peak amplitude threshold for rejecting epochs containing
         artifacts in magnetometer channels (in Tesla). Default is 5000e-15.
@@ -491,59 +500,62 @@ def segment_epoch(
     segments : mne.Epochs
         An ``Epochs`` object containing fixed-length segments extracted from
         the continuous data.
+    rejection_summary : dict
+        A dictionary summarising epoch retention and rejection, with keys:
+
+        - ``total_epochs`` : int, total epochs before rejection.
+        - ``retained_epochs`` : int, number of epochs kept.
+        - ``discarded_epochs`` : int, number of epochs removed.
+        - ``pct_discarded`` : float, percentage of epochs discarded.
+        - ``signal_retained_s`` : float, seconds of signal retained.
+        - ``signal_total_s`` : float, total seconds before rejection.
+        - ``drop_reasons`` : Counter, counts per channel name or annotation
+          label that caused rejection. Channel names indicate threshold-based
+          rejection; annotation labels (e.g. ``'IGNORED'``) indicate
+          annotation-based rejection.
 
     Raises
     ------
     ValueError
         If ``tmax`` is not a negative number.
+    Exception
+        If all epochs are rejected, with a summary of drop reasons included
+        in the message.
     """
-
     if tmax > 0:
         raise ValueError("The 'tmax' must be a negative number")
 
-    # Calculate absolute tmax based on data duration and trim beginning/end
     tmax = int(np.shape(data.get_data())[1] / sampling_rate + tmax)
-
-    # Crop 20 seconds from both ends to avoid eye-open/close artifacts
     data.crop(tmin=tmin, tmax=tmax)
 
-    if remove_bad_segments:
-
+    if bad_segment_removal_method == "fixed_thr":
+        # which_sensor["eeg"] is False for MEG-only data
         if not which_sensor["eeg"]:
-
             ch_types = data.get_channel_types()
-
             if "mag" in ch_types:
                 if "grad" in ch_types:
-                    reject = dict(
-                        mag=mag_var_threshold,
-                        grad=grad_var_threshold,
-                        )
-                    flat = dict(
-                        mag=mag_flat_threshold,
-                        grad=grad_flat_threshold,
-                    )
-
+                    reject = dict(mag=mag_var_threshold, grad=grad_var_threshold)
+                    flat = dict(mag=mag_flat_threshold, grad=grad_flat_threshold)
                 else:
                     reject = dict(mag=mag_var_threshold)
                     flat = dict(mag=mag_flat_threshold)
             else:
                 reject = dict(grad=grad_var_threshold)
                 flat = dict(grad=grad_flat_threshold)
-
         else:
             reject = dict(eeg=eeg_var_threshold)
             flat = dict(eeg=eeg_flat_threshold)
-
     else:
-        reject = None; flat = None
+        reject = None
+        flat = None
 
     events = mne.make_fixed_length_events(
-        raw = data, 
-        duration = segments_length,
-        overlap = overlap
-        )
-    
+        raw=data,
+        duration=segments_length,
+        overlap=overlap,
+    )
+    total_epochs = len(events)
+
     segments = mne.Epochs(
         data,
         events,
@@ -551,17 +563,63 @@ def segment_epoch(
         flat=flat,
         reject_by_annotation=ica_if_reject_by_annotation,
         verbose=False,
-        tmin = 0,
-        tmax=segments_length - 1/sampling_rate,
-        baseline=None
+        tmin=0,
+        tmax=segments_length - 1 / sampling_rate,
+        baseline=None,
     )
 
+    segments.load_data()
+
+    if bad_segment_removal_method == "fixed_thr":
+        retained_epochs = segments.get_data().shape[0]
+        discarded_epochs = total_epochs - retained_epochs
+        pct_discarded = (discarded_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
+
+        # drop_log entries are channel names (threshold rejection) or
+        # annotation labels; empty tuple means the epoch was kept
+        all_reasons = [reason for reasons in segments.drop_log for reason in reasons]
+        drop_reasons = Counter(all_reasons)
+
+        rejection_summary = dict(
+            total_epochs=total_epochs,
+            retained_epochs=retained_epochs,
+            discarded_epochs=discarded_epochs,
+            pct_discarded=round(pct_discarded, 2),
+            signal_retained_s=retained_epochs * segments_length,
+            signal_total_s=total_epochs * segments_length,
+            drop_reasons=drop_reasons,
+        )
+
+        log_msg = (
+            f"Epoch rejection summary:\n"
+            f"  Total epochs : {total_epochs}\n"
+            f"  Retained     : {retained_epochs} "
+            f"({100 - pct_discarded:.1f}% | {retained_epochs * segments_length:.1f}s)\n"
+            f"  Discarded    : {discarded_epochs} "
+            f"({pct_discarded:.1f}% | {discarded_epochs * segments_length:.1f}s)\n"
+            f"  Drop reasons : {dict(drop_reasons)}"
+        )
+
+        if retained_epochs == 0:
+            err_msg = (
+                "All epochs were rejected. Every segment was identified as either "
+                "noisy or flat. Further processing for this participant cannot proceed.\n"
+                + log_msg
+            )
+            logger.error(err_msg)
+            raise Exception(err_msg)
+
+        logger.info(log_msg)
+
     return segments
+
 
 
 def preprocess(
     data,
     device,
+    subject,
+    freesurfer_dir,
     which_sensor: dict,
     empty_room_recording=None,
     resampling_rate: int = 1000,
@@ -590,7 +648,23 @@ def preprocess(
     environmental_noise_ica_with_ref_meg_thr=2.5,
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
-    environmental_noise_ica_with_ref_meg_measure="zscore"
+    environmental_noise_ica_with_ref_meg_measure="zscore",
+    apply_gedai=True,
+    gedai_method="both",
+    sensai_method="optimize",
+    conductivity=(0.3,),
+    source_space="volumetric",
+    gedai_duration=None,
+    gedai_overlap=0.5,
+    gedai_preliminary_broadband_noise_multiplier=6.0,
+    gedai_noise_multiplier=3.0,
+    gedai_wavelet_type="haar",
+    gedai_wavelet_level="auto",
+    gedai_wavelet_low_cutoff=None,
+    gedai_epoch_size_in_cycles=12,
+    gedai_highpass_cutoff=0.1,
+    source_space_spacing="ico4",
+    source_space_spacing_number=4,
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data.
@@ -672,28 +746,33 @@ def preprocess(
         logger.info(msg)
     
     # power line -----------------------------------
-    data.notch_filter(
-        freqs=np.arange(
-            int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
-        ),
-        n_jobs=-1,
+    nyquist = sampling_rate / 2
+    freqs = np.arange(
+        int(power_line_freq),
+        4 * int(power_line_freq) + 1,
+        int(power_line_freq)
     )
+    freqs = freqs[freqs <= nyquist]  # keep only valid frequencies
+
+    data.notch_filter(freqs=freqs, n_jobs=-1)
+
     if empty_room_recording:
-        empty_room_recording.notch_filter(
-            freqs=np.arange(
-                int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
-            ),
-            n_jobs=-1,
-        )
+        empty_room_recording.notch_filter(freqs=freqs, n_jobs=-1)
 
     # head motion correction ----------------------
     if apply_Head_movement_correction and not which_sensor.get("eeg", False):
-        data, empty_room_recording = head_motion_correction(
-            data,
-            empty_room_recording,
-            device,
-            Head_movement_limit_from_mean=Head_movement_limit_from_mean
-            )
+        data_temp = data.copy()
+        if empty_room_recording:
+            empty_room_recording_temp = empty_room_recording.copy()
+        try:
+            data, empty_room_recording = head_motion_correction(
+                data_temp,
+                empty_room_recording_temp,
+                device,
+                Head_movement_limit_from_mean=Head_movement_limit_from_mean
+                )
+        except Exception as e:
+            logger.warning(f"Head motion correction failed: {e}")
 
     # remove cHPI noise ---------------------------
     has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
@@ -717,6 +796,29 @@ def preprocess(
                 n_jobs=-1,
                 verbose=False,
             )      
+
+    if apply_gedai:
+        data = gedai_preprocess(
+            data=data,
+            subject=subject,
+            freesurfer_dir=freesurfer_dir,
+            which_sensor_dict=which_sensor,
+            gedai_method=gedai_method,
+            sensai_method=sensai_method,
+            conductivity=conductivity,
+            source_space=source_space,
+            gedai_duration=gedai_duration,
+            gedai_overlap=gedai_overlap,
+            gedai_preliminary_broadband_noise_multiplier=gedai_preliminary_broadband_noise_multiplier,
+            gedai_noise_multiplier=gedai_noise_multiplier,
+            gedai_wavelet_type=gedai_wavelet_type,
+            gedai_wavelet_level=gedai_wavelet_level,
+            gedai_wavelet_low_cutoff=gedai_wavelet_low_cutoff,
+            gedai_epoch_size_in_cycles=gedai_epoch_size_in_cycles,
+            gedai_highpass_cutoff=gedai_highpass_cutoff,
+            source_space_spacing=source_space_spacing,
+            source_space_spacing_number=source_space_spacing_number,
+        ) 
 
     # Muscle artifact detection ---------------------
     if cutoffFreqHigh > muscle_activity_filter_freq[0]:
@@ -764,6 +866,8 @@ def preprocess(
             IcaMethod,
             auto_ica_corr_thr
             )
+    else:
+        number_of_reduced_ic = 0
 
     data = data.pick_types(
         meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
@@ -786,7 +890,7 @@ def preprocess(
 
 
 def drop_noisy_meg_channels(
-    data: Any, subID: str, args: Any, configs: Dict[str, str], device: str, empty_room_recording=None
+    data: Any, subID: str, args: Any, device: str, which_sensor,  empty_room_recording=None
 ) -> Any:
     """
     Identifies and removes noisy or flat MEG/EEG channels using Maxwell filtering,
@@ -803,7 +907,7 @@ def drop_noisy_meg_channels(
     args : argparse.Namespace or similar
         Object containing runtime arguments, including 'saveDir'.
 
-    configs : dict
+    which_sensor : dict
         Configuration dictionary containing:
             - 'which_sensor': one of {"meg", "mag", "grad", "eeg", "opm"}
 
@@ -826,9 +930,6 @@ def drop_noisy_meg_channels(
     'log_droped_channels'.
     """
     logger = logging.getLogger(__name__)
-
-    which_sensor = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
-    which_sensor[configs.which_sensor] = True
 
     if check_tsss(data):
         msg = "Maxwell filter has already been applied. " \
@@ -1111,31 +1212,6 @@ def drop_noisy_segments(
     return segments
 
 
-def check_tsss(meg_data):
-    """
-    Check if Maxwell filtering (tSSS) was applied to raw/epochs data.
-
-    This inspects the processing history for presence of maxfilter info.
-
-    Parameters
-    ----------
-    meg_data : mne.io.BaseRaw | mne.Epochs
-        The MEG data object.
-
-    Returns
-    -------
-    bool
-        True if tSSS has been applied, False otherwise.
-    """
-    proc_history = meg_data.info.get('proc_history', [])
-    if not proc_history:
-        return False
-    max_info = proc_history[0].get('max_info', {})
-    sss_cal = max_info.get('sss_info', [])
-    return len(sss_cal) > 0
-
-
-
 def pca_elbow_locator(raw, which_sensor):
 
     raw = raw.copy().pick_types(
@@ -1278,7 +1354,7 @@ def head_motion_correction(data,
 
     else:
         # check if cHPI data is available and then apply annotate_movement func
-        has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+        has_chpi = bool(data.info["hpi_results"] or mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
         if has_chpi:
             if device == "CTF":
                 chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
@@ -1290,22 +1366,22 @@ def head_motion_correction(data,
                 chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
                 chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
 
-            head_pos = mne.chpi.compute_head_pos(data, 
+            head_pos = mne.chpi.compute_head_pos(data.info, 
                                                 chpi_locs,
                                                 verbose=False)
 
             movement_annotation, Head_position_over_time = mne.preprocessing.annotate_movement(
                 data,
-                head_pos=head_pos,
+                pos=head_pos,
                 mean_distance_limit=Head_movement_limit_from_mean
             )
 
-            data.set_annotation(movement_annotation)
+            data.set_annotations(movement_annotation)
             logger.info(f"Movement annotation algorithm using cHPI coils detected {sum(movement_annotation.duration)}" \
                         " seconds of motion.")
 
             # Calculate the new device head transformation
-            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos, verbos=False)
+            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(data, head_pos, verbose=False)
             data.info["dev_head_t"] = new_dev_head_t
         
         else:
@@ -1348,7 +1424,7 @@ def remove_environmental_noise(data,
             empty_room_projs = mne.compute_proj_raw(empty_room_recording, n_grad=3, n_mag=3)
             data.add_proj(empty_room_projs)
             data.apply_proj()
-            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info["projs"])}"
+            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info['projs'])}"
         else:
             msg = "Empty_room_recording is inavailable to perform SSP for environmental noise suppression." \
             " Please, use another method to remove environmental noise."
@@ -1419,3 +1495,390 @@ def find_ref_meg_artifact(
         # TODO: data_clean.drop_channels(ref_comps.ch_names)
 
     return data, bad_comps, scores
+
+
+
+def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier):
+    if method == "broadband" and wavelet_level != 0:
+        raise ValueError("broadband method requires wavelet_level=0")
+    if method == "broadband" and not duration:
+        raise ValueError("broadband method requires gedai_duration")
+    if method == "spectral" and wavelet_level == 0:
+        raise ValueError("spectral method requires wavelet_level > 0")
+    if method == "both" and not broadband_multiplier:
+        raise ValueError("both method requires gedai_preliminary_broadband_noise_multiplier")
+
+
+def _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=False):
+    temp_data = data.copy()
+    if signal_type in ["mag", "grad"]:
+        temp_data.pick_types(meg=signal_type)
+    elif signal_type == "eeg":
+        temp_data.pick_types(eeg=True)
+
+    logger.info(f"Applying GEDAI on {signal_type} signals; number of channels: {temp_data.get_data().shape}")
+    gedai = Gedai(
+        wavelet_type=gedai_params["wavelet_type"],       # Default
+        wavelet_level=gedai_params["wavelet_level"],     # TODO
+        wavelet_low_cutoff=gedai_params["wavelet_low_cutoff"],  # This should be set to lower cutoff frequency band in the highpass filter
+        epoch_size_in_cycles=gedai_params["epoch_size_in_cycles"],  # 12 is the default for their matlab code, this ensures at least 12 cycles per frequency range
+        signal_type="auto",                              # default
+        highpass_cutoff=gedai_params["highpass_cutoff"], # default
+        preliminary_broadband_noise_multiplier=gedai_params["preliminary_broadband_noise_multiplier"]
+    )
+
+    gedai.fit_raw(
+        temp_data,
+        duration=gedai_params["duration"],
+        overlap=gedai_params["overlap"],
+        reference_cov=fwd,
+        sensai_method=gedai_params["sensai_method"],
+        noise_multiplier=gedai_params["noise_multiplier"],
+        verbose=False,
+        reject_by_annotation=True,
+        n_jobs=-1
+    )
+
+    data_corrected = gedai.transform_raw(
+        temp_data,
+        duration=gedai_params["duration"],
+        overlap=gedai_params["overlap"],
+        verbose=False
+    )
+    logger.info(f"GEDAI was successfuly applied on the {signal_type} signals")
+
+    if plot:
+        data_viz = data.copy()
+        fig = gedai.plot_fit()
+        plt.show()
+        plot_mne_style_overlay_interactive(temp_data, data_corrected, duration=10)
+        plt.show()
+
+    return data_corrected
+
+
+def gedai_preprocess(
+        data,
+        subject,
+        freesurfer_dir,
+        which_sensor_dict,
+        gedai_method="both",
+        sensai_method="optimize",
+        conductivity=(0.3,),
+        source_space="volumetric",
+        gedai_duration=None,
+        gedai_overlap=0.5,
+        gedai_preliminary_broadband_noise_multiplier=6.0,
+        gedai_noise_multiplier=3.0,
+        gedai_wavelet_type="haar",
+        gedai_wavelet_level="auto",
+        gedai_wavelet_low_cutoff=None,
+        gedai_epoch_size_in_cycles=12,
+        gedai_highpass_cutoff=0.1,
+        source_space_spacing="ico4",
+        source_space_spacing_number=4,
+        plot=False
+    ):
+    """
+    Preprocess MEG/EEG data using GEDAI artifact removal.
+
+    Performs coregistration, computes a forward solution, and applies GEDAI
+    artifact suppression separately for each sensor type (magnetometers,
+    gradiometers, EEG). Non-MEG/EEG channels are preserved and recombined
+    in the output.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG/EEG recording to be cleaned.
+    subject : str
+        Subject identifier, must match the corresponding FreeSurfer subject
+        directory name.
+    freesurfer_dir : str or path-like
+        Path to the FreeSurfer subjects directory. If None, a template will be used.
+    which_sensor_dict : dict
+        Dictionary specifying which sensor types to include in the forward
+        solution.
+    gedai_method : {"both", "broadband", "spectral"}, optional
+        GEDAI artifact removal strategy. "broadband" applies suppression
+        across the full frequency range (requires wavelet_level=0 and
+        gedai_duration). "spectral" applies suppression per frequency band
+        (requires wavelet_level > 0). "both" runs a preliminary broadband
+        pass followed by spectral suppression. Default is "both".
+    sensai_method : str, optional
+        Method used by SensAI for noise estimation. Options are:
+        "optimize" and "gridsearch". Default is "optimize".
+    conductivity : tuple of float, optional
+        Conductivity values (in S/m) for the BEM layers. Use a 1-tuple for
+        a single-shell model (MEG only) or a 3-tuple for a three-layer model
+        (MEG+EEG). Default is (0.3,).
+    source_space : {"volumetric", "surface"}, optional
+        Type of source space to use for the forward solution.
+        Default is "volumetric".
+    gedai_duration : float or None, optional
+        Duration (in seconds) of each data segment used during fitting.
+        Required when gedai_method is "broadband". Default is None.
+    gedai_overlap : float, optional
+        Fractional overlap between consecutive segments, between 0 and 1.
+        Default is 0.5.
+    gedai_preliminary_broadband_noise_multiplier : float, optional
+        Noise multiplier for the preliminary broadband suppression pass when
+        gedai_method is "both". Default is 6.0.
+    gedai_noise_multiplier : float, optional
+        Noise multiplier threshold for the main GEDAI suppression step.
+        Default is 3.0.
+    gedai_wavelet_type : str, optional
+        Wavelet family to use for the spectral decomposition. Default is
+        "haar".
+    gedai_wavelet_level : int or "auto", optional
+        Number of wavelet decomposition levels. Set to 0 for broadband mode,
+        or "auto" to determine the level automatically. Default is "auto".
+    gedai_wavelet_low_cutoff : float or None, optional
+        Lower cutoff frequency (in Hz) for the wavelet decomposition. Should
+        match the highpass filter cutoff. Default is None.
+    gedai_epoch_size_in_cycles : int, optional
+        Minimum number of cycles per frequency band used to determine epoch
+        length. Default is 12.
+    gedai_highpass_cutoff : float, optional
+        Highpass filter cutoff frequency (in Hz) applied before GEDAI fitting.
+        Default is 0.1.
+    source_space_spacing : str, optional
+        Spacing parameter for surface source spaces (e.g. "ico4").
+        Default is "ico4".
+    source_space_spacing_number : int, optional
+        Numeric spacing value corresponding to source_space_spacing.
+        Default is 4.
+    plot : bool, optional
+        If True, displays GEDAI fit diagnostics and an interactive overlay
+        of the cleaned vs. original signal for each sensor type.
+        Default is False.
+
+    Returns
+    -------
+    mne.io.Raw
+        Cleaned raw recording with MEG/EEG channels replaced by their
+        GEDAI-suppressed counterparts. All other channels are unchanged.
+    """
+    logger.info("Preprocessing the data using the gedai algorithm.")
+
+    _validate_gedai_params(gedai_method,
+        gedai_wavelet_level,
+        gedai_duration,
+        gedai_preliminary_broadband_noise_multiplier)
+
+    if freesurfer_dir:
+        transformation_matrix = corregistration(
+            data,
+            subject=subject,
+            subjects_dir=freesurfer_dir,
+            plot_3d=False,
+        )
+
+        fwd, _ = forward_solution(
+            subject=subject,
+            subjects_dir=freesurfer_dir,
+            data=data,
+            transformation_matrix=transformation_matrix.trans,
+            conductivity=conductivity,
+            source_space=source_space,
+            which_sensor_dict=which_sensor_dict,
+            source_space_spacing=source_space_spacing,
+            source_space_spacing_number=source_space_spacing_number,
+        )
+    else:
+        fwd = "Leadfield"
+
+    gedai_params = {
+        "wavelet_type": gedai_wavelet_type,
+        "wavelet_level": gedai_wavelet_level,
+        "wavelet_low_cutoff": gedai_wavelet_low_cutoff,
+        "epoch_size_in_cycles": gedai_epoch_size_in_cycles,
+        "highpass_cutoff": gedai_highpass_cutoff,
+        "preliminary_broadband_noise_multiplier": gedai_preliminary_broadband_noise_multiplier,
+        "duration": gedai_duration,
+        "overlap": gedai_overlap,
+        "sensai_method": sensai_method,
+        "noise_multiplier": gedai_noise_multiplier,
+    }
+
+    meg_eeg_chs = mne.pick_types(data.info, meg=True, eeg=True, ref_meg=False)
+    other_signals = data.copy()
+    if len(meg_eeg_chs) != len(data.ch_names):
+        other_signals.drop_channels([data.ch_names[i] for i in meg_eeg_chs])
+    else:
+        other_signals = None
+    # TODO: meg=True should be changed for EEG as well
+    data.pick_types(meg=True, eeg=which_sensor_dict["eeg"], ref_meg=False)
+    sensor_types_of_interest = np.unique(data.get_channel_types()).tolist()
+
+    logger.info(f"Detected signal types for the GEDAI algorithms are: {sensor_types_of_interest}")
+    cleaned_signals = [
+        _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=plot)
+        for signal_type in sensor_types_of_interest
+    ]
+
+    if other_signals is not None:
+        return other_signals.add_channels(cleaned_signals, force_update_info=True)
+    elif len(cleaned_signals) == 1:
+        return cleaned_signals[0]
+    else:
+        return cleaned_signals[0].add_channels(cleaned_signals[1:], force_update_info=True)
+
+
+def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
+    if reject is None and flat is None:
+        return mne.Annotations(onset=[], duration=[], description=[])
+
+    sfreq = raw.info['sfreq']
+    win_samples = int(window * sfreq)
+    step_samples = int(step * sfreq)
+    n_samples = len(raw.times)  # fixed
+
+    ch_types_in_raw = set(raw.get_channel_types())
+    types_to_check = set()
+    if reject:
+        types_to_check.update(k for k in reject if k in ch_types_in_raw)
+    if flat:
+        types_to_check.update(k for k in flat if k in ch_types_in_raw)
+
+    type_data = {}
+    for ch_type in types_to_check:
+        if ch_type in ("mag", "grad"):
+            picks = mne.pick_types(raw.info, meg=ch_type, ref_meg=False, exclude='bads')
+        elif ch_type == "eeg":
+            picks = mne.pick_types(raw.info, eeg=True, exclude='bads')
+        if len(picks) == 0:
+            continue
+        type_data[ch_type] = raw.get_data(picks=picks)
+    
+    times = raw.times
+    n_samples = raw._data.shape[1] if raw.preload else len(times)
+
+    bad_peak_onsets = []
+    bad_flat_onsets = []
+
+    i = 0
+    while i + win_samples <= n_samples:
+        t_onset = times[i]
+        is_peak_bad = False
+        is_flat_bad = False
+
+        for ch_type, data_arr in type_data.items():
+            segment = data_arr[:, i:i + win_samples]
+            ptp = np.ptp(segment, axis=1)  # peak-to-peak per channel, shape (n_ch,)
+
+            if reject and ch_type in reject:
+                if np.any(ptp > reject[ch_type]):
+                    print(ptp)
+                    is_peak_bad = True
+
+            if flat and ch_type in flat:
+                if np.any(ptp < flat[ch_type]):
+                    print("no")
+                    is_flat_bad = True
+
+        if is_peak_bad:
+            bad_peak_onsets.append(t_onset)
+        elif is_flat_bad:
+            bad_flat_onsets.append(t_onset)
+
+        i += step_samples
+
+    # Build annotations
+    onsets = bad_peak_onsets + bad_flat_onsets
+    durations = [window] * len(onsets)
+    descriptions = (['BAD_peak'] * len(bad_peak_onsets) +
+                    ['BAD_flat'] * len(bad_flat_onsets))
+
+    return mne.Annotations(onset=onsets, duration=durations, description=descriptions, orig_time=raw.info["meas_date"])    
+
+
+def auto_reject_segmentation(
+    raw,
+    sampling_rate: float,
+    tmin: float = 20,
+    tmax: float = -20,
+    segments_length: float = 10,
+    overlap: float = 0,
+    ica_if_reject_by_annotation: bool = True,
+    n_interpolates = np.array([1, 4, 8, 16, 32]),
+    consensus_percs = np.linspace(0, 1.0, 11),
+    cv = "auto",
+    thresh_method='bayesian_optimization',
+    random_state=42
+    ):
+
+    if tmax >= 0:
+        raise ValueError("The 'tmax' must be a negative number")
+
+    tmax = int(np.shape(raw.get_data())[1] / sampling_rate + tmax)
+    raw.crop(tmin=tmin, tmax=tmax)
+
+
+    epochs = mne.make_fixed_length_epochs(
+        raw,
+        duration=segments_length,      # epoch length in seconds
+        preload=True,
+        reject_by_annotation=ica_if_reject_by_annotation,
+        overlap=overlap,
+    )
+
+    if len(epochs) == 0:
+        err_msg = f"No epochs were created. The length of the signal ({raw.times[-1]}) seconds " \
+            f"is shorter than the segment length of {segments_length} seconds " \
+            f"after rejecting the annotations which was {raw.annotations.duration} seconds."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
+
+    elif 0 < len(epochs) < 3:
+        err_msg = f"Only {len(epochs)} epoch found — need at least 3 for " \
+            f"autoreject."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
+    
+    if cv == "auto":
+        cv = max(2, min(10, len(epochs)))  # clamp between 2 and 10
+        logger.info(f"The number of CV in autoreject was set to {cv} .")
+
+    ar = AutoReject(
+        n_interpolate=n_interpolates,
+        consensus=consensus_percs,
+        cv=cv,
+        thresh_method=thresh_method,
+        random_state=random_state,
+        n_jobs=1,
+        verbose=True,
+    )
+
+    epochs.load_data()
+    
+    ar.fit(epochs)
+    epochs_clean, reject_log = ar.transform(epochs, return_log=True)
+
+    total_epochs     = len(epochs)
+    retained_epochs  = len(epochs_clean)
+    discarded_epochs = total_epochs - retained_epochs
+    pct_discarded    = (discarded_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
+    interpolated_epochs = int(np.sum(np.any(reject_log.labels == 1, axis=1)))
+    pct_interpolated = (interpolated_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
+
+    log_msg = (
+        f"Epoch rejection summary:\n"
+        f"  Total epochs   : {total_epochs}\n"
+        f"  Retained       : {retained_epochs} "
+        f"({100 - pct_discarded:.1f}% | {retained_epochs * segments_length:.1f}s)\n"
+        f"  Interpolated   : {interpolated_epochs} "
+        f"({pct_interpolated:.1f}% | {interpolated_epochs * segments_length:.1f}s)\n"
+        f"  Discarded      : {discarded_epochs} "
+        f"({pct_discarded:.1f}% | {discarded_epochs * segments_length:.1f}s)"
+    )
+
+    if retained_epochs == 0:
+        logger.error(log_msg)
+        raise ValueError(
+            "All epochs were rejected by AutoReject. "
+            "Every segment was too noisy to repair."
+        )
+
+    logger.info(log_msg)
+    return epochs_clean, reject_log
