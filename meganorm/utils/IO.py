@@ -399,7 +399,7 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def SL_conductivity_mv(self):
-        if len(self.SL_conductivity) == 1 and self.which_sensor == "eeg":
+        if len(self.SL_conductivity) == 1 and self.which_sensor == "eeg" and self.apply_source_localization:
             raise ValueError("In the case of EEG, you must have a three layers conductivity model due to volume conduction.")
         return self
     
