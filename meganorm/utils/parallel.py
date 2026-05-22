@@ -632,7 +632,7 @@ def sbatch_feature_extraction_runner(
 #SBATCH --error=Features/feature_extraction_runner.err
 #SBATCH --time={time}
 #SBATCH --mem={mem}
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task={job_configs["core"]}
 #SBATCH --partition={job_configs["partition"]}
 
 # Activate your environment
