@@ -1,17 +1,34 @@
 import os
-import statsmodels.api as sm
-import matplotlib
 import pickle
-import numpy as np
-from matplotlib.colors import ListedColormap
-import matplotlib.colors as mcolors
+import warnings
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.gridspec as grid_spec
+import numpy as np
+import pandas as pd
 import scipy.stats as st
 import seaborn as sns
-import pandas as pd
-from typing import Union
+import statsmodels.api as sm
+import nibabel as nib
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from typing import Union
 from scipy.stats import chi2
+from sklearn.neighbors import KernelDensity
+from matplotlib.colors import ListedColormap
+import matplotlib.colors as mcolors
+from sklearn.neighbors import KernelDensity
+from typing import Optional
+from nilearn import surface, plotting, datasets
+from nilearn.surface import PolyMesh, SurfaceImage
+from nilearn.datasets import (
+    fetch_atlas_surf_destrieux,
+    load_fsaverage,
+    load_fsaverage_data,
+    load_nki,
+)
+from nilearn.plotting import plot_surf_roi, plot_surf_contours 
 
 
 # ***
@@ -1609,3 +1626,844 @@ def plot_site_diff(
             fname_base = f"{biomarker_idx}_{biomarker_name}_site_diff"
             fig.savefig(os.path.join(save_dir, fname_base + ".svg"), dpi=600)
             fig.savefig(os.path.join(save_dir, fname_base + ".png"), dpi=600)
+
+
+
+def parse_aparc2009_name(region_name):
+    """
+    Convert aparc.a2009s+aseg region name to Destrieux surface label.
+    
+    Examples
+    --------
+    ctx_lh_G_front_sup  → G_front_sup  (left hemisphere)
+    ctx_rh_G_front_sup  → G_front_sup  (right hemisphere)
+    """
+    if region_name.startswith("ctx_lh_"):
+        return region_name[len("ctx_lh_"):], ["left"]
+    elif region_name.startswith("ctx_rh_"):
+        return region_name[len("ctx_rh_"):], ["right"]
+    elif region_name.startswith("ctx_"):
+        return region_name[len("ctx_"):], ["left", "right"]
+    else:
+        return region_name, ["left", "right"]
+    
+    
+def plot_roi(
+    region_name,
+    fsaverage="fsaverage5",
+    mesh_type="pial",
+    hemispheres=["left", "right"],
+    fsaverage_sulcal_type="curvature",
+    views=["lateral"],
+    plot_contour=True,
+    colorbar=False,
+    contour_color=None,
+    cmap="Oranges",
+    **kwargs
+):
+    """
+    Plot a Destrieux atlas ROI on a cortical surface mesh.
+
+    Displays a named region from the Destrieux parcellation on an fsaverage
+    surface, with optional sulcal background shading and ROI contour overlay.
+    Supports multiple hemispheres and views arranged in a grid layout.
+
+    Parameters
+    ----------
+    region_name : str
+        Name of the Destrieux atlas region to plot (e.g. "G_cingul-Post-dorsal").
+        Must exactly match a label in ``fetch_atlas_surf_destrieux().labels``.
+    fsaverage : str, optional
+        Name of the fsaverage template mesh to use. Default is "fsaverage5".
+        Common options: "fsaverage3", "fsaverage4", "fsaverage5", "fsaverage6",
+        "fsaverage".
+    mesh_type : str, optional
+        Surface mesh type to use for plotting. Default is "pial".
+        Options: "pial", "white_matter", "inflated", "sphere", "flat".
+    hemispheres : list of str, optional
+        Hemispheres to plot. Default is ["left", "right"].
+        Each entry becomes a row in the output figure.
+    fsaverage_sulcal_type : str, optional
+        Type of sulcal background data to use. Default is "curvature".
+        Options: "curvature", "sulcal".
+    views : list of str, optional
+        Camera views to render. Default is ["lateral"].
+        Each entry becomes a column in the output figure.
+        Options: "lateral", "medial", "dorsal", "ventral", "anterior",
+        "posterior".
+    plot_contour : bool, optional
+        Whether to draw a contour outline around the ROI boundary.
+        Default is True.
+    colorbar : bool, optional
+        Whether to display a colorbar on each subplot. Default is False.
+    contour_color : str, tuple, or None, optional
+        Color for the ROI contour. Accepts any matplotlib-compatible color
+        (e.g. "black", "#ff0000", (0, 0, 0)). If None, defaults to black.
+    cmap : str, optional
+        Colormap for the ROI fill. Default is "Oranges".
+        Accepts any matplotlib colormap name.
+    **kwargs
+        Additional keyword arguments passed to ``plot_surf_roi``.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure containing all subplots.
+    axes : numpy.ndarray of matplotlib.axes.Axes
+        2D array of axes with shape (n_hemispheres, n_views).
+
+    Examples
+    --------
+    Plot a single hemisphere and view:
+
+    >>> plot_roi(
+    ...     region_name="G_cingul-Post-dorsal",
+    ...     hemispheres=["left"],
+    ...     views=["medial"],
+    ... )
+
+    Plot both hemispheres with multiple views and no contour:
+
+    >>> plot_roi(
+    ...     region_name="G_cingul-Post-dorsal",
+    ...     hemispheres=["left", "right"],
+    ...     views=["medial", "lateral"],
+    ...     plot_contour=False,
+    ...     cmap="Blues",
+    ... )
+
+    Notes
+    -----
+    The figure layout is a grid of shape (n_hemispheres x n_views), where each
+    row corresponds to a hemisphere and each column to a view.
+
+    The Destrieux atlas is fetched via ``fetch_atlas_surf_destrieux()`` and the
+    background sulcal map via ``load_fsaverage_data()``. Both are filtered to
+    the requested hemispheres to ensure mesh compatibility.
+    """
+    fsaverage_meshes = load_fsaverage(mesh=fsaverage)
+    destrieux = fetch_atlas_surf_destrieux(verbose=False)
+
+    destrieux_label, inferred_hemis = parse_aparc2009_name(region_name)
+    
+    if region_name.startswith("ctx_lh_"):
+        hemispheres = [h for h in hemispheres if h == "left"] or ["left"]
+    elif region_name.startswith("ctx_rh_"):
+        hemispheres = [h for h in hemispheres if h == "right"] or ["right"]
+
+    # Validate label exists
+    if destrieux_label not in destrieux.labels:
+        close = [l for l in destrieux.labels if destrieux_label.lower() in l.lower()]
+        raise ValueError(
+            f"'{destrieux_label}' not found in Destrieux labels.\n"
+            f"Did you mean one of: {close}"
+        )
+
+    map_destrieux = {}
+    if "left" in hemispheres:
+        map_destrieux["left"] = destrieux.map_left
+    if "right" in hemispheres:
+        map_destrieux["right"] = destrieux.map_right
+
+    full_mesh = fsaverage_meshes[mesh_type]
+    filtered_mesh = PolyMesh(**{hemi: full_mesh.parts[hemi] for hemi in hemispheres})
+    destrieux_atlas = SurfaceImage(mesh=filtered_mesh, data=map_destrieux)
+
+    fsaverage_sulcal_full = load_fsaverage_data(data_type=fsaverage_sulcal_type)
+    fsaverage_sulcal = SurfaceImage(
+        mesh=filtered_mesh,
+        data={hemi: fsaverage_sulcal_full.data.parts[hemi] for hemi in hemispheres}
+    )
+
+    label_region = destrieux.labels.index(destrieux_label) 
+    mask = {
+        hemi: data == label_region
+        for hemi, data in destrieux_atlas.data.parts.items()
+    }
+    surface_mask = SurfaceImage(mesh=filtered_mesh, data=mask)
+    
+    n_rows = len(hemispheres)
+    n_cols = len(views)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        subplot_kw={"projection": "3d"},
+        figsize=(6 * n_cols, 5 * n_rows),
+        squeeze=False,
+    )
+
+    for row, hemi in enumerate(hemispheres):
+        for col, view in enumerate(views):
+            fig_roi = plot_surf_roi(
+                roi_map=surface_mask,
+                hemi=hemi,
+                view=view,
+                bg_map=fsaverage_sulcal,
+                bg_on_data=True,
+                colorbar=colorbar,
+                cmap=cmap,
+                alpha=1,
+                axes=axes[row, col],
+                figure=fig,
+                **kwargs
+            )
+            if plot_contour:
+                _contour_color = contour_color if contour_color else ListedColormap(["black"])            
+                plot_surf_contours(
+                    roi_map=surface_mask,
+                    figure=fig_roi, 
+                    hemi=hemi,
+                    axes=axes[row, col],  
+                    cmap=_contour_color,
+                    # **kwargs
+                )
+
+def define_lut(lut_path):
+    """
+    Load a FreeSurfer Look-Up Table (LUT) and return it as a dictionary.
+
+    A LUT file maps region names to integer indices. This function reads
+    the file, skips comments and empty lines, and builds a dict of
+    {region_name: region_index}.
+
+    Parameters
+    ----------
+    lut_path : str
+        Path to the FreeSurfer LUT file
+        (e.g. FreeSurferColorLUT.txt).
+
+    Returns
+    -------
+    dict
+        A dictionary mapping region name (str) to region index (int).
+        Example: {"Left-Hippocampus": 17, "Right-Hippocampus": 53, ...}
+    """
+    lut = {}
+    with open(lut_path) as f:
+        for line in f:
+            if line.startswith("#") or len(line.strip()) == 0:
+                continue
+            parts = line.strip().split()
+            lut[parts[1]] = int(parts[0])
+    return lut
+
+
+def convert_region_name(region_name):
+    """Convert ctx_lh_Region to ctx-lh-Region format."""
+    if region_name.startswith("ctx_lh_"):
+        return "ctx-lh-" + region_name[7:]
+    elif region_name.startswith("ctx_rh_"):
+        return "ctx-rh-" + region_name[7:]
+    return region_name  # subcortical names like "Left-Hippocampus" stay as-is
+
+
+
+def plot_statistics_on_brain(
+        lh_annot_path,
+        rh_annot_path,
+        stats,
+        fsaverage="fsaverage",
+        surface_mesh_type="pial",
+        bg_map_mesh_type="sulc",
+        abs_threshold=None,
+        cmap="Reds",
+        alpha=0.7,
+        symmetric_cbar="auto",
+        bg_on_data=True,
+        show_colorbar=False,
+        title=None,
+        vmin=None,
+        vmax=None,
+        save_fig_path=None,
+        views=("lateral", "medial"),
+        hemispheres=("left", "right"),
+        show_parcel_contours=True,      
+        contour_colors=None,            
+        contour_levels=None, 
+):
+    """
+    Project region-wise statistics onto the brain surface and plot them.
+
+    Uses FreeSurfer .annot files to map region names directly to surface
+    vertices, bypassing the volumetric pipeline entirely.
+
+    Parameters
+    ----------
+    lh_annot_path : str
+        Path to the left hemisphere annotation file (e.g. lh.aparc.a2009s.annot).
+
+    rh_annot_path : str
+        Path to the right hemisphere annotation file (e.g. rh.aparc.a2009s.annot).
+
+    stats : dict or pd.Series or pd.DataFrame
+        One scalar value per region name. Keys/index must match region
+        names in the format "ctx-lh-<region>" / "ctx-rh-<region>",
+        or plain "<region>" names as they appear in the .annot file.
+        Example: {"ctx-lh-G_frontal_sup": 0.42, "ctx-rh-G_frontal_sup": 0.38}
+
+    fsaverage : str, optional
+        fsaverage resolution to use. Default is "fsaverage".
+        Options: "fsaverage3" through "fsaverage7".
+
+    surface_mesh_type : str, optional
+        Surface mesh to project the stats onto. Default is "pial".
+        Options: "pial", "white", "infl", "flat", "sphere".
+
+    bg_map_mesh_type : str, optional
+        Background shading map. Default is "sulc".
+        Options: "sulc", "curv", "thick", "area".
+
+    abs_threshold : float or None, optional
+        Absolute threshold below which stat values are not shown.
+        Default is None.
+
+    cmap : str, optional
+        Matplotlib colormap. Default is "Reds".
+
+    alpha : float, optional
+        Opacity of the stat map overlay. Default is 0.7.
+
+    symmetric_cbar : bool or "auto", optional
+        Whether to make the colorbar symmetric around zero. Default is "auto".
+
+    bg_on_data : bool, optional
+        Blend background shading on top of stat map. Default is True.
+
+    show_colorbar : bool, optional
+        Show a colorbar on each subplot. Default is False.
+
+    title : str or None, optional
+        Base title. If None, auto-generates "hemi - view". Default is None.
+
+    vmin : float or None, optional
+        Lower bound of the colormap scale. Default is None.
+
+    vmax : float or None, optional
+        Upper bound of the colormap scale. Default is None.
+
+    save_fig_path : str or None, optional
+        File path to save the figure. Default is None.
+
+    views : tuple of str, optional
+        Views to plot. Default is ("lateral", "medial").
+
+    hemispheres : tuple of str, optional
+        Hemispheres to plot. Default is ("left", "right").
+
+    Returns
+    -------
+    textures : dict
+        Dictionary with keys "left" and/or "right", each containing the
+        per-vertex texture array used for plotting.
+    """
+    # Normalize all stats keys upfront
+    
+
+    if isinstance(stats, pd.DataFrame):
+        stats = stats.iloc[:, 0].to_dict()
+    elif isinstance(stats, pd.Series):
+        stats = stats.to_dict()
+    stats = {convert_region_name(k): v for k, v in stats.items()}
+    
+    annot_paths = {"left": lh_annot_path, "right": rh_annot_path}
+    hemi_short  = {"left": "lh", "right": "rh"}
+
+    fsaverage_meshes = datasets.fetch_surf_fsaverage(fsaverage)
+
+    n_rows = len(hemispheres)
+    n_cols = len(views)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        subplot_kw={"projection": "3d"},
+        figsize=(4 * n_cols, 3 * n_rows),
+        squeeze=False,
+        gridspec_kw={"hspace": -0.3, "wspace": -0.25}
+    )
+
+    textures = {}
+    missing_regions = []
+
+    for row, hemi in enumerate(hemispheres):
+        # --- Read .annot: labels shape (n_vertices,), region_names list of bytes ---
+        labels, ctab, region_names_bytes = nib.freesurfer.read_annot(annot_paths[hemi])
+        hs = hemi_short[hemi]
+
+        # Build per-vertex texture
+        texture = np.full(labels.shape, np.nan)
+
+        for region_idx, region_name_bytes in enumerate(region_names_bytes):
+            region_name = region_name_bytes.decode("utf-8")
+            full_name   = f"ctx-{hs}-{region_name}"
+
+            stat_value = stats.get(full_name, stats.get(region_name))
+
+            if stat_value is not None:
+                texture[labels == region_idx] = stat_value
+            else:
+                missing_regions.append(full_name)
+
+        textures[hemi] = texture
+
+        surf_mesh = fsaverage_meshes[f"{surface_mesh_type}_{hemi}"]
+        bg_map    = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
+
+        for col, view in enumerate(views):
+            fig = plotting.plot_surf_stat_map(
+                surf_mesh=surf_mesh,
+                stat_map=texture,
+                hemi=hemi,
+                view=view,
+                bg_map=bg_map,
+                bg_on_data=bg_on_data,
+                colorbar=show_colorbar,
+                threshold=abs_threshold,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                symmetric_cbar=symmetric_cbar,
+                title=None,
+                axes=axes[row, col],
+                figure=fig,
+                cbar_tick_format="%.2g",
+            )
+
+            if show_parcel_contours:
+                before = set(id(c) for c in axes[row, col].collections)
+                plotting.plot_surf_contours(
+                    surf_mesh=surf_mesh,
+                    roi_map=labels,            # integer label array from read_annot
+                    levels=contour_levels,     # None = outline all parcels
+                    colors=[contour_colors] * len(np.unique(labels)),     # None = use tab20 cmap
+                    axes=axes[row, col],
+                    figure=fig,
+                    linewidth=4.0
+                )
+                # for collection in axes[row, col].collections:
+                #     if id(collection) not in before:
+                #         collection.set_linewidth(4.0)
+
+            ax = axes[row, col]
+            ax.set_facecolor((0, 0, 0, 0))  # transparent face
+            ax.patch.set_visible(False)
+            for pane in [ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane]:
+                pane.fill = False
+                pane.set_edgecolor("none")
+
+    if missing_regions:
+        print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
+
+    plt.tight_layout()
+    if save_fig_path:
+        # plt.savefig(f"{save_fig_path}.svg")
+        plt.savefig(f"{save_fig_path}.png", dpi=400)
+    plt.show()
+
+    return textures
+
+
+
+def plot_mass_metrics(
+    df,
+    save_path: str,
+    name: str,
+    *,
+    feature_categories: list[str],
+    colors: list[str],
+    figsize: tuple[int, int] = (9, 6),
+    kernel: str = "epanechnikov",
+    dpi: int = 600,
+    xlim: Optional[tuple[float, float]] = None,
+    ylim: Optional[tuple[float, float]] = None,
+    bandwidth: float = 0.05,
+    show_row_labels: bool = False,
+    hspace: float = -0.8,
+    new_names: Optional[list[str]] = None,
+    row_label_fontsize=10,
+    x_label_fontsize= 18,
+    x_ticks_fontsize=15,
+    kde_samples=4000,
+) -> plt.Figure:
+    """
+    Plot stacked KDE ridge lines for a set of feature columns.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Source data. Columns are matched with ``str.startswith(feature_category)``.
+    save_path : str
+        Directory where the PNG will be saved.
+    name : str
+        Filename stem (also used as the x-axis label on the bottom strip).
+    feature_categories : list[str]
+        Column prefixes to plot, one ridge per entry.
+    colors : list[str]
+        Fill colours, one per ridge (must be at least as long as ``feature_categories``).
+        Pass an empty list to auto-generate a blue-to-red palette.
+    figsize : tuple[int, int]
+        Figure size in inches.
+    kernel : str
+        KDE kernel passed to ``sklearn.neighbors.KernelDensity``.
+    dpi : int
+        Resolution for the saved PNG.
+    xlim : tuple[float, float] | None
+        Optional shared x-axis limits.
+    ylim : tuple[float, float] | None
+        Optional shared y-axis limits.
+    bandwidth : float
+        KDE bandwidth.
+    show_row_labels : bool
+        When True, print the feature name to the right of each strip.
+    hspace : float
+        Vertical spacing between subplots (negative values create overlap).
+    new_names : list[str] | None
+        Optional display names for each ridge, replacing ``feature_categories``
+        in row labels. Must match the length of ``feature_categories``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The completed figure (also saved to disk).
+    """
+
+    def _generate_colors(n: int) -> list[str]:
+        """Generate n colors interpolated from blue to red."""
+        cmap = matplotlib.colormaps["RdYlBu_r"]  
+        return [mcolors.to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
+
+    if new_names is not None and len(new_names) != len(feature_categories):
+        raise ValueError(
+            f"new_names length ({len(new_names)}) must match "
+            f"feature_categories length ({len(feature_categories)})."
+        )
+
+    if not colors:
+        colors = _generate_colors(len(feature_categories))
+
+    if len(colors) < len(feature_categories):
+        raise ValueError(
+            f"Need at least {len(feature_categories)} colours, got {len(colors)}."
+        )
+
+    n = len(feature_categories)
+    fig = plt.figure(figsize=figsize, facecolor="white")
+    gs = grid_spec.GridSpec(n, 1, figure=fig)  # attach GridSpec to figure
+
+    for i, feature_category in enumerate(feature_categories):
+        
+        cols = df.loc[:, df.columns.str.startswith(feature_category)]
+        values = cols.to_numpy().ravel() 
+
+        if values.size == 0:
+            raise Warning(f"No columns found starting with '{feature_category}'.")
+            continue
+
+        if xlim:
+            x_min, x_max = xlim
+        else:
+            data_min, data_max = values.min(), values.max()
+            pad = (data_max - data_min) * 0.05  # 5% padding on each side
+            x_min = data_min - pad
+            x_max = data_max + pad
+
+        x_grid = np.linspace(x_min, x_max, kde_samples)
+
+        kde = KernelDensity(bandwidth=bandwidth, kernel=kernel)
+        kde.fit(values[:, None])
+        density = np.exp(kde.score_samples(x_grid[:, None]))
+    
+        ax = fig.add_subplot(gs[i : i + 1, 0:])
+        ax.set_yticks([])
+        ax.set_facecolor("none")
+
+        for spine in ("top", "right", "left", "bottom"):
+            ax.spines[spine].set_visible(False)
+
+        is_last = i == n - 1
+
+        if not is_last:
+            ax.set_xticks([])
+        else:
+            ax.tick_params(axis="x", labelsize=x_ticks_fontsize)
+            ax.set_xlabel(name, fontsize=x_label_fontsize, fontweight="bold")
+
+        ax.plot(x_grid, density, color="#f0f0f0", lw=1)
+        ax.fill_between(x_grid, density, alpha=1, color=colors[i])
+
+        if show_row_labels:
+            label = new_names[i] if new_names else feature_category
+            x_pos = xlim[0] if xlim else x_min
+            ax.text(
+                x_pos,
+                0,
+                label,
+                # fontweight="bold",
+                fontsize=row_label_fontsize,
+                ha="right",  
+                va="bottom",
+                transform=ax.transData,
+                clip_on=False,
+            )
+
+    gs.update(hspace=hspace)
+    plt.tight_layout()
+
+    os.makedirs(save_path, exist_ok=True)
+    fig.savefig(os.path.join(save_path, f"{name}.png"), dpi=dpi, bbox_inches="tight")
+
+    return fig
+
+
+def plot_statistics_on_brain_plotly(
+        lh_annot_path,
+        rh_annot_path,
+        stats,
+        fsaverage="fsaverage",
+        surface_mesh_type="pial",
+        bg_map_mesh_type="sulc",
+        abs_threshold=None,
+        cmap="Reds",
+        symmetric_cbar=False,
+        bg_on_data=True,
+        show_colorbar=False,
+        title=None,
+        vmin=None,
+        vmax=None,
+        save_fig_path=None,
+        views=("lateral", "medial"),
+        hemispheres=("left", "right"),
+        show_parcel_contours=True,
+        contour_color="black",
+        contour_linewidth=3,
+        contour_levels=None,
+        contour_elevation=0.1,
+        show_fig=True
+        
+):
+    """
+    Project region-wise statistics onto the brain surface and plot them
+    using the Plotly engine, arranged in a grid with right hemisphere in
+    column 1 and left hemisphere in column 2.
+
+    Parameters
+    ----------
+    lh_annot_path : str
+        Path to the left hemisphere annotation file.
+    rh_annot_path : str
+        Path to the right hemisphere annotation file.
+    stats : dict or pd.Series or pd.DataFrame
+        One scalar value per region name.
+    fsaverage : str, optional
+        fsaverage resolution. Default is "fsaverage".
+    surface_mesh_type : str, optional
+        Surface mesh type. Default is "pial".
+    bg_map_mesh_type : str, optional
+        Background shading map. Default is "sulc".
+    abs_threshold : float or None, optional
+        Absolute threshold below which stat values are not shown.
+    cmap : str, optional
+        Matplotlib colormap name. Default is "Reds".
+    symmetric_cbar : bool, optional
+        Symmetric colorbar. Default is False.
+    bg_on_data : bool, optional
+        Blend background on data. Default is True.
+    show_colorbar : bool, optional
+        Show colorbar. Default is False.
+    title : str or None, optional
+        Figure title. Default is None.
+    vmin : float or None, optional
+        Colormap minimum. Default is None.
+    vmax : float or None, optional
+        Colormap maximum. Default is None.
+    save_fig_path : str or None, optional
+        Path to save figure. Use .html for interactive, .png for static
+        (requires kaleido). Default is None.
+    views : tuple of str, optional
+        Views to plot. Default is ("lateral", "medial").
+    hemispheres : tuple of str, optional
+        Hemispheres to plot. Default is ("left", "right").
+    show_parcel_contours : bool, optional
+        Draw parcel boundary contours. Default is True.
+    contour_color : str, optional
+        Contour line color. Default is "black".
+    contour_linewidth : int, optional
+        Contour line width. Default is 3.
+    contour_levels : list or None, optional
+        Parcel indices to contour. None = all parcels.
+    contour_elevation : float, optional
+        Height above surface for contour lines. Default is 0.1.
+
+    Returns
+    -------
+    textures : dict
+        Per-vertex texture arrays keyed by hemisphere.
+    combined : plotly.graph_objects.Figure
+        The assembled subplot figure.
+    """
+    if isinstance(stats, pd.DataFrame):
+        stats = stats.iloc[:, 0].to_dict()
+    elif isinstance(stats, pd.Series):
+        stats = stats.to_dict()
+    stats = {convert_region_name(k): v for k, v in stats.items()}
+
+    annot_paths = {"left": lh_annot_path, "right": rh_annot_path}
+    hemi_short  = {"left": "lh", "right": "rh"}
+
+    fsaverage_meshes = datasets.fetch_surf_fsaverage(fsaverage)
+
+    # Column order: right hemisphere first, left second
+    col_order = [h for h in ("right", "left") if h in hemispheres]
+    n_rows = len(views)
+    n_cols = len(col_order)
+
+    textures = {}
+    missing_regions = []
+
+    # --- Step 1: collect one PlotlySurfaceFigure per (hemi, view) ---
+    pyfigs = {hemi: {} for hemi in col_order}
+
+    for hemi in col_order:
+        labels, ctab, region_names_bytes = nib.freesurfer.read_annot(annot_paths[hemi])
+        hs = hemi_short[hemi]
+
+        # Build per-vertex texture
+        texture = np.full(labels.shape, np.nan)
+        for region_idx, region_name_bytes in enumerate(region_names_bytes):
+            region_name = region_name_bytes.decode("utf-8")
+            full_name   = f"ctx-{hs}-{region_name}"
+            stat_value  = stats.get(full_name, stats.get(region_name))
+            if stat_value is not None:
+                texture[labels == region_idx] = stat_value
+            else:
+                missing_regions.append(full_name)
+
+        textures[hemi] = texture
+
+        surf_mesh = fsaverage_meshes[f"{surface_mesh_type}_{hemi}"]
+        bg_map    = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
+
+        levels = contour_levels if contour_levels is not None else list(np.unique(labels))
+
+        for view in views:
+            fig = plotting.plot_surf_stat_map(
+                surf_mesh=surf_mesh,
+                stat_map=texture,
+                hemi=hemi,
+                view=view,
+                bg_map=bg_map,
+                bg_on_data=bg_on_data,
+                colorbar=show_colorbar,
+                threshold=abs_threshold,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                symmetric_cbar=symmetric_cbar,
+                title=None,
+                engine="plotly",
+            )
+
+            if show_parcel_contours:
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=".*isolated vertices.*",
+                        category=UserWarning,
+                    )
+                    fig.add_contours(
+                        roi_map=labels,
+                        levels=levels,
+                        lines=[{"color": contour_color, "width": contour_linewidth}],
+                        elevation=contour_elevation,
+                    )
+
+            pyfigs[hemi][view] = fig
+
+    # --- Step 2: assemble into a single subplot grid ---
+    specs = [[{"type": "scene"} for _ in range(n_cols)] for _ in range(n_rows)]
+
+    combined = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        specs=specs,
+        subplot_titles=None,
+        horizontal_spacing=0.0,
+        vertical_spacing=0.02,
+    )
+
+    for col_idx, hemi in enumerate(col_order, start=1):
+        for row_idx, view in enumerate(views, start=1):
+            src = pyfigs[hemi][view].figure
+
+            for trace in src.data:
+                combined.add_trace(trace, row=row_idx, col=col_idx)
+
+            scene_num = (row_idx - 1) * n_cols + col_idx
+            scene_key = "scene" if scene_num == 1 else f"scene{scene_num}"
+
+            # copy camera to preserve lateral/medial view angle
+            camera = src.layout.scene.camera
+            eye = camera.eye
+
+            # Lateral views zoom out more than medial — normalize the eye distance
+            if view == "lateral":
+                zoom_factor = 0.80  # pull camera closer; tune between 0.6–0.9
+                eye = dict(x=eye.x * zoom_factor, y=eye.y * zoom_factor, z=eye.z * zoom_factor)
+
+            combined.layout[scene_key].camera = dict(
+                eye=eye,
+                up=camera.up,
+                center=camera.center,
+                projection=camera.projection,
+            )
+
+            # use data aspectmode so all subplots scale consistently
+            combined.layout[scene_key].update(
+                aspectmode="data",
+                xaxis=dict(
+                    showgrid=False,
+                    showticklabels=False,
+                    showline=False,
+                    zeroline=False,
+                    title="",
+                    backgroundcolor="white",
+                ),
+                yaxis=dict(
+                    showgrid=False,
+                    showticklabels=False,
+                    showline=False,
+                    zeroline=False,
+                    title="",
+                    backgroundcolor="white",
+                ),
+                zaxis=dict(
+                    showgrid=False,
+                    showticklabels=False,
+                    showline=False,
+                    zeroline=False,
+                    title="",
+                    backgroundcolor="white",
+                ),
+                bgcolor="white",
+            )
+
+    combined.update_layout(
+        height=400 * n_rows,
+        width=500 * n_cols,
+        title_text=title or "",
+        showlegend=False,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+
+    if missing_regions:
+        print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
+
+    combined.show()
+
+    if show_fig:
+        combined.show()
+
+    if save_fig_path:
+        combined.write_html(f"{save_fig_path}.html")
+        combined.write_image(f"{save_fig_path}.svg")
+        combined.write_image(f"{save_fig_path}.png")
+
+    return textures, combined

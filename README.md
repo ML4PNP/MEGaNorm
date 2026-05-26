@@ -1,12 +1,13 @@
 # MEGaNorm
 
+[![Paper DOI](https://img.shields.io/badge/DOI-10.1038%2Fs41598--024--12345--6-blue)](https://doi.org/10.1038/s42003-026-09825-2)
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![Documentation Status](https://readthedocs.org/projects/meganorm/badge/?version=latest)](https://meganorm.readthedocs.io/en/latest/?badge=latest)
 ![Last Commit](https://img.shields.io/github/last-commit/ML4PNP/MEGaNorm.svg)
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441320.svg)](https://doi.org/10.5281/zenodo.15441320)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Zenodo DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441320.svg)](https://doi.org/10.5281/zenodo.15441320)
 
 
 <p align="center">
@@ -122,12 +123,9 @@ pytest tests/
 
 ## 🧠 Citing MEGaNorm
 
-If you use MEGaNorm in your work, please cite:
+* Citing the package (**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)): You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320). 
 
-**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)
-
-You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320).
-
+* Citing the paper ([BioRxiv Preprint](https://doi.org/10.1101/2025.06.23.660997)): Zamanzadeh, Mohammad, Ymke Verduyn, Augustijn AA de Boer, Tomas Ros, Thomas Wolfers, Richard Dinga, Marie Safar Postma, Andre F. Marquand, Marijn van Wingerden, and Seyed Mostafa Kia. "MEGaNorm: Normative Modeling of MEG Brain Oscillations Across the Human Lifespan." bioRxiv (2025): 2025-06. 
 
 ---
 

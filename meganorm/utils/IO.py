@@ -7,174 +7,484 @@ import glob
 from pathlib import Path
 import mne
 import numpy as np
+from typing import Literal, Dict, Tuple, List, Optional
+from typing import Optional
+import warnings
+from typing import Union
+from typing import ClassVar
+from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
+
+class BandRatio(BaseModel):
+    numerator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+    denominator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
 
 
-def make_config(path=None, **kwargs):
+class Config(BaseModel):
     """
-    Create a configuration dictionary for a neuroimaging preprocessing pipeline.
+    Configuration class for preprocessing, feature extraction, and analysis of 
+    neurophysiological signals (e.g., MEG, EEG, OPM). Provides a comprehensive set 
+    of parameters for filtering, ICA, artifact detection, source localization, 
+    power spectral density (PSD) estimation, FOOOF analysis, and feature extraction.
 
-    This function generates configuration settings for preprocessing, feature extraction,
-    spectral analysis, and other relevant parameters used in processing EEG/MEG data.
-    Optionally, it saves the generated configuration to a JSON file in the specified path.
-
-    Parameters
+    Attributes
     ----------
-    path : str, optional
-        The directory path where the configuration file should be saved. If not provided,
-        the configuration is not saved to a file.
+    which_layout : {"all", "lobe", "None"}, default="all"
+        Sensor layout selection.
+    which_sensor : {"mag", "grad", "meg", "eeg", "opm"}, default="meg"
+        Sensor type to process.
 
-    **kwargs: : keyword arguments
-        Configuration keys to override. For nested dicts, use double underscores (e.g.,
-        'feature_categories__Offset').
+    ICA Parameters
+    --------------
+    ica_n_component : int, default=30
+        Number of ICA components to compute.
+    ica_max_iter : int, default=800
+        Maximum iterations for ICA algorithm.
+    ica_method : {"fastica", "infomax", "picard"}, default="fastica"
+        ICA algorithm to use.
 
-    Returns
+    Filtering Parameters
+    -------------------
+    cutoffFreqLow : int, default=1
+        Low cutoff frequency for bandpass filter (Hz).
+    cutoffFreqHigh : int, default=40
+        High cutoff frequency for bandpass filter (Hz).
+    resampling_rate : int, default=1000
+        Sampling rate for resampling (Hz).
+    digital_filter : bool, default=True
+        Apply digital bandpass filtering.
+    notch_filter : bool, default=True
+        Apply notch filter to remove line noise.
+
+    Artifact Detection
+    -----------------
+    muscle_activity_thr : int, default=4
+        Threshold for muscle artifact detection.
+    muscle_activity_min_length_good : float, default=0.1
+        Minimum clean segment length after artifact removal (s).
+    muscle_activity_filter_freq : tuple[int, int], default=(110, 140)
+        Frequency range for muscle artifact detection (Hz).
+
+    apply_ica : bool, default=True
+        Apply ICA artifact correction.
+    auto_ica_corr_thr : float, default=0.9
+        Correlation threshold for automatic ICA component removal.
+
+    EEG Reference
+    -------------
+    rereference_method : {"average", "REST", "None"}, default="average"
+        EEG re-referencing method.
+
+    Signal Quality Thresholds
+    -------------------------
+    mag_var_threshold : float, default=4e-12
+        Variance threshold for MEG magnetometers.
+    grad_var_threshold : float, default=4000e-13
+        Variance threshold for MEG gradiometers.
+    eeg_var_threshold : float, default=40e-6
+        Variance threshold for EEG.
+    mag_flat_threshold : float, default=10e-15
+        Flatline threshold for MEG magnetometers.
+    grad_flat_threshold : float, default=10e-15
+        Flatline threshold for MEG gradiometers.
+    eeg_flat_threshold : float, default=40e-6
+        Flatline threshold for EEG.
+    zscore_std_thresh : int, default=15
+        Standard deviation threshold for z-score outlier rejection.
+
+    Segmentation
+    ------------
+    segments_tmin : int, default=20
+        Start time relative to event (s).
+    segments_tmax : int, default=-20
+        End time relative to event (s).
+    segments_length : int, default=10
+        Segment length (s).
+    segments_overlap : int, default=2
+        Segment overlap (s).
+
+    Source Localization
+    -------------------
+    apply_source_localization : bool, default=False
+        Whether to perform source localization.
+    SL_source_space : {"surface", "volumetric"}, default="surface"
+        Type of source space.
+    SL_conductivity : tuple[float, ...], default=(0.3,)
+        Conductivity values for head model layers.
+    SL_inverse_operator : {"lcmv"}, default="lcmv"
+        Inverse operator method.
+    source_space_spacing : {"ico3", "ico4", "ico5", "ico6", "oct5", "oct6"}, default="ico4"
+        Source space resolution.
+    source_space_spacing_number : {3, 4, 5, 6}, default=4
+        Resolution number corresponding to `source_space_spacing`.
+
+    Beamformer Parameters
+    --------------------
+    beamformer_pick_ori : {None, "normal", "max-power", "vector"}, default="max-power"
+        Orientation selection for beamformer.
+    beamformer_weight_norm : {None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"}, default="unit-noise-gain"
+        Weight normalization method.
+    beamforme_depth : float, optional
+        Scaling factor to correct for head-center bias.
+    inverse_regularization_value : float, default=0.05
+        Regularization for data covariance matrix.
+
+    Parcellation
+    ------------
+    parcellation_parc : {None, "aparc.a2009s", "parac"}, default="aparc.a2009s"
+        Predefined parcellation.
+    parcellation_annot_fname : Path or None
+        Custom parcellation file.
+
+    PSD Parameters
+    --------------
+    psd_method : {"multitaper", "welch"}, default="welch"
+        PSD estimation method.
+    psd_n_overlap : int, default=1
+        Number of overlapping samples.
+    psd_n_fft : int, default=2
+        FFT length.
+    psd_n_per_seg : int, default=2
+        Segment length for PSD.
+
+    FOOOF Analysis
+    --------------
+    fooof_freq_range_low : int, default=3
+        Lower frequency bound (Hz).
+    fooof_freq_range_high : int, default=40
+        Upper frequency bound (Hz).
+    aperiodic_mode : {"knee", "fixed"}, default="knee"
+        Model for aperiodic component.
+    fooof_peak_width_limits : list[float], default=[1.0, 12.0]
+        Peak width limits (Hz).
+    fooof_min_peak_height : int, default=0
+        Minimum peak height.
+    fooof_peak_threshold : int, default=2
+        Peak detection threshold.
+    fooof_res_save_path : str, optional
+        Path to save FOOOF results.
+
+    Feature Extraction
+    ------------------
+    freq_bands : dict[str, tuple[int, int]]
+        Canonical frequency bands.
+    individualized_band_ranges : dict[str, tuple[int, int]]
+        Offsets for individualized bands.
+    min_r_squared : float, default=0.9
+        Minimum R² for model fit.
+    feature_categories : dict[str, bool]
+        Flags indicating which features to extract.
+
+    Miscellaneous
+    -------------
+    random_state : int, default=42
+        Random seed for reproducibility.
+
+    Methods
     -------
-    config : dict
-        The configuration dictionary containing settings for preprocessing, feature extraction,
-        and analysis.
-
-    Notes
-    -----
-    - The generated configuration includes settings for ICA preprocessing, spectral
-      estimation, and feature extraction for EEG/MEG data.
-    - Default values are provided for the majority of settings.
-    - If `path` is provided, a `.json` file containing the configuration will be saved.
+    save(path)
+        Save configuration to JSON.
+    load(path) -> Config
+        Load configuration from JSON.
+    muscle_activity_thr_fv(v)
+        Validator for muscle activity threshold.
+    muscle_activity_filter_freq_fv(v)
+        Validator for muscle artifact frequency.
+    SL_conductivity_mv()
+        Validator for EEG conductivity.
     """
 
-    # preprocess configurations =================================================
-    # downsample data
-    config = dict()
+    which_meg_session : int = 0 # the first session
 
-    # You could also set layout to None to have high
-    # choices: all, lobe, None
-    config["which_layout"] = "all"
+    which_layout: Literal["all", "lobe", None] = "all"
+    which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
 
-    # which sensor type should be used
-    # choices: meg, mag, grad, eeg, opm
-    config["which_sensor"] = "meg"
-    # config['fs'] = 1000
+    drop_noisy_flat_channel: bool = True
 
-    # ICA configuration
-    config["ica_n_component"] = 30
-    config["ica_max_iter"] = 800
-    config["ica_method"] = "fastica"
+    # ICA
+    apply_ica_elbow_detection: bool = False
+    ica_n_component: Optional[PositiveInt] = None
+    ica_max_iter: PositiveInt = 800
+    ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
-    # lower and upper cutoff frequencies in a bandpass filter
-    config["cutoffFreqLow"] = 1
-    config["cutoffFreqHigh"] = 45
+    cutoffFreqLow: float = 1.0
+    cutoffFreqHigh: PositiveInt = 80
 
-    config["resampling_rate"] = 1000
-    config["digital_filter"] = True
-    config["notch_filter"] = False
+    resampling_rate: PositiveInt = 1000
+    digital_filter: bool = True
+    notch_filter: bool = True
 
-    config["apply_ica"] = True
+    apply_oversampled_temporal_projection: bool = True
 
-    config["auto_ica_corr_thr"] = 0.9
+    apply_Head_movement_correction: bool = True
+    Head_movement_limit_from_mean: float = 0.0015
 
-    # options are "average", "REST", and None
-    config["rereference_method"] = "average"
+    apply_chpi_filter: bool = False
 
-    # variance threshold across time
-    config["mag_var_threshold"] = 4e-12
-    config["grad_var_threshold"] = 4000e-13
-    config["eeg_var_threshold"] = 40e-6
-    # flatness threshold across time
-    config["mag_flat_threshold"] = 10e-15
-    config["grad_flat_threshold"] = 10e-15
-    config["eeg_flat_threshold"] = 40e-6
-    # variance thershold across channels
-    config["zscore_std_thresh"] = 15  # change this
+    # gedai settings
+    apply_gedai: bool = True
+    gedai_method: Literal["both", "spectral", "broadband"] = "both"
+    sensai_method: Literal["optimize", "gridsearch"] = "optimize"
+    gedai_duration: Union[float, int] = 12
+    gedai_overlap: Union[float, int] = 0.5
+    gedai_preliminary_broadband_noise_multiplier: float = 6.0
+    gedai_noise_multiplier: float = 3.0
+    gedai_wavelet_type: str ="haar"
+    gedai_wavelet_level: Union[Literal["auto"], PositiveInt, Literal[0]] = "auto"
+    gedai_wavelet_low_cutoff: Union[None, float] = None
+    gedai_epoch_size_in_cycles: PositiveInt = 12
+    gedai_highpass_cutoff: float = 0.1
 
-    # segmentation ==============================================
-    # start time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
-    config["segments_tmin"] = 20
-    # end time of the raw data to use in seconds, this is to avoid possible eye blinks in close-eyed resting state.
-    config["segments_tmax"] = -20
-    # length of MEG segments in seconds
-    config["segments_length"] = 10
-    # amount of overlap between MEG sigals in seconds
-    config["segments_overlap"] = 2
+    muscle_activity_thr: int = 4
+    muscle_activity_min_length_good: float = 0.1
+    muscle_activity_filter_freq: Tuple[int, int] = (110, 140)
 
-    # PSD ==============================================
-    # Spectral estimation method
-    config["psd_method"] = "welch"
-    # amount of overlap between windows in Welch's method
-    config["psd_n_overlap"] = 1
-    config["psd_n_fft"] = 2
-    # number of samples in psd
-    config["psd_n_per_seg"] = 2
+    apply_environmental_noise_correction: bool = True
+    ctf_gradient_comp_level: PositiveInt = 3
+    apply_environmental_noise_ssp_with_eroom: bool = False
+    apply_environmental_noise_ica_with_ref_meg: bool = True
+    environmental_noise_ica_with_ref_meg_thr: float = 2.5
+    ica_if_reject_by_annotation: bool = True
+    environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = "separate"
+    environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = "zscore"
+    
+    apply_ica: bool = True
+    auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
-    # fooof analysis configurations ==============================================
-    # Desired frequency range to run FOOOF
-    config["fooof_freq_range_low"] = 3
-    config["fooof_freq_range_high"] = 40
-    config["fooof_freq_range_low"] = 3
-    config["fooof_freq_range_high"] = 40
-    # which mode should be used for fitting; choices (knee, fixed)
-    config["aperiodic_mode"] = "knee"
-    # minimum acceptable peak width in fooof analysis
-    config["fooof_peak_width_limits"] = [1.0, 12.0]
-    # Absolute threshold for detecting peaks
-    config["fooof_min_peak_height"] = 0
-    # Relative threshold for detecting peaks
-    config["fooof_peak_threshold"] = 2
+    rereference_method: Literal["average", "REST", "None"] = "average"
 
-    # feature extraction ==========================================================
-    # Define frequency bands
-    config["freq_bands"] = {
+    bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
+    mag_var_threshold: float = 5000e-15
+    grad_var_threshold: float = 5000e-13
+    eeg_var_threshold: float = 40e-6
+    mag_flat_threshold: float = 10e-15
+    grad_flat_threshold: float = 10e-13
+    eeg_flat_threshold: float = 40e-6
+    zscore_std_thresh: PositiveInt = 15
+
+    segments_tmin: PositiveInt = 20
+    segments_tmax: NegativeInt = -20
+    segments_length: PositiveInt = 10
+    segments_overlap: int = 2
+
+    # autoreject
+    autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
+    autoreject_consensus_percs: List[float] = list(np.linspace(0, 1.0, 11))
+    autoreject_cv: Union[int, Literal["auto"]] = "auto"
+    autoreject_thresh_method: Literal['bayesian_optimization', "random_search"] = "bayesian_optimization"
+
+    # Source localization
+    apply_source_localization: bool = False
+    apply_empty_room_recording: bool = True
+    apply_mri_QC: bool = False
+    SL_source_space: Literal["surface", "volumetric"] = "volumetric"
+    SL_conductivity: Tuple[float, ...] = (0.3,)
+    SL_inverse_operator: Literal["lcmv"] = "lcmv"
+
+    # the spacing to use for source space specificatin
+    source_space_spacing:  Literal["ico3", "ico4", "ico5", "ico6", "oct5", "oct6"] = "ico4"
+    source_space_spacing_number: Literal[3, 4, 5, 6]=4
+
+    coregisteration_final_n_iterations: int = 20
+    coregisteration_final_nasion_weight: float = 10.0
+    covariance_method: str = "empirical"
+
+    # Determines whether to keep vectors for all source orientations
+    # or to select a single fixed orientation, depending on the chosen algorithm.
+    beamformer_pick_ori: Literal[None, "normal", "max-power", "vector"] = "max-power"
+    beamformer_weight_norm: Literal[None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"] = "unit-noise-gain"
+
+    # This parameter scales the activation to correct for head-center bias.
+    beamforme_depth: confloat(ge=0, le=1) = 0.08
+
+    # this is used for regularaizing the data covariance (shifting the matrix)
+    inverse_regularization_value: confloat(ge=0, le=1) = 0.05
+
+    apply_morphing: bool = False
+
+    # the pacellation to use
+    parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
+
+    # A custom parcellation file
+    parcellation_annot_fname: Optional[Path] = None
+
+
+    # PSD
+    psd_method: Literal["multitaper", "welch"] = "welch"
+    psd_n_overlap: PositiveInt = 1
+    psd_n_fft: PositiveInt = 2
+    psd_n_per_seg: PositiveInt = 2
+
+    parametrization_method: Literal["fooof", "irasa"] = "irasa"
+    # PYRASA
+    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
+
+    # FOOOF analysis
+    fooof_freq_range_low: PositiveInt = 3
+    fooof_freq_range_high: PositiveInt = 40
+    aperiodic_mode: Literal["knee", "fixed"] = "knee"
+    fooof_peak_width_limits: List[float] = [1.0, 12.0]
+    fooof_min_peak_height: int = 0
+    fooof_peak_threshold: PositiveInt = 2
+    
+    save_source_localized_epochs: bool = False
+    save_psds : bool = False
+
+    # Feature extraction
+    freq_bands: Dict[str, Tuple[int, int]] = {
         "Theta": (3, 8),
         "Alpha": (8, 13),
         "Beta": (13, 30),
         "Gamma": (30, 40),
-        # 'Broadband': (3, 40)
     }
 
-    # Define individualized frequency range over main peaks in each freq band
-    config["individualized_band_ranges"] = {
+    individualized_band_ranges: Dict[str, Tuple[int, int]] = {
         "Theta": (-2, 3),
-        "Alpha": (-2, 3),  # change to (-4,2)
+        "Alpha": (-2, 3),
         "Beta": (-8, 9),
         "Gamma": (-5, 5),
     }
 
-    # least acceptable R squred of fitted models
-    config["min_r_squared"] = 0.9
+    power_band_ratios_list: List[BandRatio] = [
+        BandRatio(numerator="Theta", denominator="Beta"),
+        BandRatio(numerator="Theta", denominator="Alpha"),
+        BandRatio(numerator="Alpha", denominator="Beta"),
+        BandRatio(numerator="Delta", denominator="Beta"),
+        BandRatio(numerator="Delta", denominator="Alpha"),
+        BandRatio(numerator="Delta", denominator="Theta"),
+        BandRatio(numerator="Beta", denominator="Gamma"),
+        BandRatio(numerator="Alpha", denominator="Gamma"),
+        BandRatio(numerator="Theta", denominator="Gamma"),
+        BandRatio(numerator="Delta", denominator="Gamma"),
+    ]
 
-    config["feature_categories"] = {
-        "Offset": False,
-        "Exponent": False,
+    min_r_squared: confloat(ge=0, le=1) = 0.9
+
+    feature_categories: Dict[str, bool] = {
+        "Offset": True,
+        "Exponent": True,
         "Peak_Center": False,
         "Peak_Power": False,
         "Peak_Width": False,
         "Adjusted_Canonical_Relative_Power": True,
-        "Adjusted_Canonical_Absolute_Power": False,
+        "Adjusted_Canonical_Absolute_Power": True,
         "Adjusted_Individualized_Relative_Power": False,
         "Adjusted_Individualized_Absolute_Power": False,
-        "OriginalPSD_Canonical_Relative_Power": False,
-        "OriginalPSD_Canonical_Absolute_Power": False,
+        "OriginalPSD_Canonical_Relative_Power": True,
+        "OriginalPSD_Canonical_Absolute_Power": True,
         "OriginalPSD_Individualized_Relative_Power": False,
         "OriginalPSD_Individualized_Absolute_Power": False,
+        "Adjusted_Band_Ratio" : True, 
+        "OriginalPSD_Band_Ratio": True,
+        "Hemispheric_Asymmetry_index": True
     }
 
-    config["fooof_res_save_path"] = None
+    fooof_res_save_path: Optional[str] = None
+    random_state: int = 42
 
-    config["random_state"] = 42
 
-    # Override default values when specified by user =========================
-    for key, value in kwargs.items():
-        if "__" in key:
-            outer_key, inner_key = key.split("__", 1)
-            if outer_key in config and isinstance(config[outer_key], dict):
-                config[outer_key][inner_key] = value
-        else:
-            config[key] = value
+    @field_validator("muscle_activity_thr")
+    def muscle_activity_thr_fv(cls, v):
+        if v < 3:
+            warnings.warn("Select a higher threshold for muscle activity artifacts. Low values " \
+            "remove clean data.")
+        return v
 
-    if path is not None:
-        out_file = open(os.path.join(path, "configuration.json"), "w")
-        json.dump(config, out_file, indent=6)
-        out_file.close()
 
-    return config
+    @ field_validator("muscle_activity_filter_freq")
+    def muscle_activity_filter_freq_fv(cls, v):
+        if v[0] < 100:
+            warnings.warn(f"Muscle activity artifact affects higher frequencies than {v[0]} Hz.")
+        return v
+
+
+    @model_validator(mode="after")
+    def SL_conductivity_mv(self):
+        if len(self.SL_conductivity) == 1 and self.which_sensor == "eeg" and self.apply_source_localization:
+            raise ValueError("In the case of EEG, you must have a three layers conductivity model due to volume conduction.")
+        return self
+    
+
+    @model_validator(mode="after")
+    def source_space_res(self):
+        if int(self.source_space_spacing[-1]) != self.source_space_spacing_number:
+            raise ValueError("The source_space_spacing and source_space_spacing_number should match")
+        return self
+
+
+    @model_validator(mode="after")
+    def beamformer_arg_check(self):
+        if self.beamformer_pick_ori == "vector" and self.beamformer_weight_norm != "unit-noise-gain-invariant":
+
+            error_msg = "If you wish to compute a vector beamformer, it is necessary to use" \
+                        " unit-noise-gain-invariant for weight_norm argument. This is for addressing" \
+                        " the center of head bias where deeper sources can have larger scale than" \
+                        " superfacial sources."
+            
+            raise ValueError(error_msg)
+        return self
+
+    @model_validator(mode="after")
+    def center_head_bias_scale_check(self):
+        if not self.beamforme_depth and self.SL_source_space == "volumetric":
+            error_msg = "If you want to use volumetric source space (interested in deeper sources)," \
+            " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address" \
+            " the center of head bias."
+            raise ValueError(error_msg)
+        return self
+    
+    @model_validator(mode="after")
+    def ica_e_noise_removal(self):
+        if (self.environmental_noise_ica_with_ref_meg_measure == "correlation" and not
+            0<self.environmental_noise_ica_with_ref_meg_thr<1):
+            
+            error_mg = "If the threshold method for removing environmental noise using " \
+            "ICA and ref-MEG is correlation, the corresponding measure must be between 0 and 1."
+            raise ValueError(error_mg)
+        return self    
+
+
+    @model_validator(mode="after")
+    def pacellation_checker(self):
+        if not self.parcellation_parc and not self.parcellation_annot_fname:
+            raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
+        return self
+
+    @model_validator(mode="after")
+    def gedai_params_check(self):
+        method = self.gedai_method
+        wavelet_level = self.gedai_wavelet_level
+        duration = self.gedai_duration
+        broadband_multiplier = self.gedai_preliminary_broadband_noise_multiplier
+
+        if method == "broadband" and wavelet_level != 0:
+            raise ValueError("broadband method requires wavelet_level=0")
+        if method == "broadband" and not duration:
+            raise ValueError("broadband method requires gedai_duration")
+        if method == "spectral" and wavelet_level == 0:
+            raise ValueError("spectral method requires wavelet_level > 0")
+        if method == "both" and not broadband_multiplier:
+            raise ValueError("both method requires gedai_preliminary_broadband_noise_multiplier")
+        
+        return self
+
+    def save(self, save_path:str, overwrite=False):
+        "save the configurations to a JSON file"
+
+        if os.path.exists(save_path) and overwrite == False:
+            err_msg = f"A configuration file already exists in this directory: {save_path}. Set the overwrite to True."
+            raise FileExistsError(err_msg)
+            
+        with open(save_path, "w") as file:
+            json.dump(self.model_dump(), file, indent=4)
+
+
+    @classmethod
+    def load(cls, path: str):
+        # Load configuration from a JSON file
+        with open(path, "r") as file:
+            cfg = json.load(file)
+        return cls(**cfg)
+    
 
 
 def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
@@ -543,38 +853,64 @@ def merge_datasets_with_glob(datasets):
     multiple files (e.g., different runs or sessions), and the goal is to create
     a single pattern that can be used to load all related files for a subject.
     """
+
+    def join_with_star(lst):
+        if not lst:
+            return None
+        if len(lst) == 1:
+            return lst[0] + "*"
+        return "*".join(lst)
+    
     subjects = {}
 
     for dataset_name, dataset_info in datasets.items():
         base_dir = dataset_info["base_dir"]
+        task = dataset_info["task"]
+        ending = dataset_info["ending"]
+        line_freq = dataset_info["line_freq"]
+        empty_room_task = dataset_info["empty_room_task"]
+        empty_room_path = dataset_info["empty_room_path"]
+        surfaces = dataset_info["surfaces_dir"]
+        
 
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
         ]
-        subjects.update({subj: [] for subj in dirs})
+        
+        for subj in dirs:
+        
+            rs_record_paths = glob.glob(
+                f"{base_dir}/{subj}/**/*{task}*{ending}",
+                recursive=True
+                )
+            
+            if empty_room_task:
+                er_record_paths = glob.glob(
+                    f"{empty_room_path}/{subj}/**/*{empty_room_task}*{ending}",
+                    recursive=True
+                    )
+            else: 
+                er_record_paths = None
+            
+            if surfaces:
+                if os.path.isdir(os.path.join(surfaces, subj)):
+                    surface = surfaces
+                else:
+                    surface = None
+            else: 
+                surface = None
 
-        paths = glob.glob(
-            f"{datasets[dataset_name]["base_dir"]}/**/*{datasets[dataset_name]["task"]}*{datasets[dataset_name]["ending"]}",
-            recursive=True,
-        )
-
-        # Walk through the base directory to find subject directories
-        for subject_dir in dirs:
-            pattern = os.path.join(datasets[dataset_name]["base_dir"], subject_dir)
-            subjects[subject_dir].extend(
-                list(filter(lambda path: path.startswith(pattern), paths))
+            subjects.update(
+                {subj: 
+                    {
+                    "rest_record": join_with_star(rs_record_paths),
+                    "line_freq": line_freq,
+                    "empty_room_record":join_with_star(er_record_paths),
+                    "mri_surface":surface
+                    }
+                }
             )
-
-    def join_with_star(lst):
-        if len(lst) == 1:
-            return lst[0] + "*"
-        return "*".join(lst)
-
-    # add this part to main parallel when you want to concatenate
-    # different run
-    subjects = dict(filter(lambda item: item[1], subjects.items()))
-    subjects = {key: join_with_star(value) for key, value in subjects.items()}
-
+            
     return subjects
 
 
@@ -663,3 +999,144 @@ def make_demo_file_bids(
 
     # Save as BIDS-compatible TSV
     new_df.to_csv(save_dir, sep="\t", index=False)
+
+
+def set_path(project_dir):
+    """
+    Create and initialize directory structure for a given project.
+
+    This function generates a set of predefined directories for
+    feature extraction and normative modeling workflows within the
+    specified project directory. If any of these directories do not
+    exist, they will be created. The function returns the path to the
+    features log directory.
+
+    Parameters
+    ----------
+    project_dir : str
+        Path to the root project directory where the folder structure
+        will be created.
+
+    Returns
+    -------
+    str
+        Absolute path to the 'log' directory inside the 'Features'
+        folder.
+
+    Notes
+    -----
+    The function creates the following directory structure:
+
+    - ``Features/``  
+      - ``log/`` (for saving logs of feature extraction)
+      - ``temp/`` (for temporarily storing extracted features)
+      - ``figures/`` (for saving generated figures)
+
+    - ``Normative modeling/``  
+      - ``Runs/`` (for saving model run outputs)
+      - ``Figures/`` (for visual outputs related to modeling)
+      - ``Models summary/`` (for summaries of model results)
+    """
+    def make_folder(path):
+        if not os.path.isdir(path):
+            os.makedirs(path)
+
+    # Feature extraction
+    features_dir = os.path.join(project_dir, 'Features')
+    features_log_path = os.path.join(features_dir, 'log_slurm_jobs')
+    features_temp_path = os.path.join(features_dir,'temp')
+    figures_dir = os.path.join(features_dir, "figures")
+    exluded_participants_path = os.path.join(features_dir, "excluded_participants")
+    saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
+    save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
+    save_psds_path = os.path.join(saved_outputs_path, "PSDs")
+    configurations = os.path.join(features_dir, "Configurations")
+
+    make_folder(features_dir)
+    make_folder(features_log_path)
+    make_folder(features_temp_path)
+    make_folder(figures_dir)
+    make_folder(saved_outputs_path)
+    make_folder(save_epochs_path)
+    make_folder(save_psds_path)
+    make_folder(configurations)
+    make_folder(exluded_participants_path)
+
+    # Normative models
+    nm_dir = os.path.join(project_dir, "Normative_models")
+    make_folder(nm_dir)
+
+    return features_dir, features_log_path
+
+
+
+def clean_nan_columns(df, nan_threshold):
+    """
+    Remove columns with more NaNs than `nan_threshold`,
+    otherwise impute NaNs with the column median.
+
+    Parameters:
+        df (pd.DataFrame): Input dataframe
+        nan_threshold (int): Max allowed NaNs per column
+
+    Returns:
+        pd.DataFrame: Cleaned dataframe
+    """
+    df = df.copy()
+
+    for col in df.columns:
+        nan_count = df[col].isna().sum()
+
+        if nan_count > nan_threshold:
+            # Drop column
+            df.drop(columns=col, inplace=True)
+        else:
+            # Impute with median (only for numeric columns)
+            if pd.api.types.is_numeric_dtype(df[col]):
+                median_value = df[col].median()
+                df[col] = df[col].fillna(median_value)
+
+    return df
+
+
+
+def find_other_mri_session(base_mri_path, missing_mri_subjects, str_mri_ending, which_session):
+
+    new_paths = {}
+    for subject in missing_mri_subjects:
+        mri_paths = glob.glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
+
+        if len(mri_paths) > which_session-1:
+            new_paths.update({subject: mri_paths[which_session-1]})
+        
+    return new_paths
+
+def find_failed_meg_subjects(log_path):
+    
+    missing_meg_subjects = []
+    paths = os.scandir(log_path)
+    paths = list(filter(lambda x: "err" in x.name, paths))
+    for path in paths:
+        with open(path, "r") as f:
+            content = f.read()
+            if "error" in content:
+                subject = os.path.basename(path).split(".")[0].split("_")[0]
+                missing_meg_subjects.append(subject)
+
+    return set(missing_meg_subjects)
+
+def find_other_meg_session(base_meg_path,
+                           missing_meg_subjects,
+                           str_meg_ending,
+                           task_name,
+                           which_session):
+    
+    new_paths = {}
+    for subject in missing_meg_subjects:
+        rs_record_paths = glob.glob(
+                    f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
+                    recursive=True
+                    )
+        if len(rs_record_paths) > which_session - 1:
+            new_paths.update({subject: rs_record_paths[which_session - 1]})
+    return new_paths
