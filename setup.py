@@ -34,4 +34,7 @@ setup(
         "Topic :: Scientific/Engineering :: Information Analysis",
     ],
     include_package_data=True,
+    package_data={
+        "meganorm": ["layouts/*.json"],
+    },
 )

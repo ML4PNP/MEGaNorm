@@ -2,11 +2,10 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-
 [tool.black]
-line-length = 88          
-target-version = ['py312']  
-include = '\.pyi?$'  
+line-length = 88
+target-version = ['py312']
+include = '\.pyi?$'
 exclude = '''
 /(
     \.eggs
