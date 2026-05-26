@@ -16,3 +16,4 @@ pydantic
 kneed
 gedai
 autoreject
+onnxruntime
