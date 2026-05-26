@@ -35,5 +35,38 @@
             "OrbOcc",
             "Mass"
         ]
-    }
+    },
+
+  "VHDR_EEG_LOBE": {
+    "frontal_left": [
+        "Fp1", 
+        "F7", 
+        "F3", 
+        "FC3"
+    ],
+    "frontal_right": [
+        "Fp2", 
+        "F4", 
+        "F8", 
+        "FC4"
+    ],
+    "central_left": ["C3"],
+    "central_right": ["C4"],
+
+    "temporal_left": ["T7"],
+    "temporal_right": ["T8"],
+
+    "parietal_left": [
+        "CP3",
+        "P7", 
+        "P3"],
+
+    "parietal_right": [
+        "CP4", 
+        "P4", 
+        "P8"],
+        
+    "occipital_left": ["O1"],
+    "occipital_right": ["O2"]
+  }
 }
