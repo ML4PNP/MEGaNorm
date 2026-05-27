@@ -102,7 +102,7 @@ def prepare_nm_data(
 
     if including_ROIs:
         stripped_ROIs = [re.sub(r'-(lh|rh)$', '', roi) for roi in including_ROIs]
-        pattern = "|".join(map(re.escape, stripped_ROIs + batch_effect_list + [subject_id_col_name] + which_cohorts + covariate_list))
+        pattern = "|".join(map(re.escape, stripped_ROIs + batch_effect_list + [subject_id_col_name]  + covariate_list))
         df= df.loc[:, df.columns.str.contains(pattern)]
 
         response_vars = [var for var in response_vars if any(incl in var for incl in stripped_ROIs)]
@@ -213,10 +213,11 @@ def nm_model_train(
         if_save_models=True,
         if_save_plots=True,
         colors=None, # TODO
-        job_configs=None
+        job_configs=None,
+        
 ):
     
-    nm_dir = os.path.join(project_dir, "Normative_models", experiment_name)
+    nm_dir = os.path.join(project_dir, "Normative_models")
     if not os.path.isdir(nm_dir):
         os.mkdir(nm_dir)
 
