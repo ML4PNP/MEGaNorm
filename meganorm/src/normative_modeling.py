@@ -256,6 +256,7 @@ def nm_model_train(
             preamble=job_configs["preamble"],
             log_dir=os.path.join(nm_dir, "nm_parallel_logs"),
             temp_dir=os.path.join(nm_dir, "nm_temp"),   
+            max_retries=job_configs["max_retries"]
         )
 
         if test:
