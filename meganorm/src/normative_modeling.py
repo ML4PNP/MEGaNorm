@@ -112,6 +112,7 @@ def prepare_nm_data(
     if which_subjects:
         df = df[df["participants_id"].isin(which_subjects)]
 
+    df = df.replace([np.inf, -np.inf], np.nan)
     if missing_value_handling_method in ["mean", "median"]:
         df = impute_by_subgroup(
             df=df,
@@ -421,7 +422,7 @@ def prior_predictive_check(
 
 
 
-def compute_idp_centile(model, IDP, upper_limit=80):
+def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
     """Compute centile curve, peak, local extrema, and slope sign changes for one IDP."""
     covariate = "age"
     cov_min = model.covariate_ranges[covariate]["min"]
@@ -462,8 +463,10 @@ def compute_idp_centile(model, IDP, upper_limit=80):
             
         return [(x - lo) / span * 100 for x in values]
 
-    # Scale after masking so max is within the age range
-    y_vals_pct = np.array(scale_to_percent(y_vals))
+    if scale_centiles:
+        y_vals_pct = np.array(scale_to_percent(y_vals))
+    else:
+        y_vals_pct = y_vals.copy()
 
     # Peak
     peak_idx = np.argmax(y_vals_pct)
