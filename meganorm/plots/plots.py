@@ -2467,3 +2467,173 @@ def plot_statistics_on_brain_plotly(
         combined.write_image(f"{save_fig_path}.png")
 
     return textures, combined
+
+
+
+
+def plot_50th_centiles_by_categories(
+    categories,
+    centile_cache,
+    get_band_color,
+    output_path="centiles_all_categories.png",
+    age_min=6,
+    age_max=80,
+    dpi=600,
+):
+    # ── Constants ────────────────────────────────────────────────────────────
+    STAGE_BOUNDARIES = [12, 20, 40, 60]
+    STAGE_LABELS     = ["Late\nChildhood", "Adolescence", "Young\nAdulthood",
+                        "Middle\nAdulthood", "Late\nAdulthood"]
+    AGE_TICKS        = [6, 10, 20, 40, 60, 80]
+
+    # ── Utility sub-functions ─────────────────────────────────────────────────
+    def add_stage_bands(ax, x_min, x_max):
+        boundaries   = [b for b in STAGE_BOUNDARIES if x_min <= b < x_max]
+        x_edges      = [x_min] + boundaries + [x_max]
+        stage_ranges = list(zip(x_edges[:-1], x_edges[1:]))
+        ylim         = ax.get_ylim()
+
+        for i, (x0, x1) in enumerate(stage_ranges):
+            ax.axvline(x0, color="#888888", linewidth=1.5, zorder=2, linestyle="--")
+            ax.text(
+                (x0 + x1) / 2, 1.00,
+                STAGE_LABELS[i],
+                transform=ax.get_xaxis_transform(),
+                ha="center",
+                fontsize=15, color="#555555", rotation=35,
+            )
+
+        ax.set_ylim(ylim)
+
+    def add_axis_break(ax, x_min):
+        xlim     = ax.get_xlim()
+        ylim     = ax.get_ylim()
+        ax_width = xlim[1] - xlim[0]
+        y_span   = ylim[1] - ylim[0]
+
+        x_break = x_min - ax_width * 0.015
+        gap     = ax_width * 0.01
+        dy      = y_span * 0.04
+
+        slash_kwargs = dict(color="black", linewidth=1.5, clip_on=False, zorder=10)
+        for offset in [-gap / 2, gap / 2]:
+            xc = x_break + offset
+            ax.plot(
+                [xc - gap * 0.5, xc + gap * 0.5],
+                [ylim[0] - dy * 0.5, ylim[0] + dy * 1.5],
+                transform=ax.transData, **slash_kwargs,
+            )
+
+        ax.axvspan(xlim[0], x_break - gap, color="white", zorder=9, clip_on=False)
+
+        ax.annotate(
+            "", xy=(x_break - gap, ylim[0]), xytext=(xlim[0], ylim[0]),
+            xycoords="data", textcoords="data", annotation_clip=False,
+            arrowprops=dict(arrowstyle="-", color="black", lw=0.8),
+        )
+
+        ax.annotate(
+            "0", xy=(xlim[0], ylim[0]), xycoords="data",
+            xytext=(0, -4), textcoords="offset points",
+            ha="center", va="top", fontsize=12, color="black",
+            clip_on=False, annotation_clip=False,
+        )
+
+    def make_legend_handles(existing_handles):
+        marker_specs = [
+            ("^", "Peak"),
+            ("v", "Minimum"),
+            ("o", "Inflection point"),
+        ]
+        extra = [
+            plt.Line2D(
+                [0], [0], marker=m, color="w",
+                markerfacecolor="white", markeredgecolor="black",
+                markeredgewidth=0.8, markersize=6, label=lbl,
+            )
+            for m, lbl in marker_specs
+        ]
+        return existing_handles + extra
+
+    # ── Main plotting logic ───────────────────────────────────────────────────
+    n_cats = len(categories)
+    ncols  = 3
+    nrows  = int(np.ceil(n_cats / ncols))
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 6 * nrows))
+    axes = np.array(axes).flatten()
+
+    for i, (cat_name, cat_features) in enumerate(categories.items()):
+        ax = axes[i]
+
+        if not cat_features:
+            ax.set_visible(False)
+            continue
+
+        for IDP in cat_features:
+            if IDP not in centile_cache:
+                print(f"Skipping {IDP} — not in cache")
+                continue
+
+            (x_vals_real, y_vals_pct,
+             peak_x, peak_y,
+             min_x, min_y,
+             slope_change_x, slope_change_y) = centile_cache[IDP]
+
+            x_vals_real = x_vals_real * 100
+            mask        = (x_vals_real >= age_min) & (x_vals_real <= age_max)
+            x_vals_real = x_vals_real[mask]
+            y_vals_pct  = y_vals_pct[mask]
+
+            short_label = IDP.split("__")[-1] if "__" in IDP else IDP
+            color       = get_band_color(IDP, cat_name)
+
+            line, = ax.plot(
+                x_vals_real, y_vals_pct,
+                linewidth=3.5, label=short_label,
+                color=color if color else None,
+                alpha=0.6, zorder=3,
+            )
+            color = line.get_color()
+
+            if age_min <= peak_x * 100 <= age_max:
+                ax.plot(peak_x * 100, peak_y, marker="^", markersize=10,
+                        color=color, zorder=5, alpha=0.5,
+                        markeredgecolor="black", markeredgewidth=1)
+
+            if age_min <= min_x * 100 <= age_max:
+                ax.plot(min_x * 100, min_y, marker="v", markersize=10,
+                        color=color, zorder=5, alpha=0.5,
+                        markeredgecolor="black", markeredgewidth=1)
+
+            for sx, sy in zip(slope_change_x * 100, slope_change_y):
+                if age_min <= sx <= age_max:
+                    ax.plot(sx, sy, marker="o", markersize=6,
+                            color=color, zorder=5, alpha=0.7,
+                            markeredgecolor="black", markeredgewidth=1)
+
+        ax.set_xlim(age_min - 2, age_max)
+
+        add_stage_bands(ax, age_min, age_max)
+        add_axis_break(ax, age_min)
+
+        ax.set_xticks(AGE_TICKS)
+        ax.set_xticklabels([str(t) for t in AGE_TICKS])
+        ax.set_title(cat_name, fontsize=15, fontweight="bold", pad=65)
+        ax.set_xlabel("Age (years)", fontsize=15)
+        ax.set_ylabel("Percentage of maximum value", fontsize=15)
+        ax.tick_params(labelsize=15)
+
+        if i != 0:
+            handles, _ = ax.get_legend_handles_labels()
+            ax.legend(
+                handles=make_legend_handles(handles),
+                fontsize=12, loc="best", borderaxespad=2.0,
+            )
+
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    plt.show()
