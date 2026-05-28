@@ -418,3 +418,67 @@ def prior_predictive_check(
     plt.show()
 
     return pymc_model
+
+
+
+def compute_idp_centile(model, IDP, upper_limit=80):
+    """Compute centile curve, peak, local extrema, and slope sign changes for one IDP."""
+    covariate = "age"
+    cov_min = model.covariate_ranges[covariate]["min"]
+    cov_max = model.covariate_ranges[covariate]["max"]
+    centile_covariates = np.linspace(cov_min, cov_max, 150)
+    centile_df = pd.DataFrame({covariate: centile_covariates})
+    batch_effects = {
+        k: max(v.items(), key=lambda x: x[1])[0]
+        for k, v in model.batch_effect_counts.items()
+    }
+    for be, v in batch_effects.items():
+        centile_df[be] = v
+    centile_df[IDP] = 1e-6
+    centile_data = NormData.from_dataframe(
+        "centile",
+        dataframe=centile_df,
+        covariates=model.covariates,
+        response_vars=[IDP],
+        batch_effects=list(batch_effects.keys()),
+    )
+    model.compute_centiles(centile_data, centiles=[0.5], recompute=True)
+    x_vals = centile_data.X.sel(covariates="age").values
+    x_vals_real = model.inscalers["age"].inverse_transform(x_vals)
+    y_vals = centile_data.centiles.sel(centile=0.5, response_vars=IDP).values
+
+    # Limit to upper_limit BEFORE scaling
+    mask = x_vals_real * 100 <= upper_limit
+    x_vals_real = x_vals_real[mask]
+    y_vals      = y_vals[mask]
+
+    def scale_to_percent(values):
+        lo = min(values)
+        hi = max(values)
+        span = hi - lo
+
+        if span == 0:
+            raise Exception
+            
+        return [(x - lo) / span * 100 for x in values]
+
+    # Scale after masking so max is within the age range
+    y_vals_pct = np.array(scale_to_percent(y_vals))
+
+    # Peak
+    peak_idx = np.argmax(y_vals_pct)
+    peak_x = x_vals_real[peak_idx]
+    peak_y = y_vals_pct[peak_idx]
+
+    # Minimum
+    min_idx = np.argmin(y_vals_pct)
+    min_x = x_vals_real[min_idx]
+    min_y = y_vals_pct[min_idx]
+
+    # Slope sign changes — all computed on the already-masked arrays
+    dy = np.diff(y_vals_pct)
+    sign_changes = np.where(np.diff(np.sign(dy)))[0] + 1
+    slope_change_x = x_vals_real[sign_changes]
+    slope_change_y = y_vals_pct[sign_changes]
+
+    return x_vals_real, y_vals_pct, peak_x, peak_y, min_x, min_y, slope_change_x, slope_change_y
