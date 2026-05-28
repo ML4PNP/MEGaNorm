@@ -1,2 +1,3 @@
 include requirements.txt
 recursive-include meganorm *.py
+recursive-include meganorm/layouts *.json

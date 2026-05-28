@@ -867,10 +867,10 @@ def merge_datasets_with_glob(datasets):
         base_dir = dataset_info["base_dir"]
         task = dataset_info["task"]
         ending = dataset_info["ending"]
-        line_freq = dataset_info["line_freq"]
-        empty_room_task = dataset_info["empty_room_task"]
-        empty_room_path = dataset_info["empty_room_path"]
-        surfaces = dataset_info["surfaces_dir"]
+        line_freq = dataset_info.get("line_freq", 50)
+        empty_room_task = dataset_info.get("empty_room_task", None)
+        empty_room_path = dataset_info.get("empty_room_path", None)
+        surfaces = dataset_info.get("surfaces_dir", None)
         
 
         dirs = [

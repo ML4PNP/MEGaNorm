@@ -603,32 +603,33 @@ def feature_extract(
 
             # Peak Features ==================================
             peak_params, band_peaks = spectral_model.get_peak_params(fmin=fmin, fmax=fmax)
-            if feature_categories["Peak_Center"] and peak_params:
-                feature_container = add_feature(
-                    feature_container,
-                    peak_params[0],
-                    "Peak_Center",
-                    channel_name,
-                    band_name,
-                )
+            if peak_params is not None:
+                if feature_categories["Peak_Center"] and peak_params[0] is not None:
+                    feature_container = add_feature(
+                        feature_container,
+                        peak_params[0],
+                        "Peak_Center",
+                        channel_name,
+                        band_name,
+                    )
 
-            if feature_categories["Peak_Power"] and peak_params:
-                feature_container = add_feature(
-                    feature_container,
-                    peak_params[1],
-                    "Peak_Power",
-                    channel_name,
-                    band_name,
-                )
+                if feature_categories["Peak_Power"] and peak_params[1] is not None:
+                    feature_container = add_feature(
+                        feature_container,
+                        peak_params[1],
+                        "Peak_Power",
+                        channel_name,
+                        band_name,
+                    )
 
-            if feature_categories["Peak_Width"] and peak_params:
-                feature_container = add_feature(
-                    feature_container,
-                    peak_params[2],
-                    "Peak_Width",
-                    channel_name,
-                    band_name,
-                )
+                if feature_categories["Peak_Width"] and peak_params[2] is not None:
+                    feature_container = add_feature(
+                        feature_container,
+                        peak_params[2],
+                        "Peak_Width",
+                        channel_name,
+                        band_name,
+                    )
 
             # Adjusted absolute canonical power ==================================
             if feature_categories["Adjusted_Canonical_Absolute_Power"]:
@@ -682,7 +683,7 @@ def feature_extract(
                     band_name,
                 )
 
-            if band_name != "Broadband" and band_peaks:
+            if band_name != "Broadband" and band_peaks is not None:
 
                 # Adjusted absolute Relative power ==================================
                 if feature_categories["Adjusted_Individualized_Absolute_Power"]:
