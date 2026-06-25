@@ -4,10 +4,14 @@ from joblib import parallel_config, parallel_backend
 import subprocess
 import numpy as np
 import logging
+import re as re
 import shutil
 import time
 import mne
 import joblib
+import glob
+import json
+import pandas as pd
 import os
 
 
@@ -581,7 +585,7 @@ def inverse_solution(
         # this estimates the rank after scaling 
         segments_rank = mne.compute_rank(segments, rank=None)
     
-    if empty_room_recording:
+    if empty_room_recording is not None:
         noise_cov = mne.compute_raw_covariance(
             empty_room_recording,
             method=kwargs.get("covariance_method", "empirical"),
@@ -853,7 +857,7 @@ def parcellate(
         os.path.join(
             subjects_dir,
             subject
-        )) and kwargs.apply_morphing:
+        )) and kwargs.get("apply_morphing"):
         mne.datasets.fetch_fsaverage()
 
     if source_space == "surface":
@@ -872,7 +876,7 @@ def parcellate(
 
     else:
         error_msg = "Source space model is not detected. Source splace must be either 'surface' or 'volumetric'."
-        logger.ERROR(error_msg)
+        logger.error(error_msg)
         raise ValueError(error_msg)
 
     parcelled_stc = mne.extract_label_time_course(
@@ -889,6 +893,7 @@ def parcellate(
 
 
 def source_localization(
+        project_dir,
         subject,
         subjects_dir,
         subject_to,
@@ -956,7 +961,21 @@ def source_localization(
     # )
 
     # check_freesurfer()
+    # Set FreeSurfer environment variables so all subprocess calls can find the license
+    if kwargs.get("freesurfer_home"):
+        os.environ["FREESURFER_HOME"] = kwargs.get("freesurfer_home")
+        os.environ["PATH"] = kwargs.get("freesurfer_home") + "/bin:" + os.environ["PATH"]
+    if kwargs.get("freesurfer_license"):
+        os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
 
+
+    if kwargs.get("apply_mri_template"):
+        subject, subjects_dir = prepare_template(
+            subject=subject,
+            project_dir=project_dir,
+            **kwargs
+        )
+        
     coreg = corregistration(
         data=data, 
         subject=subject,
@@ -1008,7 +1027,7 @@ def source_localization(
             plot_3d=plot_3d,
             **kwargs
             )
-        subject = subject_to.copy()
+        subject = subject_to
         
 
     stc, labels = parcellate(
@@ -1025,9 +1044,9 @@ def source_localization(
     return stc, labels
 
 
-def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
+def numpy_to_mne_epoch(stc, labels, ch_name, sampling_rate):
     """
-    Convert a parcellated source estimate into an MNE Raw object.
+    Convert a parcellated source estimate into an MNE Epoch object.
 
     This function wraps a 2D NumPy array representing parcellated source time series
     into an `mne.io.RawArray` using anatomical labels and sampling frequency information.
@@ -1058,7 +1077,7 @@ def numpy_to_mne_raw(stc, labels, ch_name, sampling_rate):
 
     Examples
     --------
-    >>> raw = numpy_to_mne_raw(parcelled_stc, labels, ch_name='misc', sampling_rate=1000)
+    >>> raw = numpy_to_mne_Epoch(parcelled_stc, labels, ch_name='misc', sampling_rate=1000)
     >>> raw.plot()
     """
     ch_types = [ch_name] * len(labels)
@@ -1137,3 +1156,79 @@ def check_tsss(meg_data):
     max_info = proc_history[0].get('max_info', {})
     sss_cal = max_info.get('sss_info', [])
     return len(sss_cal) > 0
+
+
+def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
+    for subject in os.listdir(save_path):
+        out_path = os.path.join(save_path, subject, "mri", "aparc.a2009s+aseg.mgz")
+        if os.path.exists(out_path):
+            print(f"Skipping {subject}: aparc.a2009s+aseg.mgz already exists.")
+            continue
+        env = os.environ.copy()
+        env['FREESURFER_HOME'] = freesurfer_home
+        env['SUBJECTS_DIR'] = save_path          # <-- this is the fix
+        env['FS_LICENSE'] = freesurfer_license
+        env['PATH'] = freesurfer_home + '/bin:' + env['PATH']
+        subprocess.run(
+            ["mri_aparc2aseg", "--s", subject, "--a2009s"],
+            env=env,
+            check=True,
+        )
+
+
+def build_template_index(subjects_dir):
+    """Scan subjects_dir for downloaded ANTS infant templates and map each to its age in months."""
+    index = {}
+    for path in glob.glob(os.path.join(subjects_dir, "ANTS*")):
+        name = os.path.basename(path)
+        m = re.match(r"ANTS(\d+)-(\d+)(Month|Year)s?3T", name)
+        if not m:
+            continue
+        whole, dec, unit = int(m.group(1)), int(m.group(2)), m.group(3)
+        age = whole + dec / 10.0
+        if unit == "Year":
+            age *= 12
+        index[name] = age
+    return index
+
+
+def nearest_template_dir(age_months, subjects_dir):
+    """Return (folder_name, full_path) of the closest pre-downloaded template."""
+    index = build_template_index(subjects_dir)
+    if not index:
+        raise FileNotFoundError(f"No ANTS templates found in {subjects_dir}")
+    name = min(index, key=lambda k: abs(index[k] - age_months))
+    print(f"Nearest template: {name} ({index[name]:.1f} months, requested {age_months:.1f} months)")
+    return name, os.path.join(subjects_dir)
+
+
+def prepare_template(
+        subject,
+        project_dir,
+        **kwargs
+):
+
+    if kwargs.get("SL_source_space") == "volumetric" and kwargs.get("parcellation_parc")=="aparc.a2009s":
+        produce_aparc_a2009s_aseg(
+            save_path=kwargs.get("freesurfer_template_path"),
+            freesurfer_home = kwargs.get("freesurfer_home"), 
+            freesurfer_license=kwargs.get("freesurfer_license"))
+
+    temp_path = os.path.join(project_dir, "Configurations", "runner_params.json")
+    with open(temp_path, "r") as file:
+        runner_params = json.load(file)
+
+    dataset_name = runner_params["subjects"][subject]["dataset_name"]
+    demographic_file_p = os.path.join(runner_params["datasets"][dataset_name]["base_dir"], "participants_bids.tsv")
+    demographic_file =  pd.read_csv(demographic_file_p, sep="\t", index_col=0)
+    demographic_file.index = demographic_file.index.astype(str)
+    age = demographic_file.loc[subject]["age"]
+
+    age_months = age * 12
+    surface_name, surface_path = nearest_template_dir(
+        age_months=age_months,
+        subjects_dir=kwargs.get("freesurfer_template_path")
+    )
+
+    return surface_name, surface_path
+

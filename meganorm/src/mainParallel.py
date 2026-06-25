@@ -9,8 +9,8 @@ import pandas as pd
 from pathlib import Path
 import glob
 from datetime import datetime
-from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
-from meganorm.utils.IO import storeFooofModels, Config
+from meganorm.src.source_localization import source_localization, numpy_to_mne_epoch
+from meganorm.utils.IO import Config
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
@@ -198,7 +198,7 @@ def main(args):
 
     configs = Config.load(args.configs)
 
-    if configs.apply_source_localization:
+    if configs.apply_source_localization and not configs.apply_mri_template:
         freesurfer_data_path = os.path.join(args.surfaces_dir, args.subject)
         if not os.path.isdir(freesurfer_data_path):
             error_msg = f"The Freesurfer file corresponding to this subject is not found in {freesurfer_data_path}."
@@ -208,6 +208,9 @@ def main(args):
     paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
     path = paths[configs.which_meg_session]
+
+    current = Path(args.save_dir)
+    project_dir = current.parent
 
     if args.empty_room_recording_path:
         empty_room_recording_paths = args.empty_room_recording_path.split("*")
@@ -269,8 +272,9 @@ def main(args):
     # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
-        power_line_freq = args.line_freq
-        if not power_line_freq:
+        if args.line_freq is not None:
+            power_line_freq = int(args.line_freq)
+        else:
             logger.warning("Power line frequency could not be detected; defaulting to 60 Hz.")
             power_line_freq = 60
 
@@ -344,6 +348,10 @@ def main(args):
         source_space_spacing_number=configs.source_space_spacing_number,
     )
 
+    # Remove UADC001 annotations - temp
+    annot = filtered_data.annotations
+    filtered_data.set_annotations(annot[annot.description != 'UADC001'])
+
     # ------------------------------------------------------------
     if configs.bad_segment_removal_method in [None, "fixed_thr"]:
         segments = segment_epoch(
@@ -384,6 +392,7 @@ def main(args):
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
         stc, labels = source_localization(
+                project_dir = project_dir,
                 subject=args.subject,
                 subjects_dir=args.surfaces_dir, 
                 subject_to="fsaverage",
@@ -398,7 +407,7 @@ def main(args):
                 plot_3d=False,
                 **configs.model_dump()
             )
-        segments = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
+        segments = numpy_to_mne_epoch(stc, labels, "mag", sampling_rate)
         channel_names = segments.info["ch_names"]
 
     if configs.save_source_localized_epochs:
