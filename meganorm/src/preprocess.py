@@ -762,8 +762,8 @@ def preprocess(
     # head motion correction ----------------------
     if apply_Head_movement_correction and not which_sensor.get("eeg", False):
         data_temp = data.copy()
-        if empty_room_recording:
-            empty_room_recording_temp = empty_room_recording.copy()
+        empty_room_recording_temp = empty_room_recording.copy() if empty_room_recording else None
+
         try:
             data, empty_room_recording = head_motion_correction(
                 data_temp,
@@ -775,7 +775,11 @@ def preprocess(
             logger.warning(f"Head motion correction failed: {e}")
 
     # remove cHPI noise ---------------------------
-    has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+    try:
+        has_chpi = bool(mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+    except (KeyError, IndexError):
+        has_chpi = False
+
     if apply_chpi_filter and has_chpi and not which_sensor.get("eeg", False):
         data = mne.chpi.filter_chpi(data, include_line=False)
         logger.info("cHPI filter was applied.")
@@ -1354,7 +1358,14 @@ def head_motion_correction(data,
 
     else:
         # check if cHPI data is available and then apply annotate_movement func
-        has_chpi = bool(data.info["hpi_results"] or mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist())
+        try:
+            has_chpi = bool(
+                data.info["hpi_results"] or
+                mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist()
+            )
+        except (KeyError, IndexError):
+            has_chpi = False
+
         if has_chpi:
             if device == "CTF":
                 chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
