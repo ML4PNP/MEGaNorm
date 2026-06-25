@@ -192,6 +192,7 @@ class Config(BaseModel):
     SL_conductivity_mv()
         Validator for EEG conductivity.
     """
+    model_config = {"extra": "forbid"} 
 
     which_meg_session : int = 0 # the first session
 
@@ -276,6 +277,12 @@ class Config(BaseModel):
     apply_source_localization: bool = False
     apply_empty_room_recording: bool = True
     apply_mri_QC: bool = False
+
+    apply_mri_template: bool = False
+    freesurfer_template_path: Optional[str] = None
+    freesurfer_home: Optional[str] = None
+    freesurfer_license: Optional[str] = None
+
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
@@ -448,6 +455,23 @@ class Config(BaseModel):
         if not self.parcellation_parc and not self.parcellation_annot_fname:
             raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
         return self
+    
+    @model_validator(mode="after")
+    def mri_template_check(self):
+        if self.apply_mri_template and not self.freesurfer_template_path:
+            err_msg = "In order to apply template MRI for source localization, a path to already freesurfer-preprocessed" \
+            "derivatives is necessary"
+            raise ValueError(err_msg)
+        return self
+    
+
+    @model_validator(mode="after")
+    def either_template_mri_or_mri_qc(self):
+        if self.apply_mri_QC and self.apply_mri_template:
+            err_msg = "You can not apply MRI QC on already preprocessed freesurfer template"
+            raise ValueError(err_msg)
+        return self
+    
 
     @model_validator(mode="after")
     def gedai_params_check(self):
@@ -475,7 +499,7 @@ class Config(BaseModel):
             raise FileExistsError(err_msg)
             
         with open(save_path, "w") as file:
-            json.dump(self.model_dump(), file, indent=4)
+            file.write(self.model_dump_json(indent=4))
 
 
     @classmethod
@@ -485,41 +509,6 @@ class Config(BaseModel):
             cfg = json.load(file)
         return cls(**cfg)
     
-
-
-def storeFooofModels(path, subjId, fooofModels, psds, freqs) -> None:
-    """
-    Stores the periodic and aperiodic results from FOOOF analysis in a pickle file.
-
-    This function saves the FOOOF models, the power spectral densities (PSDs),
-    and the associated frequency data for a given subject into a `.pickle` file.
-    The data is appended to the file for each subject.
-
-    Parameters
-    ----------
-    path : str
-        Directory path where the results will be saved.
-
-    subjId : str
-        The subject ID for which the results are saved.
-
-    fooofModels : object
-        The FOOOF model object containing the periodic and aperiodic components.
-
-    psds : ndarray
-        Power Spectral Densities (PSDs) calculated for the subject.
-
-    freqs : ndarray
-        Frequency values corresponding to the PSDs.
-
-    Returns
-    -------
-    None
-        This function does not return any value; it writes the results to a file.
-
-    """
-    with open(os.path.join(path, subjId + ".pickle"), "wb") as file:
-        pickle.dump([fooofModels, psds, freqs], file)
 
 
 def separate_eyes_open_close_eeglab(
@@ -704,123 +693,6 @@ def merge_fidp_demo(
     return data
 
 
-def factorize_columns(df: pd.DataFrame, columns: list):
-    """
-    Factorizes specified columns in the DataFrame.
-    For the 'diagnosis' column, it assigns 0 to 'control' and factorizes the rest.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame containing the columns to be factorized.
-    columns : list
-        List of column names to be factorized.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        DataFrame with factorized columns.
-    """
-
-    for col in columns:
-        if col in df.columns:
-            if col == "diagnosis":
-                # Drop rows where diagnosis is NaN
-                df = df.dropna(subset=["diagnosis"])
-                # Assign 0 to 'control' and factorize the rest
-                df["diagnosis"] = np.where(
-                    df["diagnosis"] == "control",
-                    0,
-                    pd.factorize(df["diagnosis"])[0] + 1,
-                )
-            else:
-                # Factorize other columns
-                df[col] = pd.factorize(df[col])[0]
-
-    return df
-
-
-def normalize_column(df, column="age", normalizer=100):
-    """
-    Normalizes a specified column in the DataFrame by dividing its values by the given normalizer.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame containing the column to be normalized.
-    column : str, optional
-        The column to be normalized (default is "age").
-    normalizer : float or None, optional
-        The value by which the column will be divided. If None, the column will not be normalized.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        DataFrame with the normalized column.
-
-    Raises
-    ------
-    KeyError
-        If the specified column does not exist in the DataFrame.
-    ValueError
-        If the normalizer is not a positive numeric value.
-    """
-
-    # Check if column exists in DataFrame
-    if column not in df.columns:
-        raise KeyError(f"Column '{column}' not found in DataFrame.")
-
-    # Check if the normalizer is a valid positive number
-    if normalizer is not None and (
-        not isinstance(normalizer, (int, float)) or normalizer <= 0
-    ):
-        raise ValueError(
-            f"Normalizer should be a positive numeric value, got {normalizer}."
-        )
-
-    # Normalize the column if a valid normalizer is provided
-    if normalizer:
-        df[column] = df[column] / normalizer
-
-    return df
-
-
-def separate_patient_data(df, diagnosis: list):
-    """
-    Separates patients' data from control data based on the diagnosis column.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame containing the patient data.
-    diagnosis : list of str
-        A list of diagnosis values used to separate patients' data.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        The DataFrame containing only control data (after dropping the 'diagnosis' column).
-    df_patient : pandas.DataFrame
-        The DataFrame containing the patient data.
-
-    Raises
-    ------
-    KeyError
-        If the 'diagnosis' column is not found in the DataFrame.
-    """
-
-    # Ensure the 'diagnosis' column exists in the DataFrame
-    if "diagnosis" not in df.columns:
-        raise KeyError("The 'diagnosis' column is missing in the DataFrame.")
-
-    # Separate the patient data based on the 'diagnosis' column
-    df_patient = df[df["diagnosis"].isin(diagnosis)]
-
-    # Filter the control data and drop the 'diagnosis' column
-    df = df[df["diagnosis"] == "control"].drop(columns="diagnosis", errors="ignore")
-
-    return df, df_patient
-
 
 def merge_datasets_with_glob(datasets):
     """
@@ -906,7 +778,8 @@ def merge_datasets_with_glob(datasets):
                     "rest_record": join_with_star(rs_record_paths),
                     "line_freq": line_freq,
                     "empty_room_record":join_with_star(er_record_paths),
-                    "mri_surface":surface
+                    "mri_surface":surface,
+                    "dataset_name": dataset_name
                     }
                 }
             )
@@ -1051,6 +924,7 @@ def set_path(project_dir):
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
     configurations = os.path.join(features_dir, "Configurations")
+    mri_templates = os.path.join(features_dir, "MRI_templates")
 
     make_folder(features_dir)
     make_folder(features_log_path)
@@ -1061,6 +935,7 @@ def set_path(project_dir):
     make_folder(save_psds_path)
     make_folder(configurations)
     make_folder(exluded_participants_path)
+    make_folder(mri_templates)
 
     # Normative models
     nm_dir = os.path.join(project_dir, "Normative_models")
