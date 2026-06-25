@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import json
 import meganorm
-from meganorm.src import mainParallel
+import meganorm.utils.parallel
 from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
@@ -480,7 +480,7 @@ def auto_parallel_feature_extraction(
     all_qc_passed_samples = []
     all_qc_failed_samples = []
     all_missing_samples = []
-    if conf.apply_source_localization and conf.apply_mri_QC:
+    if conf.apply_source_localization and conf.apply_mri_QC and not conf.apply_mri_template:
         for keys, values in datasets.items():
             (qc_passed_samples, 
             qc_failed_samples, 
@@ -498,13 +498,18 @@ def auto_parallel_feature_extraction(
     subjects_temp = subjects.copy()
 
     for subj, meta in subjects.items():
+
         if not meta["rest_record"]:
             missing_meg_participants.append(subj)
             subjects_temp.pop(subj)
             continue
-        if (all_qc_passed_samples and subj not in all_qc_passed_samples) or \
-        (which_subjects and subj not in which_subjects):
+        if all_qc_passed_samples and subj not in all_qc_passed_samples:
             subjects_temp.pop(subj)
+            continue
+        if which_subjects and subj not in which_subjects:
+            subjects_temp.pop(subj)
+            continue
+
     subjects = subjects_temp.copy()
 
     with open(os.path.join(features_dir, "excluded_participants", "missing_meg_participants.json"), "w") as file:
