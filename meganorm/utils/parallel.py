@@ -117,6 +117,8 @@ def sbatchfile(
     sbatch_input_5 = "line_freq=$5\n"
     sbatch_input_6 = "surfaces_dir=$6\n"
     sbatch_input_7 = "empty_room_recording_path=$7\n"
+    sbatch_input_8 = "event_record=$8\n"
+    sbatch_input_9 = "event_of_interest=$9\n"
 
     # if with_config:
     command = (
@@ -128,6 +130,8 @@ def sbatchfile(
     command += f" --line_freq $line_freq"
     command += f" --surfaces_dir $surfaces_dir"
     command += " --empty_room_recording_path $empty_room_recording_path"
+    command += " --event_record $event_record"
+    command += " --event_of_interest $event_of_interest"
 
     bash_environment = [
         sbatch_init
@@ -150,6 +154,8 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_5
     bash_environment[0] += sbatch_input_6
     bash_environment[0] += sbatch_input_7
+    bash_environment[0] += sbatch_input_8
+    bash_environment[0] += sbatch_input_9
 
     bash_environment[0] += command
 
@@ -250,6 +256,8 @@ def submit_jobs(
         
         rs_fname = subjects[subject]["rest_record"]
         er_fname = subjects[subject]["empty_room_record"]
+        event_record = subjects[subject].get("event_record")
+        event_of_interest = subjects[subject].get("event_of_interest")
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
         
@@ -258,6 +266,8 @@ def submit_jobs(
         command = add_command(line_freq, command)
         command = add_command(mri_surface, command)
         command = add_command(er_fname, command)
+        command = add_command(event_record, command)
+        command = add_command(event_of_interest, command)
         
         subprocess.check_call(command, shell=True)
 

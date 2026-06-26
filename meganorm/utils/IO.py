@@ -743,6 +743,9 @@ def merge_datasets_with_glob(datasets):
         empty_room_task = dataset_info.get("empty_room_task", None)
         empty_room_path = dataset_info.get("empty_room_path", None)
         surfaces = dataset_info.get("surfaces_dir", None)
+        event_file_path = dataset_info.get("event_file_path", None)
+        event_file_task = dataset_info.get("event_file_task", None)
+        event_of_interest = dataset_info.get("event_of_interest", None)
         
 
         dirs = [
@@ -750,12 +753,14 @@ def merge_datasets_with_glob(datasets):
         ]
         
         for subj in dirs:
-        
+            
+            # resting state data
             rs_record_paths = glob.glob(
                 f"{base_dir}/{subj}/**/*{task}*{ending}",
                 recursive=True
                 )
             
+            # empty room record
             if empty_room_task:
                 er_record_paths = glob.glob(
                     f"{empty_room_path}/{subj}/**/*{empty_room_task}*{ending}",
@@ -764,6 +769,7 @@ def merge_datasets_with_glob(datasets):
             else: 
                 er_record_paths = None
             
+            # freesurfer surfaces
             if surfaces:
                 if os.path.isdir(os.path.join(surfaces, subj)):
                     surface = surfaces
@@ -772,6 +778,15 @@ def merge_datasets_with_glob(datasets):
             else: 
                 surface = None
 
+            # event file
+            if event_file_task and event_file_path:
+                event_record_paths = glob.glob(
+                    f"{event_file_path}/{subj}/**/*{event_file_task}*",
+                    recursive=True
+                )
+            else:
+                event_record_paths = None
+
             subjects.update(
                 {subj: 
                     {
@@ -779,7 +794,9 @@ def merge_datasets_with_glob(datasets):
                     "line_freq": line_freq,
                     "empty_room_record":join_with_star(er_record_paths),
                     "mri_surface":surface,
-                    "dataset_name": dataset_name
+                    "dataset_name": dataset_name,
+                    "event_record": join_with_star(event_record_paths),
+                    "event_of_interest": event_of_interest,
                     }
                 }
             )

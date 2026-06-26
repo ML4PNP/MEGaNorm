@@ -73,6 +73,10 @@ def main_argparser(args=None):
                         " it can be helpful for pre-whitennin the data. Note that empty room" \
                         " room recordings are necessary for applying source localization" \
                         " to recordings with both magnetometer and gradiometer.")
+    parser.add_argument("--event_record", type=str, default=None,
+                        help="Path to the event file for this subject (glob-resolved).")
+    parser.add_argument("--event_of_interest", type=str, default=None,
+                        help="Event ID of interest for epoch extraction (e.g., '16').")
     
 
     return parser.parse_args(args)
@@ -195,6 +199,10 @@ def main(args):
         args.empty_room_recording_path = None
     if args.surfaces_dir == "None":
         args.surfaces_dir = None
+    if args.event_record == "None":
+        args.event_record = None
+    if args.event_of_interest == "None":
+        args.event_of_interest = None
 
     configs = Config.load(args.configs)
 
@@ -218,6 +226,13 @@ def main(args):
         empty_room_recording_path = empty_room_recording_paths[0]
     else:
         empty_room_recording_path = None
+        
+    if args.event_record:
+        event_record_paths = args.event_record.split("*")
+        event_record_paths = list(filter(lambda x: len(x), event_record_paths))
+        event_record = event_record_paths[0]
+    else:
+        event_record = None
     
     logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
                     " will be used in this analysis.")
