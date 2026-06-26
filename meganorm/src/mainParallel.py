@@ -226,13 +226,15 @@ def main(args):
         empty_room_recording_path = empty_room_recording_paths[0]
     else:
         empty_room_recording_path = None
-        
+
     if args.event_record:
         event_record_paths = args.event_record.split("*")
         event_record_paths = list(filter(lambda x: len(x), event_record_paths))
         event_record = event_record_paths[0]
+        event_of_interest = int(args.event_of_interest)
     else:
         event_record = None
+        event_of_interest = None
     
     logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
                     " will be used in this analysis.")
@@ -311,7 +313,7 @@ def main(args):
     
 
     # ------------------------------------------------------------
-    filtered_data, channel_names, sampling_rate, empty_room_recording, _ = preprocess(
+    filtered_data, channel_names, sampling_rate, empty_room_recording, _, segment_events = preprocess(
         data=data,
         device=device,
         subject=args.subject,
@@ -361,6 +363,10 @@ def main(args):
         gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
         source_space_spacing=configs.source_space_spacing,
         source_space_spacing_number=configs.source_space_spacing_number,
+        event_record = event_record,
+        event_of_interest = event_of_interest,
+        segments_length = configs.segments_length,
+        overlap = configs.segments_overlap,
     )
 
     # Remove UADC001 annotations - temp
@@ -385,6 +391,7 @@ def main(args):
             mag_flat_threshold = configs.mag_flat_threshold,
             grad_flat_threshold = configs.grad_flat_threshold,
             eeg_flat_threshold = configs.eeg_flat_threshold,
+            segment_events=segment_events
         )
 
     elif configs.bad_segment_removal_method == "autoreject":
@@ -400,7 +407,8 @@ def main(args):
             consensus_percs = configs.autoreject_consensus_percs,
             cv = configs.autoreject_cv,
             thresh_method = configs.autoreject_thresh_method,
-            random_state = configs.random_state
+            random_state = configs.random_state,
+            segment_events=segment_events
             )
 
     # ------------------------------------------------------------

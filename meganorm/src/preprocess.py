@@ -444,6 +444,7 @@ def segment_epoch(
     mag_flat_threshold: float = 10e-15,
     grad_flat_threshold: float = 10e-13,
     eeg_flat_threshold: float = 40e-6,
+    segment_events=None
 ):
     """
     Segment continuous MEG/EEG data into fixed-length overlapping epochs.
@@ -525,9 +526,6 @@ def segment_epoch(
     if tmax > 0:
         raise ValueError("The 'tmax' must be a negative number")
 
-    tmax = int(np.shape(data.get_data())[1] / sampling_rate + tmax)
-    data.crop(tmin=tmin, tmax=tmax)
-
     if bad_segment_removal_method == "fixed_thr":
         # which_sensor["eeg"] is False for MEG-only data
         if not which_sensor["eeg"]:
@@ -549,11 +547,17 @@ def segment_epoch(
         reject = None
         flat = None
 
-    events = mne.make_fixed_length_events(
-        raw=data,
-        duration=segments_length,
-        overlap=overlap,
-    )
+    tmax = int(np.shape(data.get_data())[1] / sampling_rate + tmax)
+
+    if segment_events:
+        events = segment_events.copy()
+    else:
+        data.crop(tmin=tmin, tmax=tmax)
+        events = mne.make_fixed_length_events(
+            raw=data,
+            duration=segments_length,
+            overlap=overlap,
+        )
     total_epochs = len(events)
 
     segments = mne.Epochs(
@@ -665,6 +669,10 @@ def preprocess(
     gedai_highpass_cutoff=0.1,
     source_space_spacing="ico4",
     source_space_spacing_number=4,
+    event_record = None,
+    event_of_interest = None,
+    segments_length=None,
+    overlap=None
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data.
@@ -856,6 +864,24 @@ def preprocess(
             environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure
             )
 
+    # Remove unwanted epochs associated with some events
+    if event_record and event_of_interest:
+        logger.info(f"Trial rejection started; event of interest: {event_of_interest}")
+        if device == "MEGIN":
+            events = mne.read_events(event_record)
+        elif device == "CTF":
+            events = mne.events_from_annotations(data)
+        data, segment_events = extract_rs_blocks(
+            raw=data, 
+            events=events, 
+            rs_id=event_of_interest,
+            sampling_rate=sampling_rate,
+            segments_length=segments_length, 
+            overlap=overlap
+            )
+    else:
+        segment_events = None
+
     # physiological noise ----------------------------
     if apply_ica:
         if apply_ica_elbow_detection:
@@ -890,7 +916,7 @@ def preprocess(
         )
 
     logger.info("Preprocessing is finished.")
-    return data, data.info["ch_names"], int(sampling_rate), empty_room_recording, number_of_reduced_ic
+    return data, data.info["ch_names"], int(sampling_rate), empty_room_recording, number_of_reduced_ic, segment_events
 
 
 def drop_noisy_meg_channels(
@@ -1816,22 +1842,34 @@ def auto_reject_segmentation(
     consensus_percs = np.linspace(0, 1.0, 11),
     cv = "auto",
     thresh_method='bayesian_optimization',
-    random_state=42
+    random_state=42,
+    segment_events=None
     ):
 
     if tmax >= 0:
         raise ValueError("The 'tmax' must be a negative number")
 
     tmax = int(np.shape(raw.get_data())[1] / sampling_rate + tmax)
-    raw.crop(tmin=tmin, tmax=tmax)
 
 
-    epochs = mne.make_fixed_length_epochs(
+    if segment_events is None:
+        raw.crop(tmin=tmin, tmax=tmax)
+        events = mne.make_fixed_length_events(
+            raw=raw,
+            duration=segments_length,
+            overlap=overlap,
+        )
+    else:
+        events = segment_events
+
+    epochs = mne.Epochs(
         raw,
-        duration=segments_length,      # epoch length in seconds
+        events=events,
+        tmin=0,
+        tmax=segments_length - (1.0 / sampling_rate),
+        baseline=None,
         preload=True,
         reject_by_annotation=ica_if_reject_by_annotation,
-        overlap=overlap,
     )
 
     if len(epochs) == 0:
@@ -1893,3 +1931,62 @@ def auto_reject_segmentation(
 
     logger.info(log_msg)
     return epochs_clean, reject_log
+
+
+
+
+def extract_rs_blocks(
+    raw, 
+    events, 
+    rs_id,
+    sampling_rate,
+    segments_length, 
+    overlap, 
+    seg_event_id=1):
+
+
+    first_samp = raw.first_samp
+
+    pieces, block_durations = [], []
+    for i, (samp, _, eid) in enumerate(events):
+        if eid != rs_id:
+            continue
+        seg_end = events[i + 1, 0] if i + 1 < len(events) else raw.last_samp
+        tmin = (samp - first_samp) / sampling_rate
+        tmax = (seg_end - first_samp) / sampling_rate
+        dur = tmax - tmin
+        if dur < segments_length:
+            print(f"drop RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)  [too short]")
+            continue
+        print(f"keep RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)")
+        p = raw.copy().crop(tmin=tmin, tmax=tmax)
+        pieces.append(p)
+        block_durations.append(p.times[-1] + 1 / sampling_rate)
+
+    if not pieces:
+        raise ValueError(f"No RS blocks (id={rs_id}) longer than {segments_length}s found.")
+
+    rs_raw = mne.concatenate_raws(pieces)
+
+    step = segments_length - overlap
+    onsets_s = []
+    block_start = 0.0
+    for dur in block_durations:
+        t = block_start
+        while t + segments_length <= block_start + dur + 1e-9:
+            onsets_s.append(t)
+            t += step
+        block_start += dur
+
+    rs_first = rs_raw.first_samp
+    seg_events = np.array(
+        [[int(round(o * sampling_rate)) + rs_first, 0, seg_event_id] for o in onsets_s],
+        dtype=int,
+    )
+
+    print(f"\nKept {len(pieces)} RS block(s), total {rs_raw.times[-1]:.1f}s")
+    print(f"Built {len(seg_events)} epoch event(s) of {segments_length:.0f}s")
+    return rs_raw, seg_events
+
+
+
