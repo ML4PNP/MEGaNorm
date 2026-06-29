@@ -738,8 +738,18 @@ def preprocess(
 
     channel_types = set(data.get_channel_types())
 
+    # Before resampling, we need to find events
+    if event_record and event_of_interest:
+        if device == "MEGIN":
+            events = mne.read_events(event_record)
+        elif device == "CTF":
+            events = mne.find_events(data, stim_channel='UPPT001')
+        else:
+            events = None
+
     # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
+    orig_sampling_rate = sampling_rate
     if resampling_rate and resampling_rate != sampling_rate:
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
         sampling_rate = resampling_rate
@@ -865,20 +875,21 @@ def preprocess(
             )
 
     # Remove unwanted epochs associated with some events
-    if event_record and event_of_interest:
+    if events is not None:
         logger.info(f"Trial rejection started; event of interest: {event_of_interest}")
-        if device == "MEGIN":
-            events = mne.read_events(event_record)
-        elif device == "CTF":
-            events = mne.events_from_annotations(data)
+        scale = sampling_rate / orig_sampling_rate
+        if scale != 1:
+            events = events.copy()
+            events[:, 0] = np.round(events[:, 0] * scale).astype(int)
+
         data, segment_events = extract_rs_blocks(
-            raw=data, 
-            events=events, 
+            raw=data,
+            events=events,
             rs_id=event_of_interest,
             sampling_rate=sampling_rate,
-            segments_length=segments_length, 
+            segments_length=segments_length,
             overlap=overlap
-            )
+        )
     else:
         segment_events = None
 
@@ -1946,6 +1957,7 @@ def extract_rs_blocks(
 
 
     first_samp = raw.first_samp
+    max_time = raw.times[-1] 
 
     pieces, block_durations = [], []
     for i, (samp, _, eid) in enumerate(events):
@@ -1954,17 +1966,20 @@ def extract_rs_blocks(
         seg_end = events[i + 1, 0] if i + 1 < len(events) else raw.last_samp
         tmin = (samp - first_samp) / sampling_rate
         tmax = (seg_end - first_samp) / sampling_rate
+        tmax = min(tmax, max_time)
+        
         dur = tmax - tmin
         if dur < segments_length:
-            print(f"drop RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)  [too short]")
+            logger.info(f"drop RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)  [too short]")
             continue
-        print(f"keep RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)")
+        logger.info(f"keep RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)")
         p = raw.copy().crop(tmin=tmin, tmax=tmax)
         pieces.append(p)
         block_durations.append(p.times[-1] + 1 / sampling_rate)
 
     if not pieces:
-        raise ValueError(f"No RS blocks (id={rs_id}) longer than {segments_length}s found.")
+        err_msg = f"No RS blocks (id={rs_id}) longer than {segments_length}s found."
+        logger.error(err_msg)
 
     rs_raw = mne.concatenate_raws(pieces)
 
@@ -1984,8 +1999,8 @@ def extract_rs_blocks(
         dtype=int,
     )
 
-    print(f"\nKept {len(pieces)} RS block(s), total {rs_raw.times[-1]:.1f}s")
-    print(f"Built {len(seg_events)} epoch event(s) of {segments_length:.0f}s")
+    logger.info(f"\nKept {len(pieces)} RS block(s), total {rs_raw.times[-1]:.1f}s")
+    logger.info(f"Built {len(seg_events)} epoch event(s) of {segments_length:.0f}s")
     return rs_raw, seg_events
 
 
