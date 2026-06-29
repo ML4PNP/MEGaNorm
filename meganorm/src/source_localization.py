@@ -352,7 +352,7 @@ def corregistration(data,
             "bem",
             "inner_skull.surf"
         )
-    ):
+    ) or kwargs.get("make_new_watershed_bem"):
         
         logger.info("bem surface was not found; Creating a bem surface for the subject")
 
