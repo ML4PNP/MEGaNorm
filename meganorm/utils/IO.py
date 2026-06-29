@@ -283,6 +283,8 @@ class Config(BaseModel):
     freesurfer_home: Optional[str] = None
     freesurfer_license: Optional[str] = None
 
+    make_new_watershed_bem: bool = False
+    gcaatlas: bool = True
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
@@ -739,12 +741,18 @@ def merge_datasets_with_glob(datasets):
         base_dir = dataset_info["base_dir"]
         task = dataset_info["task"]
         ending = dataset_info["ending"]
+
         line_freq = dataset_info.get("line_freq", 50)
+        
         empty_room_task = dataset_info.get("empty_room_task", None)
         empty_room_path = dataset_info.get("empty_room_path", None)
+        empty_room_ending = dataset_info.get("empty_room_ending", None)
+
         surfaces = dataset_info.get("surfaces_dir", None)
+
         event_file_path = dataset_info.get("event_file_path", None)
         event_file_task = dataset_info.get("event_file_task", None)
+        event_file_ending = dataset_info.get("event_file_ending", None)
         event_of_interest = dataset_info.get("event_of_interest", None)
         
 
@@ -763,7 +771,7 @@ def merge_datasets_with_glob(datasets):
             # empty room record
             if empty_room_task:
                 er_record_paths = glob.glob(
-                    f"{empty_room_path}/{subj}/**/*{empty_room_task}*{ending}",
+                    f"{empty_room_path}/{subj}/**/*{empty_room_task}*{empty_room_ending}",
                     recursive=True
                     )
             else: 
@@ -781,7 +789,7 @@ def merge_datasets_with_glob(datasets):
             # event file
             if event_file_task and event_file_path:
                 event_record_paths = glob.glob(
-                    f"{event_file_path}/{subj}/**/*{event_file_task}*",
+                    f"{event_file_path}/{subj}/**/*{event_file_task}*{event_file_ending}",
                     recursive=True
                 )
             else:
@@ -887,6 +895,7 @@ def make_demo_file_bids(
     # Remove duplicate participants
     new_df = new_df.drop_duplicates(subset="participant_id", keep="first")
 
+    save_dir = os.path.join(save_dir, "participants_bids.tsv")
     # Save as BIDS-compatible TSV
     new_df.to_csv(save_dir, sep="\t", index=False)
 
