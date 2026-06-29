@@ -1957,6 +1957,7 @@ def plot_statistics_on_brain(
                 axes=axes[row, col],
                 figure=fig,
                 cbar_tick_format="%.2g",
+                alpha=1.0,
             )
 
             if show_parcel_contours:
@@ -1983,11 +1984,11 @@ def plot_statistics_on_brain(
 
     if missing_regions:
         print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
-
+    fig.suptitle(title, fontsize=14, y=1.02)
     plt.tight_layout()
     if save_fig_path:
         # plt.savefig(f"{save_fig_path}.svg")
-        plt.savefig(f"{save_fig_path}.png", dpi=400)
+        plt.savefig(f"{save_fig_path}.png", dpi=500)
     plt.show()
 
     return textures
@@ -2141,6 +2142,7 @@ def plot_mass_metrics(
 
     os.makedirs(save_path, exist_ok=True)
     fig.savefig(os.path.join(save_path, f"{name}.png"), dpi=dpi, bbox_inches="tight")
+    fig.savefig(os.path.join(save_path, f"{name}.svg"), dpi=dpi, bbox_inches="tight")
 
     return fig
 

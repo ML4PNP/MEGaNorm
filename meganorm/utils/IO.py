@@ -12,7 +12,18 @@ from typing import Optional
 import warnings
 from typing import Union
 from typing import ClassVar
-from pydantic import BaseModel, Field, PositiveInt, confloat, conint, conlist, field_validator, NegativeInt, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PositiveInt,
+    confloat,
+    conint,
+    conlist,
+    field_validator,
+    NegativeInt,
+    model_validator,
+)
+
 
 class BandRatio(BaseModel):
     numerator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
@@ -21,9 +32,9 @@ class BandRatio(BaseModel):
 
 class Config(BaseModel):
     """
-    Configuration class for preprocessing, feature extraction, and analysis of 
-    neurophysiological signals (e.g., MEG, EEG, OPM). Provides a comprehensive set 
-    of parameters for filtering, ICA, artifact detection, source localization, 
+    Configuration class for preprocessing, feature extraction, and analysis of
+    neurophysiological signals (e.g., MEG, EEG, OPM). Provides a comprehensive set
+    of parameters for filtering, ICA, artifact detection, source localization,
     power spectral density (PSD) estimation, FOOOF analysis, and feature extraction.
 
     Attributes
@@ -192,9 +203,10 @@ class Config(BaseModel):
     SL_conductivity_mv()
         Validator for EEG conductivity.
     """
-    model_config = {"extra": "forbid"} 
 
-    which_meg_session : int = 0 # the first session
+    model_config = {"extra": "forbid"}
+
+    which_meg_session: int = 0  # the first session
 
     which_layout: Literal["all", "lobe", None] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
@@ -229,7 +241,7 @@ class Config(BaseModel):
     gedai_overlap: Union[float, int] = 0.5
     gedai_preliminary_broadband_noise_multiplier: float = 6.0
     gedai_noise_multiplier: float = 3.0
-    gedai_wavelet_type: str ="haar"
+    gedai_wavelet_type: str = "haar"
     gedai_wavelet_level: Union[Literal["auto"], PositiveInt, Literal[0]] = "auto"
     gedai_wavelet_low_cutoff: Union[None, float] = None
     gedai_epoch_size_in_cycles: PositiveInt = 12
@@ -245,9 +257,13 @@ class Config(BaseModel):
     apply_environmental_noise_ica_with_ref_meg: bool = True
     environmental_noise_ica_with_ref_meg_thr: float = 2.5
     ica_if_reject_by_annotation: bool = True
-    environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = "separate"
-    environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = "zscore"
-    
+    environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = (
+        "separate"
+    )
+    environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = (
+        "zscore"
+    )
+
     apply_ica: bool = True
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
@@ -271,7 +287,9 @@ class Config(BaseModel):
     autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
     autoreject_consensus_percs: List[float] = list(np.linspace(0, 1.0, 11))
     autoreject_cv: Union[int, Literal["auto"]] = "auto"
-    autoreject_thresh_method: Literal['bayesian_optimization', "random_search"] = "bayesian_optimization"
+    autoreject_thresh_method: Literal["bayesian_optimization", "random_search"] = (
+        "bayesian_optimization"
+    )
 
     # Source localization
     apply_source_localization: bool = False
@@ -290,8 +308,10 @@ class Config(BaseModel):
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
     # the spacing to use for source space specificatin
-    source_space_spacing:  Literal["ico3", "ico4", "ico5", "ico6", "oct5", "oct6"] = "ico4"
-    source_space_spacing_number: Literal[3, 4, 5, 6]=4
+    source_space_spacing: Literal["ico3", "ico4", "ico5", "ico6", "oct5", "oct6"] = (
+        "ico4"
+    )
+    source_space_spacing_number: Literal[3, 4, 5, 6] = 4
 
     coregisteration_final_n_iterations: int = 20
     coregisteration_final_nasion_weight: float = 10.0
@@ -300,7 +320,9 @@ class Config(BaseModel):
     # Determines whether to keep vectors for all source orientations
     # or to select a single fixed orientation, depending on the chosen algorithm.
     beamformer_pick_ori: Literal[None, "normal", "max-power", "vector"] = "max-power"
-    beamformer_weight_norm: Literal[None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"] = "unit-noise-gain"
+    beamformer_weight_norm: Literal[
+        None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"
+    ] = "unit-noise-gain"
 
     # This parameter scales the activation to correct for head-center bias.
     beamforme_depth: confloat(ge=0, le=1) = 0.08
@@ -315,7 +337,6 @@ class Config(BaseModel):
 
     # A custom parcellation file
     parcellation_annot_fname: Optional[Path] = None
-
 
     # PSD
     psd_method: Literal["multitaper", "welch"] = "welch"
@@ -334,9 +355,9 @@ class Config(BaseModel):
     fooof_peak_width_limits: List[float] = [1.0, 12.0]
     fooof_min_peak_height: int = 0
     fooof_peak_threshold: PositiveInt = 2
-    
+
     save_source_localized_epochs: bool = False
-    save_psds : bool = False
+    save_psds: bool = False
 
     # Feature extraction
     freq_bands: Dict[str, Tuple[int, int]] = {
@@ -382,98 +403,119 @@ class Config(BaseModel):
         "OriginalPSD_Canonical_Absolute_Power": True,
         "OriginalPSD_Individualized_Relative_Power": False,
         "OriginalPSD_Individualized_Absolute_Power": False,
-        "Adjusted_Band_Ratio" : True, 
+        "Adjusted_Band_Ratio": True,
         "OriginalPSD_Band_Ratio": True,
-        "Hemispheric_Asymmetry_index": True
+        "Hemispheric_Asymmetry_index": True,
     }
 
     fooof_res_save_path: Optional[str] = None
     random_state: int = 42
 
-
     @field_validator("muscle_activity_thr")
     def muscle_activity_thr_fv(cls, v):
         if v < 3:
-            warnings.warn("Select a higher threshold for muscle activity artifacts. Low values " \
-            "remove clean data.")
+            warnings.warn(
+                "Select a higher threshold for muscle activity artifacts. Low values "
+                "remove clean data."
+            )
         return v
 
-
-    @ field_validator("muscle_activity_filter_freq")
+    @field_validator("muscle_activity_filter_freq")
     def muscle_activity_filter_freq_fv(cls, v):
         if v[0] < 100:
-            warnings.warn(f"Muscle activity artifact affects higher frequencies than {v[0]} Hz.")
+            warnings.warn(
+                f"Muscle activity artifact affects higher frequencies than {v[0]} Hz."
+            )
         return v
-
 
     @model_validator(mode="after")
     def SL_conductivity_mv(self):
-        if len(self.SL_conductivity) == 1 and self.which_sensor == "eeg" and self.apply_source_localization:
-            raise ValueError("In the case of EEG, you must have a three layers conductivity model due to volume conduction.")
+        if (
+            len(self.SL_conductivity) == 1
+            and self.which_sensor == "eeg"
+            and self.apply_source_localization
+        ):
+            raise ValueError(
+                "In the case of EEG, you must have a three layers conductivity model due to volume conduction."
+            )
         return self
-    
 
     @model_validator(mode="after")
     def source_space_res(self):
         if int(self.source_space_spacing[-1]) != self.source_space_spacing_number:
-            raise ValueError("The source_space_spacing and source_space_spacing_number should match")
+            raise ValueError(
+                "The source_space_spacing and source_space_spacing_number should match"
+            )
         return self
-
 
     @model_validator(mode="after")
     def beamformer_arg_check(self):
-        if self.beamformer_pick_ori == "vector" and self.beamformer_weight_norm != "unit-noise-gain-invariant":
+        if (
+            self.beamformer_pick_ori == "vector"
+            and self.beamformer_weight_norm != "unit-noise-gain-invariant"
+        ):
 
-            error_msg = "If you wish to compute a vector beamformer, it is necessary to use" \
-                        " unit-noise-gain-invariant for weight_norm argument. This is for addressing" \
-                        " the center of head bias where deeper sources can have larger scale than" \
-                        " superfacial sources."
-            
+            error_msg = (
+                "If you wish to compute a vector beamformer, it is necessary to use"
+                " unit-noise-gain-invariant for weight_norm argument. This is for addressing"
+                " the center of head bias where deeper sources can have larger scale than"
+                " superfacial sources."
+            )
+
             raise ValueError(error_msg)
         return self
 
     @model_validator(mode="after")
     def center_head_bias_scale_check(self):
         if not self.beamforme_depth and self.SL_source_space == "volumetric":
-            error_msg = "If you want to use volumetric source space (interested in deeper sources)," \
-            " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address" \
-            " the center of head bias."
+            error_msg = (
+                "If you want to use volumetric source space (interested in deeper sources),"
+                " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address"
+                " the center of head bias."
+            )
             raise ValueError(error_msg)
         return self
-    
+
     @model_validator(mode="after")
     def ica_e_noise_removal(self):
-        if (self.environmental_noise_ica_with_ref_meg_measure == "correlation" and not
-            0<self.environmental_noise_ica_with_ref_meg_thr<1):
-            
-            error_mg = "If the threshold method for removing environmental noise using " \
-            "ICA and ref-MEG is correlation, the corresponding measure must be between 0 and 1."
-            raise ValueError(error_mg)
-        return self    
+        if (
+            self.environmental_noise_ica_with_ref_meg_measure == "correlation"
+            and not 0 < self.environmental_noise_ica_with_ref_meg_thr < 1
+        ):
 
+            error_mg = (
+                "If the threshold method for removing environmental noise using "
+                "ICA and ref-MEG is correlation, the corresponding measure must be between 0 and 1."
+            )
+            raise ValueError(error_mg)
+        return self
 
     @model_validator(mode="after")
     def pacellation_checker(self):
         if not self.parcellation_parc and not self.parcellation_annot_fname:
-            raise ValueError("Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)")
+            raise ValueError(
+                "Parcellation should be passed. Otherwise pass a custom parcellation file (.annot)"
+            )
         return self
-    
+
     @model_validator(mode="after")
     def mri_template_check(self):
         if self.apply_mri_template and not self.freesurfer_template_path:
-            err_msg = "In order to apply template MRI for source localization, a path to already freesurfer-preprocessed" \
-            "derivatives is necessary"
+            err_msg = (
+                "In order to apply template MRI for source localization, a path to already freesurfer-preprocessed"
+                "derivatives is necessary"
+            )
             raise ValueError(err_msg)
         return self
-    
 
     @model_validator(mode="after")
     def either_template_mri_or_mri_qc(self):
         if self.apply_mri_QC and self.apply_mri_template:
-            err_msg = "You can not apply MRI QC on already preprocessed freesurfer template"
+            err_msg = (
+                "You can not apply MRI QC on already preprocessed freesurfer template"
+            )
             raise ValueError(err_msg)
         return self
-    
 
     @model_validator(mode="after")
     def gedai_params_check(self):
@@ -489,20 +531,21 @@ class Config(BaseModel):
         if method == "spectral" and wavelet_level == 0:
             raise ValueError("spectral method requires wavelet_level > 0")
         if method == "both" and not broadband_multiplier:
-            raise ValueError("both method requires gedai_preliminary_broadband_noise_multiplier")
-        
+            raise ValueError(
+                "both method requires gedai_preliminary_broadband_noise_multiplier"
+            )
+
         return self
 
-    def save(self, save_path:str, overwrite=False):
+    def save(self, save_path: str, overwrite=False):
         "save the configurations to a JSON file"
 
         if os.path.exists(save_path) and overwrite == False:
             err_msg = f"A configuration file already exists in this directory: {save_path}. Set the overwrite to True."
             raise FileExistsError(err_msg)
-            
+
         with open(save_path, "w") as file:
             file.write(self.model_dump_json(indent=4))
-
 
     @classmethod
     def load(cls, path: str):
@@ -510,7 +553,6 @@ class Config(BaseModel):
         with open(path, "r") as file:
             cfg = json.load(file)
         return cls(**cfg)
-    
 
 
 def separate_eyes_open_close_eeglab(
@@ -695,7 +737,6 @@ def merge_fidp_demo(
     return data
 
 
-
 def merge_datasets_with_glob(datasets):
     """
     Merges file paths across multiple datasets using glob pattern matching.
@@ -734,7 +775,7 @@ def merge_datasets_with_glob(datasets):
         if len(lst) == 1:
             return lst[0] + "*"
         return "*".join(lst)
-    
+
     subjects = {}
 
     for dataset_name, dataset_info in datasets.items():
@@ -743,7 +784,7 @@ def merge_datasets_with_glob(datasets):
         ending = dataset_info["ending"]
 
         line_freq = dataset_info.get("line_freq", 50)
-        
+
         empty_room_task = dataset_info.get("empty_room_task", None)
         empty_room_path = dataset_info.get("empty_room_path", None)
         empty_room_ending = dataset_info.get("empty_room_ending", None)
@@ -754,61 +795,59 @@ def merge_datasets_with_glob(datasets):
         event_file_task = dataset_info.get("event_file_task", None)
         event_file_ending = dataset_info.get("event_file_ending", None)
         event_of_interest = dataset_info.get("event_of_interest", None)
-        
 
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
         ]
-        
+
         for subj in dirs:
-            
+
             # resting state data
             rs_record_paths = glob.glob(
-                f"{base_dir}/{subj}/**/*{task}*{ending}",
-                recursive=True
-                )
-            
+                f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True
+            )
+
             # empty room record
             if empty_room_task:
                 er_record_paths = glob.glob(
                     f"{empty_room_path}/{subj}/**/*{empty_room_task}*{empty_room_ending}",
-                    recursive=True
-                    )
-            else: 
+                    recursive=True,
+                )
+            else:
                 er_record_paths = None
-            
+
             # freesurfer surfaces
             if surfaces:
                 if os.path.isdir(os.path.join(surfaces, subj)):
                     surface = surfaces
                 else:
                     surface = None
-            else: 
+            else:
                 surface = None
 
             # event file
             if event_file_task and event_file_path:
                 event_record_paths = glob.glob(
                     f"{event_file_path}/{subj}/**/*{event_file_task}*{event_file_ending}",
-                    recursive=True
+                    recursive=True,
                 )
             else:
                 event_record_paths = None
 
             subjects.update(
-                {subj: 
-                    {
-                    "rest_record": join_with_star(rs_record_paths),
-                    "line_freq": line_freq,
-                    "empty_room_record":join_with_star(er_record_paths),
-                    "mri_surface":surface,
-                    "dataset_name": dataset_name,
-                    "event_record": join_with_star(event_record_paths),
-                    "event_of_interest": event_of_interest,
+                {
+                    subj: {
+                        "rest_record": join_with_star(rs_record_paths),
+                        "line_freq": line_freq,
+                        "empty_room_record": join_with_star(er_record_paths),
+                        "mri_surface": surface,
+                        "dataset_name": dataset_name,
+                        "event_record": join_with_star(event_record_paths),
+                        "event_of_interest": event_of_interest,
                     }
                 }
             )
-            
+
     return subjects
 
 
@@ -926,24 +965,25 @@ def set_path(project_dir):
     -----
     The function creates the following directory structure:
 
-    - ``Features/``  
+    - ``Features/``
       - ``log/`` (for saving logs of feature extraction)
       - ``temp/`` (for temporarily storing extracted features)
       - ``figures/`` (for saving generated figures)
 
-    - ``Normative modeling/``  
+    - ``Normative modeling/``
       - ``Runs/`` (for saving model run outputs)
       - ``Figures/`` (for visual outputs related to modeling)
       - ``Models summary/`` (for summaries of model results)
     """
+
     def make_folder(path):
         if not os.path.isdir(path):
             os.makedirs(path)
 
     # Feature extraction
-    features_dir = os.path.join(project_dir, 'Features')
-    features_log_path = os.path.join(features_dir, 'log_slurm_jobs')
-    features_temp_path = os.path.join(features_dir,'temp')
+    features_dir = os.path.join(project_dir, "Features")
+    features_log_path = os.path.join(features_dir, "log_slurm_jobs")
+    features_temp_path = os.path.join(features_dir, "temp")
     figures_dir = os.path.join(features_dir, "figures")
     exluded_participants_path = os.path.join(features_dir, "excluded_participants")
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
@@ -968,7 +1008,6 @@ def set_path(project_dir):
     make_folder(nm_dir)
 
     return features_dir, features_log_path
-
 
 
 def clean_nan_columns(df, nan_threshold):
@@ -1000,20 +1039,24 @@ def clean_nan_columns(df, nan_threshold):
     return df
 
 
-
-def find_other_mri_session(base_mri_path, missing_mri_subjects, str_mri_ending, which_session):
+def find_other_mri_session(
+    base_mri_path, missing_mri_subjects, str_mri_ending, which_session
+):
 
     new_paths = {}
     for subject in missing_mri_subjects:
-        mri_paths = glob.glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
+        mri_paths = glob.glob(
+            f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True
+        )
 
-        if len(mri_paths) > which_session-1:
-            new_paths.update({subject: mri_paths[which_session-1]})
-        
+        if len(mri_paths) > which_session - 1:
+            new_paths.update({subject: mri_paths[which_session - 1]})
+
     return new_paths
 
+
 def find_failed_meg_subjects(log_path):
-    
+
     missing_meg_subjects = []
     paths = os.scandir(log_path)
     paths = list(filter(lambda x: "err" in x.name, paths))
@@ -1026,18 +1069,17 @@ def find_failed_meg_subjects(log_path):
 
     return set(missing_meg_subjects)
 
-def find_other_meg_session(base_meg_path,
-                           missing_meg_subjects,
-                           str_meg_ending,
-                           task_name,
-                           which_session):
-    
+
+def find_other_meg_session(
+    base_meg_path, missing_meg_subjects, str_meg_ending, task_name, which_session
+):
+
     new_paths = {}
     for subject in missing_meg_subjects:
         rs_record_paths = glob.glob(
-                    f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
-                    recursive=True
-                    )
+            f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
+            recursive=True,
+        )
         if len(rs_record_paths) > which_session - 1:
             new_paths.update({subject: rs_record_paths[which_session - 1]})
     return new_paths

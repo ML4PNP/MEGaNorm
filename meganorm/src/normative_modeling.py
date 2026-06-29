@@ -13,15 +13,15 @@ import os
 import re
 
 
-
-def impute_by_subgroup(df, 
-    group_cols, 
-    subject_removal_nan_thr=0.2, 
-    continous_cov_col='age', 
-    imputation_con_var_window=5, 
-    strategy='mean', 
-    customized_age_window=None
-    ):
+def impute_by_subgroup(
+    df,
+    group_cols,
+    subject_removal_nan_thr=0.2,
+    continous_cov_col="age",
+    imputation_con_var_window=5,
+    strategy="mean",
+    customized_age_window=None,
+):
 
     if not isinstance(continous_cov_col, str):
         err_msg = "continous_cov_col should be a string. Multiple covriates are not supported yet."
@@ -30,11 +30,13 @@ def impute_by_subgroup(df,
     df = df.loc[:, df.isna().mean(axis=0) < subject_removal_nan_thr]
 
     df_imputed = df.copy()
-    agg_fn = np.nanmean if strategy == 'mean' else np.nanmedian
+    agg_fn = np.nanmean if strategy == "mean" else np.nanmedian
 
     # Numeric columns with NaNs, excluding the age col itself
     numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
-    cols_to_impute = [c for c in numeric_cols if c != continous_cov_col and df[c].isna().any()]
+    cols_to_impute = [
+        c for c in numeric_cols if c != continous_cov_col and df[c].isna().any()
+    ]
 
     for idx, row in tqdm(df_imputed.iterrows(), total=len(df_imputed)):
         for col in cols_to_impute:
@@ -50,8 +52,7 @@ def impute_by_subgroup(df,
                     window += customized_age_window[row["site"]]
 
                 age_mask = df[continous_cov_col].between(
-                    row[continous_cov_col] - window,
-                    row[continous_cov_col] + window
+                    row[continous_cov_col] - window, row[continous_cov_col] + window
                 )
 
                 neighbors = df.loc[group_mask & age_mask, col].dropna()
@@ -82,33 +83,46 @@ def prepare_nm_data(
     excluding_ROIs=None,
     name_data="reference_data",
     missing_value_handling_method=None,
-    customized_con_var_imputation_window = None,
+    customized_con_var_imputation_window=None,
     removing_outliers_thr=None,
     train_split_size=0.5,
     which_subjects=None,
-    random_state=42
+    random_state=42,
 ):
 
     if len(covariate_list) > 1:
         err_msg = "continous_cov_col should be a single string. Multiple covriates are not supported yet."
         raise ValueError(err_msg)
-    
+
     if which_cohorts:
         df = df[df["diagnosis"].isin(which_cohorts)]
 
     if excluding_ROIs:
         df = df.drop(columns=df.filter(regex="|".join(excluding_ROIs)).columns)
-        response_vars = [var for var in response_vars if not any(excl in var for excl in excluding_ROIs)]
+        response_vars = [
+            var
+            for var in response_vars
+            if not any(excl in var for excl in excluding_ROIs)
+        ]
 
     if including_ROIs:
-        stripped_ROIs = [re.sub(r'-(lh|rh)$', '', roi) for roi in including_ROIs]
-        pattern = "|".join(map(re.escape, stripped_ROIs + batch_effect_list + [subject_id_col_name]  + covariate_list))
-        df= df.loc[:, df.columns.str.contains(pattern)]
+        stripped_ROIs = [re.sub(r"-(lh|rh)$", "", roi) for roi in including_ROIs]
+        pattern = "|".join(
+            map(
+                re.escape,
+                stripped_ROIs
+                + batch_effect_list
+                + [subject_id_col_name]
+                + covariate_list,
+            )
+        )
+        df = df.loc[:, df.columns.str.contains(pattern)]
 
-        response_vars = [var for var in response_vars if any(incl in var for incl in stripped_ROIs)]
+        response_vars = [
+            var for var in response_vars if any(incl in var for incl in stripped_ROIs)
+        ]
     print("Number of response variables: ", len(response_vars))
-        
-        
+
     if which_subjects:
         df = df[df["participants_id"].isin(which_subjects)]
 
@@ -121,17 +135,16 @@ def prepare_nm_data(
             continous_cov_col=covariate_list[0],
             imputation_con_var_window=5,
             strategy=missing_value_handling_method,
-            customized_age_window=customized_con_var_imputation_window
+            customized_age_window=customized_con_var_imputation_window,
         )
         response_vars = [var for var in response_vars if var in df.columns.to_list()]
         remove_nan = False
-    else : 
+    else:
         remove_nan = True
 
-    
-    if removing_outliers_thr: 
+    if removing_outliers_thr:
         remove_outlier = True
-    else: 
+    else:
         remove_outlier = False
 
     reference_data = NormData.from_dataframe(
@@ -143,28 +156,28 @@ def prepare_nm_data(
         subject_ids=subject_id_col_name,
         remove_Nan=remove_nan,
         remove_outliers=remove_outlier,
-        z_threshold=removing_outliers_thr
+        z_threshold=removing_outliers_thr,
     )
 
     if train_split_size:
-        if train_split_size > 1: 
-            train_split_size/=100
+        if train_split_size > 1:
+            train_split_size /= 100
 
         train, test = reference_data.train_test_split(
-            splits=(train_split_size, 1-train_split_size), 
-            split_names=["train", "test"], 
-            random_state=random_state
-            )
+            splits=(train_split_size, 1 - train_split_size),
+            split_names=["train", "test"],
+            random_state=random_state,
+        )
         return train, test
-    
-    else: 
+
+    else:
         return reference_data
 
 
 def model_diagnostics(
     models_path,
     save_path,
-    if_loo_cv=False, # TODO 
+    if_loo_cv=False,  # TODO
 ):
     if save_path and not os.path.isdir(save_path):
         os.mkdir(save_path)
@@ -181,14 +194,16 @@ def model_diagnostics(
         summary = az.summary(idata)
 
         for param, row in summary.iterrows():
-            records.append({
-                "model":      model,
-                "parameter":  param,
-                "r_hat":      row.get("r_hat"),
-                "ess_bulk":   row.get("ess_bulk"),
-                "ess_tail":   row.get("ess_tail"),
-                "mcse_sd":    row.get("mcse_sd")
-            })
+            records.append(
+                {
+                    "model": model,
+                    "parameter": param,
+                    "r_hat": row.get("r_hat"),
+                    "ess_bulk": row.get("ess_bulk"),
+                    "ess_tail": row.get("ess_tail"),
+                    "mcse_sd": row.get("mcse_sd"),
+                }
+            )
 
     df_result = pd.DataFrame(records)
     if save_path:
@@ -199,39 +214,38 @@ def model_diagnostics(
 
 
 def nm_model_train(
-        train,
-        test,
-        project_dir,
-        experiment_name,
-        template_regression_model,
-        model_name,
-        inscaler_method="standardize",
-        outscaler_method="standardize",
-        if_cross_validate=False,
-        if_parallel=False,
-        if_evaluate_models=True,
-        if_model_diagnosis=True,
-        if_save_models=True,
-        if_save_plots=True,
-        colors=None, # TODO
-        job_configs=None,
-        
+    train,
+    test,
+    project_dir,
+    experiment_name,
+    template_regression_model,
+    model_name,
+    inscaler_method="standardize",
+    outscaler_method="standardize",
+    if_cross_validate=False,
+    if_parallel=False,
+    if_evaluate_models=True,
+    if_model_diagnosis=True,
+    if_save_models=True,
+    if_save_plots=True,
+    colors=None,  # TODO
+    job_configs=None,
 ):
-    
+
     nm_dir = os.path.join(project_dir, "Normative_models")
     if not os.path.isdir(nm_dir):
         os.mkdir(nm_dir)
 
     model = NormativeModel(
-            template_regression_model=template_regression_model,
-            savemodel = if_save_models,
-            evaluate_model=if_evaluate_models,
-            saveresults=True,
-            saveplots=if_save_plots,
-            save_dir=nm_dir,
-            inscaler=inscaler_method,
-            outscaler=outscaler_method,
-            name=model_name
+        template_regression_model=template_regression_model,
+        savemodel=if_save_models,
+        evaluate_model=if_evaluate_models,
+        saveresults=True,
+        saveplots=if_save_plots,
+        save_dir=nm_dir,
+        inscaler=inscaler_method,
+        outscaler=outscaler_method,
+        name=model_name,
     )
 
     if not if_parallel:
@@ -256,28 +270,20 @@ def nm_model_train(
             n_cores=job_configs["n_cores"],
             preamble=job_configs["preamble"],
             log_dir=os.path.join(nm_dir, "nm_parallel_logs"),
-            temp_dir=os.path.join(nm_dir, "nm_temp"),   
-            max_retries=job_configs["max_retries"]
+            temp_dir=os.path.join(nm_dir, "nm_temp"),
+            max_retries=job_configs["max_retries"],
         )
 
         if test:
-            runner.fit_predict(model, 
-                train, 
-                test, 
-                observe=False
-            )
+            runner.fit_predict(model, train, test, observe=False)
         else:
-            runner.fit(model, 
-                train,  
-                observe=False
-            )
+            runner.fit(model, train, observe=False)
 
     # if if_model_diagnosis:
     #     model_diagnostics(
     #         models_path=f"{nm_dir}/model",
     #         save_path=os.path.join(nm_dir, "results"),
     #     )
-
 
 
 def prior_predictive_check(
@@ -289,7 +295,7 @@ def prior_predictive_check(
     be,
     be_maps,
     n_samples=500,
-    random_seed=None
+    random_seed=None,
 ):
     """
     Perform a prior predictive check for a fitted normative model.
@@ -386,40 +392,33 @@ def prior_predictive_check(
     hbr.from_dict(my_dict=m["model"])
     hbr.load_idata(path=idata_path)
 
-    n = len(Y) 
+    n = len(Y)
     X = xr.DataArray(
-        X,
-        dims=["observations", "covariates"],
-        coords={"observations": np.arange(n)}
+        X, dims=["observations", "covariates"], coords={"observations": np.arange(n)}
     )
 
-    Y = xr.DataArray(
-        Y,
-        dims=["observations"],
-        coords={"observations": np.arange(n)}
-    )
+    Y = xr.DataArray(Y, dims=["observations"], coords={"observations": np.arange(n)})
     be = xr.DataArray(
         be,
         dims=["observations", "batch_effect_dims"],
-        coords={"batch_effect_dims": ["sex", "site"]}  # named coordinate
+        coords={"batch_effect_dims": ["sex", "site"]},  # named coordinate
     )
 
     # Rebuild the PyMC model with dummy data
     pymc_model = hbr.likelihood.compile(X, be, be_maps, Y)
 
-    print("The model:\n" , pymc_model.str_repr())
+    print("The model:\n", pymc_model.str_repr())
 
     with pymc_model:
         prior_idata = pm.sample_prior_predictive(
             draws=n_samples,
             random_seed=random_seed,
         )
-    
+
     az.plot_ppc(prior_idata, group="prior", observed=True)
     plt.show()
 
     return pymc_model
-
 
 
 def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
@@ -451,7 +450,7 @@ def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
     # Limit to upper_limit BEFORE scaling
     mask = x_vals_real * 100 <= upper_limit
     x_vals_real = x_vals_real[mask]
-    y_vals      = y_vals[mask]
+    y_vals = y_vals[mask]
 
     def scale_to_percent(values):
         lo = min(values)
@@ -460,7 +459,7 @@ def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
 
         if span == 0:
             raise Exception
-            
+
         return [(x - lo) / span * 100 for x in values]
 
     if scale_centiles:
@@ -484,4 +483,13 @@ def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
     slope_change_x = x_vals_real[sign_changes]
     slope_change_y = y_vals_pct[sign_changes]
 
-    return x_vals_real, y_vals_pct, peak_x, peak_y, min_x, min_y, slope_change_x, slope_change_y
+    return (
+        x_vals_real,
+        y_vals_pct,
+        peak_x,
+        peak_y,
+        min_x,
+        min_y,
+        slope_change_x,
+        slope_change_y,
+    )

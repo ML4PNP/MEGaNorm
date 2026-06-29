@@ -13,11 +13,12 @@ from typing import Union
 from typing import Dict, List
 from abc import ABC, abstractmethod
 from pyrasa.irasa_mne import irasa_epochs
+
 # from layouts import load_specific_layout
 from meganorm.layouts.layouts import load_specific_layout
 
-
 logger = logging.getLogger(__name__)
+
 
 def abs_canonical_power(
     psd: np.ndarray, freqs: np.ndarray, fmin: Union[int, float], fmax: Union[int, float]
@@ -280,7 +281,9 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     return np.log10(power_num / power_den)
 
 
-def compute_hemispheric_asymmetry(final_df: pd.DataFrame, base_features: List[str] = None) -> pd.DataFrame:
+def compute_hemispheric_asymmetry(
+    final_df: pd.DataFrame, base_features: List[str] = None
+) -> pd.DataFrame:
     """
     Computes hemispheric asymmetry indices between left and right hemisphere channels.
 
@@ -334,7 +337,9 @@ def compute_hemispheric_asymmetry(final_df: pd.DataFrame, base_features: List[st
     return final_df
 
 
-def create_feature_container(feature_categories, freq_bands, channel_names, BAND_RATIOS=None):
+def create_feature_container(
+    feature_categories, freq_bands, channel_names, BAND_RATIOS=None
+):
     """
     Creates a DataFrame to store features for each channel, with feature names corresponding to
     the specified categories and frequency bands.
@@ -355,7 +360,14 @@ def create_feature_container(feature_categories, freq_bands, channel_names, BAND
         A DataFrame with feature names as rows and channels as columns.
     """
     # Features that do not need frequency band appended
-    no_freq = ["Offset", "Exponent", "Exponent_2", "Peak_Center", "Peak_Power", "Peak_Width"]
+    no_freq = [
+        "Offset",
+        "Exponent",
+        "Exponent_2",
+        "Peak_Center",
+        "Peak_Power",
+        "Peak_Width",
+    ]
 
     # Features that are per-band but use ratio naming (num_over_den) instead of band names
     ratio_features = ["Adjusted_Band_Ratio", "OriginalPSD_Band_Ratio"]
@@ -450,7 +462,7 @@ def feature_extract(
     ----------
     subject_id : str
         The unique identifier for the subject whose data is being processed.
-    spectral_models : 
+    spectral_models :
         Group of FOOOF models or PYRASA models, where each model corresponds to a channel and
         its power spectral data.
     psds : np.ndarray
@@ -503,8 +515,12 @@ def feature_extract(
         raise ValueError(
             f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
         )
-    if not isinstance(spectral_models, f.FOOOF) and not isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-        raise TypeError("Expected a f.FOOOF or pyrasa.irasa_mne.mne_objs.IrasaEpoched object instance.")
+    if not isinstance(spectral_models, f.FOOOF) and not isinstance(
+        spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched
+    ):
+        raise TypeError(
+            "Expected a f.FOOOF or pyrasa.irasa_mne.mne_objs.IrasaEpoched object instance."
+        )
 
     # Store features in a pandas DataFrame with channel names as columns
     # and feature names as the index,
@@ -513,35 +529,45 @@ def feature_extract(
     )
 
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-        try :
-            ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=False)
-        except Exception as e: 
-            ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=True)
+        try:
+            ap = spectral_models.aperiodic.fit_aperiodic_model(
+                fit_func=aperiodic_mode, scale=False
+            )
+        except Exception as e:
+            ap = spectral_models.aperiodic.fit_aperiodic_model(
+                fit_func=aperiodic_mode, scale=True
+            )
             logger.info(f"Data was rescaled in PYRASA due to numerical instability!")
 
     for channel_num, channel_name in enumerate(channel_names):
 
         if isinstance(spectral_models, f.FOOOF):
-            spectral_model = FOOOFDecomposer(spectral_models, 
-                                            mode=aperiodic_mode, 
-                                            ch_num=channel_num)
+            spectral_model = FOOOFDecomposer(
+                spectral_models, mode=aperiodic_mode, ch_num=channel_num
+            )
 
         elif isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-            spectral_model = PYRASADecomposer(spectral_models, 
-                                            mode=aperiodic_mode, 
-                                            ch_name=channel_name, 
-                                            ch_num=channel_num, 
-                                            aperiodic=ap)
-            
+            spectral_model = PYRASADecomposer(
+                spectral_models,
+                mode=aperiodic_mode,
+                ch_name=channel_name,
+                ch_num=channel_num,
+                aperiodic=ap,
+            )
+
         else:
             raise TypeError(f"Unknown spectral model type: {type(spectral_models)}")
 
         # fitness SQC
-        logger.info(f"The R**2 in PSD parametrization of the channel {channel_name} was {spectral_model.get_r_squared()}")
+        logger.info(
+            f"The R**2 in PSD parametrization of the channel {channel_name} was {spectral_model.get_r_squared()}"
+        )
         if spectral_model.get_r_squared() < min_r_squared:
-            logger.info(f"The {channel_num}th channel, {channel_name}, was removed" \
-                        " since it's corresponding R2 score in PSD parametrization " \
-                        f"was less than the threshold: {spectral_model.get_r_squared()} > min_r_squared")
+            logger.info(
+                f"The {channel_num}th channel, {channel_name}, was removed"
+                " since it's corresponding R2 score in PSD parametrization "
+                f"was less than the threshold: {spectral_model.get_r_squared()} > min_r_squared"
+            )
             continue
 
         # # offset ==================================
@@ -556,7 +582,7 @@ def feature_extract(
             feature_container = add_feature(
                 feature_container, feature_arr, "Exponent", channel_name, ""
             )
-        
+
             if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
                 feature_arr = spectral_model.get_aperiodic_params()[2]
                 feature_container = add_feature(
@@ -582,18 +608,24 @@ def feature_extract(
 
             if feature_categories["Adjusted_Band_Ratio"]:
                 feature_arr = band_power_ratio(
-                    psd=flattened_psd, freqs=freqs,
-                    fmin_num=fmin_num, fmax_num=fmax_num,
-                    fmin_den=fmin_den, fmax_den=fmax_den
+                    psd=flattened_psd,
+                    freqs=freqs,
+                    fmin_num=fmin_num,
+                    fmax_num=fmax_num,
+                    fmin_den=fmin_den,
+                    fmax_den=fmax_den,
                 )
                 feature_name = f"Adjusted_Band_Ratio__{ratio_name}"
                 feature_container.at[feature_name, channel_name] = feature_arr
 
             if feature_categories["OriginalPSD_Band_Ratio"]:
                 feature_arr = band_power_ratio(
-                    psd=original_psd, freqs=freqs,
-                    fmin_num=fmin_num, fmax_num=fmax_num,
-                    fmin_den=fmin_den, fmax_den=fmax_den
+                    psd=original_psd,
+                    freqs=freqs,
+                    fmin_num=fmin_num,
+                    fmax_num=fmax_num,
+                    fmin_den=fmin_den,
+                    fmax_den=fmax_den,
                 )
                 feature_name = f"OriginalPSD_Band_Ratio__{ratio_name}"
                 feature_container.at[feature_name, channel_name] = feature_arr
@@ -602,7 +634,9 @@ def feature_extract(
         for band_name, (fmin, fmax) in freq_bands.items():
 
             # Peak Features ==================================
-            peak_params, band_peaks = spectral_model.get_peak_params(fmin=fmin, fmax=fmax)
+            peak_params, band_peaks = spectral_model.get_peak_params(
+                fmin=fmin, fmax=fmax
+            )
             if peak_params is not None:
                 if feature_categories["Peak_Center"] and peak_params[0] is not None:
                     feature_container = add_feature(
@@ -645,7 +679,10 @@ def feature_extract(
                 )
 
             # Adjusted relative canonical power ==================================
-            if feature_categories["Adjusted_Canonical_Relative_Power"] and band_name!= "Broadband":
+            if (
+                feature_categories["Adjusted_Canonical_Relative_Power"]
+                and band_name != "Broadband"
+            ):
                 feature_arr = rel_canonical_power(
                     psd=flattened_psd, freqs=freqs, fmin=fmin, fmax=fmax
                 )
@@ -671,7 +708,10 @@ def feature_extract(
                 )
 
             # OriginalPSD relative canonical power ==================================
-            if feature_categories["OriginalPSD_Canonical_Relative_Power"] and band_name!= "Broadband":
+            if (
+                feature_categories["OriginalPSD_Canonical_Relative_Power"]
+                and band_name != "Broadband"
+            ):
                 feature_arr = rel_canonical_power(
                     psd=original_psd, freqs=freqs, fmin=fmin, fmax=fmax
                 )
@@ -779,28 +819,24 @@ def feature_extract(
     return final_df
 
 
-
-
-
-
 class SpectralDecomposer(ABC):
     """Abstract base class for spectral decomposition methods"""
-    
+
     @abstractmethod
     def get_aperiodic_params(self):
         """Return aperiodic parameters (offset, exponent, knee if applicable)"""
         pass
-    
+
     @abstractmethod
     def get_periodic_spectrum(self, original_psds):
         """Return isolated periodic component"""
         pass
-    
+
     @abstractmethod
     def get_peak_params(self, fmin, fmax):
         """Return peak parameters"""
         pass
-    
+
     @abstractmethod
     def get_r_squared(self):
         """Return goodness of fit metric"""
@@ -814,7 +850,7 @@ class FOOOFDecomposer(SpectralDecomposer):
         self.mode = mode
 
     def get_aperiodic_params(self):
-        
+
         reordered_params = []
         params = self.model.get_params("aperiodic_params")
         # offset
@@ -830,33 +866,36 @@ class FOOOFDecomposer(SpectralDecomposer):
                 f"Unknown aperiodic_mode: {self.mode}. Expected 'knee' or 'fixed'."
             )
         reordered_params.append(params[exponent_index])
-        
+
         return reordered_params
-    
+
     def get_periodic_spectrum(self, original_psds):
         original_psd = original_psds[self.ch_num, :]
         return original_psd - 10**self.model._ap_fit
-    
+
     def get_peak_params(self, fmin, fmax):
 
         peaks = self.model.get_params("peak_params")
 
         # filter peaks: check for NaNs and then within thee frequency band
         band_peaks = [
-            peak for peak in peaks if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
+            peak
+            for peak in peaks
+            if not np.any(np.isnan(peak)) and fmin <= peak[0] <= fmax
         ]
 
         if not band_peaks:
             return None, None
-        
+
         # Get the dominant peak by selecting the one with the maximum second element (e.g., power)
         dominant_peak = max(band_peaks, key=lambda x: x[1])
         # Return the frequency of the dominant peak (first element of the tuple)
 
         return dominant_peak, band_peaks
-    
+
     def get_r_squared(self):
         return self.model.r_squared_
+
 
 class PYRASADecomposer(SpectralDecomposer):
     def __init__(self, model, mode, ch_name, ch_num, aperiodic):
@@ -866,29 +905,30 @@ class PYRASADecomposer(SpectralDecomposer):
         self.ch_name = ch_name
         self.ch_num = ch_num
 
-
     def get_aperiodic_params(self):
-        
+
         aperiodic_params = self.aperiodic.aperiodic_params
-        aperiodic_params_of_interest = aperiodic_params[aperiodic_params["ch_name"] == self.ch_name]
+        aperiodic_params_of_interest = aperiodic_params[
+            aperiodic_params["ch_name"] == self.ch_name
+        ]
 
         params = []
 
         # offset
         params.append(aperiodic_params_of_interest["Offset"].item())
-        # exponent 
+        # exponent
         params.append(aperiodic_params_of_interest["Exponent_1"].item())
         params.append(aperiodic_params_of_interest["Exponent_2"].item())
 
         return params
-    
+
     def get_periodic_spectrum(self, original_psds=None):
         # print(self.model.periodic.get_data().squeeze().shape)
         return self.model.periodic.get_data().squeeze()[self.ch_num, :]
-    
+
     def get_peak_params(self, fmin, fmax):
-        return None, None # TODO
-        
+        return None, None  # TODO
+
     def get_r_squared(self):
         gof = self.aperiodic.gof
         return gof[gof["ch_name"] == self.ch_name]["R2"].item()

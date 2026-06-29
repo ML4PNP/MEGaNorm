@@ -49,7 +49,7 @@ def sbatchfile(
     batch_file_name="batch_job",
     freesurfer_home=None,
     freesurfer_license=None,
-    with_config = None,
+    with_config=None,
     # with_source_localization = None,
     # with_empty_room_recording = None
 ):
@@ -95,16 +95,17 @@ def sbatchfile(
 
     if freesurfer_home:
         sbatch_module = (
-        "source activate " + module + "\n" +
-        f"export FREESURFER_HOME={freesurfer_home}\n" +
-        f"export FREESURFER_LICENSE={freesurfer_license}\n" +
-        # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
-        "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
+            "source activate "
+            + module
+            + "\n"
+            + f"export FREESURFER_HOME={freesurfer_home}\n"
+            + f"export FREESURFER_LICENSE={freesurfer_license}\n"
+            +
+            # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
+            "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
         )
     else:
-        sbatch_module = (
-        "source activate " + module + "\n" 
-        )
+        sbatch_module = "source activate " + module + "\n"
 
     if log_path is not None:
         sbatch_log_out = "#SBATCH -o " + log_path + "/%x_%j.out" + "\n"
@@ -122,10 +123,12 @@ def sbatchfile(
 
     # if with_config:
     command = (
-        "srun --cpus-per-task=" + str(core) + " python "
+        "srun --cpus-per-task="
+        + str(core)
+        + " python "
         + mainParallel_path
         + " $source $target $subject $config"
-        )
+    )
 
     command += f" --line_freq $line_freq"
     command += f" --surfaces_dir $surfaces_dir"
@@ -166,7 +169,7 @@ def sbatchfile(
 
     # changes permissoins for bash.sh file
     os.chmod(job_path, 0o770)
-    
+
     return job_path
 
 
@@ -179,7 +182,7 @@ def submit_jobs(
     job_configs=None,
     progress=False,
     freesurfer_home=None,
-    freesurfer_license=None
+    freesurfer_license=None,
 ):
     """
     Submits jobs for each subject to the SLURM cluster for parallel execution.
@@ -253,14 +256,14 @@ def submit_jobs(
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects.keys()):
-        
+
         rs_fname = subjects[subject]["rest_record"]
         er_fname = subjects[subject]["empty_room_record"]
         event_record = subjects[subject].get("event_record")
         event_of_interest = subjects[subject].get("event_of_interest")
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
-        
+
         command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject} {config_file}"
 
         command = add_command(line_freq, command)
@@ -268,7 +271,7 @@ def submit_jobs(
         command = add_command(er_fname, command)
         command = add_command(event_record, command)
         command = add_command(event_of_interest, command)
-        
+
         subprocess.check_call(command, shell=True)
 
         if progress:
@@ -305,7 +308,9 @@ def check_jobs_status(username, start_time, delay=20):
                 print("Failed Jobs:", ", ".join(failed_job_names))
         else:
             print("No job data available.")
-        n = job_counts["PENDING"] + job_counts["RUNNING"] - 1 # TODO: this "-1" should be removed: solution use job-id instead of time
+        n = (
+            job_counts["PENDING"] + job_counts["RUNNING"] - 1
+        )  # TODO: this "-1" should be removed: solution use job-id instead of time
         time.sleep(delay)
 
     return failed_job_names
@@ -467,7 +472,7 @@ def auto_parallel_feature_extraction(
 
     TODO
 
-    
+
     username : str, optional
         The SLURM username. If not provided, it will be fetched from the environment. Default is None.
     auto_rerun : bool, optional
@@ -490,20 +495,34 @@ def auto_parallel_feature_extraction(
     all_qc_passed_samples = []
     all_qc_failed_samples = []
     all_missing_samples = []
-    if conf.apply_source_localization and conf.apply_mri_QC and not conf.apply_mri_template:
+    if (
+        conf.apply_source_localization
+        and conf.apply_mri_QC
+        and not conf.apply_mri_template
+    ):
         for keys, values in datasets.items():
-            (qc_passed_samples, 
-            qc_failed_samples, 
-            missing_samples) = meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
+            qc_passed_samples, qc_failed_samples, missing_samples = (
+                meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
+            )
             all_qc_passed_samples.extend(qc_passed_samples)
             all_missing_samples.extend(missing_samples)
             all_qc_failed_samples.extend(qc_failed_samples)
 
-    with open(os.path.join(features_dir, "excluded_participants", "failed_mri_qc_participants.json"), "w") as file:
+    with open(
+        os.path.join(
+            features_dir, "excluded_participants", "failed_mri_qc_participants.json"
+        ),
+        "w",
+    ) as file:
         json.dump(all_qc_failed_samples, file, indent=4)
-    with open(os.path.join(features_dir, "excluded_participants", "missing_mri_participants.json"), "w") as file:
+    with open(
+        os.path.join(
+            features_dir, "excluded_participants", "missing_mri_participants.json"
+        ),
+        "w",
+    ) as file:
         json.dump(all_missing_samples, file, indent=4)
-      
+
     missing_meg_participants = []
     subjects_temp = subjects.copy()
 
@@ -522,13 +541,22 @@ def auto_parallel_feature_extraction(
 
     subjects = subjects_temp.copy()
 
-    with open(os.path.join(features_dir, "excluded_participants", "missing_meg_participants.json"), "w") as file:
+    with open(
+        os.path.join(
+            features_dir, "excluded_participants", "missing_meg_participants.json"
+        ),
+        "w",
+    ) as file:
         json.dump(missing_meg_participants, file, indent=4)
 
-    with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "r") as file:
+    with open(
+        os.path.join(features_dir, "Configurations", "runner_params.json"), "r"
+    ) as file:
         runner_params = json.load(file)
         runner_params["subjects"] = subjects
-    with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "w") as file:
+    with open(
+        os.path.join(features_dir, "Configurations", "runner_params.json"), "w"
+    ) as file:
         json.dump(runner_params, file, indent=4)
 
     features_temp_path = os.path.join(features_dir, "temp")
@@ -545,7 +573,7 @@ def auto_parallel_feature_extraction(
         job_configs=job_configs,
         config_file=config_file_path,
         freesurfer_home=freesurfer_home,
-        freesurfer_license=freesurfer_license
+        freesurfer_license=freesurfer_license,
     )
 
     # Checking jobs
@@ -565,11 +593,13 @@ def auto_parallel_feature_extraction(
             job_configs=job_configs,
             config_file=config_file_path,
             freesurfer_home=freesurfer_home,
-            freesurfer_license=freesurfer_license
+            freesurfer_license=freesurfer_license,
         )
         # Checking jobs
         failed_jobs = check_jobs_status(username, start_time)
-        falied_subjects = {failed_job: subjects[failed_job] for failed_job in failed_jobs}
+        falied_subjects = {
+            failed_job: subjects[failed_job] for failed_job in failed_jobs
+        }
 
         try_num += 1
 
@@ -585,46 +615,48 @@ def auto_parallel_feature_extraction(
     # Merge demographic data and extracted f-IDPS
     data_base_dirs = [values["base_dir"] for values in datasets.values()]
     dataset_names = list(datasets.keys())
-    df = merge_fidp_demo(datasets_paths=data_base_dirs,
-            features_dir=features_dir,
-            dataset_names=dataset_names)
+    df = merge_fidp_demo(
+        datasets_paths=data_base_dirs,
+        features_dir=features_dir,
+        dataset_names=dataset_names,
+    )
     df.to_csv(os.path.join(features_dir, "all_features.csv"))
 
     return failed_jobs
 
 
 def sbatch_feature_extraction_runner(
-        project_dir,
-        datasets,
-        job_configs,
-        config_file=None,
-        time="48:00:00", 
-        mem="16GB", 
-        freesurfer_home=None,
-        freesurfer_license=None,
-        auto_rerun=True,
-        auto_collect=True,
-        max_try=5,
-        which_subjects=None
-        ):
-    
+    project_dir,
+    datasets,
+    job_configs,
+    config_file=None,
+    time="48:00:00",
+    mem="16GB",
+    freesurfer_home=None,
+    freesurfer_license=None,
+    auto_rerun=True,
+    auto_collect=True,
+    max_try=5,
+    which_subjects=None,
+):
+
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path
-    
+
     features_dir = os.path.join(project_dir, "Features")
-    config_file_path = os.path.join(features_dir, "Configurations", "Configuration.json")
+    config_file_path = os.path.join(
+        features_dir, "Configurations", "Configuration.json"
+    )
     if config_file:
-        config_file.save(
-            save_path = config_file_path,
-            overwrite=True)
+        config_file.save(save_path=config_file_path, overwrite=True)
     else:
         conf = Config()
         conf.save(path=config_file_path)
-    
+
     params = {
         "mainParallel_path": os.path.abspath(meganorm.src.mainParallel.__file__),
         "project_dir": project_dir,
-        "config_file_path":config_file_path,
+        "config_file_path": config_file_path,
         "job_configs": job_configs,
         "username": job_configs["slurm_username"],
         "freesurfer_home": freesurfer_home,
@@ -633,14 +665,14 @@ def sbatch_feature_extraction_runner(
         "auto_collect": auto_collect,
         "max_try": max_try,
         "which_subjects": which_subjects,
-        "datasets" : datasets
+        "datasets": datasets,
     }
 
     features_dir = os.path.join(project_dir, "Features")
     save_path = os.path.join(features_dir, "Configurations", "runner_params.json")
     with open(save_path, "w") as f:
         json.dump(params, f, indent=4)
-    
+
     sbatch_text = f"""#!/bin/bash
 #SBATCH --job-name=feature_extraction_runner
 #SBATCH --output=Features/feature_extraction_runner.out

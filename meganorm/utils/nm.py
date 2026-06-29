@@ -9,6 +9,7 @@ import scipy.stats as st
 from scipy.stats import shapiro
 import itertools
 from scipy.stats import skew, kurtosis
+
 # from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
 from scipy.stats import ranksums
@@ -855,17 +856,14 @@ def cal_stats_for_INOCs(
 
 
 # **
-def calculate_skewness_and_kurtosis(
-    df_zscores,
-    nan_policy="omit"
-):
-    
+def calculate_skewness_and_kurtosis(df_zscores, nan_policy="omit"):
+
     skewness = scipy.stats.skew(df_zscores, nan_policy=nan_policy)
     kurtosis = scipy.stats.kurtosis(df_zscores, nan_policy=nan_policy)
 
     df = pd.DataFrame(
         {"skewness": skewness, "kurtosis": kurtosis},
-        index=df_zscores.columns  # ← one row per feature
+        index=df_zscores.columns,  # ← one row per feature
     )
 
     return df.T
