@@ -364,9 +364,6 @@ def create_feature_container(
         "Offset",
         "Exponent",
         "Exponent_2",
-        "Peak_Center",
-        "Peak_Power",
-        "Peak_Width",
     ]
 
     # Features that are per-band but use ratio naming (num_over_den) instead of band names
@@ -583,7 +580,9 @@ def feature_extract(
                 feature_container, feature_arr, "Exponent", channel_name, ""
             )
 
-            if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
+            if aperiodic_mode == "knee" and isinstance(
+                spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched
+            ):
                 feature_arr = spectral_model.get_aperiodic_params()[2]
                 feature_container = add_feature(
                     feature_container, feature_arr, "Exponent_2", channel_name, ""
