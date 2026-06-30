@@ -424,7 +424,7 @@ def main(args):
             segments_length=configs.segments_length,
             overlap=configs.segments_overlap,
             ica_if_reject_by_annotation=configs.ica_if_reject_by_annotation,
-            remove_bad_segments=configs.bad_segment_removal_method,
+            bad_segment_removal_method=configs.bad_segment_removal_method,
             mag_var_threshold=configs.mag_var_threshold,
             grad_var_threshold=configs.grad_var_threshold,
             eeg_var_threshold=configs.eeg_var_threshold,
