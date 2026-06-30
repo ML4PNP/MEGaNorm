@@ -1,4 +1,5 @@
 import os
+import shlex
 import time
 import shutil
 import subprocess
@@ -7,6 +8,7 @@ import pandas as pd
 import json
 import meganorm
 import meganorm.utils.parallel
+import meganorm.src.mainParallel
 from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
@@ -215,7 +217,7 @@ def submit_jobs(
 
     def add_command(new_arg, command):
         if new_arg:
-            command += f" {new_arg}"
+            command += f" {shlex.quote(str(new_arg))}"
         else:
             command += " None"
         return command
@@ -264,7 +266,7 @@ def submit_jobs(
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
 
-        command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject} {config_file}"
+        command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
         command = add_command(line_freq, command)
         command = add_command(mri_surface, command)
@@ -290,27 +292,35 @@ def check_jobs_status(username, start_time, delay=20):
         The SLURM username used to check the status of the jobs.
     start_time : str
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
-        This is used to identify the specific set of jobs submitted in the `submit_jobs` function.
     delay : int, optional
-        The delay, in seconds, between each check of job status. Default is 20 seconds.
+        The delay, in seconds, between each status check. Default is 20 seconds.
 
     Returns
     -------
     list
         A list of names of jobs that have failed.
     """
-    n = 1
-    while n > 0:
-        job_counts, failed_job_names = check_user_jobs(username, start_time)
-        if job_counts:
-            print(f"Status for user {username} from {start_time}: {job_counts}")
-            if failed_job_names:
-                print("Failed Jobs:", ", ".join(failed_job_names))
-        else:
-            print("No job data available.")
-        n = (
-            job_counts["PENDING"] + job_counts["RUNNING"] - 1
-        )  # TODO: this "-1" should be removed: solution use job-id instead of time
+    failed_job_names = []
+
+    while True:
+        job_counts, failed_job_names, ok = check_user_jobs(username, start_time)
+
+        if not ok:
+            # The sacct query itself failed (nonzero return or exception).
+            # Wait and retry rather than crashing or falsely concluding the
+            # jobs are done.
+            print("Job status query failed; retrying...")
+            time.sleep(delay)
+            continue
+
+        print(f"Status for user {username} from {start_time}: {job_counts}")
+        if failed_job_names:
+            print("Failed Jobs:", ", ".join(failed_job_names))
+
+        # Genuinely nothing left in flight -> stop monitoring.
+        if job_counts["PENDING"] + job_counts["RUNNING"] == 0:
+            break
+
         time.sleep(delay)
 
     return failed_job_names
@@ -318,7 +328,7 @@ def check_jobs_status(username, start_time, delay=20):
 
 def check_user_jobs(username, start_time):
     """
-    Utility function for counting the status of jobs submitted to the SLURM scheduler.
+    Count the status of jobs submitted to the SLURM scheduler.
 
     Parameters
     ----------
@@ -326,22 +336,30 @@ def check_user_jobs(username, start_time):
         The SLURM username used to check the status of the jobs.
     start_time : str
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
-        This is used to filter the jobs that were submitted after the specified start time.
 
     Returns
     -------
     tuple
-        A tuple containing:
+        A 3-tuple ``(status_counts, failed_jobs, ok)``:
         - status_counts : dict
-            A dictionary with counts of jobs in various states (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
+            Counts of jobs per state (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
         - failed_jobs : list
-            A list of job names that have failed.
+            Job names that have failed.
+        - ok : bool
+            True if the sacct query succeeded, False otherwise. When False the
+            counts are all zero and failed_jobs is empty.
     """
+    empty_counts = {
+        "PENDING": 0,
+        "RUNNING": 0,
+        "COMPLETED": 0,
+        "FAILED": 0,
+        "CANCELLED": 0,
+    }
+
     try:
-        # Format the current datetime to match Slurm's expected format
         end_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-        # sacct command to get job states and names within the specified time frame
         cmd = [
             "sacct",
             "-n",
@@ -361,42 +379,31 @@ def check_user_jobs(username, start_time):
 
         if result.returncode != 0:
             print("Failed to query jobs:", result.stderr)
-            return
+            return empty_counts.copy(), [], False
 
-        # Initialize status counts and a list for failed job names
-        status_counts = {
-            "PENDING": 0,
-            "RUNNING": 0,
-            "COMPLETED": 0,
-            "FAILED": 0,
-            "CANCELLED": 0,
-        }
+        status_counts = empty_counts.copy()
         failed_jobs = []
 
-        # Process each line to count statuses and collect names of failed jobs
         lines = result.stdout.strip().split("\n")
         for line in lines:
-            if line:
-                parts = line.split("|")
-                if len(parts) >= 2:
-                    job_name, state = parts[0], parts[1]
-                    if state == "PENDING":
-                        status_counts["PENDING"] += 1
-                    elif state == "RUNNING":
-                        status_counts["RUNNING"] += 1
-                    elif state == "COMPLETED":
-                        status_counts["COMPLETED"] += 1
-                    elif state == "FAILED":
-                        status_counts["FAILED"] += 1
-                        failed_jobs.append(job_name)
-                    elif state == "CANCELLED":
-                        status_counts["CANCELLED"] += 1
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) < 2:
+                continue
+            job_name, state = parts[0], parts[1]
+            # State can carry a suffix, e.g. "CANCELLED by 12345"
+            state = state.split()[0]
+            if state in status_counts:
+                status_counts[state] += 1
+            if state == "FAILED":
+                failed_jobs.append(job_name)
 
-        return status_counts, failed_jobs
+        return status_counts, failed_jobs, True
 
     except Exception as e:
         print("An error occurred while checking the job status:", str(e))
-        return
+        return empty_counts.copy(), [], False
 
 
 def collect_results(target_dir, subjects, temp_path, file_name="features", clean=True):
@@ -651,7 +658,7 @@ def sbatch_feature_extraction_runner(
         config_file.save(save_path=config_file_path, overwrite=True)
     else:
         conf = Config()
-        conf.save(path=config_file_path)
+        conf.save(save_path=config_file_path)
 
     params = {
         "mainParallel_path": os.path.abspath(meganorm.src.mainParallel.__file__),
