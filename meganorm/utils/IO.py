@@ -838,12 +838,12 @@ def merge_datasets_with_glob(datasets):
                 {
                     subj: {
                         "rest_record": join_with_star(rs_record_paths),
-                        "line_freq": line_freq,
+                        "line_freq": str(line_freq),
                         "empty_room_record": join_with_star(er_record_paths),
                         "mri_surface": surface,
                         "dataset_name": dataset_name,
                         "event_record": join_with_star(event_record_paths),
-                        "event_of_interest": event_of_interest,
+                        "event_of_interest": str(event_of_interest),
                     }
                 }
             )
