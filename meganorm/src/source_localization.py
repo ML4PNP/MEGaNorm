@@ -649,7 +649,7 @@ def inverse_solution(
         logger.info(
             f"Solving the inverse problem using {inverse_operator} algorithm. "
             f"A regularization of {kwargs.get('inverse_regularization_value', 0.05)} will be used "
-            f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', "max-power")} for `pick_ori`."
+            f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', 'max-power')} for `pick_ori`."
         )
 
         # compute segments covaraince

@@ -568,7 +568,7 @@ def segment_epoch(
 
     tmax = int(np.shape(data.get_data())[1] / sampling_rate + tmax)
 
-    if segment_events:
+    if segment_events is not None:
         events = segment_events.copy()
     else:
         data.crop(tmin=tmin, tmax=tmax)
@@ -766,8 +766,8 @@ def preprocess(
             events = mne.read_events(event_record)
         elif device == "CTF":
             events = mne.find_events(data, stim_channel="UPPT001")
-        else:
-            events = None
+    else:
+        events = None
 
     # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
@@ -876,7 +876,7 @@ def preprocess(
             threshold=muscle_activity_thr,
         )
         # ICA will ignore these and later will be removed in segmentation
-        data.set_annotations(muscle_annot)
+        data.set_annotations(data.annotations + muscle_annot)
         logger.info(
             f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} seconds of"
             " the signal."
@@ -1042,9 +1042,10 @@ def drop_noisy_meg_channels(
             f"Number of flat channels that were droped from the subject's recording: {len(auto_flat_chs)}"
         )
 
-    data.drop_channels(data.info["bads"])
+    bads = data.info["bads"][:]
+    data.drop_channels(bads)
     if empty_room_recording:
-        empty_room_recording.drop_channels(data.info["bads"])
+        empty_room_recording.drop_channels(bads)
 
     return data, empty_room_recording
 
