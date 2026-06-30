@@ -1364,6 +1364,32 @@ def drop_mag_or_grad(data, empty_room_recording, which_sensor):
     return data, empty_room_recording
 
 
+def _chpi_usable(data, device):
+    """True only if continuous head-tracking can actually be fit from this file."""
+    if device == "MEGIN":
+        try:
+            hpi_freqs, _, _ = mne.chpi.get_chpi_info(data.info, on_missing="ignore")
+        except (KeyError, IndexError, ValueError):
+            return False
+        if hpi_freqs is None or len(hpi_freqs) == 0:
+            return False
+        return True
+
+    elif device == "CTF":
+        hlc = [ch for ch in data.ch_names if ch.startswith("HLC")]
+        return len(hlc) > 0
+
+    elif device == "KIT":
+        # no channel-name signature; just try the extractor
+        try:
+            mne.chpi.extract_chpi_locs_kit(data, verbose=False)
+            return True
+        except Exception:
+            return False
+
+    return False
+
+
 def head_motion_correction(
     data, empty_room_recording, device, Head_movement_limit_from_mean=0.0015
 ):
@@ -1406,13 +1432,13 @@ def head_motion_correction(
         msg = "Head motion correction was not applied since tSSS has already been applied to the data."
         logger.info(msg)
         return data, empty_room_recording
-
+    
     # MEGIN devicesEpoch
-    if device == "MEGIN":
+    if device == "MEGIN" and _chpi_usable(data, device=device):
 
         chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
         chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
-        head_pos = mne.chpi.compute_head_pos(data, chpi_locs, verbose=False)
+        head_pos = mne.chpi.compute_head_pos(data.info, chpi_locs, verbose=False)
 
         data = mne.preprocessing.maxwell_filter(
             data,
@@ -1437,51 +1463,42 @@ def head_motion_correction(
                 calibration=None,  # TODO: this should be changed to the real calibration file
             )
 
-    else:
-        # check if cHPI data is available and then apply annotate_movement func
-        try:
-            has_chpi = bool(
-                data.info["hpi_results"]
-                or mne.chpi.get_chpi_info(data.info, on_missing="ignore")[0].tolist()
-            )
-        except (KeyError, IndexError):
-            has_chpi = False
+    # TODO, expand this if new device comes in!
+    elif device in ["CTF", "KIT"] and _chpi_usable(data, device=device):
+        if device == "CTF":
+            chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
 
-        if has_chpi:
-            if device == "CTF":
-                chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
-
-            elif device == "KIT":
-                chpi_locs = mne.chpi.extract_chpi_locs_kit(data, verbose=False)
-
-            else:
-                chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
-                chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
-
-            head_pos = mne.chpi.compute_head_pos(data.info, chpi_locs, verbose=False)
-
-            movement_annotation, Head_position_over_time = (
-                mne.preprocessing.annotate_movement(
-                    data,
-                    pos=head_pos,
-                    mean_distance_limit=Head_movement_limit_from_mean,
-                )
-            )
-
-            data.set_annotations(movement_annotation)
-            logger.info(
-                f"Movement annotation algorithm using cHPI coils detected {sum(movement_annotation.duration)}"
-                " seconds of motion."
-            )
-
-            # Calculate the new device head transformation
-            new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(
-                data, head_pos, verbose=False
-            )
-            data.info["dev_head_t"] = new_dev_head_t
+        elif device == "KIT":
+            chpi_locs = mne.chpi.extract_chpi_locs_kit(data, verbose=False)
 
         else:
-            logger.info("Movemet correction was not done for the subject.")
+            chpi_amplitudes = mne.chpi.compute_chpi_amplitudes(data)
+            chpi_locs = mne.chpi.compute_chpi_locs(data.info, chpi_amplitudes)
+
+        head_pos = mne.chpi.compute_head_pos(data.info, chpi_locs, verbose=False)
+
+        movement_annotation, Head_position_over_time = (
+            mne.preprocessing.annotate_movement(
+                data,
+                pos=head_pos,
+                mean_distance_limit=Head_movement_limit_from_mean,
+            )
+        )
+
+        data.set_annotations(movement_annotation)
+        logger.info(
+            f"Movement annotation algorithm using cHPI coils detected {sum(movement_annotation.duration)}"
+            " seconds of motion."
+        )
+
+        # Calculate the new device head transformation
+        new_dev_head_t = mne.preprocessing.compute_average_dev_head_t(
+            data, head_pos, verbose=False
+        )
+        data.info["dev_head_t"] = new_dev_head_t
+
+    else:
+        logger.info("Movemet correction was not done for the subject.")
 
     return data, empty_room_recording
 
