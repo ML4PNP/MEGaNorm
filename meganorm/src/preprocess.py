@@ -691,8 +691,8 @@ def preprocess(
     source_space_spacing_number=4,
     event_record=None,
     event_of_interest=None,
-    segments_length=None,
-    overlap=None,
+    segments_length=10,
+    overlap=5,
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data.
@@ -769,6 +769,39 @@ def preprocess(
     else:
         events = None
 
+    # head motion correction ----------------------
+    movement_dur = None
+    if apply_Head_movement_correction and not which_sensor.get("eeg", False):
+        data_temp = data.copy()
+        empty_room_recording_temp = (
+            empty_room_recording.copy() if empty_room_recording else None
+        )
+
+        try:
+            data, empty_room_recording, movement_dur = head_motion_correction(
+                data_temp,
+                empty_room_recording_temp,
+                device,
+                Head_movement_limit_from_mean=Head_movement_limit_from_mean,
+            )
+        except Exception as e:
+            logger.warning(f"Head motion correction failed: {e}")
+            
+
+    if movement_dur is not None:
+        total_dur = data.n_times / data.info["sfreq"]
+        usable_dur = total_dur - movement_dur
+        step = segments_length - overlap   
+        needed_dur = 2 * step + segments_length
+        if usable_dur < needed_dur:
+                    msg = (
+                        f"Only {usable_dur:.1f}s usable after movement annotations; "
+                        f"need {needed_dur:.1f}s for 3 segments "
+                        f"(length={segments_length}s, overlap={overlap}s)."
+                    )
+                    logger.error(msg)
+                    raise ValueError(msg)
+        
     # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
     orig_sampling_rate = sampling_rate
@@ -798,23 +831,6 @@ def preprocess(
 
     if empty_room_recording:
         empty_room_recording.notch_filter(freqs=freqs, n_jobs=-1)
-
-    # head motion correction ----------------------
-    if apply_Head_movement_correction and not which_sensor.get("eeg", False):
-        data_temp = data.copy()
-        empty_room_recording_temp = (
-            empty_room_recording.copy() if empty_room_recording else None
-        )
-
-        try:
-            data, empty_room_recording = head_motion_correction(
-                data_temp,
-                empty_room_recording_temp,
-                device,
-                Head_movement_limit_from_mean=Head_movement_limit_from_mean,
-            )
-        except Exception as e:
-            logger.warning(f"Head motion correction failed: {e}")
 
     # remove cHPI noise ---------------------------
     try:
@@ -1428,10 +1444,12 @@ def head_motion_correction(
         compensation. Returned unchanged if ``None`` was provided.
 
     """
+    movement_dur = None
+
     if check_tsss(data):
         msg = "Head motion correction was not applied since tSSS has already been applied to the data."
         logger.info(msg)
-        return data, empty_room_recording
+        return data, empty_room_recording, movement_dur
     
     # MEGIN devicesEpoch
     if device == "MEGIN" and _chpi_usable(data, device=device):
@@ -1486,8 +1504,9 @@ def head_motion_correction(
         )
 
         data.set_annotations(movement_annotation)
+        movement_dur = sum(movement_annotation.duration)
         logger.info(
-            f"Movement annotation algorithm using cHPI coils detected {sum(movement_annotation.duration)}"
+            f"Movement annotation algorithm using cHPI coils detected {movement_dur}"
             " seconds of motion."
         )
 
@@ -1500,7 +1519,7 @@ def head_motion_correction(
     else:
         logger.info("Movemet correction was not done for the subject.")
 
-    return data, empty_room_recording
+    return data, empty_room_recording, movement_dur
 
 
 def remove_environmental_noise(
