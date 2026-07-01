@@ -24,6 +24,30 @@ def run_recon_freesurfer(
     subject_id: str,
     mri_path: str,
 ):
+    """
+    Run FreeSurfer's `recon-all` pipeline on a subject's MRI.
+
+    Sets the required FreeSurfer environment variables and invokes
+    `recon-all -all` via subprocess to perform full cortical
+    reconstruction for a single subject.
+
+    Parameters
+    ----------
+    freesurfer_home : str
+        Path to the FreeSurfer installation directory.
+    subjects_dir : str
+        Path to the FreeSurfer SUBJECTS_DIR where output will be stored.
+    license_path : str
+        Path to the FreeSurfer license file.
+    subject_id : str
+        Identifier for the subject; used to name the output folder.
+    mri_path : str
+        Path to the input MRI volume (e.g., T1-weighted image).
+
+    Returns
+    -------
+    None
+    """
     env = os.environ.copy()
     env["FREESURFER_HOME"] = freesurfer_home
     env["SUBJECTS_DIR"] = subjects_dir
@@ -49,6 +73,23 @@ def set_freesurfer_paths(
     subjects_dir: str,
     license_path: str,
 ):
+    """
+    Set FreeSurfer-related environment variables for the current process.
+
+    Parameters
+    ----------
+    freesurfer_home : str
+        Path to the FreeSurfer installation directory. Also prepended
+        to the system `PATH`.
+    subjects_dir : str
+        Path to the FreeSurfer SUBJECTS_DIR.
+    license_path : str
+        Path to the FreeSurfer license file.
+
+    Returns
+    -------
+    None
+    """
 
     os.environ["FREESURFER_HOME"] = freesurfer_home
     os.environ["PATH"] = os.environ["FREESURFER_HOME"] + "/bin:" + os.environ["PATH"]
@@ -728,14 +769,13 @@ def morph_stc(
         Name of the subject to which the source estimate should be morphed.
     subjects_dir : str
         Path to the FreeSurfer subjects directory.
-
-    stc
-
-
-    src_from : instance of mne.SourceSpaces or mne.SourceEstimate
-
-
-        # TODO
+    stc : mne.SourceEstimate
+        The source estimate to be morphed, computed for `subject`.
+    src_from : instance of mne.SourceSpaces
+        The source space in which `stc` was computed.
+    source_space : str
+        Type of source space to set up for the target subject. Must be
+        either "surface" or "volumetric".
     plot_3d : bool, optional
         Whether to display the morphed source estimate using MNE's interactive 3D plotter.
         Default is False.
@@ -754,14 +794,17 @@ def morph_stc(
     -------
     stc_fsaverage : mne.SourceEstimate
         The morphed source estimate in the space of `subject_to`.
-    morph : mne.SourceMorph
-        The morph object used to perform the morphing, which can be reused or saved.
+    src_morph_to : instance of mne.SourceSpaces
+        The source space constructed for `subject_to`, used as the
+        morph target.
 
     Notes
     -----
-    - The function currently uses a fixed `spacing=5`, but this can be overridden via `**kwargs`.
-    - The `src` argument is included for completeness but not directly used.
-    - Only surface source estimates are supported.
+    - The `src_from` argument is included for completeness but not
+      directly used in the morph computation itself.
+    - For volumetric source spaces, the inner skull surface for
+      `subject_to` is generated via `mne.bem.make_watershed_bem` if
+      not already present.
     """
     logger.info("Morphing the estimated source data onto a common space")
 
@@ -957,10 +1000,8 @@ def source_localization(
         Conductivity values for the BEM model (e.g., one value for 1-layer, three for 3-layer).
     inverse_operator : str, default='lcmv'
         Method to compute the inverse solution. Options: 'lcmv', 'dspm', 'mne', etc.
-    empty_room_recording: TODO
-
-    plot_3d:TODO
-
+    empty_room_recording: mne.io.Raw
+        empty_room_recording
     Returns
     -------
     stc : ndarray, shape (n_labels, n_times)
@@ -1171,6 +1212,27 @@ def check_tsss(meg_data):
 
 
 def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
+    """
+    Generate the Destrieux (aparc.a2009s) volumetric segmentation for
+    every subject in a directory.
+
+    Iterates over subject folders in `save_path` and runs
+    `mri_aparc2aseg --a2009s` for each one that does not already have
+    an `aparc.a2009s+aseg.mgz` output, skipping those that do.
+
+    Parameters
+    ----------
+    save_path : str
+        Path to the FreeSurfer SUBJECTS_DIR containing subject folders.
+    freesurfer_home : str
+        Path to the FreeSurfer installation directory.
+    freesurfer_license : str
+        Path to the FreeSurfer license file.
+
+    Returns
+    -------
+    None
+    """
     for subject in os.listdir(save_path):
         out_path = os.path.join(save_path, subject, "mri", "aparc.a2009s+aseg.mgz")
         if os.path.exists(out_path):
@@ -1189,7 +1251,25 @@ def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
 
 
 def build_template_index(subjects_dir):
-    """Scan subjects_dir for downloaded ANTS infant templates and map each to its age in months."""
+    """
+    Build an index of available ANTS infant/child MRI templates and
+    their corresponding ages in months.
+
+    Scans `subjects_dir` for folders matching the ANTS template naming
+    convention and parses each folder name to compute the represented
+    age in months.
+
+    Parameters
+    ----------
+    subjects_dir : str
+        Path to the directory containing downloaded ANTS template
+        folders.
+
+    Returns
+    -------
+    index : dict
+        Mapping from template folder name to age in months.
+    """
     index = {}
     for path in glob.glob(os.path.join(subjects_dir, "ANTS*")):
         name = os.path.basename(path)
@@ -1205,7 +1285,29 @@ def build_template_index(subjects_dir):
 
 
 def nearest_template_dir(age_months, subjects_dir):
-    """Return (folder_name, full_path) of the closest pre-downloaded template."""
+    """
+    Find the pre-downloaded ANTS template closest in age to a target age.
+
+    Parameters
+    ----------
+    age_months : float
+        Target age, in months, to match against available templates.
+    subjects_dir : str
+        Path to the directory containing downloaded ANTS template
+        folders.
+
+    Returns
+    -------
+    name : str
+        Folder name of the nearest-matching template.
+    path : str
+        Path to `subjects_dir` (the directory containing the template).
+
+    Raises
+    ------
+    FileNotFoundError
+        If no ANTS templates are found in `subjects_dir`.
+    """
     index = build_template_index(subjects_dir)
     if not index:
         raise FileNotFoundError(f"No ANTS templates found in {subjects_dir}")
@@ -1217,6 +1319,46 @@ def nearest_template_dir(age_months, subjects_dir):
 
 
 def prepare_template(subject, project_dir, **kwargs):
+    """
+    Select an age-matched anatomical template for a subject and, if
+    needed, generate its Destrieux volumetric segmentation.
+
+    Looks up the subject's age from the project's demographic file,
+    finds the nearest available ANTS template, and optionally runs
+    `produce_aparc_a2009s_aseg` when a volumetric source space with
+    the 'aparc.a2009s' parcellation is requested.
+
+    Parameters
+    ----------
+    subject : str
+        Subject identifier, used to look up dataset and demographic
+        information.
+    project_dir : str
+        Path to the project directory containing the
+        `Configurations/runner_params.json` file.
+    **kwargs : dict, optional
+        Additional configuration options, including:
+
+        - SL_source_space : str
+            Source space type; triggers segmentation generation when
+            'volumetric'.
+        - parcellation_parc : str
+            Parcellation scheme; triggers segmentation generation when
+            'aparc.a2009s'.
+        - freesurfer_template_path : str
+            Path to the directory of downloaded ANTS templates.
+        - freesurfer_home : str
+            Path to the FreeSurfer installation directory.
+        - freesurfer_license : str
+            Path to the FreeSurfer license file.
+
+    Returns
+    -------
+    surface_name : str
+        Folder name of the nearest-matching template.
+    surface_path : str
+        Path to the templates directory.
+    """
 
     if (
         kwargs.get("SL_source_space") == "volumetric"
