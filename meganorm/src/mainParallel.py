@@ -24,34 +24,64 @@ from meganorm.src.featureExtraction import feature_extract
 
 def main_argparser(args=None):
     """
-    Create and parse command-line arguments for the feature extraction script.
+    Build and parse command-line arguments for the feature extraction script.
+
+    Defines the positional and optional arguments needed to run a single
+    subject through the preprocessing, source localization, and spectral
+    feature extraction pipeline, and parses them into a namespace.
 
     Parameters
     ----------
     args : list of str or None, optional
-        List of arguments to parse. If None, parses arguments from `sys.argv`.
+        List of argument strings to parse. If None, arguments are read
+        from `sys.argv` (default behavior for command-line invocation).
 
     Returns
     -------
     argparse.Namespace
-        Namespace containing the parsed command-line arguments:
-        - `dir` : str
-            Path to the input data directory.
-        - `save_dir` : str
-            Directory where extracted features will be saved.
-        - `subject` : str
-            Participant identifier.
-        - `surfaces_dir` : str or None
-            Path to the FreeSurfer surfaces directory (used for source localization). Default is None.
-        - `empty_room_recording_path` : str or None
-            Path to subject's empty room recording for pre-whitening. Default is None.
-        - `configs` : str or None
-            Path to optional configuration file. Default is None.
+        Namespace containing the parsed arguments:
+
+        dir : str
+            Path to the subject's raw data. May contain a glob pattern
+            (using "*" as a separator) when multiple recordings/sessions
+            are present; the session used is selected via
+            `configs.which_meg_session`.
+        save_dir : str
+            Directory where extracted features (and, depending on config,
+            logs, PSDs, and source-localized epochs) will be saved.
+        subject : str
+            Subject/participant identifier, used for file naming, logging,
+            and locating subject-specific FreeSurfer data.
+        configs : str
+            Path to a JSON file (loadable via `Config.load`) specifying
+            preprocessing, segmentation, source localization, PSD, and
+            feature extraction parameters.
+        line_freq : int or str, default=60
+            Power line frequency (Hz) used for notch filtering if it cannot
+            be auto-detected from the recording. Pass the string "None" to
+            disable an explicit override.
+        surfaces_dir : str or None, default=None
+            Path to the FreeSurfer `subjects` directory, required when
+            `apply_source_localization` is enabled in the config (unless
+            an MRI template is used).
+        empty_room_recording_path : str or None, default=None
+            Path to the subject's empty-room recording, used for noise
+            pre-whitening. May contain a glob pattern. Particularly
+            relevant when source localization is applied to recordings
+            with both magnetometers and gradiometers.
+        event_record : str or None, default=None
+            Path to the event file for this subject, resolved via glob if
+            a pattern is provided. Used together with `event_of_interest`
+            to extract epochs around specific events.
+        event_of_interest : str or None, default=None
+            Event ID to extract epochs around (e.g. "16"). Only used if
+            `event_record` is also provided.
 
     Notes
     -----
-    - The empty room recording is particularly useful for recordings with both magnetometer
-      and gradiometer sensors when performing source localization.
+    Several optional arguments accept the literal string "None" as a way
+    to explicitly disable a default from the command line; `main` converts
+    these strings to Python `None` after parsing.
     """
     parser = argparse.ArgumentParser()
 
@@ -103,32 +133,43 @@ def main_argparser(args=None):
 
 def set_logger(args, pakcages_to_silent):
     """
-    Set up a logger for the experiment or script, writing logs to a file
-    and silencing specified packages.
+    Configure a per-subject file logger and silence noisy dependencies.
+
+    Removes any existing root logging handlers, then configures logging to
+    write INFO-level (and above) messages to a subject-specific log file,
+    while restricting specified third-party packages to WARNING level to
+    reduce log verbosity from dependencies like MNE.
 
     Parameters
     ----------
     args : argparse.Namespace
-        Arguments namespace containing at least `save_dir` and `subject` attributes.
-        - `args.save_dir` : str
-            Base directory where log files will be saved.
-        - `args.subject` : str
-            Subject identifier, used to name the log file.
+        Parsed arguments (as returned by `main_argparser`), of which this
+        function uses:
+
+        save_dir : str
+            Base output directory. The log file is written to
+            `<parent of save_dir>/Saved_outputs/log_summary/`.
+        subject : str
+            Subject identifier, used to name the log file as
+            `subject_<subject>_report.log`.
     pakcages_to_silent : list of str
-        List of package names whose logging level should be set to WARNING
-        to reduce verbosity.
+        Names of logging namespaces (typically third-party package names,
+        e.g. "mne", "numexpr", "dipy") whose log level should be raised to
+        WARNING so their INFO/DEBUG messages are suppressed.
 
     Returns
     -------
     logging.Logger
-        Configured logger instance.
+        A logger for the current module (`__name__`), writing to the
+        configured subject-specific log file in write mode (overwriting
+        any prior log for the same subject).
 
     Notes
     -----
-    - The logger writes to a file named `subject_<subject>_report.log`
-      in a `log_summary` folder inside `args.save_dir`.
-    - Existing root handlers are removed before setting up the new logger.
-    - Silenced packages will not log INFO or DEBUG messages.
+    The log directory is created if it does not already exist. Because
+    root handlers are cleared before reconfiguration, calling this
+    function more than once per process will reset logging for the whole
+    run, not just for this module.
     """
     save_dir = os.path.join(Path(args.save_dir).parent, "Saved_outputs", "log_summary")
 
@@ -154,54 +195,32 @@ def set_logger(args, pakcages_to_silent):
 
 def main(args):
     """
-    Main function for running a complete spectral feature extraction pipeline
-    using serialized or parallelized workflows.
+    Run the full spectral feature extraction pipeline for one subject.
 
-    This function processes raw MEG/EEG recordings through a pipeline that includes
-    preprocessing, segmentation, PSD computation, spectral parameterization using FOOOF,
-    and feature extraction. The resulting features are saved to a CSV file.
+    Loads raw MEG/EEG/OPM data and processes it end-to-end: channel
+    cleanup, filtering, ICA/GEDAI and environmental noise correction,
+    head-movement correction, segmentation with optional Autoreject
+    bad-segment removal, optional source localization, PSD computation
+    with FOOOF/IRASA spectral parametrization, and band-power feature
+    extraction. Extracted features are saved to a per-subject CSV.
 
-    Positional Arguments (from command line)
-    ----------------------------------------
-    dir : str
-        Path to the raw MEG/EEG data file or directory.
-    save_dir : str
-        Directory where the extracted features will be saved.
-    subject : str
-        Subject or participant identifier used for file naming and tracking.
+    Parameters
+    ----------
+    args : list of str
+        Raw command-line arguments (typically `sys.argv[1:]`), parsed
+        via `main_argparser`. See that function for full argument details.
 
-    Optional Arguments
-    ------------------
-    --configs : str, optional
-        Path to a JSON configuration file specifying preprocessing, segmentation,
-        PSD, and FOOOF parameters. If not provided, a default configuration is used.
-
-    Workflow Overview
-    -----------------
-    1. Loads raw MEG/EEG data.
-    2. Applies channel type mapping and sets EEG montage (if applicable).
-    3. Removes bad channels using Maxwell filtering (for MEG).
-    4. Applies preprocessing steps such as bandpass filtering and ICA.
-    5. Segments the continuous data into epochs.
-    6. Computes the Power Spectral Density (PSD) for each epoch and channel.
-    7. Fits FOOOF models to each PSD to decompose into periodic and aperiodic components.
-    8. Extracts spectral features across predefined frequency bands.
-    9. Saves the extracted features as a CSV file to the specified output directory.
+    Returns
+    -------
+    None
 
     Notes
     -----
-    - Supports both EEG and MEG modalities.
-    - Compatible with various MEG/EEG file formats supported by MNE.
-    - Can be run in serial mode or in parallel environments (e.g., SLURM-based clusters).
-
-    Raises
-    ------
-    FileNotFoundError
-        If required montage or channel information is missing.
-    ValueError
-        If an unsupported sensor type or PSD method is defined in the configuration.
-    RuntimeError
-        If data loading fails due to unsupported or corrupted formats.
+    - Device is inferred from the file path/extension (BTI/4D, CTF, or
+      MEGIN/fif); only one matched session is used even if the glob
+      pattern resolves multiple recordings.
+    - Line frequency comes from recording metadata, then `--line_freq`,
+      defaulting to 60 Hz.
     """
     # parse the arguments
     args = main_argparser(args)

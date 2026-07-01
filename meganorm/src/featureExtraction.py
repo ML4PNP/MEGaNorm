@@ -491,6 +491,9 @@ def feature_extract(
     min_r_squared : float
         Minimum acceptable R-squared value for FOOOF model fitting. Channels with
         R-squared values below this threshold are excluded.
+    power_band_ratios_list : List[tuple]
+        List of ratio specifications (each exposing `numerator` and `denominator`
+        band names) for which band-power ratio features should be computed.
 
     Returns
     -------
@@ -503,9 +506,8 @@ def feature_extract(
     ValueError
         If `aperiodic_mode` is not 'knee' or 'fixed'.
     TypeError
-        If `spectral_models` is not an instance of f.FOOOF.
-    ValueError
-        If `min_r_squared` is not between 0 and 1.
+        If `spectral_models` is not an instance of f.FOOOF or
+        pyrasa.irasa_mne.mne_objs.IrasaEpoched.
     """
 
     if aperiodic_mode not in ["knee", "fixed"]:
@@ -819,36 +821,111 @@ def feature_extract(
 
 
 class SpectralDecomposer(ABC):
-    """Abstract base class for spectral decomposition methods"""
+    """Abstract base class for spectral decomposition methods."""
 
     @abstractmethod
     def get_aperiodic_params(self):
-        """Return aperiodic parameters (offset, exponent, knee if applicable)"""
+        """
+        Return the fitted aperiodic parameters.
+
+        Returns
+        -------
+        list
+            Aperiodic parameters in the order [offset, exponent] for
+            'fixed' mode, or [offset, exponent_1, exponent_2] for
+            'knee' mode.
+        """
         pass
 
     @abstractmethod
     def get_periodic_spectrum(self, original_psds):
-        """Return isolated periodic component"""
+        """
+        Isolate the periodic component of the power spectrum by removing
+        the fitted aperiodic component.
+
+        Parameters
+        ----------
+        original_psds : np.ndarray
+            Original power spectral density values, shape
+            (n_channels, n_freqs).
+
+        Returns
+        -------
+        np.ndarray
+            Periodic (flattened) power spectrum for the current channel,
+            shape (n_freqs,).
+        """
         pass
 
     @abstractmethod
     def get_peak_params(self, fmin, fmax):
-        """Return peak parameters"""
+        """
+        Return peak parameters within a given frequency range.
+
+        Parameters
+        ----------
+        fmin : float
+            Lower bound of the frequency range.
+        fmax : float
+            Upper bound of the frequency range.
+
+        Returns
+        -------
+        dominant_peak : tuple or None
+            Parameters (center frequency, power, width) of the dominant
+            peak in the range, or None if no peak is found.
+        band_peaks : list of tuple or None
+            All peaks found within the frequency range, or None if none
+            are found.
+        """
         pass
 
     @abstractmethod
     def get_r_squared(self):
-        """Return goodness of fit metric"""
+        """
+        Return the goodness-of-fit metric for the spectral model.
+
+        Returns
+        -------
+        float
+            R-squared value of the model fit.
+        """
         pass
 
 
 class FOOOFDecomposer(SpectralDecomposer):
+    """Spectral decomposer wrapping a FOOOF model for a single channel."""
+
     def __init__(self, fooof_model, mode, ch_num):
+        """
+        Parameters
+        ----------
+        fooof_model :
+            Group of FOOOF models, one per channel.
+        mode : str
+            Aperiodic fitting mode, either 'knee' or 'fixed'.
+        ch_num : int
+            Index of the channel to decompose.
+        """
         self.ch_num = ch_num
         self.model = fooof_model.get_fooof(ind=ch_num)
         self.mode = mode
 
     def get_aperiodic_params(self):
+        """
+        Return the aperiodic parameters for the channel's FOOOF fit.
+
+        Returns
+        -------
+        list
+            [offset, exponent], with exponent taken from the correct
+            index depending on `mode`.
+
+        Raises
+        ------
+        ValueError
+            If `mode` is not 'knee' or 'fixed'.
+        """
 
         reordered_params = []
         params = self.model.get_params("aperiodic_params")
@@ -869,10 +946,45 @@ class FOOOFDecomposer(SpectralDecomposer):
         return reordered_params
 
     def get_periodic_spectrum(self, original_psds):
+        """
+        Compute the periodic component by subtracting the fitted
+        aperiodic component (in log space) from the original PSD.
+
+        Parameters
+        ----------
+        original_psds : np.ndarray
+            Original power spectral density values, shape
+            (n_channels, n_freqs).
+
+        Returns
+        -------
+        np.ndarray
+            Periodic power spectrum for the channel, shape (n_freqs,).
+        """
         original_psd = original_psds[self.ch_num, :]
         return original_psd - 10**self.model._ap_fit
 
     def get_peak_params(self, fmin, fmax):
+        """
+        Extract the dominant peak and all peaks within a frequency band
+        from the FOOOF model's peak parameters.
+
+        Parameters
+        ----------
+        fmin : float
+            Lower bound of the frequency band.
+        fmax : float
+            Upper bound of the frequency band.
+
+        Returns
+        -------
+        dominant_peak : tuple or None
+            (center frequency, power, width) of the peak with maximum
+            power within the band, or None if no valid peak is found.
+        band_peaks : list of tuple or None
+            All non-NaN peaks within the frequency band, or None if
+            none are found.
+        """
 
         peaks = self.model.get_params("peak_params")
 
@@ -893,11 +1005,40 @@ class FOOOFDecomposer(SpectralDecomposer):
         return dominant_peak, band_peaks
 
     def get_r_squared(self):
+        """
+        Return the R-squared value of the FOOOF model fit.
+
+        Returns
+        -------
+        float
+            R-squared value.
+        """
         return self.model.r_squared_
 
 
 class PYRASADecomposer(SpectralDecomposer):
+    """
+    Spectral decomposer wrapping a PYRASA (IRASA) model for a single
+    channel.
+    """
+
     def __init__(self, model, mode, ch_name, ch_num, aperiodic):
+        """
+        Parameters
+        ----------
+        model :
+            PYRASA IrasaEpoched model containing periodic and aperiodic
+            components for all channels.
+        mode : str
+            Aperiodic fitting mode, either 'knee' or 'fixed'.
+        ch_name : str
+            Name of the channel to decompose.
+        ch_num : int
+            Index of the channel to decompose.
+        aperiodic :
+            Fitted aperiodic model object containing aperiodic
+            parameters and goodness-of-fit statistics per channel.
+        """
         self.mode = mode
         self.model = model
         self.aperiodic = aperiodic
@@ -905,6 +1046,15 @@ class PYRASADecomposer(SpectralDecomposer):
         self.ch_num = ch_num
 
     def get_aperiodic_params(self):
+        """
+        Return the aperiodic parameters for the channel from the fitted
+        aperiodic model.
+
+        Returns
+        -------
+        list
+            [offset, exponent_1, exponent_2] for the channel.
+        """
 
         aperiodic_params = self.aperiodic.aperiodic_params
         aperiodic_params_of_interest = aperiodic_params[
@@ -922,12 +1072,49 @@ class PYRASADecomposer(SpectralDecomposer):
         return params
 
     def get_periodic_spectrum(self, original_psds=None):
+        """
+        Return the periodic component of the spectrum for the channel
+        as computed by PYRASA.
+
+        Parameters
+        ----------
+        original_psds : np.ndarray, optional
+            Unused; present for interface compatibility.
+
+        Returns
+        -------
+        np.ndarray
+            Periodic power spectrum for the channel, shape (n_freqs,).
+        """
         # print(self.model.periodic.get_data().squeeze().shape)
         return self.model.periodic.get_data().squeeze()[self.ch_num, :]
 
     def get_peak_params(self, fmin, fmax):
+        """
+        Placeholder for peak parameter extraction (not implemented for
+        PYRASA models).
+
+        Parameters
+        ----------
+        fmin : float
+            Lower bound of the frequency band.
+        fmax : float
+            Upper bound of the frequency band.
+
+        Returns
+        -------
+        None, None
+        """
         return None, None  # TODO
 
     def get_r_squared(self):
+        """
+        Return the R-squared value of the aperiodic fit for the channel.
+
+        Returns
+        -------
+        float
+            R-squared value.
+        """
         gof = self.aperiodic.gof
         return gof[gof["ch_name"] == self.ch_name]["R2"].item()
