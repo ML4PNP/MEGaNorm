@@ -468,24 +468,32 @@ def auto_parallel_feature_extraction(
     ----------
     mainParallel_path : str
         Path to the `mainParallel.py` script that will be executed in parallel for each subject.
-    features_dir : str
-        Path to the directory where the feature extraction results and temporary files will be saved.
-    subjects : dict
-        A dictionary of subject names (keys) and their corresponding file paths (values).
+    project_dir : str
+        Root project directory containing the Features directory where
+        results, temporary files, and configuration are stored.
+    datasets : dict
+        Mapping of dataset names to dataset metadata (e.g., base
+        directory, surfaces directory), used to locate subjects and
+        merge them via glob patterns.
     job_configs : dict
         Dictionary containing job configuration settings (e.g., memory, time, partition, etc.).
-    config_file : str
+    config_file_path : str
         Path to a JSON configuration file containing additional settings for the feature extraction jobs.
-
-    TODO
-
-
+    which_subjects : list or None, optional
+        If provided, restrict processing to these subject IDs only.
+        Default is None.
     username : str, optional
         The SLURM username. If not provided, it will be fetched from the environment. Default is None.
     auto_rerun : bool, optional
         Whether to automatically rerun failed jobs. Default is True.
     auto_collect : bool, optional
         Whether to automatically collect and merge results after job completion. Default is True.
+    freesurfer_home : str or None, optional
+        Path to the FreeSurfer installation directory, passed to each
+        submitted job. Default is None.
+    freesurfer_license : str or None, optional
+        Path to the FreeSurfer license file, passed to each submitted
+        job. Default is None.
     max_try : int, optional
         The maximum number of retry attempts for failed jobs. Default is 3.
 
@@ -494,6 +502,19 @@ def auto_parallel_feature_extraction(
     list
         A list of failed jobs after all attempts. If no jobs failed, the list will be empty.
 
+    Notes
+    -----
+    - Subjects missing a resting-state recording, failing MRI QC (when
+      source localization and MRI QC are enabled without a template),
+      or not present in `which_subjects` are excluded before submission.
+      Excluded subject lists are written as JSON files under
+      `Features/excluded_participants`.
+    - Runner parameters are persisted to
+      `Features/Configurations/runner_params.json` before job
+      submission.
+    - If `auto_collect` is True, per-subject results are merged and
+      combined with demographic data into
+      `Features/all_features.csv`.
     """
     features_dir = os.path.join(project_dir, "Features")
     subjects = merge_datasets_with_glob(datasets)
@@ -631,7 +652,6 @@ def auto_parallel_feature_extraction(
 
     return failed_jobs
 
-
 def sbatch_feature_extraction_runner(
     project_dir,
     datasets,
@@ -646,6 +666,64 @@ def sbatch_feature_extraction_runner(
     max_try=5,
     which_subjects=None,
 ):
+    """
+    Set up and generate a SLURM sbatch script that launches the full
+    parallel feature-extraction pipeline as a single driver job.
+
+    Creates the project's Features directory structure, saves the
+    pipeline configuration (custom or default), serializes all runner
+    parameters needed by `auto_parallel_feature_extraction` to a JSON
+    file, and writes an sbatch script that runs the parallel driver
+    when submitted to the scheduler.
+
+    Parameters
+    ----------
+    project_dir : str
+        Root project directory in which the Features directory and
+        outputs will be created.
+    datasets : dict
+        Mapping of dataset names to dataset metadata (e.g., base
+        directory, surfaces directory), used to locate subjects and
+        anatomical data.
+    job_configs : dict
+        SLURM job configuration, including keys such as "partition",
+        "module", and "slurm_username". Updated in place with the
+        computed "log_path".
+    config_file : Config or None, optional
+        A `meganorm.utils.IO.Config` instance specifying pipeline
+        settings. If None, a default `Config` is created and saved.
+        Default is None.
+    time : str, optional
+        Maximum wall time for the sbatch driver job (format
+        "HH:MM:SS"). Default is "48:00:00".
+    mem : str, optional
+        Memory allocation for the sbatch driver job (e.g., "16GB").
+        Default is "16GB".
+    freesurfer_home : str or None, optional
+        Path to the FreeSurfer installation directory, passed through
+        to per-subject jobs. Default is None.
+    freesurfer_license : str or None, optional
+        Path to the FreeSurfer license file, passed through to
+        per-subject jobs. Default is None.
+    auto_rerun : bool, optional
+        Whether failed per-subject jobs should be automatically
+        resubmitted. Default is True.
+    auto_collect : bool, optional
+        Whether results should be automatically collected and merged
+        after job completion. Default is True.
+    max_try : int, optional
+        Maximum number of rerun attempts for failed jobs. Default is 5.
+    which_subjects : list or None, optional
+        Optional list restricting processing to specific subject IDs.
+        Default is None.
+
+    Returns
+    -------
+    None
+        Writes `runner_params.json` and
+        `feature_extraction_runner.sbatch` to the project's Features
+        directory.
+    """
 
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path

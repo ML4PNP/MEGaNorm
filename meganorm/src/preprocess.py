@@ -1067,6 +1067,31 @@ def drop_noisy_meg_channels(
 
 
 def apply_chpi(meg_data, movement_limit, head_pos_save_path, device):
+    """
+    Estimate and save continuous head position from cHPI coils.
+
+    Computes cHPI coil amplitudes and locations (using the appropriate
+    method for MEGIN vs. CTF systems), derives head position over
+    time, annotates excessive movement relative to `movement_limit`,
+    and writes the head position estimates to disk.
+
+    Parameters
+    ----------
+    meg_data : mne.io.Raw
+        Raw MEG data containing cHPI coil information.
+    movement_limit : float
+        Mean distance limit (in meters) used to annotate periods of
+        excessive head movement.
+    head_pos_save_path : str
+        Path where the computed head position data will be written.
+    device : {"fif", "ds"}
+        Recording system type, used to select the appropriate cHPI
+        location extraction method.
+
+    Returns
+    -------
+    None
+    """
 
     if meg_data.info["hpi_results"]:
 
@@ -1317,6 +1342,28 @@ def drop_noisy_segments(segments, z_thr):
 
 
 def pca_elbow_locator(raw, which_sensor):
+    """
+    Estimate the number of ICA/PCA components to retain using the
+    explained-variance elbow of a PCA decomposition.
+
+    Selects MEG and/or EEG channels per `which_sensor`, fits a PCA on
+    the resulting data, and locates the "elbow" of the explained
+    variance ratio curve using the Kneedle algorithm.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Raw MEG/EEG data.
+    which_sensor : dict
+        Dictionary indicating which sensor types to include (e.g.,
+        {'meg': True, 'mag': True, 'grad': True, 'eeg': False}).
+
+    Returns
+    -------
+    int
+        The estimated number of components at the elbow of the
+        explained variance curve, with a minimum enforced value of 30.
+    """
 
     raw = raw.copy().pick_types(
         meg=which_sensor["meg"] or which_sensor["mag"] or which_sensor["grad"],
@@ -1351,7 +1398,36 @@ def pca_elbow_locator(raw, which_sensor):
     return int(elbow_index)
 
 
+
 def drop_mag_or_grad(data, empty_room_recording, which_sensor):
+    """
+    Drop either magnetometer or gradiometer channels, keeping only one
+    MEG channel type.
+
+    If `which_sensor['grad']` is True, magnetometer channels are
+    dropped; if `which_sensor['mag']` is True, gradiometer channels
+    are dropped. Applied to both `data` and, if provided,
+    `empty_room_recording`.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG data containing both magnetometer and gradiometer
+        channels.
+    empty_room_recording : mne.io.Raw or None
+        Corresponding empty-room recording, or None.
+    which_sensor : dict
+        Dictionary indicating which single MEG channel type to retain
+        via keys 'mag' and 'grad'.
+
+    Returns
+    -------
+    data : mne.io.Raw
+        Data with the unwanted MEG channel type removed.
+    empty_room_recording : mne.io.Raw or None
+        Empty-room recording with the same channels removed, or None
+        if not provided.
+    """
 
     # since pick_channels can not seperate mag and grad signals
     # if not (which_sensor["meg"] or which_sensor["eeg"]):
@@ -1381,7 +1457,23 @@ def drop_mag_or_grad(data, empty_room_recording, which_sensor):
 
 
 def _chpi_usable(data, device):
-    """True only if continuous head-tracking can actually be fit from this file."""
+    """
+    Check whether continuous head-position tracking can be estimated
+    from the data for the given device.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG data to check for usable cHPI information.
+    device : {"MEGIN", "CTF", "KIT"}
+        Recording system type.
+
+    Returns
+    -------
+    bool
+        True if cHPI information usable for head-position estimation
+        is present, False otherwise.
+    """
     if device == "MEGIN":
         try:
             hpi_freqs, _, _ = mne.chpi.get_chpi_info(data.info, on_missing="ignore")
@@ -1534,7 +1626,53 @@ def remove_environmental_noise(
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
 ):
+    """
+    Suppress environmental (external) noise using a device-appropriate
+    strategy.
 
+    For CTF data, applies gradient compensation. For MEGIN data,
+    relies on tSSS if already applied. Otherwise, environmental noise
+    can be suppressed via SSP projectors computed from an empty-room
+    recording, or via reference-MEG-based ICA.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG/EEG data to clean.
+    device : {"CTF", "MEGIN", ...}
+        Recording system type, determining the default noise-removal
+        strategy.
+    empty_room_recording : mne.io.Raw, optional
+        Empty-room recording used for gradient compensation or SSP
+        projector estimation.
+    ctf_gradient_comp_level : int, optional
+        Gradient compensation grade to apply for CTF data. Default is 3.
+    apply_environmental_noise_ssp_with_eroom : bool, optional
+        Whether to compute and apply SSP projectors from the empty-room
+        recording. Default is False.
+    apply_environmental_noise_ica_with_ref_meg : bool, optional
+        Whether to use reference-MEG-based ICA to remove environmental
+        noise. Default is False.
+    environmental_noise_ica_with_ref_meg_thr : float, optional
+        Threshold used by `find_bads_ref` for identifying bad
+        components. Default is 2.5.
+    ica_if_reject_by_annotation : bool, optional
+        Whether to reject data by annotation when fitting the
+        reference-MEG ICA. Default is True.
+    environmental_noise_ica_with_ref_meg_method : {"together", "separate"}, optional
+        Strategy for combining reference-MEG and data channels during
+        ICA-based artifact detection. Default is "together".
+    environmental_noise_ica_with_ref_meg_measure : str, optional
+        Scoring measure used by `find_bads_ref`. Default is "zscore".
+
+    Returns
+    -------
+    data : mne.io.Raw
+        Data with environmental noise suppressed.
+    empty_room_recording : mne.io.Raw or None
+        Empty-room recording, updated if gradient compensation was
+        applied.
+    """
     # gradient compensation for CTF datasets
     if device == "CTF":
         data, empty_room_recording = apply_gradient_comp(
@@ -1595,6 +1733,42 @@ def find_ref_meg_artifact(
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
 ):
+    """
+    Identify and remove environmental-noise ICA components using
+    reference MEG channels.
+
+    Fits ICA jointly on MEG and reference-MEG channels (or separately,
+    depending on `environmental_noise_ica_with_ref_meg_method`) and
+    uses `ICA.find_bads_ref` to detect components correlated with
+    reference-channel activity.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG data containing reference MEG channels.
+    environmental_noise_ica_with_ref_meg_thr : float
+        Threshold passed to `find_bads_ref` for flagging bad
+        components.
+    ica_if_reject_by_annotation : bool, optional
+        Whether to reject data by annotation during ICA fitting.
+        Default is True.
+    environmental_noise_ica_with_ref_meg_method : {"together", "separate"}, optional
+        If "together", ICA is fit jointly on MEG and reference
+        channels. If "separate", a separate ICA is fit on reference
+        channels and its sources are added to the data before
+        artifact detection. Default is "together".
+    environmental_noise_ica_with_ref_meg_measure : str, optional
+        Scoring measure used by `find_bads_ref`. Default is "zscore".
+
+    Returns
+    -------
+    data : mne.io.Raw
+        Data with identified environmental-noise components removed.
+    bad_comps : list of int
+        Indices of ICA components excluded as environmental noise.
+    scores : ndarray
+        Scores computed by `find_bads_ref` for each component.
+    """
     data_tog = data.copy()
 
     all_picks = mne.pick_types(data_tog.info, meg=True, ref_meg=True)
@@ -1639,8 +1813,31 @@ def find_ref_meg_artifact(
 
     return data, bad_comps, scores
 
-
 def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier):
+    """
+    Validate parameter combinations for the GEDAI preprocessing method.
+
+    Parameters
+    ----------
+    method : {"broadband", "spectral", "both"}
+        GEDAI artifact removal strategy.
+    wavelet_level : int or "auto"
+        Number of wavelet decomposition levels.
+    duration : float or None
+        Segment duration required for broadband suppression.
+    broadband_multiplier : float or None
+        Noise multiplier required for the preliminary broadband pass
+        when `method` is "both".
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the parameter combination is invalid for the chosen method.
+    """
     if method == "broadband" and wavelet_level != 0:
         raise ValueError("broadband method requires wavelet_level=0")
     if method == "broadband" and not duration:
@@ -1654,6 +1851,36 @@ def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier
 
 
 def _gedai_clean_sensor_type(data, signal_type, fwd, gedai_params, plot=False):
+    """
+    Apply GEDAI artifact suppression to a single sensor type.
+
+    Selects channels of the given `signal_type`, fits and applies the
+    GEDAI algorithm using the supplied forward solution and
+    parameters, and optionally plots the fit diagnostics and an
+    overlay of cleaned vs. original signal.
+
+    Parameters
+    ----------
+    data : mne.io.Raw
+        Raw MEG/EEG data containing the sensor type to clean.
+    signal_type : {"mag", "grad", "eeg"}
+        Sensor type to isolate and clean.
+    fwd : mne.Forward or str
+        Forward solution (leadfield) used as the reference covariance
+        for GEDAI, or a placeholder string if unavailable.
+    gedai_params : dict
+        Dictionary of GEDAI configuration parameters (wavelet type,
+        wavelet level, cutoV frequencies, duration, overlap, noise
+        multipliers, etc.).
+    plot : bool, optional
+        If True, display GEDAI fit diagnostics and an interactive
+        before/after overlay. Default is False.
+
+    Returns
+    -------
+    mne.io.Raw
+        Cleaned data restricted to the given sensor type.
+    """
     temp_data = data.copy()
     if signal_type in ["mag", "grad"]:
         temp_data.pick_types(meg=signal_type)
@@ -1884,6 +2111,39 @@ def gedai_preprocess(
 
 
 def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
+    """
+    Annotate noisy or flat segments of raw data using a sliding-window
+    peak-to-peak amplitude criterion.
+
+    Slides a fixed-length window across the recording and flags
+    windows where any channel's peak-to-peak amplitude exceeds a
+    rejection threshold ('BAD_peak') or falls below a flatness
+    threshold ('BAD_flat'), separately for each specified channel
+    type.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Raw MEG/EEG data to scan for artifacts.
+    reject : dict or None, optional
+        Peak-to-peak amplitude rejection thresholds per channel type
+        (e.g., {'mag': 5000e-15, 'eeg': 40e-6}). If None, peak
+        rejection is skipped.
+    flat : dict or None, optional
+        Peak-to-peak amplitude flatness thresholds per channel type.
+        If None, flatness rejection is skipped.
+    window : float, optional
+        Window length in seconds used to evaluate each segment.
+        Default is 1.0.
+    step : float, optional
+        Step size in seconds between successive windows. Default is 0.5.
+
+    Returns
+    -------
+    mne.Annotations
+        Annotations marking 'BAD_peak' and 'BAD_flat' segments. Empty
+        if both `reject` and `flat` are None.
+    """
     if reject is None and flat is None:
         return mne.Annotations(onset=[], duration=[], description=[])
 
@@ -1972,6 +2232,68 @@ def auto_reject_segmentation(
     random_state=42,
     segment_events=None,
 ):
+    """
+    Segment continuous data into fixed-length epochs and clean them
+    using AutoReject.
+
+    Crops the raw data (or uses precomputed segment events), builds
+    fixed-length epochs, and fits AutoReject to automatically
+    interpolate or reject noisy epochs.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Continuous MEG/EEG recording.
+    sampling_rate : float
+        Sampling rate of the data in Hz.
+    tmin : float, optional
+        Start time (in seconds) for cropping the raw data when
+        `segment_events` is None. Default is 20.
+    tmax : float, optional
+        End time offset (in seconds, must be negative) from the end of
+        the recording, used for cropping when `segment_events` is
+        None. Default is -20.
+    segments_length : float, optional
+        Length of each epoch in seconds. Default is 10.
+    overlap : float, optional
+        Overlap between successive fixed-length events in seconds.
+        Default is 0.
+    ica_if_reject_by_annotation : bool, optional
+        Whether to reject data by annotation when building epochs.
+        Default is True.
+    n_interpolates : ndarray, optional
+        Candidate numbers of channels to interpolate, passed to
+        AutoReject. Default is [1, 4, 8, 16, 32].
+    consensus_percs : ndarray, optional
+        Candidate consensus percentages, passed to AutoReject. Default
+        is `np.linspace(0, 1.0, 11)`.
+    cv : int or "auto", optional
+        Number of cross-validation folds for AutoReject. If "auto",
+        set based on the number of epochs (clamped between 2 and 10).
+        Default is "auto".
+    thresh_method : str, optional
+        Threshold optimization method used by AutoReject. Default is
+        "bayesian_optimization".
+    random_state : int, optional
+        Random seed for AutoReject. Default is 42.
+    segment_events : ndarray or None, optional
+        Precomputed MNE-style events array defining epoch onsets. If
+        provided, `tmin`/`tmax` cropping is skipped.
+
+    Returns
+    -------
+    epochs_clean : mne.Epochs
+        Epochs after AutoReject interpolation/rejection.
+    reject_log : autoreject.RejectLog
+        Log describing which epochs/channels were interpolated or
+        dropped.
+
+    Raises
+    ------
+    ValueError
+        If `tmax` is not negative, if no epochs could be created, or
+        if fewer than 3 epochs are available for AutoReject.
+    """
 
     if tmax >= 0:
         raise ValueError("The 'tmax' must be a negative number")
@@ -2067,7 +2389,42 @@ def auto_reject_segmentation(
 def extract_rs_blocks(
     raw, events, rs_id, sampling_rate, segments_length, overlap, seg_event_id=1
 ):
+    """
+    Extract and concatenate resting-state blocks from continuous data
+    and generate fixed-length segment events within them.
 
+    Identifies contiguous blocks bounded by events matching `rs_id`,
+    discards blocks shorter than `segments_length`, concatenates the
+    retained blocks, and generates a new fixed-length events array
+    (with overlap) within each retained block.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Continuous MEG/EEG recording.
+    events : ndarray, shape (n_events, 3)
+        MNE-style events array marking block boundaries.
+    rs_id : int
+        Event ID marking the start of a resting-state block of interest.
+    sampling_rate : float
+        Sampling rate of the data in Hz.
+    segments_length : float
+        Desired length of each output segment, in seconds. Blocks
+        shorter than this are discarded.
+    overlap : float
+        Overlap between successive segments within a block, in seconds.
+    seg_event_id : int, optional
+        Event ID to assign to the generated segment events. Default is 1.
+
+    Returns
+    -------
+    rs_raw : mne.io.Raw
+        Concatenated raw data containing only the retained
+        resting-state blocks.
+    seg_events : ndarray, shape (n_segments, 3)
+        MNE-style events array marking fixed-length segment onsets
+        within `rs_raw`.
+    """
     first_samp = raw.first_samp
     max_time = raw.times[-1]
 
