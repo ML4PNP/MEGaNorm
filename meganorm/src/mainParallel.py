@@ -9,108 +9,170 @@ import pandas as pd
 from pathlib import Path
 import glob
 from datetime import datetime
-from meganorm.src.source_localization import source_localization, numpy_to_mne_raw
-from meganorm.utils.IO import storeFooofModels, Config
+from meganorm.src.source_localization import source_localization, numpy_to_mne_epoch
+from meganorm.utils.IO import Config
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
     drop_noisy_meg_channels,
     prepare_eeg_data,
-    auto_reject_segmentation
+    auto_reject_segmentation,
 )
 from meganorm.src.psdParameterize import parameterize_psds
 from meganorm.src.featureExtraction import feature_extract
 
 
-
 def main_argparser(args=None):
     """
-    Create and parse command-line arguments for the feature extraction script.
+    Build and parse command-line arguments for the feature extraction script.
+
+    Defines the positional and optional arguments needed to run a single
+    subject through the preprocessing, source localization, and spectral
+    feature extraction pipeline, and parses them into a namespace.
 
     Parameters
     ----------
     args : list of str or None, optional
-        List of arguments to parse. If None, parses arguments from `sys.argv`.
+        List of argument strings to parse. If None, arguments are read
+        from `sys.argv` (default behavior for command-line invocation).
 
     Returns
     -------
     argparse.Namespace
-        Namespace containing the parsed command-line arguments:
-        - `dir` : str
-            Path to the input data directory.
-        - `save_dir` : str
-            Directory where extracted features will be saved.
-        - `subject` : str
-            Participant identifier.
-        - `surfaces_dir` : str or None
-            Path to the FreeSurfer surfaces directory (used for source localization). Default is None.
-        - `empty_room_recording_path` : str or None
-            Path to subject's empty room recording for pre-whitening. Default is None.
-        - `configs` : str or None
-            Path to optional configuration file. Default is None.
+        Namespace containing the parsed arguments:
+
+        dir : str
+            Path to the subject's raw data. May contain a glob pattern
+            (using "*" as a separator) when multiple recordings/sessions
+            are present; the session used is selected via
+            `configs.which_meg_session`.
+        save_dir : str
+            Directory where extracted features (and, depending on config,
+            logs, PSDs, and source-localized epochs) will be saved.
+        subject : str
+            Subject/participant identifier, used for file naming, logging,
+            and locating subject-specific FreeSurfer data.
+        configs : str
+            Path to a JSON file (loadable via `Config.load`) specifying
+            preprocessing, segmentation, source localization, PSD, and
+            feature extraction parameters.
+        line_freq : int or str, default=60
+            Power line frequency (Hz) used for notch filtering if it cannot
+            be auto-detected from the recording. Pass the string "None" to
+            disable an explicit override.
+        surfaces_dir : str or None, default=None
+            Path to the FreeSurfer `subjects` directory, required when
+            `apply_source_localization` is enabled in the config (unless
+            an MRI template is used).
+        empty_room_recording_path : str or None, default=None
+            Path to the subject's empty-room recording, used for noise
+            pre-whitening. May contain a glob pattern. Particularly
+            relevant when source localization is applied to recordings
+            with both magnetometers and gradiometers.
+        event_record : str or None, default=None
+            Path to the event file for this subject, resolved via glob if
+            a pattern is provided. Used together with `event_of_interest`
+            to extract epochs around specific events.
+        event_of_interest : str or None, default=None
+            Event ID to extract epochs around (e.g. "16"). Only used if
+            `event_record` is also provided.
 
     Notes
     -----
-    - The empty room recording is particularly useful for recordings with both magnetometer
-      and gradiometer sensors when performing source localization.
+    Several optional arguments accept the literal string "None" as a way
+    to explicitly disable a default from the command line; `main` converts
+    these strings to Python `None` after parsing.
     """
     parser = argparse.ArgumentParser()
-    
+
     # Positional Arguments
     parser.add_argument("dir", type=str, help="Address to your data")
     parser.add_argument("save_dir", type=str, help="Where to save extracted features")
     parser.add_argument("subject", type=str, help="Participant ID")
-    parser.add_argument("configs", type=str) # TODO: make it optional for both sequential and parallel computing
+    parser.add_argument(
+        "configs", type=str
+    )  # TODO: make it optional for both sequential and parallel computing
     # Optional arguments
-    parser.add_argument("--line_freq", default=60,
-                        help="The line power frequency; This will be used for notch filter." \
-                        " If None is passed, 60 Hz will be used.")
-    parser.add_argument("--surfaces_dir", type=str, default=None,
-                        help="If you need to apply source localization, set this to the"\
-                        "directory in which freesurfer results are saved")
-    parser.add_argument("--empty_room_recording_path", type=str, default=None,
-                        help="This the path to subjetc's empty room recording. Although not" \
-                        " it can be helpful for pre-whitennin the data. Note that empty room" \
-                        " room recordings are necessary for applying source localization" \
-                        " to recordings with both magnetometer and gradiometer.")
-    
+    parser.add_argument(
+        "--line_freq",
+        default=60,
+        help="The line power frequency; This will be used for notch filter."
+        " If None is passed, 60 Hz will be used.",
+    )
+    parser.add_argument(
+        "--surfaces_dir",
+        type=str,
+        default=None,
+        help="If you need to apply source localization, set this to the"
+        "directory in which freesurfer results are saved",
+    )
+    parser.add_argument(
+        "--empty_room_recording_path",
+        type=str,
+        default=None,
+        help="This the path to subjetc's empty room recording. Although not"
+        " it can be helpful for pre-whitennin the data. Note that empty room"
+        " room recordings are necessary for applying source localization"
+        " to recordings with both magnetometer and gradiometer.",
+    )
+    parser.add_argument(
+        "--event_record",
+        type=str,
+        default=None,
+        help="Path to the event file for this subject (glob-resolved).",
+    )
+    parser.add_argument(
+        "--event_of_interest",
+        type=str,
+        default=None,
+        help="Event ID of interest for epoch extraction (e.g., '16').",
+    )
 
     return parser.parse_args(args)
 
 
 def set_logger(args, pakcages_to_silent):
     """
-    Set up a logger for the experiment or script, writing logs to a file 
-    and silencing specified packages.
+    Configure a per-subject file logger and silence noisy dependencies.
+
+    Removes any existing root logging handlers, then configures logging to
+    write INFO-level (and above) messages to a subject-specific log file,
+    while restricting specified third-party packages to WARNING level to
+    reduce log verbosity from dependencies like MNE.
 
     Parameters
     ----------
     args : argparse.Namespace
-        Arguments namespace containing at least `save_dir` and `subject` attributes.
-        - `args.save_dir` : str
-            Base directory where log files will be saved.
-        - `args.subject` : str
-            Subject identifier, used to name the log file.
+        Parsed arguments (as returned by `main_argparser`), of which this
+        function uses:
+
+        save_dir : str
+            Base output directory. The log file is written to
+            `<parent of save_dir>/Saved_outputs/log_summary/`.
+        subject : str
+            Subject identifier, used to name the log file as
+            `subject_<subject>_report.log`.
     pakcages_to_silent : list of str
-        List of package names whose logging level should be set to WARNING 
-        to reduce verbosity.
+        Names of logging namespaces (typically third-party package names,
+        e.g. "mne", "numexpr", "dipy") whose log level should be raised to
+        WARNING so their INFO/DEBUG messages are suppressed.
 
     Returns
     -------
     logging.Logger
-        Configured logger instance.
+        A logger for the current module (`__name__`), writing to the
+        configured subject-specific log file in write mode (overwriting
+        any prior log for the same subject).
 
     Notes
     -----
-    - The logger writes to a file named `subject_<subject>_report.log` 
-      in a `log_summary` folder inside `args.save_dir`.
-    - Existing root handlers are removed before setting up the new logger.
-    - Silenced packages will not log INFO or DEBUG messages.
+    The log directory is created if it does not already exist. Because
+    root handlers are cleared before reconfiguration, calling this
+    function more than once per process will reset logging for the whole
+    run, not just for this module.
     """
-    save_dir = os.path.join(Path(args.save_dir).parent,
-                                       "Saved_outputs", 
-                                       "log_summary")
-    
+    save_dir = os.path.join(Path(args.save_dir).parent, "Saved_outputs", "log_summary")
+
     os.makedirs(save_dir, exist_ok=True)
 
     for handler in logging.root.handlers[:]:
@@ -121,7 +183,7 @@ def set_logger(args, pakcages_to_silent):
         level=logging.INFO,
         filename=os.path.join(save_dir, f"subject_{args.subject}_report.log"),
         filemode="w",
-        format='%(name)s - %(levelname)s - %(funcName)s - %(message)s'
+        format="%(name)s - %(levelname)s - %(funcName)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
 
@@ -133,54 +195,32 @@ def set_logger(args, pakcages_to_silent):
 
 def main(args):
     """
-    Main function for running a complete spectral feature extraction pipeline
-    using serialized or parallelized workflows.
+    Run the full spectral feature extraction pipeline for one subject.
 
-    This function processes raw MEG/EEG recordings through a pipeline that includes
-    preprocessing, segmentation, PSD computation, spectral parameterization using FOOOF,
-    and feature extraction. The resulting features are saved to a CSV file.
+    Loads raw MEG/EEG/OPM data and processes it end-to-end: channel
+    cleanup, filtering, ICA/GEDAI and environmental noise correction,
+    head-movement correction, segmentation with optional Autoreject
+    bad-segment removal, optional source localization, PSD computation
+    with FOOOF/IRASA spectral parametrization, and band-power feature
+    extraction. Extracted features are saved to a per-subject CSV.
 
-    Positional Arguments (from command line)
-    ----------------------------------------
-    dir : str
-        Path to the raw MEG/EEG data file or directory.
-    save_dir : str
-        Directory where the extracted features will be saved.
-    subject : str
-        Subject or participant identifier used for file naming and tracking.
+    Parameters
+    ----------
+    args : list of str
+        Raw command-line arguments (typically `sys.argv[1:]`), parsed
+        via `main_argparser`. See that function for full argument details.
 
-    Optional Arguments
-    ------------------
-    --configs : str, optional
-        Path to a JSON configuration file specifying preprocessing, segmentation,
-        PSD, and FOOOF parameters. If not provided, a default configuration is used.
-
-    Workflow Overview
-    -----------------
-    1. Loads raw MEG/EEG data.
-    2. Applies channel type mapping and sets EEG montage (if applicable).
-    3. Removes bad channels using Maxwell filtering (for MEG).
-    4. Applies preprocessing steps such as bandpass filtering and ICA.
-    5. Segments the continuous data into epochs.
-    6. Computes the Power Spectral Density (PSD) for each epoch and channel.
-    7. Fits FOOOF models to each PSD to decompose into periodic and aperiodic components.
-    8. Extracts spectral features across predefined frequency bands.
-    9. Saves the extracted features as a CSV file to the specified output directory.
+    Returns
+    -------
+    None
 
     Notes
     -----
-    - Supports both EEG and MEG modalities.
-    - Compatible with various MEG/EEG file formats supported by MNE.
-    - Can be run in serial mode or in parallel environments (e.g., SLURM-based clusters).
-
-    Raises
-    ------
-    FileNotFoundError
-        If required montage or channel information is missing.
-    ValueError
-        If an unsupported sensor type or PSD method is defined in the configuration.
-    RuntimeError
-        If data loading fails due to unsupported or corrupted formats.
+    - Device is inferred from the file path/extension (BTI/4D, CTF, or
+      MEGIN/fif); only one matched session is used even if the glob
+      pattern resolves multiple recordings.
+    - Line frequency comes from recording metadata, then `--line_freq`,
+      defaulting to 60 Hz.
     """
     # parse the arguments
     args = main_argparser(args)
@@ -195,10 +235,14 @@ def main(args):
         args.empty_room_recording_path = None
     if args.surfaces_dir == "None":
         args.surfaces_dir = None
+    if args.event_record == "None":
+        args.event_record = None
+    if args.event_of_interest == "None":
+        args.event_of_interest = None
 
     configs = Config.load(args.configs)
 
-    if configs.apply_source_localization:
+    if configs.apply_source_localization and not configs.apply_mri_template:
         freesurfer_data_path = os.path.join(args.surfaces_dir, args.subject)
         if not os.path.isdir(freesurfer_data_path):
             error_msg = f"The Freesurfer file corresponding to this subject is not found in {freesurfer_data_path}."
@@ -209,19 +253,37 @@ def main(args):
     paths = list(filter(lambda x: len(x), paths))
     path = paths[configs.which_meg_session]
 
+    current = Path(args.save_dir)
+    project_dir = current.parent
+
     if args.empty_room_recording_path:
         empty_room_recording_paths = args.empty_room_recording_path.split("*")
-        empty_room_recording_paths = list(filter(lambda x: len(x), empty_room_recording_paths))
+        empty_room_recording_paths = list(
+            filter(lambda x: len(x), empty_room_recording_paths)
+        )
         empty_room_recording_path = empty_room_recording_paths[0]
     else:
         empty_room_recording_path = None
-    
-    logger.warning(f"{len(paths)} recordings were detected for this subject. The first one" \
-                    " will be used in this analysis.")
-    
+
+    if args.event_record:
+        event_record_paths = args.event_record.split("*")
+        event_record_paths = list(filter(lambda x: len(x), event_record_paths))
+        event_record = event_record_paths[0]
+        event_of_interest = int(args.event_of_interest)
+    else:
+        event_record = None
+        event_of_interest = None
+
+    logger.warning(
+        f"{len(paths)} recordings were detected for this subject. The first one"
+        " will be used in this analysis."
+    )
+
     if not configs.which_sensor == "eeg":
-        if "4D" in path: # TODO: it was originaly path[0]. Check if this correction is correct.
-            device = "BTI" 
+        if (
+            "4D" in path
+        ):  # TODO: it was originaly path[0]. Check if this correction is correct.
+            device = "BTI"
         elif path.split(".")[-1] == "ds":
             device = "CTF"
         elif path.split(".")[-1] == "fif":
@@ -231,13 +293,17 @@ def main(args):
             logger.error(err_msg)
             raise ValueError(err_msg)
     else:
-        device = path.split(".")[-1] # TODO: it was originaly path[0]. Check if this correction is correct.
-    
+        device = path.split(".")[
+            -1
+        ]  # TODO: it was originaly path[0]. Check if this correction is correct.
+
     # ------------------------------------------------------------
     if not device == "BTI":
         data = mne.io.read_raw(path, preload=True)
         if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw(empty_room_recording_path, preload=True)
+            empty_room_recording = mne.io.read_raw(
+                empty_room_recording_path, preload=True
+            )
             logger.info("Empty room recording was found")
         elif not empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = None
@@ -250,14 +316,14 @@ def main(args):
             pdf_fname=os.path.join(path, "c,rfDC"),
             config_fname=os.path.join(path, "config"),
             head_shape_fname=None,
-            preload=True
+            preload=True,
         )
         if empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = mne.io.read_raw_bti(
                 pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
                 config_fname=os.path.join(empty_room_recording_path, "config"),
                 head_shape_fname=None,
-                preload=True
+                preload=True,
             )
             logger.info("Empty room recording was found")
         elif not empty_room_recording_path and configs.apply_source_localization:
@@ -269,9 +335,12 @@ def main(args):
     # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")
     if not power_line_freq:
-        power_line_freq = args.line_freq
-        if not power_line_freq:
-            logger.warning("Power line frequency could not be detected; defaulting to 60 Hz.")
+        if args.line_freq is not None:
+            power_line_freq = int(args.line_freq)
+        else:
+            logger.warning(
+                "Power line frequency could not be detected; defaulting to 60 Hz."
+            )
             power_line_freq = 60
 
     # ------------------------------------------------------------
@@ -282,17 +351,28 @@ def main(args):
     which_sensor_dict[configs.which_sensor] = True
 
     # ------------------------------------------------------------
-    if configs.which_sensor in ["meg", "grad", "mag"] and configs.drop_noisy_flat_channel:
-        data, empty_room_recording = drop_noisy_meg_channels(data=data, 
-                                            subID=args.subject, 
-                                            args=args, 
-                                            device=device,
-                                            which_sensor=which_sensor_dict,
-                                            empty_room_recording=empty_room_recording)
-    
+    if (
+        configs.which_sensor in ["meg", "grad", "mag"]
+        and configs.drop_noisy_flat_channel
+    ):
+        data, empty_room_recording = drop_noisy_meg_channels(
+            data=data,
+            subID=args.subject,
+            args=args,
+            device=device,
+            which_sensor=which_sensor_dict,
+            empty_room_recording=empty_room_recording,
+        )
 
     # ------------------------------------------------------------
-    filtered_data, channel_names, sampling_rate, empty_room_recording, _ = preprocess(
+    (
+        filtered_data,
+        channel_names,
+        sampling_rate,
+        empty_room_recording,
+        _,
+        segment_events,
+    ) = preprocess(
         data=data,
         device=device,
         subject=args.subject,
@@ -314,19 +394,19 @@ def main(args):
         muscle_activity_filter_freq=configs.muscle_activity_filter_freq,
         muscle_activity_thr=configs.muscle_activity_thr,
         apply_ica_elbow_detection=configs.apply_ica_elbow_detection,
-        apply_oversampled_temporal_projection = configs.apply_oversampled_temporal_projection,
+        apply_oversampled_temporal_projection=configs.apply_oversampled_temporal_projection,
         apply_Head_movement_correction=configs.apply_Head_movement_correction,
-        Head_movement_limit_from_mean = configs.Head_movement_limit_from_mean,
-        apply_chpi_filter = configs.apply_chpi_filter,
-        apply_environmental_noise_correction = configs.apply_environmental_noise_correction,
-        ctf_gradient_comp_level = configs.ctf_gradient_comp_level,
-        apply_environmental_noise_ssp_with_eroom = configs.apply_environmental_noise_ssp_with_eroom,
-        apply_environmental_noise_ica_with_ref_meg = configs.apply_environmental_noise_ica_with_ref_meg,
-        environmental_noise_ica_with_ref_meg_thr = configs.environmental_noise_ica_with_ref_meg_thr,
-        ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
-        environmental_noise_ica_with_ref_meg_method = configs.environmental_noise_ica_with_ref_meg_method,
-        environmental_noise_ica_with_ref_meg_measure = configs.environmental_noise_ica_with_ref_meg_measure,
-        apply_gedai = configs.apply_gedai,
+        Head_movement_limit_from_mean=configs.Head_movement_limit_from_mean,
+        apply_chpi_filter=configs.apply_chpi_filter,
+        apply_environmental_noise_correction=configs.apply_environmental_noise_correction,
+        ctf_gradient_comp_level=configs.ctf_gradient_comp_level,
+        apply_environmental_noise_ssp_with_eroom=configs.apply_environmental_noise_ssp_with_eroom,
+        apply_environmental_noise_ica_with_ref_meg=configs.apply_environmental_noise_ica_with_ref_meg,
+        environmental_noise_ica_with_ref_meg_thr=configs.environmental_noise_ica_with_ref_meg_thr,
+        ica_if_reject_by_annotation=configs.ica_if_reject_by_annotation,
+        environmental_noise_ica_with_ref_meg_method=configs.environmental_noise_ica_with_ref_meg_method,
+        environmental_noise_ica_with_ref_meg_measure=configs.environmental_noise_ica_with_ref_meg_measure,
+        apply_gedai=configs.apply_gedai,
         gedai_method=configs.gedai_method,
         sensai_method=configs.sensai_method,
         conductivity=configs.SL_conductivity,
@@ -342,70 +422,80 @@ def main(args):
         gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
         source_space_spacing=configs.source_space_spacing,
         source_space_spacing_number=configs.source_space_spacing_number,
+        event_record=event_record,
+        event_of_interest=event_of_interest,
+        segments_length=configs.segments_length,
+        overlap=configs.segments_overlap,
     )
+
+    # Remove UADC001 annotations - temp
+    annot = filtered_data.annotations
+    filtered_data.set_annotations(annot[annot.description != "UADC001"])
 
     # ------------------------------------------------------------
     if configs.bad_segment_removal_method in [None, "fixed_thr"]:
         segments = segment_epoch(
-            data = filtered_data,
+            data=filtered_data,
             which_sensor=which_sensor_dict,
-            sampling_rate = sampling_rate,
-            tmin = configs.segments_tmin,
-            tmax = configs.segments_tmax,
-            segments_length = configs.segments_length,
-            overlap = configs.segments_overlap,
-            ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
-            remove_bad_segments = configs.bad_segment_removal_method,
-            mag_var_threshold = configs.mag_var_threshold,
-            grad_var_threshold = configs.grad_var_threshold,
-            eeg_var_threshold = configs.eeg_var_threshold,
-            mag_flat_threshold = configs.mag_flat_threshold,
-            grad_flat_threshold = configs.grad_flat_threshold,
-            eeg_flat_threshold = configs.eeg_flat_threshold,
+            sampling_rate=sampling_rate,
+            tmin=configs.segments_tmin,
+            tmax=configs.segments_tmax,
+            segments_length=configs.segments_length,
+            overlap=configs.segments_overlap,
+            ica_if_reject_by_annotation=configs.ica_if_reject_by_annotation,
+            bad_segment_removal_method=configs.bad_segment_removal_method,
+            mag_var_threshold=configs.mag_var_threshold,
+            grad_var_threshold=configs.grad_var_threshold,
+            eeg_var_threshold=configs.eeg_var_threshold,
+            mag_flat_threshold=configs.mag_flat_threshold,
+            grad_flat_threshold=configs.grad_flat_threshold,
+            eeg_flat_threshold=configs.eeg_flat_threshold,
+            segment_events=segment_events,
         )
 
     elif configs.bad_segment_removal_method == "autoreject":
         segments, _ = auto_reject_segmentation(
             raw=filtered_data,
             sampling_rate=sampling_rate,
-            tmin = configs.segments_tmin,
-            tmax = configs.segments_tmax,
-            segments_length = configs.segments_length,
-            overlap = configs.segments_overlap,
-            ica_if_reject_by_annotation = configs.ica_if_reject_by_annotation,
-            n_interpolates = configs.autoreject_n_interpolates,
-            consensus_percs = configs.autoreject_consensus_percs,
-            cv = configs.autoreject_cv,
-            thresh_method = configs.autoreject_thresh_method,
-            random_state = configs.random_state
-            )
+            tmin=configs.segments_tmin,
+            tmax=configs.segments_tmax,
+            segments_length=configs.segments_length,
+            overlap=configs.segments_overlap,
+            ica_if_reject_by_annotation=configs.ica_if_reject_by_annotation,
+            n_interpolates=configs.autoreject_n_interpolates,
+            consensus_percs=configs.autoreject_consensus_percs,
+            cv=configs.autoreject_cv,
+            thresh_method=configs.autoreject_thresh_method,
+            random_state=configs.random_state,
+            segment_events=segment_events,
+        )
 
     # ------------------------------------------------------------
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
         stc, labels = source_localization(
-                subject=args.subject,
-                subjects_dir=args.surfaces_dir, 
-                subject_to="fsaverage",
-                data=filtered_data,
-                segments=segments,
-                empty_room_recording=empty_room_recording,
-                source_space=configs.SL_source_space,
-                conductivity=configs.SL_conductivity,
-                inverse_operator=configs.SL_inverse_operator,
-                figures_path=os.path.join(args.save_dir, "figures"),
-                which_sensor_dict=which_sensor_dict,
-                plot_3d=False,
-                **configs.model_dump()
-            )
-        segments = numpy_to_mne_raw(stc, labels, "mag", sampling_rate)
+            project_dir=project_dir,
+            subject=args.subject,
+            subjects_dir=args.surfaces_dir,
+            subject_to="fsaverage",
+            data=filtered_data,
+            segments=segments,
+            empty_room_recording=empty_room_recording,
+            source_space=configs.SL_source_space,
+            conductivity=configs.SL_conductivity,
+            inverse_operator=configs.SL_inverse_operator,
+            figures_path=os.path.join(args.save_dir, "figures"),
+            which_sensor_dict=which_sensor_dict,
+            plot_3d=False,
+            **configs.model_dump(),
+        )
+        segments = numpy_to_mne_epoch(stc, labels, "mag", sampling_rate)
         channel_names = segments.info["ch_names"]
 
     if configs.save_source_localized_epochs:
-        save_epoch_path = os.path.join(Path(args.save_dir).parent,
-                                       "Saved_outputs",
-                                        "Epochs",
-                                        args.subject)
+        save_epoch_path = os.path.join(
+            Path(args.save_dir).parent, "Saved_outputs", "Epochs", args.subject
+        )
         if not os.path.exists(save_epoch_path):
             os.mkdir(save_epoch_path)
         segments.save(f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True)
@@ -433,10 +523,9 @@ def main(args):
     )
 
     if configs.save_psds:
-        save_psds_path = os.path.join(Path(args.save_dir).parent,
-                                       "Saved_outputs", 
-                                       "PSDs", 
-                                       args.subject)
+        save_psds_path = os.path.join(
+            Path(args.save_dir).parent, "Saved_outputs", "PSDs", args.subject
+        )
         if not os.path.exists(save_psds_path):
             os.mkdir(save_psds_path)
         np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
@@ -457,14 +546,16 @@ def main(args):
         which_sensor=which_sensor_dict,
         aperiodic_mode=configs.aperiodic_mode,
         min_r_squared=configs.min_r_squared,
-        power_band_ratios_list = configs.power_band_ratios_list
+        power_band_ratios_list=configs.power_band_ratios_list,
     )
-        
+
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 
-    logger.info(f"The feature extraction process for the subject {args.subject} is complete.")
+    logger.info(
+        f"The feature extraction process for the subject {args.subject} is complete."
+    )
     end_time = datetime.now()
-    elapsed =  end_time - start_time
+    elapsed = end_time - start_time
     logger.info(f"Script ended at {end_time}")
     logger.info(f"Total elapsed time: {elapsed}")
 

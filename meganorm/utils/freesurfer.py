@@ -30,6 +30,7 @@ def get_freesurfer_home(freesurfer_path: str | None) -> str:
         )
     return fs_home
 
+
 def find_bids_t1w_files(subjects_directory: str, subject_id: str):
     """
     Return a list of dicts for all T1w files for a BIDS subject.
@@ -85,6 +86,7 @@ def find_bids_t1w_files(subjects_directory: str, subject_id: str):
 
     return results
 
+
 def prepare_mri_data(mri_directory):
     """This function is written to prepare the BTNRH MRI data for recon-all processing.
 
@@ -105,9 +107,9 @@ def prepare_mri_data(mri_directory):
 def create_slurm_script(
     t1_path,
     job_label,
-    results_dir,              # DEFAULT: <BIDS_ROOT>/derivatives/freesurfer
+    results_dir,  # DEFAULT: <BIDS_ROOT>/derivatives/freesurfer
     processing_directory,
-    freesurfer_path,       
+    freesurfer_path,
     nodes=1,
     ntasks=1,
     cpus_per_task=1,
@@ -121,7 +123,7 @@ def create_slurm_script(
     """
     if not os.path.isfile(t1_path):
         raise FileNotFoundError(f"T1 path does not exist: {t1_path}")
-    
+
     fs_home = get_freesurfer_home(freesurfer_path)
 
     # Paths & logs
@@ -132,8 +134,8 @@ def create_slurm_script(
 
     recon_all_command = (
         f"recon-all -s ${{SUBJECT_ID}} -i ${{VOLUME}} -all"
-        if i_option else
-        f"recon-all -s ${{SUBJECT_ID}} -all -no-isrunning"
+        if i_option
+        else f"recon-all -s ${{SUBJECT_ID}} -all -no-isrunning"
     )
 
     script_content = f"""#!/bin/bash
@@ -172,6 +174,7 @@ echo "Done: ${{SUBJECT_ID}}"
     os.chmod(script_path, 0o755)
     return script_path
 
+
 def is_success(
     results_directory: str,
     subject_id: str,
@@ -180,7 +183,7 @@ def is_success(
     fresh_minutes: int = 30,
     stalled_hours: int = 24,
 ) -> bool:
-    
+
     status, _ = classify_subject_status(
         results_directory,
         subject_id,
@@ -190,9 +193,6 @@ def is_success(
         stalled_hours=stalled_hours,
     )
     return status == "success"
-
-
-
 
 
 def run_parallel_reconall(
@@ -294,7 +294,11 @@ def run_parallel_reconall(
             print(f"[SKIP] {subject_id} currently running.")
             continue
 
-        if status not in resubmit_statuses and status != "success" and selected_sessions is None:
+        if (
+            status not in resubmit_statuses
+            and status != "success"
+            and selected_sessions is None
+        ):
             print(f"[SKIP] {subject_id}: status '{status}' not in resubmit_statuses.")
             continue
 
@@ -303,29 +307,36 @@ def run_parallel_reconall(
         if not t1_entries:
             print(f"[WARN] No T1w for {subject_id}; skipping")
             failed_job_submissions.append(subject_id)
-            failed_records.append({
-                "subject_id": subject_id,
-                "reason": "no_T1w_found",
-                "attempt_time": datetime.now().isoformat(timespec="seconds"),
-            })
+            failed_records.append(
+                {
+                    "subject_id": subject_id,
+                    "reason": "no_T1w_found",
+                    "attempt_time": datetime.now().isoformat(timespec="seconds"),
+                }
+            )
             continue
 
         # Filter by user-requested sessions if provided
         if selected_sessions is not None:
             t1_entries = [
-                entry for entry in t1_entries
+                entry
+                for entry in t1_entries
                 if entry.get("session") in selected_sessions
             ]
 
             if not t1_entries:
-                print(f"[WARN] No matching T1w found for {subject_id} in requested sessions.")
+                print(
+                    f"[WARN] No matching T1w found for {subject_id} in requested sessions."
+                )
                 failed_job_submissions.append(subject_id)
-                failed_records.append({
-                    "subject_id": subject_id,
-                    "reason": "no_matching_session_found",
-                    "requested_sessions": sorted(selected_sessions),
-                    "attempt_time": datetime.now().isoformat(timespec="seconds"),
-                })
+                failed_records.append(
+                    {
+                        "subject_id": subject_id,
+                        "reason": "no_matching_session_found",
+                        "requested_sessions": sorted(selected_sessions),
+                        "attempt_time": datetime.now().isoformat(timespec="seconds"),
+                    }
+                )
                 continue
 
         # Run for the first found session.
@@ -360,7 +371,9 @@ def run_parallel_reconall(
                 continue
 
             if entry_status not in resubmit_statuses and entry_status != "success":
-                print(f"[SKIP] {fs_subject_id}: status '{entry_status}' not in resubmit_statuses.")
+                print(
+                    f"[SKIP] {fs_subject_id}: status '{entry_status}' not in resubmit_statuses."
+                )
                 continue
 
             subj_fs_dir = Path(results_directory) / fs_subject_id
@@ -387,41 +400,45 @@ def run_parallel_reconall(
 
             if res.returncode == 0:
                 submitted.append(entry["job_label"])
-                submitted_records.append({
-                    "subject_id": subject_id,
-                    "fs_subject_id": fs_subject_id,
-                    "job_label": entry["job_label"],
-                    "session": entry.get("session"),
-                    "run": entry.get("run"),
-                    "t1_path": entry["t1_path"],
-                    "script_path": script_file_path,
-                    "sbatch_cmd": " ".join(cmd),
-                    "job_id": job_id,
-                    "sbatch_returncode": res.returncode,
-                    "sbatch_stdout": (res.stdout or "").strip(),
-                    "sbatch_stderr": (res.stderr or "").strip(),
-                    "submit_time": datetime.now().isoformat(timespec="seconds"),
-                    "pre_status": entry_status,
-                })
+                submitted_records.append(
+                    {
+                        "subject_id": subject_id,
+                        "fs_subject_id": fs_subject_id,
+                        "job_label": entry["job_label"],
+                        "session": entry.get("session"),
+                        "run": entry.get("run"),
+                        "t1_path": entry["t1_path"],
+                        "script_path": script_file_path,
+                        "sbatch_cmd": " ".join(cmd),
+                        "job_id": job_id,
+                        "sbatch_returncode": res.returncode,
+                        "sbatch_stdout": (res.stdout or "").strip(),
+                        "sbatch_stderr": (res.stderr or "").strip(),
+                        "submit_time": datetime.now().isoformat(timespec="seconds"),
+                        "pre_status": entry_status,
+                    }
+                )
             else:
                 failed_job_submissions.append(entry["job_label"])
-                failed_records.append({
-                    "subject_id": subject_id,
-                    "fs_subject_id": fs_subject_id,
-                    "job_label": entry["job_label"],
-                    "session": entry.get("session"),
-                    "run": entry.get("run"),
-                    "t1_path": entry["t1_path"],
-                    "script_path": script_file_path,
-                    "sbatch_cmd": " ".join(cmd),
-                    "job_id": job_id,
-                    "sbatch_returncode": res.returncode,
-                    "sbatch_stdout": (res.stdout or "").strip(),
-                    "sbatch_stderr": (res.stderr or "").strip(),
-                    "reason": "sbatch_submission_failed",
-                    "attempt_time": datetime.now().isoformat(timespec="seconds"),
-                    "pre_status": entry_status,
-                })
+                failed_records.append(
+                    {
+                        "subject_id": subject_id,
+                        "fs_subject_id": fs_subject_id,
+                        "job_label": entry["job_label"],
+                        "session": entry.get("session"),
+                        "run": entry.get("run"),
+                        "t1_path": entry["t1_path"],
+                        "script_path": script_file_path,
+                        "sbatch_cmd": " ".join(cmd),
+                        "job_id": job_id,
+                        "sbatch_returncode": res.returncode,
+                        "sbatch_stdout": (res.stdout or "").strip(),
+                        "sbatch_stderr": (res.stderr or "").strip(),
+                        "reason": "sbatch_submission_failed",
+                        "attempt_time": datetime.now().isoformat(timespec="seconds"),
+                        "pre_status": entry_status,
+                    }
+                )
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     proc_dir = Path(processing_directory)
@@ -433,7 +450,6 @@ def run_parallel_reconall(
         json.dump(failed_records, f, indent=2)
 
     return submitted, failed_job_submissions
-
 
 
 def log_tail_lines(path: Path, n: int = 200) -> list[str]:
@@ -462,14 +478,26 @@ def discover_subjects(results_directory: str, exclude_subjects: set[str]) -> lis
     root = Path(results_directory)
     if not root.is_dir():
         return []
+
     def keep(name: str) -> bool:
-        if name.startswith("."): return False
-        if name in exclude_subjects: return False
-        if name.startswith("fsaverage"): return False
+        if name.startswith("."):
+            return False
+        if name in exclude_subjects:
+            return False
+        if name.startswith("fsaverage"):
+            return False
         return True
-    with_logs = [p.name for p in root.iterdir()
-                 if p.is_dir() and keep(p.name) and (p / "scripts" / "recon-all.log").exists()]
-    return sorted(with_logs) if with_logs else sorted([p.name for p in root.iterdir() if p.is_dir() and keep(p.name)])
+
+    with_logs = [
+        p.name
+        for p in root.iterdir()
+        if p.is_dir() and keep(p.name) and (p / "scripts" / "recon-all.log").exists()
+    ]
+    return (
+        sorted(with_logs)
+        if with_logs
+        else sorted([p.name for p in root.iterdir() if p.is_dir() and keep(p.name)])
+    )
 
 
 def classify_subject_status(
@@ -509,9 +537,8 @@ def classify_subject_status(
     ir_mtimes = [p.stat().st_mtime for p in isrunning_files] if isrunning_files else []
     newest_ir = max(ir_mtimes) if ir_mtimes else 0.0
 
-    recently_touched = (
-        (log_path.exists() and now - log_mtime <= fresh_s) or
-        (ir_mtimes and now - newest_ir <= fresh_s)
+    recently_touched = (log_path.exists() and now - log_mtime <= fresh_s) or (
+        ir_mtimes and now - newest_ir <= fresh_s
     )
 
     # Build info dict (filled incrementally)
@@ -544,16 +571,26 @@ def classify_subject_status(
     if recently_touched:
         status = "running"
     elif isrunning_files and (
-        ((not log_path.exists()) or (now - log_mtime > stalled_s)) and (now - newest_ir > stalled_s)
+        ((not log_path.exists()) or (now - log_mtime > stalled_s))
+        and (now - newest_ir > stalled_s)
     ):
         status = "stalled"
     else:
         # Try to extract error hints from tail
-        error_patterns = [re.compile(p, re.IGNORECASE) for p in [
-            r"\bERROR\b", r"Segmentation (fault|violation)", r"\bKilled\b",
-            r"out of memory", r"No space left on device", r"Bus error",
-            r"floating point exception", r"Abort", r"assertion.*failed",
-        ]]
+        error_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in [
+                r"\bERROR\b",
+                r"Segmentation (fault|violation)",
+                r"\bKilled\b",
+                r"out of memory",
+                r"No space left on device",
+                r"Bus error",
+                r"floating point exception",
+                r"Abort",
+                r"assertion.*failed",
+            ]
+        ]
         hints: list[str] = []
         for line in tail:
             if any(p.search(line) for p in error_patterns):
@@ -569,14 +606,14 @@ def check_log_for_success(
     results_directory: str,
     subject_ids: list[str] | None = None,
     *,
-    processing_directory: str | None = None,   # where to save failed manifests
-    write_manifests: bool = True,              # save JSON outputs
+    processing_directory: str | None = None,  # where to save failed manifests
+    write_manifests: bool = True,  # save JSON outputs
     success_token: str = "finished without error",
     consider_running_as_failure: bool = False,
     tail_lines_to_scan: int = 200,
     fresh_minutes: int = 30,
     stalled_hours: int = 24,
-    return_details: bool = True,               # return only FAILED/MISSING/STALLED by default
+    return_details: bool = True,  # return only FAILED/MISSING/STALLED by default
 ):
     """
     Scan SUBJECTS_DIR for recon-all outcomes, print a summary, and
@@ -588,10 +625,19 @@ def check_log_for_success(
     """
     # Subject discovery (skip FS templates)
     default_exclude = {
-        "fsaverage","fsaverage_sym","fsaverage5","fsaverage6",
-        "lh.EC_average","rh.EC_average","bert"
+        "fsaverage",
+        "fsaverage_sym",
+        "fsaverage5",
+        "fsaverage6",
+        "lh.EC_average",
+        "rh.EC_average",
+        "bert",
     }
-    subjects = subject_ids if subject_ids else discover_subjects(results_directory, default_exclude)
+    subjects = (
+        subject_ids
+        if subject_ids
+        else discover_subjects(results_directory, default_exclude)
+    )
 
     counts = {"success": 0, "running": 0, "stalled": 0, "failed": 0, "missing": 0}
     failed_ids: list[str] = []
@@ -609,15 +655,19 @@ def check_log_for_success(
 
         counts[status] += 1
 
-        if status in ("failed", "missing", "stalled") or (status == "running" and consider_running_as_failure):
+        if status in ("failed", "missing", "stalled") or (
+            status == "running" and consider_running_as_failure
+        ):
             failed_ids.append(sid)
             failed_details[sid] = info
 
     # Summary
     checked = sum(counts.values())
-    print(f"[check_log_for_success] Checked {checked} subjects "
-          f"(success={counts['success']}, running={counts['running']}, "
-          f"stalled={counts['stalled']}, failed={counts['failed']}, missing={counts['missing']}).")
+    print(
+        f"[check_log_for_success] Checked {checked} subjects "
+        f"(success={counts['success']}, running={counts['running']}, "
+        f"stalled={counts['stalled']}, failed={counts['failed']}, missing={counts['missing']})."
+    )
 
     # Persist manifests (FAILED/MISSING/STALLED only)
     if write_manifests and processing_directory:
@@ -628,17 +678,18 @@ def check_log_for_success(
         with open(ts_json, "w") as f:
             json.dump(failed_details, f, indent=2, default=str)
 
-
     return failed_details if return_details else failed_ids
 
 
-def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None, verbose=False):
+def retrieve_freesurfer_eulernum(
+    freesurfer_dir, subjects=None, save_path=None, verbose=False
+):
     """
-    This function receives the freesurfer directory (including processed data 
+    This function receives the freesurfer directory (including processed data
     for several subjects) and retrieves the Euler number from the log files. If
     the log file does not exist, this function uses 'mris_euler_number' to recompute
-    the Euler numbers (ENs). The function returns the ENs in a dataframe and 
-    the list of missing subjects (that for which computing EN is failed). If 
+    the Euler numbers (ENs). The function returns the ENs in a dataframe and
+    the list of missing subjects (that for which computing EN is failed). If
     'save_path' is specified then the results will be saved in a pickle file.
 
     Basic usage::
@@ -648,11 +699,11 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None, 
     where the arguments are defined below.
 
     :param freesurfer_dir: absolute path to the Freesurfer directory.
-    :param subjects: List of subject that we want to retrieve the ENs for. 
+    :param subjects: List of subject that we want to retrieve the ENs for.
      If it is 'None' (the default), the list of the subjects will be automatically
      retreived from existing directories in the 'freesurfer_dir' (i.e. the ENs
      for all subjects will be retrieved).
-    :param save_path: The path to save the results. If 'None' (default) the 
+    :param save_path: The path to save the results. If 'None' (default) the
      results are not saves on the disk.
 
 
@@ -664,9 +715,13 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None, 
     """
 
     if subjects is None:
-        subjects = [s for s in os.listdir(freesurfer_dir) if os.path.isdir(os.path.join(freesurfer_dir, s))]
+        subjects = [
+            s
+            for s in os.listdir(freesurfer_dir)
+            if os.path.isdir(os.path.join(freesurfer_dir, s))
+        ]
 
-    df = pd.DataFrame(index=subjects, columns=["lh_en","rh_en","avg_en"])
+    df = pd.DataFrame(index=subjects, columns=["lh_en", "rh_en", "avg_en"])
     missing_subjects = []
 
     for s, sub in enumerate(subjects):
@@ -675,7 +730,7 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None, 
 
         if not os.path.isdir(sub_dir):
             missing_subjects.append(sub)
-            if verbose:  
+            if verbose:
                 print(f"{s}: Subject {sub} is missing.")
             continue
 
@@ -689,34 +744,44 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None, 
                 parts = eno_line.split()
                 try:
                     eno_l, eno_r = float(parts[3].rstrip(",")), float(parts[6])
-                    df.at[sub,"lh_en"] = eno_l
-                    df.at[sub,"rh_en"] = eno_r
-                    df.at[sub,"avg_en"] = (eno_l + eno_r)/2.0
-                    if verbose: 
+                    df.at[sub, "lh_en"] = eno_l
+                    df.at[sub, "rh_en"] = eno_r
+                    df.at[sub, "avg_en"] = (eno_l + eno_r) / 2.0
+                    if verbose:
                         print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
                     continue
                 except Exception:
                     pass  # fall through to recompute
-            if verbose:    
+            if verbose:
                 print(f"{s}: Subject {sub} missing EN line, recomputing ...")
 
         try:
             # recompute with mris_euler_number
-            lh_cmd = ["mris_euler_number", os.path.join(sub_dir,"surf","lh.orig.nofix")]
-            rh_cmd = ["mris_euler_number", os.path.join(sub_dir,"surf","rh.orig.nofix")]
-            lh_out = subprocess.run(lh_cmd, capture_output=True, text=True, check=True).stdout.split()
-            rh_out = subprocess.run(rh_cmd, capture_output=True, text=True, check=True).stdout.split()
+            lh_cmd = [
+                "mris_euler_number",
+                os.path.join(sub_dir, "surf", "lh.orig.nofix"),
+            ]
+            rh_cmd = [
+                "mris_euler_number",
+                os.path.join(sub_dir, "surf", "rh.orig.nofix"),
+            ]
+            lh_out = subprocess.run(
+                lh_cmd, capture_output=True, text=True, check=True
+            ).stdout.split()
+            rh_out = subprocess.run(
+                rh_cmd, capture_output=True, text=True, check=True
+            ).stdout.split()
             # typically the value is near the end; be defensive
             eno_l = float([t for t in lh_out if re.fullmatch(r"-?\d+(\.\d+)?", t)][-1])
             eno_r = float([t for t in rh_out if re.fullmatch(r"-?\d+(\.\d+)?", t)][-1])
-            df.at[sub,"lh_en"] = eno_l
-            df.at[sub,"rh_en"] = eno_r
-            df.at[sub,"avg_en"] = (eno_l + eno_r)/2.0
-            if verbose:  
+            df.at[sub, "lh_en"] = eno_l
+            df.at[sub, "rh_en"] = eno_r
+            df.at[sub, "avg_en"] = (eno_l + eno_r) / 2.0
+            if verbose:
                 print(f"{s}: Subject {sub} EN = {df.at[sub,'avg_en']:.3f}")
         except Exception as e:
             missing_subjects.append(sub)
-            if verbose:  
+            if verbose:
                 print(f"{s}: QC failed for {sub}: {e}")
 
     df = df.dropna()
@@ -725,7 +790,6 @@ def retrieve_freesurfer_eulernum(freesurfer_dir, subjects=None, save_path=None, 
             pickle.dump({"ENs": df}, f)
 
     return df, missing_subjects
-
 
 
 def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False):
@@ -819,7 +883,9 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
 
     # Ensure numeric and remove incomplete rows
     df = euler_numbers.copy()
-    df[["lh_en", "rh_en"]] = df[["lh_en", "rh_en"]].apply(pd.to_numeric, errors="coerce")
+    df[["lh_en", "rh_en"]] = df[["lh_en", "rh_en"]].apply(
+        pd.to_numeric, errors="coerce"
+    )
     df = df.dropna(subset=["lh_en", "rh_en"])
 
     if df.empty:
@@ -863,14 +929,30 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Run FreeSurfer recon-all in parallel on a Slurm cluster.")
+    parser = argparse.ArgumentParser(
+        description="Run FreeSurfer recon-all in parallel on a Slurm cluster."
+    )
     parser.add_argument("subjects_directory", type=str, help="BIDS root with sub-*")
-    parser.add_argument("processing_directory", type=str, help="Directory to write SLURM scripts/logs")
-    parser.add_argument("--results-directory", type=str, default=None,
-                        help="SUBJECTS_DIR (default: <BIDS>/derivatives/freesurfer)")
-    parser.add_argument("--freesurfer-path", type=str, default=None,
-                        help="Path to FreeSurfer install (default: $FREESURFER_HOME)")
-    parser.add_argument("--no-skip-completed", action="store_true", help="Do not skip already successful subjects")
+    parser.add_argument(
+        "processing_directory", type=str, help="Directory to write SLURM scripts/logs"
+    )
+    parser.add_argument(
+        "--results-directory",
+        type=str,
+        default=None,
+        help="SUBJECTS_DIR (default: <BIDS>/derivatives/freesurfer)",
+    )
+    parser.add_argument(
+        "--freesurfer-path",
+        type=str,
+        default=None,
+        help="Path to FreeSurfer install (default: $FREESURFER_HOME)",
+    )
+    parser.add_argument(
+        "--no-skip-completed",
+        action="store_true",
+        help="Do not skip already successful subjects",
+    )
     args = parser.parse_args()
 
     submitted, failed = run_parallel_reconall(

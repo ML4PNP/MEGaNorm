@@ -1628,16 +1628,7 @@ def plot_site_diff(
             fig.savefig(os.path.join(save_dir, fname_base + ".png"), dpi=600)
 
 
-
 def parse_aparc2009_name(region_name):
-    """
-    Convert aparc.a2009s+aseg region name to Destrieux surface label.
-    
-    Examples
-    --------
-    ctx_lh_G_front_sup  → G_front_sup  (left hemisphere)
-    ctx_rh_G_front_sup  → G_front_sup  (right hemisphere)
-    """
     if region_name.startswith("ctx_lh_"):
         return region_name[len("ctx_lh_"):], ["left"]
     elif region_name.startswith("ctx_rh_"):
@@ -1646,10 +1637,11 @@ def parse_aparc2009_name(region_name):
         return region_name[len("ctx_"):], ["left", "right"]
     else:
         return region_name, ["left", "right"]
-    
-    
+
+
 def plot_roi(
     region_name,
+    colors=None,
     fsaverage="fsaverage5",
     mesh_type="pial",
     hemispheres=["left", "right"],
@@ -1658,115 +1650,43 @@ def plot_roi(
     plot_contour=True,
     colorbar=False,
     contour_color=None,
-    cmap="Oranges",
+    cmap="tab10",
     **kwargs
 ):
-    """
-    Plot a Destrieux atlas ROI on a cortical surface mesh.
+    if isinstance(region_name, str):
+        region_name = [region_name]
 
-    Displays a named region from the Destrieux parcellation on an fsaverage
-    surface, with optional sulcal background shading and ROI contour overlay.
-    Supports multiple hemispheres and views arranged in a grid layout.
+    n = len(region_name)
 
-    Parameters
-    ----------
-    region_name : str
-        Name of the Destrieux atlas region to plot (e.g. "G_cingul-Post-dorsal").
-        Must exactly match a label in ``fetch_atlas_surf_destrieux().labels``.
-    fsaverage : str, optional
-        Name of the fsaverage template mesh to use. Default is "fsaverage5".
-        Common options: "fsaverage3", "fsaverage4", "fsaverage5", "fsaverage6",
-        "fsaverage".
-    mesh_type : str, optional
-        Surface mesh type to use for plotting. Default is "pial".
-        Options: "pial", "white_matter", "inflated", "sphere", "flat".
-    hemispheres : list of str, optional
-        Hemispheres to plot. Default is ["left", "right"].
-        Each entry becomes a row in the output figure.
-    fsaverage_sulcal_type : str, optional
-        Type of sulcal background data to use. Default is "curvature".
-        Options: "curvature", "sulcal".
-    views : list of str, optional
-        Camera views to render. Default is ["lateral"].
-        Each entry becomes a column in the output figure.
-        Options: "lateral", "medial", "dorsal", "ventral", "anterior",
-        "posterior".
-    plot_contour : bool, optional
-        Whether to draw a contour outline around the ROI boundary.
-        Default is True.
-    colorbar : bool, optional
-        Whether to display a colorbar on each subplot. Default is False.
-    contour_color : str, tuple, or None, optional
-        Color for the ROI contour. Accepts any matplotlib-compatible color
-        (e.g. "black", "#ff0000", (0, 0, 0)). If None, defaults to black.
-    cmap : str, optional
-        Colormap for the ROI fill. Default is "Oranges".
-        Accepts any matplotlib colormap name.
-    **kwargs
-        Additional keyword arguments passed to ``plot_surf_roi``.
+    if colors is not None:
+        if len(colors) != n:
+            raise ValueError(
+                f"Length of 'colors' ({len(colors)}) must match "
+                f"length of 'region_name' ({n})."
+            )
+        region_colors = colors
+    else:
+        base_cmap = plt.get_cmap(cmap)
+        region_colors = [base_cmap(i / max(n, 1)) for i in range(n)]
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure containing all subplots.
-    axes : numpy.ndarray of matplotlib.axes.Axes
-        2D array of axes with shape (n_hemispheres, n_views).
+    discrete_cmap = ListedColormap(["white"] + list(region_colors))
 
-    Examples
-    --------
-    Plot a single hemisphere and view:
-
-    >>> plot_roi(
-    ...     region_name="G_cingul-Post-dorsal",
-    ...     hemispheres=["left"],
-    ...     views=["medial"],
-    ... )
-
-    Plot both hemispheres with multiple views and no contour:
-
-    >>> plot_roi(
-    ...     region_name="G_cingul-Post-dorsal",
-    ...     hemispheres=["left", "right"],
-    ...     views=["medial", "lateral"],
-    ...     plot_contour=False,
-    ...     cmap="Blues",
-    ... )
-
-    Notes
-    -----
-    The figure layout is a grid of shape (n_hemispheres x n_views), where each
-    row corresponds to a hemisphere and each column to a view.
-
-    The Destrieux atlas is fetched via ``fetch_atlas_surf_destrieux()`` and the
-    background sulcal map via ``load_fsaverage_data()``. Both are filtered to
-    the requested hemispheres to ensure mesh compatibility.
-    """
     fsaverage_meshes = load_fsaverage(mesh=fsaverage)
     destrieux = fetch_atlas_surf_destrieux(verbose=False)
 
-    destrieux_label, inferred_hemis = parse_aparc2009_name(region_name)
-    
-    if region_name.startswith("ctx_lh_"):
+    force_left  = any(r.startswith("ctx_lh_") for r in region_name)
+    force_right = any(r.startswith("ctx_rh_") for r in region_name)
+    if force_left and not force_right:
         hemispheres = [h for h in hemispheres if h == "left"] or ["left"]
-    elif region_name.startswith("ctx_rh_"):
+    elif force_right and not force_left:
         hemispheres = [h for h in hemispheres if h == "right"] or ["right"]
 
-    # Validate label exists
-    if destrieux_label not in destrieux.labels:
-        close = [l for l in destrieux.labels if destrieux_label.lower() in l.lower()]
-        raise ValueError(
-            f"'{destrieux_label}' not found in Destrieux labels.\n"
-            f"Did you mean one of: {close}"
-        )
-
     map_destrieux = {}
-    if "left" in hemispheres:
-        map_destrieux["left"] = destrieux.map_left
-    if "right" in hemispheres:
-        map_destrieux["right"] = destrieux.map_right
+    if "left"  in hemispheres: map_destrieux["left"]  = destrieux.map_left
+    if "right" in hemispheres: map_destrieux["right"] = destrieux.map_right
 
-    full_mesh = fsaverage_meshes[mesh_type]
-    filtered_mesh = PolyMesh(**{hemi: full_mesh.parts[hemi] for hemi in hemispheres})
+    full_mesh       = fsaverage_meshes[mesh_type]
+    filtered_mesh   = PolyMesh(**{hemi: full_mesh.parts[hemi] for hemi in hemispheres})
     destrieux_atlas = SurfaceImage(mesh=filtered_mesh, data=map_destrieux)
 
     fsaverage_sulcal_full = load_fsaverage_data(data_type=fsaverage_sulcal_type)
@@ -1775,13 +1695,25 @@ def plot_roi(
         data={hemi: fsaverage_sulcal_full.data.parts[hemi] for hemi in hemispheres}
     )
 
-    label_region = destrieux.labels.index(destrieux_label) 
-    mask = {
-        hemi: data == label_region
-        for hemi, data in destrieux_atlas.data.parts.items()
+    roi_map = {
+        hemi: np.zeros_like(list(destrieux_atlas.data.parts.values())[0], dtype=float)
+        for hemi in hemispheres
     }
-    surface_mask = SurfaceImage(mesh=filtered_mesh, data=mask)
-    
+
+    for i, rname in enumerate(region_name, start=1):
+        label, _ = parse_aparc2009_name(rname)
+        if label not in destrieux.labels:
+            close = [l for l in destrieux.labels if label.lower() in l.lower()]
+            raise ValueError(
+                f"'{label}' not found in Destrieux labels.\n"
+                f"Did you mean one of: {close}"
+            )
+        idx = destrieux.labels.index(label)
+        for hemi, data in destrieux_atlas.data.parts.items():
+            roi_map[hemi][data == idx] = i
+
+    surface_mask = SurfaceImage(mesh=filtered_mesh, data=roi_map)
+
     n_rows = len(hemispheres)
     n_cols = len(views)
     fig, axes = plt.subplots(
@@ -1795,27 +1727,28 @@ def plot_roi(
         for col, view in enumerate(views):
             fig_roi = plot_surf_roi(
                 roi_map=surface_mask,
-                hemi=hemi,
-                view=view,
+                hemi=hemi, view=view,
                 bg_map=fsaverage_sulcal,
                 bg_on_data=True,
                 colorbar=colorbar,
-                cmap=cmap,
+                cmap=discrete_cmap,
+                vmin=0, vmax=n,
                 alpha=1,
-                axes=axes[row, col],
-                figure=fig,
+                axes=axes[row, col], figure=fig,
                 **kwargs
             )
             if plot_contour:
-                _contour_color = contour_color if contour_color else ListedColormap(["black"])            
-                plot_surf_contours(
-                    roi_map=surface_mask,
-                    figure=fig_roi, 
-                    hemi=hemi,
-                    axes=axes[row, col],  
-                    cmap=_contour_color,
-                    # **kwargs
-                )
+                _contour_color = contour_color if contour_color else "black"
+                for i in range(1, n + 1):
+                    plot_surf_contours(
+                        roi_map=surface_mask,
+                        figure=fig_roi, hemi=hemi,
+                        axes=axes[row, col],
+                        levels=[i],
+                        colors=[_contour_color],
+                    )
+
+    return fig, axes
 
 def define_lut(lut_path):
     """
@@ -2024,6 +1957,7 @@ def plot_statistics_on_brain(
                 axes=axes[row, col],
                 figure=fig,
                 cbar_tick_format="%.2g",
+                alpha=1.0,
             )
 
             if show_parcel_contours:
@@ -2050,11 +1984,11 @@ def plot_statistics_on_brain(
 
     if missing_regions:
         print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
-
+    fig.suptitle(title, fontsize=14, y=1.02)
     plt.tight_layout()
     if save_fig_path:
         # plt.savefig(f"{save_fig_path}.svg")
-        plt.savefig(f"{save_fig_path}.png", dpi=400)
+        plt.savefig(f"{save_fig_path}.png", dpi=500)
     plt.show()
 
     return textures
@@ -2208,6 +2142,7 @@ def plot_mass_metrics(
 
     os.makedirs(save_path, exist_ok=True)
     fig.savefig(os.path.join(save_path, f"{name}.png"), dpi=dpi, bbox_inches="tight")
+    fig.savefig(os.path.join(save_path, f"{name}.svg"), dpi=dpi, bbox_inches="tight")
 
     return fig
 
@@ -2467,3 +2402,173 @@ def plot_statistics_on_brain_plotly(
         combined.write_image(f"{save_fig_path}.png")
 
     return textures, combined
+
+
+
+
+def plot_50th_centiles_by_categories(
+    categories,
+    centile_cache,
+    get_band_color,
+    output_path="centiles_all_categories.png",
+    age_min=6,
+    age_max=80,
+    dpi=600,
+):
+    # ── Constants ────────────────────────────────────────────────────────────
+    STAGE_BOUNDARIES = [12, 20, 40, 60]
+    STAGE_LABELS     = ["Late\nChildhood", "Adolescence", "Young\nAdulthood",
+                        "Middle\nAdulthood", "Late\nAdulthood"]
+    AGE_TICKS        = [6, 10, 20, 40, 60, 80]
+
+    # ── Utility sub-functions ─────────────────────────────────────────────────
+    def add_stage_bands(ax, x_min, x_max):
+        boundaries   = [b for b in STAGE_BOUNDARIES if x_min <= b < x_max]
+        x_edges      = [x_min] + boundaries + [x_max]
+        stage_ranges = list(zip(x_edges[:-1], x_edges[1:]))
+        ylim         = ax.get_ylim()
+
+        for i, (x0, x1) in enumerate(stage_ranges):
+            ax.axvline(x0, color="#888888", linewidth=1.5, zorder=2, linestyle="--")
+            ax.text(
+                (x0 + x1) / 2, 1.00,
+                STAGE_LABELS[i],
+                transform=ax.get_xaxis_transform(),
+                ha="center",
+                fontsize=15, color="#555555", rotation=35,
+            )
+
+        ax.set_ylim(ylim)
+
+    def add_axis_break(ax, x_min):
+        xlim     = ax.get_xlim()
+        ylim     = ax.get_ylim()
+        ax_width = xlim[1] - xlim[0]
+        y_span   = ylim[1] - ylim[0]
+
+        x_break = x_min - ax_width * 0.015
+        gap     = ax_width * 0.01
+        dy      = y_span * 0.04
+
+        slash_kwargs = dict(color="black", linewidth=1.5, clip_on=False, zorder=10)
+        for offset in [-gap / 2, gap / 2]:
+            xc = x_break + offset
+            ax.plot(
+                [xc - gap * 0.5, xc + gap * 0.5],
+                [ylim[0] - dy * 0.5, ylim[0] + dy * 1.5],
+                transform=ax.transData, **slash_kwargs,
+            )
+
+        ax.axvspan(xlim[0], x_break - gap, color="white", zorder=9, clip_on=False)
+
+        ax.annotate(
+            "", xy=(x_break - gap, ylim[0]), xytext=(xlim[0], ylim[0]),
+            xycoords="data", textcoords="data", annotation_clip=False,
+            arrowprops=dict(arrowstyle="-", color="black", lw=0.8),
+        )
+
+        ax.annotate(
+            "0", xy=(xlim[0], ylim[0]), xycoords="data",
+            xytext=(0, -4), textcoords="offset points",
+            ha="center", va="top", fontsize=12, color="black",
+            clip_on=False, annotation_clip=False,
+        )
+
+    def make_legend_handles(existing_handles):
+        marker_specs = [
+            ("^", "Peak"),
+            ("v", "Minimum"),
+            ("o", "Inflection point"),
+        ]
+        extra = [
+            plt.Line2D(
+                [0], [0], marker=m, color="w",
+                markerfacecolor="white", markeredgecolor="black",
+                markeredgewidth=0.8, markersize=6, label=lbl,
+            )
+            for m, lbl in marker_specs
+        ]
+        return existing_handles + extra
+
+    # ── Main plotting logic ───────────────────────────────────────────────────
+    n_cats = len(categories)
+    ncols  = 3
+    nrows  = int(np.ceil(n_cats / ncols))
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 6 * nrows))
+    axes = np.array(axes).flatten()
+
+    for i, (cat_name, cat_features) in enumerate(categories.items()):
+        ax = axes[i]
+
+        if not cat_features:
+            ax.set_visible(False)
+            continue
+
+        for IDP in cat_features:
+            if IDP not in centile_cache:
+                print(f"Skipping {IDP} — not in cache")
+                continue
+
+            (x_vals_real, y_vals_pct,
+             peak_x, peak_y,
+             min_x, min_y,
+             slope_change_x, slope_change_y) = centile_cache[IDP]
+
+            x_vals_real = x_vals_real * 100
+            mask        = (x_vals_real >= age_min) & (x_vals_real <= age_max)
+            x_vals_real = x_vals_real[mask]
+            y_vals_pct  = y_vals_pct[mask]
+
+            short_label = IDP.split("__")[-1] if "__" in IDP else IDP
+            color       = get_band_color(IDP, cat_name)
+
+            line, = ax.plot(
+                x_vals_real, y_vals_pct,
+                linewidth=3.5, label=short_label,
+                color=color if color else None,
+                alpha=0.6, zorder=3,
+            )
+            color = line.get_color()
+
+            if age_min <= peak_x * 100 <= age_max:
+                ax.plot(peak_x * 100, peak_y, marker="^", markersize=10,
+                        color=color, zorder=5, alpha=0.5,
+                        markeredgecolor="black", markeredgewidth=1)
+
+            if age_min <= min_x * 100 <= age_max:
+                ax.plot(min_x * 100, min_y, marker="v", markersize=10,
+                        color=color, zorder=5, alpha=0.5,
+                        markeredgecolor="black", markeredgewidth=1)
+
+            for sx, sy in zip(slope_change_x * 100, slope_change_y):
+                if age_min <= sx <= age_max:
+                    ax.plot(sx, sy, marker="o", markersize=6,
+                            color=color, zorder=5, alpha=0.7,
+                            markeredgecolor="black", markeredgewidth=1)
+
+        ax.set_xlim(age_min - 2, age_max)
+
+        add_stage_bands(ax, age_min, age_max)
+        add_axis_break(ax, age_min)
+
+        ax.set_xticks(AGE_TICKS)
+        ax.set_xticklabels([str(t) for t in AGE_TICKS])
+        ax.set_title(cat_name, fontsize=15, fontweight="bold", pad=65)
+        ax.set_xlabel("Age (years)", fontsize=15)
+        ax.set_ylabel("Percentage of maximum value", fontsize=15)
+        ax.tick_params(labelsize=15)
+
+        if i != 0:
+            handles, _ = ax.get_legend_handles_labels()
+            ax.legend(
+                handles=make_legend_handles(handles),
+                fontsize=12, loc="best", borderaxespad=2.0,
+            )
+
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    plt.show()

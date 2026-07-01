@@ -1,4 +1,5 @@
 import os
+import shlex
 import time
 import shutil
 import subprocess
@@ -6,7 +7,8 @@ from datetime import datetime
 import pandas as pd
 import json
 import meganorm
-from meganorm.src import mainParallel
+import meganorm.utils.parallel
+import meganorm.src.mainParallel
 from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
@@ -49,7 +51,7 @@ def sbatchfile(
     batch_file_name="batch_job",
     freesurfer_home=None,
     freesurfer_license=None,
-    with_config = None,
+    with_config=None,
     # with_source_localization = None,
     # with_empty_room_recording = None
 ):
@@ -95,16 +97,17 @@ def sbatchfile(
 
     if freesurfer_home:
         sbatch_module = (
-        "source activate " + module + "\n" +
-        f"export FREESURFER_HOME={freesurfer_home}\n" +
-        f"export FREESURFER_LICENSE={freesurfer_license}\n" +
-        # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
-        "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
+            "source activate "
+            + module
+            + "\n"
+            + f"export FREESURFER_HOME={freesurfer_home}\n"
+            + f"export FREESURFER_LICENSE={freesurfer_license}\n"
+            +
+            # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
+            "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
         )
     else:
-        sbatch_module = (
-        "source activate " + module + "\n" 
-        )
+        sbatch_module = "source activate " + module + "\n"
 
     if log_path is not None:
         sbatch_log_out = "#SBATCH -o " + log_path + "/%x_%j.out" + "\n"
@@ -117,17 +120,23 @@ def sbatchfile(
     sbatch_input_5 = "line_freq=$5\n"
     sbatch_input_6 = "surfaces_dir=$6\n"
     sbatch_input_7 = "empty_room_recording_path=$7\n"
+    sbatch_input_8 = "event_record=$8\n"
+    sbatch_input_9 = "event_of_interest=$9\n"
 
     # if with_config:
     command = (
-        "srun --cpus-per-task=" + str(core) + " python "
+        "srun --cpus-per-task="
+        + str(core)
+        + " python "
         + mainParallel_path
         + " $source $target $subject $config"
-        )
+    )
 
     command += f" --line_freq $line_freq"
     command += f" --surfaces_dir $surfaces_dir"
     command += " --empty_room_recording_path $empty_room_recording_path"
+    command += " --event_record $event_record"
+    command += " --event_of_interest $event_of_interest"
 
     bash_environment = [
         sbatch_init
@@ -150,6 +159,8 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_5
     bash_environment[0] += sbatch_input_6
     bash_environment[0] += sbatch_input_7
+    bash_environment[0] += sbatch_input_8
+    bash_environment[0] += sbatch_input_9
 
     bash_environment[0] += command
 
@@ -160,7 +171,7 @@ def sbatchfile(
 
     # changes permissoins for bash.sh file
     os.chmod(job_path, 0o770)
-    
+
     return job_path
 
 
@@ -173,7 +184,7 @@ def submit_jobs(
     job_configs=None,
     progress=False,
     freesurfer_home=None,
-    freesurfer_license=None
+    freesurfer_license=None,
 ):
     """
     Submits jobs for each subject to the SLURM cluster for parallel execution.
@@ -206,7 +217,7 @@ def submit_jobs(
 
     def add_command(new_arg, command):
         if new_arg:
-            command += f" {new_arg}"
+            command += f" {shlex.quote(str(new_arg))}"
         else:
             command += " None"
         return command
@@ -247,18 +258,22 @@ def submit_jobs(
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for s, subject in enumerate(subjects.keys()):
-        
+
         rs_fname = subjects[subject]["rest_record"]
         er_fname = subjects[subject]["empty_room_record"]
+        event_record = subjects[subject].get("event_record")
+        event_of_interest = subjects[subject].get("event_of_interest")
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
-        
-        command = f"sbatch --job-name={subject} {batch_file} {rs_fname} {temp_path} {subject} {config_file}"
+
+        command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
         command = add_command(line_freq, command)
         command = add_command(mri_surface, command)
         command = add_command(er_fname, command)
-        
+        command = add_command(event_record, command)
+        command = add_command(event_of_interest, command)
+
         subprocess.check_call(command, shell=True)
 
         if progress:
@@ -277,25 +292,35 @@ def check_jobs_status(username, start_time, delay=20):
         The SLURM username used to check the status of the jobs.
     start_time : str
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
-        This is used to identify the specific set of jobs submitted in the `submit_jobs` function.
     delay : int, optional
-        The delay, in seconds, between each check of job status. Default is 20 seconds.
+        The delay, in seconds, between each status check. Default is 20 seconds.
 
     Returns
     -------
     list
         A list of names of jobs that have failed.
     """
-    n = 1
-    while n > 0:
-        job_counts, failed_job_names = check_user_jobs(username, start_time)
-        if job_counts:
-            print(f"Status for user {username} from {start_time}: {job_counts}")
-            if failed_job_names:
-                print("Failed Jobs:", ", ".join(failed_job_names))
-        else:
-            print("No job data available.")
-        n = job_counts["PENDING"] + job_counts["RUNNING"] - 1 # TODO: this "-1" should be removed: solution use job-id instead of time
+    failed_job_names = []
+
+    while True:
+        job_counts, failed_job_names, ok = check_user_jobs(username, start_time)
+
+        if not ok:
+            # The sacct query itself failed (nonzero return or exception).
+            # Wait and retry rather than crashing or falsely concluding the
+            # jobs are done.
+            print("Job status query failed; retrying...")
+            time.sleep(delay)
+            continue
+
+        print(f"Status for user {username} from {start_time}: {job_counts}")
+        if failed_job_names:
+            print("Failed Jobs:", ", ".join(failed_job_names))
+
+        # Genuinely nothing left in flight -> stop monitoring.
+        if job_counts["PENDING"] + job_counts["RUNNING"] == 0:
+            break
+
         time.sleep(delay)
 
     return failed_job_names
@@ -303,7 +328,7 @@ def check_jobs_status(username, start_time, delay=20):
 
 def check_user_jobs(username, start_time):
     """
-    Utility function for counting the status of jobs submitted to the SLURM scheduler.
+    Count the status of jobs submitted to the SLURM scheduler.
 
     Parameters
     ----------
@@ -311,22 +336,30 @@ def check_user_jobs(username, start_time):
         The SLURM username used to check the status of the jobs.
     start_time : str
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
-        This is used to filter the jobs that were submitted after the specified start time.
 
     Returns
     -------
     tuple
-        A tuple containing:
+        A 3-tuple ``(status_counts, failed_jobs, ok)``:
         - status_counts : dict
-            A dictionary with counts of jobs in various states (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
+            Counts of jobs per state (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
         - failed_jobs : list
-            A list of job names that have failed.
+            Job names that have failed.
+        - ok : bool
+            True if the sacct query succeeded, False otherwise. When False the
+            counts are all zero and failed_jobs is empty.
     """
+    empty_counts = {
+        "PENDING": 0,
+        "RUNNING": 0,
+        "COMPLETED": 0,
+        "FAILED": 0,
+        "CANCELLED": 0,
+    }
+
     try:
-        # Format the current datetime to match Slurm's expected format
         end_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-        # sacct command to get job states and names within the specified time frame
         cmd = [
             "sacct",
             "-n",
@@ -346,42 +379,31 @@ def check_user_jobs(username, start_time):
 
         if result.returncode != 0:
             print("Failed to query jobs:", result.stderr)
-            return
+            return empty_counts.copy(), [], False
 
-        # Initialize status counts and a list for failed job names
-        status_counts = {
-            "PENDING": 0,
-            "RUNNING": 0,
-            "COMPLETED": 0,
-            "FAILED": 0,
-            "CANCELLED": 0,
-        }
+        status_counts = empty_counts.copy()
         failed_jobs = []
 
-        # Process each line to count statuses and collect names of failed jobs
         lines = result.stdout.strip().split("\n")
         for line in lines:
-            if line:
-                parts = line.split("|")
-                if len(parts) >= 2:
-                    job_name, state = parts[0], parts[1]
-                    if state == "PENDING":
-                        status_counts["PENDING"] += 1
-                    elif state == "RUNNING":
-                        status_counts["RUNNING"] += 1
-                    elif state == "COMPLETED":
-                        status_counts["COMPLETED"] += 1
-                    elif state == "FAILED":
-                        status_counts["FAILED"] += 1
-                        failed_jobs.append(job_name)
-                    elif state == "CANCELLED":
-                        status_counts["CANCELLED"] += 1
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) < 2:
+                continue
+            job_name, state = parts[0], parts[1]
+            # State can carry a suffix, e.g. "CANCELLED by 12345"
+            state = state.split()[0]
+            if state in status_counts:
+                status_counts[state] += 1
+            if state == "FAILED":
+                failed_jobs.append(job_name)
 
-        return status_counts, failed_jobs
+        return status_counts, failed_jobs, True
 
     except Exception as e:
         print("An error occurred while checking the job status:", str(e))
-        return
+        return empty_counts.copy(), [], False
 
 
 def collect_results(target_dir, subjects, temp_path, file_name="features", clean=True):
@@ -446,24 +468,32 @@ def auto_parallel_feature_extraction(
     ----------
     mainParallel_path : str
         Path to the `mainParallel.py` script that will be executed in parallel for each subject.
-    features_dir : str
-        Path to the directory where the feature extraction results and temporary files will be saved.
-    subjects : dict
-        A dictionary of subject names (keys) and their corresponding file paths (values).
+    project_dir : str
+        Root project directory containing the Features directory where
+        results, temporary files, and configuration are stored.
+    datasets : dict
+        Mapping of dataset names to dataset metadata (e.g., base
+        directory, surfaces directory), used to locate subjects and
+        merge them via glob patterns.
     job_configs : dict
         Dictionary containing job configuration settings (e.g., memory, time, partition, etc.).
-    config_file : str
+    config_file_path : str
         Path to a JSON configuration file containing additional settings for the feature extraction jobs.
-
-    TODO
-
-    
+    which_subjects : list or None, optional
+        If provided, restrict processing to these subject IDs only.
+        Default is None.
     username : str, optional
         The SLURM username. If not provided, it will be fetched from the environment. Default is None.
     auto_rerun : bool, optional
         Whether to automatically rerun failed jobs. Default is True.
     auto_collect : bool, optional
         Whether to automatically collect and merge results after job completion. Default is True.
+    freesurfer_home : str or None, optional
+        Path to the FreeSurfer installation directory, passed to each
+        submitted job. Default is None.
+    freesurfer_license : str or None, optional
+        Path to the FreeSurfer license file, passed to each submitted
+        job. Default is None.
     max_try : int, optional
         The maximum number of retry attempts for failed jobs. Default is 3.
 
@@ -472,6 +502,19 @@ def auto_parallel_feature_extraction(
     list
         A list of failed jobs after all attempts. If no jobs failed, the list will be empty.
 
+    Notes
+    -----
+    - Subjects missing a resting-state recording, failing MRI QC (when
+      source localization and MRI QC are enabled without a template),
+      or not present in `which_subjects` are excluded before submission.
+      Excluded subject lists are written as JSON files under
+      `Features/excluded_participants`.
+    - Runner parameters are persisted to
+      `Features/Configurations/runner_params.json` before job
+      submission.
+    - If `auto_collect` is True, per-subject results are merged and
+      combined with demographic data into
+      `Features/all_features.csv`.
     """
     features_dir = os.path.join(project_dir, "Features")
     subjects = merge_datasets_with_glob(datasets)
@@ -480,40 +523,68 @@ def auto_parallel_feature_extraction(
     all_qc_passed_samples = []
     all_qc_failed_samples = []
     all_missing_samples = []
-    if conf.apply_source_localization and conf.apply_mri_QC:
+    if (
+        conf.apply_source_localization
+        and conf.apply_mri_QC
+        and not conf.apply_mri_template
+    ):
         for keys, values in datasets.items():
-            (qc_passed_samples, 
-            qc_failed_samples, 
-            missing_samples) = meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
+            qc_passed_samples, qc_failed_samples, missing_samples = (
+                meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
+            )
             all_qc_passed_samples.extend(qc_passed_samples)
             all_missing_samples.extend(missing_samples)
             all_qc_failed_samples.extend(qc_failed_samples)
 
-    with open(os.path.join(features_dir, "excluded_participants", "failed_mri_qc_participants.json"), "w") as file:
+    with open(
+        os.path.join(
+            features_dir, "excluded_participants", "failed_mri_qc_participants.json"
+        ),
+        "w",
+    ) as file:
         json.dump(all_qc_failed_samples, file, indent=4)
-    with open(os.path.join(features_dir, "excluded_participants", "missing_mri_participants.json"), "w") as file:
+    with open(
+        os.path.join(
+            features_dir, "excluded_participants", "missing_mri_participants.json"
+        ),
+        "w",
+    ) as file:
         json.dump(all_missing_samples, file, indent=4)
-      
+
     missing_meg_participants = []
     subjects_temp = subjects.copy()
 
     for subj, meta in subjects.items():
+
         if not meta["rest_record"]:
             missing_meg_participants.append(subj)
             subjects_temp.pop(subj)
             continue
-        if (all_qc_passed_samples and subj not in all_qc_passed_samples) or \
-        (which_subjects and subj not in which_subjects):
+        if all_qc_passed_samples and subj not in all_qc_passed_samples:
             subjects_temp.pop(subj)
+            continue
+        if which_subjects and subj not in which_subjects:
+            subjects_temp.pop(subj)
+            continue
+
     subjects = subjects_temp.copy()
 
-    with open(os.path.join(features_dir, "excluded_participants", "missing_meg_participants.json"), "w") as file:
+    with open(
+        os.path.join(
+            features_dir, "excluded_participants", "missing_meg_participants.json"
+        ),
+        "w",
+    ) as file:
         json.dump(missing_meg_participants, file, indent=4)
 
-    with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "r") as file:
+    with open(
+        os.path.join(features_dir, "Configurations", "runner_params.json"), "r"
+    ) as file:
         runner_params = json.load(file)
         runner_params["subjects"] = subjects
-    with open(os.path.join(features_dir, "Configurations", "runner_params.json"), "w") as file:
+    with open(
+        os.path.join(features_dir, "Configurations", "runner_params.json"), "w"
+    ) as file:
         json.dump(runner_params, file, indent=4)
 
     features_temp_path = os.path.join(features_dir, "temp")
@@ -530,7 +601,7 @@ def auto_parallel_feature_extraction(
         job_configs=job_configs,
         config_file=config_file_path,
         freesurfer_home=freesurfer_home,
-        freesurfer_license=freesurfer_license
+        freesurfer_license=freesurfer_license,
     )
 
     # Checking jobs
@@ -550,11 +621,13 @@ def auto_parallel_feature_extraction(
             job_configs=job_configs,
             config_file=config_file_path,
             freesurfer_home=freesurfer_home,
-            freesurfer_license=freesurfer_license
+            freesurfer_license=freesurfer_license,
         )
         # Checking jobs
         failed_jobs = check_jobs_status(username, start_time)
-        falied_subjects = {failed_job: subjects[failed_job] for failed_job in failed_jobs}
+        falied_subjects = {
+            failed_job: subjects[failed_job] for failed_job in failed_jobs
+        }
 
         try_num += 1
 
@@ -570,46 +643,105 @@ def auto_parallel_feature_extraction(
     # Merge demographic data and extracted f-IDPS
     data_base_dirs = [values["base_dir"] for values in datasets.values()]
     dataset_names = list(datasets.keys())
-    df = merge_fidp_demo(datasets_paths=data_base_dirs,
-            features_dir=features_dir,
-            dataset_names=dataset_names)
+    df = merge_fidp_demo(
+        datasets_paths=data_base_dirs,
+        features_dir=features_dir,
+        dataset_names=dataset_names,
+    )
     df.to_csv(os.path.join(features_dir, "all_features.csv"))
 
     return failed_jobs
 
-
 def sbatch_feature_extraction_runner(
-        project_dir,
-        datasets,
-        job_configs,
-        config_file=None,
-        time="48:00:00", 
-        mem="16GB", 
-        freesurfer_home=None,
-        freesurfer_license=None,
-        auto_rerun=True,
-        auto_collect=True,
-        max_try=5,
-        which_subjects=None
-        ):
-    
+    project_dir,
+    datasets,
+    job_configs,
+    config_file=None,
+    time="48:00:00",
+    mem="16GB",
+    freesurfer_home=None,
+    freesurfer_license=None,
+    auto_rerun=True,
+    auto_collect=True,
+    max_try=5,
+    which_subjects=None,
+):
+    """
+    Set up and generate a SLURM sbatch script that launches the full
+    parallel feature-extraction pipeline as a single driver job.
+
+    Creates the project's Features directory structure, saves the
+    pipeline configuration (custom or default), serializes all runner
+    parameters needed by `auto_parallel_feature_extraction` to a JSON
+    file, and writes an sbatch script that runs the parallel driver
+    when submitted to the scheduler.
+
+    Parameters
+    ----------
+    project_dir : str
+        Root project directory in which the Features directory and
+        outputs will be created.
+    datasets : dict
+        Mapping of dataset names to dataset metadata (e.g., base
+        directory, surfaces directory), used to locate subjects and
+        anatomical data.
+    job_configs : dict
+        SLURM job configuration, including keys such as "partition",
+        "module", and "slurm_username". Updated in place with the
+        computed "log_path".
+    config_file : Config or None, optional
+        A `meganorm.utils.IO.Config` instance specifying pipeline
+        settings. If None, a default `Config` is created and saved.
+        Default is None.
+    time : str, optional
+        Maximum wall time for the sbatch driver job (format
+        "HH:MM:SS"). Default is "48:00:00".
+    mem : str, optional
+        Memory allocation for the sbatch driver job (e.g., "16GB").
+        Default is "16GB".
+    freesurfer_home : str or None, optional
+        Path to the FreeSurfer installation directory, passed through
+        to per-subject jobs. Default is None.
+    freesurfer_license : str or None, optional
+        Path to the FreeSurfer license file, passed through to
+        per-subject jobs. Default is None.
+    auto_rerun : bool, optional
+        Whether failed per-subject jobs should be automatically
+        resubmitted. Default is True.
+    auto_collect : bool, optional
+        Whether results should be automatically collected and merged
+        after job completion. Default is True.
+    max_try : int, optional
+        Maximum number of rerun attempts for failed jobs. Default is 5.
+    which_subjects : list or None, optional
+        Optional list restricting processing to specific subject IDs.
+        Default is None.
+
+    Returns
+    -------
+    None
+        Writes `runner_params.json` and
+        `feature_extraction_runner.sbatch` to the project's Features
+        directory.
+    """
+
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path
-    
+
     features_dir = os.path.join(project_dir, "Features")
-    config_file_path = os.path.join(features_dir, "Configurations", "Configuration.json")
+    config_file_path = os.path.join(
+        features_dir, "Configurations", "Configuration.json"
+    )
     if config_file:
-        config_file.save(
-            save_path = config_file_path,
-            overwrite=True)
+        config_file.save(save_path=config_file_path, overwrite=True)
     else:
         conf = Config()
-        conf.save(path=config_file_path)
-    
+        conf.save(save_path=config_file_path)
+
     params = {
         "mainParallel_path": os.path.abspath(meganorm.src.mainParallel.__file__),
         "project_dir": project_dir,
-        "config_file_path":config_file_path,
+        "config_file_path": config_file_path,
         "job_configs": job_configs,
         "username": job_configs["slurm_username"],
         "freesurfer_home": freesurfer_home,
@@ -618,14 +750,14 @@ def sbatch_feature_extraction_runner(
         "auto_collect": auto_collect,
         "max_try": max_try,
         "which_subjects": which_subjects,
-        "datasets" : datasets
+        "datasets": datasets,
     }
 
     features_dir = os.path.join(project_dir, "Features")
     save_path = os.path.join(features_dir, "Configurations", "runner_params.json")
     with open(save_path, "w") as f:
         json.dump(params, f, indent=4)
-    
+
     sbatch_text = f"""#!/bin/bash
 #SBATCH --job-name=feature_extraction_runner
 #SBATCH --output=Features/feature_extraction_runner.out

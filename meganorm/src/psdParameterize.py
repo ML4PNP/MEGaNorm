@@ -9,6 +9,7 @@ from pyrasa.irasa_mne.mne_objs import (
 )
 import logging
 import warnings
+
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def computePsd(
         .average()
         .get_data(return_freqs=True)
     )
-    
+
     return psds, freqs
 
 
@@ -141,7 +142,7 @@ def parameterize_psds(
     n_per_seg=2,
     peak_width_limits=[1, 12.0],
     aperiodic_mode="knee",
-    irasa_hset = (1.05, 2.0, 0.05)
+    irasa_hset=(1.05, 2.0, 0.05),
 ):
     """
     Runs the complete pipeline for spectral parameterization using FOOOF.
@@ -195,7 +196,7 @@ def parameterize_psds(
 
     if aperiodic_mode not in ["fixed", "knee"]:
         raise ValueError("aperiodic_mode must be either 'fixed' or 'knee'")
-    
+
     if parametrization_method == "fooof":
 
         psds, freqs = computePsd(
@@ -225,10 +226,9 @@ def parameterize_psds(
             segments,
             band=(freq_range_low, freq_range_high),
             hset_info=irasa_hset,
-            )
+        )
 
     return spectral_models, psds, freqs
-
 
 
 def irasa_epochs(
@@ -268,28 +268,28 @@ def irasa_epochs(
 
     Note
     ---------
-    This code is driven and modified from PYRASA: 
+    This code is driven and modified from PYRASA:
     https://github.com/schmidtfa/pyrasa/blob/afb003444131f97d3221abb6d338384d92c12e29/pyrasa/irasa_mne/irasa_mne.py
     """
 
     # set parameters & safety checks
     # ensure that input data is in the right format
-    assert isinstance(data, mne.BaseEpochs), 'Data should be of type mne.BaseEpochs'
+    assert isinstance(data, mne.BaseEpochs), "Data should be of type mne.BaseEpochs"
     assert (
-        data.info['bads'] == []
-    ), 'Data should not contain bad channels as this might mess up the creation of the returned data structure'
+        data.info["bads"] == []
+    ), "Data should not contain bad channels as this might mess up the creation of the returned data structure"
 
     info = data.info.copy()
-    fs = data.info['sfreq']
+    fs = data.info["sfreq"]
 
     data_array = data.get_data(copy=True)
 
     nfft = 2 ** (np.ceil(np.log2(int(data_array.shape[2] * np.max(hset_info)))))
 
     kwargs_psd = {
-        'nperseg': None,
-        'nfft': nfft,
-        'noverlap': 0,
+        "nperseg": None,
+        "nfft": nfft,
+        "noverlap": 0,
     }
 
     psd_list_aperiodic, psd_list_periodic, psd_list_original = [], [], []
@@ -298,7 +298,7 @@ def irasa_epochs(
             epoch,
             fs=fs,
             band=band,
-            filter_settings=(data.info['highpass'], data.info['lowpass']),
+            filter_settings=(data.info["highpass"], data.info["lowpass"]),
             hset_info=hset_info,
             **kwargs_psd,
         )
@@ -314,16 +314,26 @@ def irasa_epochs(
     psds_periodic = psds_periodic[np.newaxis, :, :]
     psds_aperiodic = psds_aperiodic[np.newaxis, :, :]
 
-    return psd_list_original, irasa_spectrum.freqs, IrasaEpoched(
-        periodic=PeriodicEpochsSpectrum(
-            psds_periodic, info, freqs=irasa_spectrum.freqs, events=np.array([[0, 0, 1]]*1), event_id={'1': 1}
-        ),
-        aperiodic=AperiodicEpochsSpectrum(
-            psds_aperiodic, info, freqs=irasa_spectrum.freqs, events=np.array([[0, 0, 1]]*1), event_id={'1': 1}
+    return (
+        psd_list_original,
+        irasa_spectrum.freqs,
+        IrasaEpoched(
+            periodic=PeriodicEpochsSpectrum(
+                psds_periodic,
+                info,
+                freqs=irasa_spectrum.freqs,
+                events=np.array([[0, 0, 1]] * 1),
+                event_id={"1": 1},
+            ),
+            aperiodic=AperiodicEpochsSpectrum(
+                psds_aperiodic,
+                info,
+                freqs=irasa_spectrum.freqs,
+                events=np.array([[0, 0, 1]] * 1),
+                event_id={"1": 1},
+            ),
         ),
     )
-
-
 
 
 def sqc_parameterize_psds(
@@ -340,7 +350,7 @@ def sqc_parameterize_psds(
     n_per_seg=2,
     peak_width_limits=[1, 12.0],
     aperiodic_mode="knee",
-    irasa_hset = (1.05, 2.0, 0.05)
+    irasa_hset=(1.05, 2.0, 0.05),
 ):
     """
     Runs the complete pipeline for spectral parameterization using FOOOF.
@@ -394,7 +404,7 @@ def sqc_parameterize_psds(
 
     if aperiodic_mode not in ["fixed", "knee"]:
         raise ValueError("aperiodic_mode must be either 'fixed' or 'knee'")
-    
+
     if parametrization_method == "fooof":
 
         psds, freqs = computePsd(
@@ -424,11 +434,13 @@ def sqc_parameterize_psds(
             segments,
             band=(freq_range_low, freq_range_high),
             hset_info=irasa_hset,
-            )
-        
-        ap = spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode, scale=True)
+        )
+
+        ap = spectral_models.aperiodic.fit_aperiodic_model(
+            fit_func=aperiodic_mode, scale=True
+        )
         gof = ap.gof
 
         low_r2_channels = gof[gof["R2"] < 0.9]["ch_name"].to_list()
-        
+
     return low_r2_channels
