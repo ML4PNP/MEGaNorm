@@ -46,9 +46,9 @@
 This is the easiest way to get started if you just want to use the toolbox.
 
 ```bash
-conda create --channel=conda-forge --strict-channel-priority --name mne python=3.12 mne
+conda create --channel=conda-forge --strict-channel-priority --name meganorm python=3.12
 
-conda activate mne
+conda activate meganorm
 
 pip install meganorm
 ```
@@ -59,9 +59,9 @@ pip install meganorm
 
 ```bash
 # 1. Create and activate environment
-conda create --channel=conda-forge --strict-channel-priority --name mne python=3.12 mne
+conda create --channel=conda-forge --strict-channel-priority --name meganorm python=3.12
 
-conda activate mne
+conda activate meganorm
 
 # 2. Clone and install MEGaNorm
 git clone https://github.com/ML4PNP/MEGaNorm.git
@@ -123,7 +123,7 @@ pytest tests/
 
 ## 🧠 Citing MEGaNorm
 
-* Citing the package (**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)): You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320). 
+* Citing the package (**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)): You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320): Zamanzadeh, M., Verduyn, Y., & Kia, S. M. (2025). MEGaNorm: a Python package for normative modeling on MEG and EEG data (v0.1.0). Zenodo. 
 
 * Citing the paper ([nature communication biology](https://doi.org/10.1038/s42003-026-09825-2)): Zamanzadeh, Mohammad, Ymke Verduyn, Augustijn de Boer, Tomas Ros, Thomas Wolfers, Richard Dinga, Marie Šafář Postma, Andre F. Marquand, Marijn van Wingerden, and Seyed Mostafa Kia. "Normative modeling of MEG brain oscillations across the human lifespan." Communications biology (2026). 
 
