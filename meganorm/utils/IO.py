@@ -32,158 +32,222 @@ class BandRatio(BaseModel):
 
 class Config(BaseModel):
     """
-    Configuration class for preprocessing, feature extraction, and analysis of
-    neurophysiological signals (e.g., MEG, EEG, OPM). Provides a comprehensive set
-    of parameters for filtering, ICA, artifact detection, source localization,
-    power spectral density (PSD) estimation, FOOOF analysis, and feature extraction.
+    Configuration for preprocessing, artifact correction, source localization,
+    and spectral feature extraction of neurophysiological signals (MEG/EEG/OPM).
 
-    Attributes
+    Parameters
     ----------
-    which_layout : {"all", "lobe", "None"}, default="all"
-        Sensor layout selection.
+    which_meg_session : int, default=0
+        Index of the MEG session to process.
+    which_layout : {"all", "lobe", None}, default="all"
+        Sensor layout grouping used for reporting/analysis.
     which_sensor : {"mag", "grad", "meg", "eeg", "opm"}, default="meg"
         Sensor type to process.
+    drop_noisy_flat_channel : bool, default=True
+        Drop channels flagged as noisy or flat before further processing.
 
-    ICA Parameters
-    --------------
-    ica_n_component : int, default=30
-        Number of ICA components to compute.
-    ica_max_iter : int, default=800
-        Maximum iterations for ICA algorithm.
-    ica_method : {"fastica", "infomax", "picard"}, default="fastica"
-        ICA algorithm to use.
+    Filtering & Resampling
+    -----------------------
+    cutoffFreqLow, cutoffFreqHigh : float, PositiveInt, default=1.0, 80
+        Bandpass filter cutoff frequencies (Hz).
+    resampling_rate : PositiveInt, default=1000
+        Target sampling rate (Hz).
+    digital_filter, notch_filter : bool, default=True
+        Apply bandpass / line-noise notch filtering.
+    apply_oversampled_temporal_projection : bool, default=True
+        Apply oversampled temporal projection (OTP) denoising.
+    apply_Head_movement_correction : bool, default=True
+        Correct for head movement during recording.
+    Head_movement_limit_from_mean : float, default=0.0015
+        Maximum allowed deviation from mean head position (m).
+    apply_chpi_filter : bool, default=False
+        Filter out cHPI coil signals.
 
-    Filtering Parameters
-    -------------------
-    cutoffFreqLow : int, default=1
-        Low cutoff frequency for bandpass filter (Hz).
-    cutoffFreqHigh : int, default=40
-        High cutoff frequency for bandpass filter (Hz).
-    resampling_rate : int, default=1000
-        Sampling rate for resampling (Hz).
-    digital_filter : bool, default=True
-        Apply digital bandpass filtering.
-    notch_filter : bool, default=True
-        Apply notch filter to remove line noise.
-
-    Artifact Detection
-    -----------------
-    muscle_activity_thr : int, default=4
-        Threshold for muscle artifact detection.
-    muscle_activity_min_length_good : float, default=0.1
-        Minimum clean segment length after artifact removal (s).
-    muscle_activity_filter_freq : tuple[int, int], default=(110, 140)
-        Frequency range for muscle artifact detection (Hz).
-
+    ICA
+    ---
     apply_ica : bool, default=True
-        Apply ICA artifact correction.
-    auto_ica_corr_thr : float, default=0.9
-        Correlation threshold for automatic ICA component removal.
+        Apply ICA-based artifact correction.
+    apply_ica_elbow_detection : bool, default=False
+        Automatically select the number of ICA components via elbow detection.
+    ica_n_component : PositiveInt or None, default=None
+        Number of ICA components to compute.
+    ica_max_iter : PositiveInt, default=800
+        Maximum ICA iterations.
+    ica_method : {"fastica", "infomax", "picard"}, default="fastica"
+        ICA algorithm.
+    ica_if_reject_by_annotation : bool, default=True
+        Exclude annotated bad segments when fitting ICA.
+    auto_ica_corr_thr : float, default=0.5
+        Correlation threshold (0-1) for automatic ICA component rejection.
 
-    EEG Reference
-    -------------
-    rereference_method : {"average", "REST", "None"}, default="average"
-        EEG re-referencing method.
+    GEDAI Artifact Removal
+    -----------------------
+    apply_gedai : bool, default=True
+        Apply GEDAI-based artifact removal.
+    gedai_method : {"both", "spectral", "broadband"}, default="both"
+        GEDAI denoising strategy.
+    sensai_method : {"optimize", "gridsearch"}, default="optimize"
+        Parameter search strategy for SensAI.
+    gedai_duration, gedai_overlap : float or int, default=12, 0.5
+        Window duration (s) and overlap fraction for GEDAI.
+    gedai_preliminary_broadband_noise_multiplier : float, default=6.0
+        Noise multiplier for preliminary broadband detection.
+    gedai_noise_multiplier : float, default=3.0
+        Noise multiplier used in GEDAI thresholding.
+    gedai_wavelet_type : str, default="haar"
+        Wavelet family used for spectral GEDAI.
+    gedai_wavelet_level : "auto", PositiveInt, or 0, default="auto"
+        Wavelet decomposition level.
+    gedai_wavelet_low_cutoff : float or None, default=None
+        Low-frequency cutoff for wavelet-based denoising.
+    gedai_epoch_size_in_cycles : PositiveInt, default=12
+        Epoch size expressed in number of cycles.
+    gedai_highpass_cutoff : float, default=0.1
+        High-pass cutoff applied before GEDAI (Hz).
 
-    Signal Quality Thresholds
-    -------------------------
-    mag_var_threshold : float, default=4e-12
-        Variance threshold for MEG magnetometers.
-    grad_var_threshold : float, default=4000e-13
-        Variance threshold for MEG gradiometers.
-    eeg_var_threshold : float, default=40e-6
-        Variance threshold for EEG.
-    mag_flat_threshold : float, default=10e-15
-        Flatline threshold for MEG magnetometers.
-    grad_flat_threshold : float, default=10e-15
-        Flatline threshold for MEG gradiometers.
-    eeg_flat_threshold : float, default=40e-6
-        Flatline threshold for EEG.
-    zscore_std_thresh : int, default=15
-        Standard deviation threshold for z-score outlier rejection.
+    Muscle Artifact Detection
+    ---------------------------
+    muscle_activity_thr : int, default=4
+        Detection threshold for muscle artifacts.
+    muscle_activity_min_length_good : float, default=0.1
+        Minimum length of a clean segment retained after removal (s).
+    muscle_activity_filter_freq : tuple[int, int], default=(110, 140)
+        Frequency band used for muscle artifact detection (Hz).
+
+    Environmental Noise Correction
+    --------------------------------
+    apply_environmental_noise_correction : bool, default=True
+        Apply environmental/reference-based noise correction.
+    ctf_gradient_comp_level : PositiveInt, default=3
+        CTF gradient compensation level.
+    apply_environmental_noise_ssp_with_eroom : bool, default=False
+        Use empty-room SSP projectors for noise correction.
+    apply_environmental_noise_ica_with_ref_meg : bool, default=True
+        Use reference-MEG-guided ICA for environmental noise removal.
+    environmental_noise_ica_with_ref_meg_thr : float, default=2.5
+        Threshold for ref-MEG-guided ICA component rejection.
+    environmental_noise_ica_with_ref_meg_method : {"together", "separate"}, default="separate"
+        Whether to process reference channels jointly or separately.
+    environmental_noise_ica_with_ref_meg_measure : {"zscore", "correlation"}, default="zscore"
+        Metric used to score ICA components against reference channels.
+
+    EEG Reference & Bad-Segment Rejection
+    ----------------------------------------
+    rereference_method : {"average", "REST", None}, default="average"
+        EEG re-referencing scheme.
+    bad_segment_removal_method : {"autoreject", "fixed_thr", None}, default="autoreject"
+        Method for rejecting bad data segments.
+    mag_var_threshold, grad_var_threshold, eeg_var_threshold : float
+        Variance-based rejection thresholds per channel type.
+    mag_flat_threshold, grad_flat_threshold, eeg_flat_threshold : float
+        Flatline-detection thresholds per channel type.
+    zscore_std_thresh : PositiveInt, default=15
+        Z-score threshold for outlier rejection.
+    autoreject_n_interpolates : list[int], default=[1, 4, 8, 16, 32]
+        Candidate interpolation counts for Autoreject.
+    autoreject_consensus_percs : list[float]
+        Candidate consensus percentages for Autoreject (11 values, 0-1).
+    autoreject_cv : int or "auto", default="auto"
+        Cross-validation folds for Autoreject.
+    autoreject_thresh_method : {"bayesian_optimization", "random_search"}, default="bayesian_optimization"
+        Threshold search strategy for Autoreject.
 
     Segmentation
     ------------
-    segments_tmin : int, default=20
-        Start time relative to event (s).
-    segments_tmax : int, default=-20
-        End time relative to event (s).
-    segments_length : int, default=10
-        Segment length (s).
-    segments_overlap : int, default=2
-        Segment overlap (s).
+    segments_tmin, segments_tmax : PositiveInt, NegativeInt, default=20, -20
+        Segment start/end times relative to event (s).
+    segments_length, segments_overlap : int, default=10, 2
+        Segment length and overlap (s).
 
     Source Localization
-    -------------------
+    --------------------
     apply_source_localization : bool, default=False
         Whether to perform source localization.
-    SL_source_space : {"surface", "volumetric"}, default="surface"
+    apply_empty_room_recording : bool, default=True
+        Use empty-room recordings for noise covariance estimation.
+    apply_mri_QC : bool, default=False
+        Run quality control on MRI/FreeSurfer output.
+    apply_mri_template : bool, default=False
+        Use a template MRI instead of subject-specific anatomy.
+    freesurfer_template_path, freesurfer_home, freesurfer_license : str or None
+        Paths to FreeSurfer template derivatives, installation, and license.
+    make_new_watershed_bem : bool, default=False
+        Recompute the watershed BEM surfaces.
+    gcaatlas : bool, default=True
+        Use the GCA atlas for subcortical segmentation.
+    SL_source_space : {"surface", "volumetric"}, default="volumetric"
         Type of source space.
     SL_conductivity : tuple[float, ...], default=(0.3,)
-        Conductivity values for head model layers.
+        Head-model layer conductivities (three values required for EEG).
     SL_inverse_operator : {"lcmv"}, default="lcmv"
         Inverse operator method.
-    source_space_spacing : {"ico3", "ico4", "ico5", "ico6", "oct5", "oct6"}, default="ico4"
+    source_space_spacing : {"ico3"..."ico6", "oct5", "oct6"}, default="ico4"
         Source space resolution.
     source_space_spacing_number : {3, 4, 5, 6}, default=4
-        Resolution number corresponding to `source_space_spacing`.
+        Numeric resolution; must match `source_space_spacing`.
+    coregisteration_final_n_iterations : int, default=20
+        Iterations for the final coregistration refinement.
+    coregisteration_final_nasion_weight : float, default=10.0
+        Weight applied to the nasion fiducial during coregistration.
+    covariance_method : str, default="empirical"
+        Method for noise covariance estimation.
 
-    Beamformer Parameters
-    --------------------
+    Beamformer & Parcellation
+    ----------------------------
     beamformer_pick_ori : {None, "normal", "max-power", "vector"}, default="max-power"
-        Orientation selection for beamformer.
+        Source orientation constraint.
     beamformer_weight_norm : {None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"}, default="unit-noise-gain"
-        Weight normalization method.
-    beamforme_depth : float, optional
-        Scaling factor to correct for head-center bias.
+        Beamformer weight normalization.
+    beamforme_depth : float, default=0.08
+        Depth-weighting factor correcting for center-of-head bias.
     inverse_regularization_value : float, default=0.05
-        Regularization for data covariance matrix.
-
-    Parcellation
-    ------------
+        Regularization applied to the data covariance matrix.
+    apply_morphing : bool, default=False
+        Morph source estimates to a common template brain.
     parcellation_parc : {None, "aparc.a2009s", "parac"}, default="aparc.a2009s"
-        Predefined parcellation.
+        Predefined cortical parcellation.
     parcellation_annot_fname : Path or None
-        Custom parcellation file.
+        Custom parcellation (.annot) file, used if `parcellation_parc` is None.
 
-    PSD Parameters
-    --------------
+    PSD & Spectral Parametrization
+    ---------------------------------
     psd_method : {"multitaper", "welch"}, default="welch"
         PSD estimation method.
-    psd_n_overlap : int, default=1
-        Number of overlapping samples.
-    psd_n_fft : int, default=2
-        FFT length.
-    psd_n_per_seg : int, default=2
-        Segment length for PSD.
-
-    FOOOF Analysis
-    --------------
-    fooof_freq_range_low : int, default=3
-        Lower frequency bound (Hz).
-    fooof_freq_range_high : int, default=40
-        Upper frequency bound (Hz).
+    psd_n_overlap, psd_n_fft, psd_n_per_seg : PositiveInt, default=1, 2, 2
+        Welch/multitaper PSD parameters.
+    parametrization_method : {"fooof", "irasa"}, default="irasa"
+        Method for separating aperiodic and periodic spectral components.
+    irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
+        Resampling factor range/step for IRASA.
+    fooof_freq_range_low, fooof_freq_range_high : PositiveInt, default=3, 40
+        Frequency range for FOOOF fitting (Hz).
     aperiodic_mode : {"knee", "fixed"}, default="knee"
-        Model for aperiodic component.
+        Aperiodic component model.
     fooof_peak_width_limits : list[float], default=[1.0, 12.0]
-        Peak width limits (Hz).
+        Allowed peak width range (Hz).
     fooof_min_peak_height : int, default=0
-        Minimum peak height.
-    fooof_peak_threshold : int, default=2
-        Peak detection threshold.
-    fooof_res_save_path : str, optional
+        Minimum peak height for detection.
+    fooof_peak_threshold : PositiveInt, default=2
+        Peak detection threshold (in SD of the flattened spectrum).
+    fooof_res_save_path : str or None
         Path to save FOOOF results.
+    save_source_localized_epochs, save_psds : bool, default=False
+        Persist intermediate source-localized epochs / PSDs to disk.
 
     Feature Extraction
-    ------------------
+    -------------------
     freq_bands : dict[str, tuple[int, int]]
-        Canonical frequency bands.
+        Canonical frequency band definitions (Theta, Alpha, Beta, Gamma).
     individualized_band_ranges : dict[str, tuple[int, int]]
-        Offsets for individualized bands.
+        Per-band offsets (Hz) used to individualize canonical bands.
+    power_band_ratios_list : list[BandRatio]
+        Band-power ratios to compute (e.g. Theta/Beta).
     min_r_squared : float, default=0.9
-        Minimum R² for model fit.
+        Minimum R² required to accept a spectral model fit.
     feature_categories : dict[str, bool]
-        Flags indicating which features to extract.
+        Flags selecting which feature families to extract (offset, exponent,
+        peak parameters, canonical/individualized band power, band ratios,
+        hemispheric asymmetry).
 
     Miscellaneous
     -------------
@@ -192,16 +256,19 @@ class Config(BaseModel):
 
     Methods
     -------
-    save(path)
-        Save configuration to JSON.
-    load(path) -> Config
-        Load configuration from JSON.
-    muscle_activity_thr_fv(v)
-        Validator for muscle activity threshold.
-    muscle_activity_filter_freq_fv(v)
-        Validator for muscle artifact frequency.
-    SL_conductivity_mv()
-        Validator for EEG conductivity.
+    save(save_path, overwrite=False)
+        Serialize the configuration to a JSON file.
+    load(path)
+        Load a configuration from a JSON file.
+
+    Notes
+    -----
+    Model validators enforce cross-field consistency, e.g.: a three-layer
+    `SL_conductivity` is required for EEG source localization; `beamformer_pick_ori
+    == "vector"` requires `beamformer_weight_norm == "unit-noise-gain-invariant"`;
+    `source_space_spacing` must match `source_space_spacing_number`; GEDAI
+    parameters must be consistent with the chosen `gedai_method`; and MRI
+    template use is mutually exclusive with MRI QC.
     """
 
     model_config = {"extra": "forbid"}
@@ -1042,6 +1109,32 @@ def clean_nan_columns(df, nan_threshold):
 def find_other_mri_session(
     base_mri_path, missing_mri_subjects, str_mri_ending, which_session
 ):
+    """
+    Find an alternative MRI file for each subject at a given session index.
+
+    Searches recursively under each subject's directory for files matching
+    the given filename ending, then selects the file at the requested
+    session index. Intended for locating a fallback MRI session (e.g. a
+    second scan) for subjects whose primary MRI is missing or unusable.
+
+    Parameters
+    ----------
+    base_mri_path : str or Path
+        Root directory containing per-subject MRI folders.
+    missing_mri_subjects : iterable of str
+        Subject IDs to search for.
+    str_mri_ending : str
+        Filename suffix/pattern used to match MRI files (e.g. "T1w.nii.gz").
+    which_session : int
+        1-based index of the session to select from each subject's matched
+        file list.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of subject ID to the matched MRI file path. Subjects with
+        fewer than `which_session` matching files are omitted.
+    """
 
     new_paths = {}
     for subject in missing_mri_subjects:
@@ -1056,6 +1149,23 @@ def find_other_mri_session(
 
 
 def find_failed_meg_subjects(log_path):
+    """
+    Identify subjects whose MEG processing failed, based on log files.
+
+    Scans the given directory for error log files (files with "err" in the
+    name) and flags any subject whose log contains the string "error".
+
+    Parameters
+    ----------
+    log_path : str or Path
+        Directory containing per-subject log files.
+
+    Returns
+    -------
+    set of str
+        Unique subject IDs (parsed from the log filename, before the first
+        underscore) whose logs indicate a processing error.
+    """
 
     missing_meg_subjects = []
     paths = os.scandir(log_path)
@@ -1073,7 +1183,34 @@ def find_failed_meg_subjects(log_path):
 def find_other_meg_session(
     base_meg_path, missing_meg_subjects, str_meg_ending, task_name, which_session
 ):
+    """
+    Find an alternative MEG recording for each subject at a given session index.
 
+    Searches recursively under each subject's directory for files matching
+    the given task name and filename ending, then selects the file at the
+    requested session index. Intended for locating a fallback MEG session
+    for subjects whose primary recording is missing or failed processing.
+
+    Parameters
+    ----------
+    base_meg_path : str or Path
+        Root directory containing per-subject MEG folders.
+    missing_meg_subjects : iterable of str
+        Subject IDs to search for.
+    str_meg_ending : str
+        Filename suffix/pattern used to match MEG files (e.g. "raw.fif").
+    task_name : str
+        Task identifier expected to appear in the filename (e.g. "rest").
+    which_session : int
+        1-based index of the session to select from each subject's matched
+        file list.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of subject ID to the matched MEG file path. Subjects with
+        fewer than `which_session` matching files are omitted.
+    """
     new_paths = {}
     for subject in missing_meg_subjects:
         rs_record_paths = glob.glob(
