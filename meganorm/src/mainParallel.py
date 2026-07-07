@@ -127,6 +127,13 @@ def main_argparser(args=None):
         default=None,
         help="Event ID of interest for epoch extraction (e.g., '16').",
     )
+    parser.add_argument(
+    "--device_type",
+    type=str,
+    default=None,
+    help="MEG device type (e.g., MEGIN, CTF, BTI). Overrides inference "
+    "from the file path when provided.",
+    )
 
     return parser.parse_args(args)
 
@@ -239,6 +246,8 @@ def main(args):
         args.event_record = None
     if args.event_of_interest == "None":
         args.event_of_interest = None
+    if args.device_type == "None":         
+        args.device_type = None
 
     configs = Config.load(args.configs)
 
@@ -280,9 +289,9 @@ def main(args):
     )
 
     if not configs.which_sensor == "eeg":
-        if (
-            "4D" in path
-        ):  # TODO: it was originaly path[0]. Check if this correction is correct.
+        if args.device_type:
+            device = args.device_type
+        elif "4D" in path:
             device = "BTI"
         elif path.split(".")[-1] == "ds":
             device = "CTF"

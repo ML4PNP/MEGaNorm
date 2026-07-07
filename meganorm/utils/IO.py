@@ -367,7 +367,7 @@ class Config(BaseModel):
     freesurfer_template_path: Optional[str] = None
     freesurfer_home: Optional[str] = None
     freesurfer_license: Optional[str] = None
-
+    coregisteration_scale_mode : Literal["uniform", "3-axis", None] = None
     make_new_watershed_bem: bool = False
     gcaatlas: bool = True
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
@@ -630,6 +630,40 @@ def separate_eyes_open_close_eeglab(
     trim_before=5,
     trim_after=5,
 ):
+    """
+    Split resting-state EEGLAB recordings into separate eyes-open and
+    eyes-closed files based on annotations.
+
+    Scans `input_base_path` for BIDS-style resting-state ``.set`` files,
+    extracts and trims annotated eyes-open and eyes-closed segments,
+    concatenates each condition's segments, and writes them out as new
+    EEGLAB ``.set`` files under a subject-specific folder in
+    `output_base_path`.
+
+    Parameters
+    ----------
+    input_base_path : str
+        Root directory containing subject subfolders with resting-state
+        EEGLAB recordings, matched via the pattern
+        ``*/eeg/*_task-rest_eeg.set``.
+    output_base_path : str
+        Root directory where the separated eyes-open and eyes-closed
+        files will be saved, created if it does not already exist.
+    annotation_description_open : str
+        Annotation description label marking eyes-open segments.
+    annotation_description_close : str
+        Annotation description label marking eyes-closed segments.
+    trim_before : float, optional
+        Duration in seconds to trim from the start of each annotated
+        segment. Default is 5.
+    trim_after : float, optional
+        Duration in seconds to trim from the end of each annotated
+        segment. Default is 5.
+
+    Returns
+    -------
+    None
+    """
     # Ensure output directory exists
     if not os.path.exists(output_base_path):
         os.makedirs(output_base_path)
@@ -850,6 +884,8 @@ def merge_datasets_with_glob(datasets):
         task = dataset_info["task"]
         ending = dataset_info["ending"]
 
+        device = dataset_info["device_type"]
+
         line_freq = dataset_info.get("line_freq", 50)
 
         empty_room_task = dataset_info.get("empty_room_task", None)
@@ -905,6 +941,7 @@ def merge_datasets_with_glob(datasets):
                 {
                     subj: {
                         "rest_record": join_with_star(rs_record_paths),
+                        "device": device,
                         "line_freq": str(line_freq),
                         "empty_room_record": join_with_star(er_record_paths),
                         "mri_surface": surface,
