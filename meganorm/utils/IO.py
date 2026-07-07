@@ -319,6 +319,7 @@ class Config(BaseModel):
     muscle_activity_filter_freq: Tuple[int, int] = (110, 140)
 
     apply_environmental_noise_correction: bool = True
+    same_environmental_noise_removal: bool = False
     ctf_gradient_comp_level: PositiveInt = 3
     apply_environmental_noise_ssp_with_eroom: bool = False
     apply_environmental_noise_ica_with_ref_meg: bool = True
@@ -581,6 +582,15 @@ class Config(BaseModel):
             err_msg = (
                 "You can not apply MRI QC on already preprocessed freesurfer template"
             )
+            raise ValueError(err_msg)
+        return self
+    
+    @model_validator(mode="after")
+    def env_noise_removal_same(self):
+        if self.same_environmental_noise_removal:
+            if not self.apply_environmental_noise_ssp_with_eroom or not self.apply_environmental_noise_ica_with_ref_meg:
+                err_msg = "If you intened to apply the same environmental noise removal must choose between using" \
+                " ref_meg or empty room recording. You can not apply gradient compensation or maxwell filter across all scanners."
             raise ValueError(err_msg)
         return self
 

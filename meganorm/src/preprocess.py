@@ -681,6 +681,7 @@ def preprocess(
     gedai_duration=None,
     gedai_overlap=0.5,
     gedai_preliminary_broadband_noise_multiplier=6.0,
+    same_environmental_noise_removal=False,
     gedai_noise_multiplier=3.0,
     gedai_wavelet_type="haar",
     gedai_wavelet_level="auto",
@@ -919,6 +920,7 @@ def preprocess(
             ica_if_reject_by_annotation=ica_if_reject_by_annotation,
             environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
             environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
+            same_environmental_noise_removal=same_environmental_noise_removal
         )
 
     # Remove unwanted epochs associated with some events
@@ -1625,6 +1627,7 @@ def remove_environmental_noise(
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
+    same_environmental_noise_removal=False
 ):
     """
     Suppress environmental (external) noise using a device-appropriate
@@ -1674,7 +1677,7 @@ def remove_environmental_noise(
         applied.
     """
     # gradient compensation for CTF datasets
-    if device == "CTF":
+    if device == "CTF" and not same_environmental_noise_removal:
         data, empty_room_recording = apply_gradient_comp(
             data,
             empty_room_recording=empty_room_recording,
@@ -1684,7 +1687,7 @@ def remove_environmental_noise(
         logger.info(msg)
 
     # If MEGIN device, apply tsss
-    elif device == "MEGIN":
+    elif device == "MEGIN" and not same_environmental_noise_removal:
         if not check_tsss(data):
             pass  # TODO: to be added
         else:
