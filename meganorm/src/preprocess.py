@@ -1465,7 +1465,7 @@ def _chpi_usable(data, device):
     ----------
     data : mne.io.Raw
         Raw MEG data to check for usable cHPI information.
-    device : {"MEGIN", "CTF", "KIT"}
+    device : {"MEGIN", "CTF", "BTI"}
         Recording system type.
 
     Returns
@@ -1487,7 +1487,7 @@ def _chpi_usable(data, device):
         hlc = [ch for ch in data.ch_names if ch.startswith("HLC")]
         return len(hlc) > 0
 
-    elif device == "KIT":
+    elif device == "BTI":
         # no channel-name signature; just try the extractor
         try:
             mne.chpi.extract_chpi_locs_kit(data, verbose=False)
@@ -1568,17 +1568,17 @@ def head_motion_correction(
 
             empty_room_recording = mne.preprocessing.maxwell_filter(
                 empty_room_recording,
-                head_pos=None,  # If array, movement compensation will be performed.
+                head_pos=head_pos,  # head_pos must match the rs-data
                 cross_talk=None,  # TODO: this should be changed to the real cross_talk file
                 calibration=None,  # TODO: this should be changed to the real calibration file
             )
 
     # TODO, expand this if new device comes in!
-    elif device in ["CTF", "KIT"] and _chpi_usable(data, device=device):
+    elif device in ["CTF", "BTI"] and _chpi_usable(data, device=device):
         if device == "CTF":
             chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
 
-        elif device == "KIT":
+        elif device == "BTI":
             chpi_locs = mne.chpi.extract_chpi_locs_kit(data, verbose=False)
 
         else:
