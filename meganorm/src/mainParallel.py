@@ -128,11 +128,11 @@ def main_argparser(args=None):
         help="Event ID of interest for epoch extraction (e.g., '16').",
     )
     parser.add_argument(
-    "--device_type",
-    type=str,
-    default=None,
-    help="MEG device type (e.g., MEGIN, CTF, BTI). Overrides inference "
-    "from the file path when provided.",
+        "--device_type",
+        type=str,
+        default=None,
+        help="MEG device type (e.g., MEGIN, CTF, BTI). Overrides inference "
+        "from the file path when provided.",
     )
 
     return parser.parse_args(args)
@@ -246,7 +246,7 @@ def main(args):
         args.event_record = None
     if args.event_of_interest == "None":
         args.event_of_interest = None
-    if args.device_type == "None":         
+    if args.device_type == "None":
         args.device_type = None
 
     configs = Config.load(args.configs)
@@ -297,6 +297,8 @@ def main(args):
             device = "CTF"
         elif path.split(".")[-1] == "fif":
             device = "MEGIN"
+        elif path.split(".")[-1] == "bin":
+            device = "ARTEMIS123"
         else:
             err_msg = "The provided MEG recording is not supported yet."
             logger.error(err_msg)
@@ -306,6 +308,7 @@ def main(args):
             -1
         ]  # TODO: it was originaly path[0]. Check if this correction is correct.
 
+    device = device.upper()
     # ------------------------------------------------------------
     if not device == "BTI":
         data = mne.io.read_raw(path, preload=True)
@@ -320,7 +323,7 @@ def main(args):
         else:
             empty_room_recording = None
 
-    else:
+    elif device == "BTI":
         data = mne.io.read_raw_bti(
             pdf_fname=os.path.join(path, "c,rfDC"),
             config_fname=os.path.join(path, "config"),
@@ -332,6 +335,38 @@ def main(args):
                 pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
                 config_fname=os.path.join(empty_room_recording_path, "config"),
                 head_shape_fname=None,
+                preload=True,
+            )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    elif device == "ARTEMIS123":
+        if configs.apply_source_localization:
+            temp = str(Path(path).parent)
+            pos_files = glob.glob(f"{temp}/*.pos")
+            if not pos_files:
+                err_msg = f"No .pos file found next to the Artemis recording in {temp}."
+                logger.error(err_msg)
+                raise FileNotFoundError(err_msg)
+            pos_file = pos_files[0]
+            data = mne.io.read_raw_artemis123(
+                path,
+                preload=True,
+                pos_fname=pos_file,
+                add_head_trans=True,
+            )
+        else:
+            data = mne.io.read_raw_artemis123(
+                path,
+                preload=True,
+            )
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw_artemis123(
+                empty_room_recording_path,
                 preload=True,
             )
             logger.info("Empty room recording was found")
