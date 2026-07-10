@@ -8,7 +8,7 @@
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Zenodo DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441320.svg)](https://doi.org/10.5281/zenodo.15441320)
-
+[![Docker](https://img.shields.io/docker/pulls/smkia/meganorm)](https://img.shields.io/docker/pulls/smkia/meganorm)
 
 <p align="center">
   <img src="docs/images/logo.png" alt="MEGaNorm Logo" width="180"/>
