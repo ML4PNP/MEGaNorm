@@ -85,7 +85,7 @@ make run
 #### Option B: Pull the latest image from Docker Hub
 
 ```bash
-make pull
+make pull # or docker pull smkia/meganorm:latest
 make run
 ```
 
