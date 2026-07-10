@@ -76,6 +76,8 @@ def main_argparser(args=None):
         event_of_interest : str or None, default=None
             Event ID to extract epochs around (e.g. "16"). Only used if
             `event_record` is also provided.
+        device_type: Device type.
+            For MEG, only BTI, CTF, ARTEMIS123 and MEGIN are supported.
 
     Notes
     -----
