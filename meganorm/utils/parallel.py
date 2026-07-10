@@ -122,7 +122,7 @@ def sbatchfile(
     sbatch_input_7 = "empty_room_recording_path=$7\n"
     sbatch_input_8 = "event_record=$8\n"
     sbatch_input_9 = "event_of_interest=$9\n"
-    sbatch_input_10 = "device_type=${10}\n" 
+    sbatch_input_10 = "device_type=${10}\n"
 
     # if with_config:
     command = (
@@ -163,7 +163,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_7
     bash_environment[0] += sbatch_input_8
     bash_environment[0] += sbatch_input_9
-    bash_environment[0] += sbatch_input_10  
+    bash_environment[0] += sbatch_input_10
 
     bash_environment[0] += command
 
@@ -268,7 +268,7 @@ def submit_jobs(
         event_of_interest = subjects[subject].get("event_of_interest")
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
-        device = subjects[subject]["device"] 
+        device = subjects[subject]["device"]
 
         command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
@@ -656,6 +656,7 @@ def auto_parallel_feature_extraction(
     df.to_csv(os.path.join(features_dir, "all_features.csv"))
 
     return failed_jobs
+
 
 def sbatch_feature_extraction_runner(
     project_dir,

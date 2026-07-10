@@ -787,22 +787,21 @@ def preprocess(
             )
         except Exception as e:
             logger.warning(f"Head motion correction failed: {e}")
-            
 
     if movement_dur is not None:
         total_dur = data.n_times / data.info["sfreq"]
         usable_dur = total_dur - movement_dur
-        step = segments_length - overlap   
+        step = segments_length - overlap
         needed_dur = 2 * step + segments_length
         if usable_dur < needed_dur:
-                    msg = (
-                        f"Only {usable_dur:.1f}s usable after movement annotations; "
-                        f"need {needed_dur:.1f}s for 3 segments "
-                        f"(length={segments_length}s, overlap={overlap}s)."
-                    )
-                    logger.error(msg)
-                    raise ValueError(msg)
-        
+            msg = (
+                f"Only {usable_dur:.1f}s usable after movement annotations; "
+                f"need {needed_dur:.1f}s for 3 segments "
+                f"(length={segments_length}s, overlap={overlap}s)."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
     # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
     orig_sampling_rate = sampling_rate
@@ -920,7 +919,7 @@ def preprocess(
             ica_if_reject_by_annotation=ica_if_reject_by_annotation,
             environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
             environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
-            same_environmental_noise_removal=same_environmental_noise_removal
+            same_environmental_noise_removal=same_environmental_noise_removal,
         )
 
     # Remove unwanted epochs associated with some events
@@ -1400,7 +1399,6 @@ def pca_elbow_locator(raw, which_sensor):
     return int(elbow_index)
 
 
-
 def drop_mag_or_grad(data, empty_room_recording, which_sensor):
     """
     Drop either magnetometer or gradiometer channels, keeping only one
@@ -1544,7 +1542,7 @@ def head_motion_correction(
         msg = "Head motion correction was not applied since tSSS has already been applied to the data."
         logger.info(msg)
         return data, empty_room_recording, movement_dur
-    
+
     # MEGIN devicesEpoch
     if device == "MEGIN" and _chpi_usable(data, device=device):
 
@@ -1627,7 +1625,7 @@ def remove_environmental_noise(
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
-    same_environmental_noise_removal=False
+    same_environmental_noise_removal=False,
 ):
     """
     Suppress environmental (external) noise using a device-appropriate
@@ -1815,6 +1813,7 @@ def find_ref_meg_artifact(
         # TODO: data_clean.drop_channels(ref_comps.ch_names)
 
     return data, bad_comps, scores
+
 
 def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier):
     """

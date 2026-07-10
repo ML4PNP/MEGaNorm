@@ -470,7 +470,7 @@ def main(args):
         event_of_interest=event_of_interest,
         segments_length=configs.segments_length,
         overlap=configs.segments_overlap,
-        same_environmental_noise_removal=configs.same_environmental_noise_removal
+        same_environmental_noise_removal=configs.same_environmental_noise_removal,
     )
 
     # Remove UADC001 annotations - temp

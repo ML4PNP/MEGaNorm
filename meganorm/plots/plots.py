@@ -28,7 +28,7 @@ from nilearn.datasets import (
     load_fsaverage_data,
     load_nki,
 )
-from nilearn.plotting import plot_surf_roi, plot_surf_contours 
+from nilearn.plotting import plot_surf_roi, plot_surf_contours
 
 
 # ***
@@ -1630,11 +1630,11 @@ def plot_site_diff(
 
 def parse_aparc2009_name(region_name):
     if region_name.startswith("ctx_lh_"):
-        return region_name[len("ctx_lh_"):], ["left"]
+        return region_name[len("ctx_lh_") :], ["left"]
     elif region_name.startswith("ctx_rh_"):
-        return region_name[len("ctx_rh_"):], ["right"]
+        return region_name[len("ctx_rh_") :], ["right"]
     elif region_name.startswith("ctx_"):
-        return region_name[len("ctx_"):], ["left", "right"]
+        return region_name[len("ctx_") :], ["left", "right"]
     else:
         return region_name, ["left", "right"]
 
@@ -1651,7 +1651,7 @@ def plot_roi(
     colorbar=False,
     contour_color=None,
     cmap="tab10",
-    **kwargs
+    **kwargs,
 ):
     if isinstance(region_name, str):
         region_name = [region_name]
@@ -1674,7 +1674,7 @@ def plot_roi(
     fsaverage_meshes = load_fsaverage(mesh=fsaverage)
     destrieux = fetch_atlas_surf_destrieux(verbose=False)
 
-    force_left  = any(r.startswith("ctx_lh_") for r in region_name)
+    force_left = any(r.startswith("ctx_lh_") for r in region_name)
     force_right = any(r.startswith("ctx_rh_") for r in region_name)
     if force_left and not force_right:
         hemispheres = [h for h in hemispheres if h == "left"] or ["left"]
@@ -1682,17 +1682,19 @@ def plot_roi(
         hemispheres = [h for h in hemispheres if h == "right"] or ["right"]
 
     map_destrieux = {}
-    if "left"  in hemispheres: map_destrieux["left"]  = destrieux.map_left
-    if "right" in hemispheres: map_destrieux["right"] = destrieux.map_right
+    if "left" in hemispheres:
+        map_destrieux["left"] = destrieux.map_left
+    if "right" in hemispheres:
+        map_destrieux["right"] = destrieux.map_right
 
-    full_mesh       = fsaverage_meshes[mesh_type]
-    filtered_mesh   = PolyMesh(**{hemi: full_mesh.parts[hemi] for hemi in hemispheres})
+    full_mesh = fsaverage_meshes[mesh_type]
+    filtered_mesh = PolyMesh(**{hemi: full_mesh.parts[hemi] for hemi in hemispheres})
     destrieux_atlas = SurfaceImage(mesh=filtered_mesh, data=map_destrieux)
 
     fsaverage_sulcal_full = load_fsaverage_data(data_type=fsaverage_sulcal_type)
     fsaverage_sulcal = SurfaceImage(
         mesh=filtered_mesh,
-        data={hemi: fsaverage_sulcal_full.data.parts[hemi] for hemi in hemispheres}
+        data={hemi: fsaverage_sulcal_full.data.parts[hemi] for hemi in hemispheres},
     )
 
     roi_map = {
@@ -1717,7 +1719,8 @@ def plot_roi(
     n_rows = len(hemispheres)
     n_cols = len(views)
     fig, axes = plt.subplots(
-        n_rows, n_cols,
+        n_rows,
+        n_cols,
         subplot_kw={"projection": "3d"},
         figsize=(6 * n_cols, 5 * n_rows),
         squeeze=False,
@@ -1727,28 +1730,33 @@ def plot_roi(
         for col, view in enumerate(views):
             fig_roi = plot_surf_roi(
                 roi_map=surface_mask,
-                hemi=hemi, view=view,
+                hemi=hemi,
+                view=view,
                 bg_map=fsaverage_sulcal,
                 bg_on_data=True,
                 colorbar=colorbar,
                 cmap=discrete_cmap,
-                vmin=0, vmax=n,
+                vmin=0,
+                vmax=n,
                 alpha=1,
-                axes=axes[row, col], figure=fig,
-                **kwargs
+                axes=axes[row, col],
+                figure=fig,
+                **kwargs,
             )
             if plot_contour:
                 _contour_color = contour_color if contour_color else "black"
                 for i in range(1, n + 1):
                     plot_surf_contours(
                         roi_map=surface_mask,
-                        figure=fig_roi, hemi=hemi,
+                        figure=fig_roi,
+                        hemi=hemi,
                         axes=axes[row, col],
                         levels=[i],
                         colors=[_contour_color],
                     )
 
     return fig, axes
+
 
 def define_lut(lut_path):
     """
@@ -1789,29 +1797,28 @@ def convert_region_name(region_name):
     return region_name  # subcortical names like "Left-Hippocampus" stay as-is
 
 
-
 def plot_statistics_on_brain(
-        lh_annot_path,
-        rh_annot_path,
-        stats,
-        fsaverage="fsaverage",
-        surface_mesh_type="pial",
-        bg_map_mesh_type="sulc",
-        abs_threshold=None,
-        cmap="Reds",
-        alpha=0.7,
-        symmetric_cbar="auto",
-        bg_on_data=True,
-        show_colorbar=False,
-        title=None,
-        vmin=None,
-        vmax=None,
-        save_fig_path=None,
-        views=("lateral", "medial"),
-        hemispheres=("left", "right"),
-        show_parcel_contours=True,      
-        contour_colors=None,            
-        contour_levels=None, 
+    lh_annot_path,
+    rh_annot_path,
+    stats,
+    fsaverage="fsaverage",
+    surface_mesh_type="pial",
+    bg_map_mesh_type="sulc",
+    abs_threshold=None,
+    cmap="Reds",
+    alpha=0.7,
+    symmetric_cbar="auto",
+    bg_on_data=True,
+    show_colorbar=False,
+    title=None,
+    vmin=None,
+    vmax=None,
+    save_fig_path=None,
+    views=("lateral", "medial"),
+    hemispheres=("left", "right"),
+    show_parcel_contours=True,
+    contour_colors=None,
+    contour_levels=None,
 ):
     """
     Project region-wise statistics onto the brain surface and plot them.
@@ -1889,27 +1896,27 @@ def plot_statistics_on_brain(
         per-vertex texture array used for plotting.
     """
     # Normalize all stats keys upfront
-    
 
     if isinstance(stats, pd.DataFrame):
         stats = stats.iloc[:, 0].to_dict()
     elif isinstance(stats, pd.Series):
         stats = stats.to_dict()
     stats = {convert_region_name(k): v for k, v in stats.items()}
-    
+
     annot_paths = {"left": lh_annot_path, "right": rh_annot_path}
-    hemi_short  = {"left": "lh", "right": "rh"}
+    hemi_short = {"left": "lh", "right": "rh"}
 
     fsaverage_meshes = datasets.fetch_surf_fsaverage(fsaverage)
 
     n_rows = len(hemispheres)
     n_cols = len(views)
     fig, axes = plt.subplots(
-        n_rows, n_cols,
+        n_rows,
+        n_cols,
         subplot_kw={"projection": "3d"},
         figsize=(4 * n_cols, 3 * n_rows),
         squeeze=False,
-        gridspec_kw={"hspace": -0.3, "wspace": -0.25}
+        gridspec_kw={"hspace": -0.3, "wspace": -0.25},
     )
 
     textures = {}
@@ -1925,7 +1932,7 @@ def plot_statistics_on_brain(
 
         for region_idx, region_name_bytes in enumerate(region_names_bytes):
             region_name = region_name_bytes.decode("utf-8")
-            full_name   = f"ctx-{hs}-{region_name}"
+            full_name = f"ctx-{hs}-{region_name}"
 
             stat_value = stats.get(full_name, stats.get(region_name))
 
@@ -1937,7 +1944,7 @@ def plot_statistics_on_brain(
         textures[hemi] = texture
 
         surf_mesh = fsaverage_meshes[f"{surface_mesh_type}_{hemi}"]
-        bg_map    = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
+        bg_map = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
 
         for col, view in enumerate(views):
             fig = plotting.plot_surf_stat_map(
@@ -1964,12 +1971,13 @@ def plot_statistics_on_brain(
                 before = set(id(c) for c in axes[row, col].collections)
                 plotting.plot_surf_contours(
                     surf_mesh=surf_mesh,
-                    roi_map=labels,            # integer label array from read_annot
-                    levels=contour_levels,     # None = outline all parcels
-                    colors=[contour_colors] * len(np.unique(labels)),     # None = use tab20 cmap
+                    roi_map=labels,  # integer label array from read_annot
+                    levels=contour_levels,  # None = outline all parcels
+                    colors=[contour_colors]
+                    * len(np.unique(labels)),  # None = use tab20 cmap
                     axes=axes[row, col],
                     figure=fig,
-                    linewidth=4.0
+                    linewidth=4.0,
                 )
                 # for collection in axes[row, col].collections:
                 #     if id(collection) not in before:
@@ -1983,7 +1991,9 @@ def plot_statistics_on_brain(
                 pane.set_edgecolor("none")
 
     if missing_regions:
-        print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
+        print(
+            f"Statistics missing for {len(missing_regions)} regions: {missing_regions}"
+        )
     fig.suptitle(title, fontsize=14, y=1.02)
     plt.tight_layout()
     if save_fig_path:
@@ -1992,7 +2002,6 @@ def plot_statistics_on_brain(
     plt.show()
 
     return textures
-
 
 
 def plot_mass_metrics(
@@ -2012,7 +2021,7 @@ def plot_mass_metrics(
     hspace: float = -0.8,
     new_names: Optional[list[str]] = None,
     row_label_fontsize=10,
-    x_label_fontsize= 18,
+    x_label_fontsize=18,
     x_ticks_fontsize=15,
     kde_samples=4000,
 ) -> plt.Figure:
@@ -2060,7 +2069,7 @@ def plot_mass_metrics(
 
     def _generate_colors(n: int) -> list[str]:
         """Generate n colors interpolated from blue to red."""
-        cmap = matplotlib.colormaps["RdYlBu_r"]  
+        cmap = matplotlib.colormaps["RdYlBu_r"]
         return [mcolors.to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
 
     if new_names is not None and len(new_names) != len(feature_categories):
@@ -2082,9 +2091,9 @@ def plot_mass_metrics(
     gs = grid_spec.GridSpec(n, 1, figure=fig)  # attach GridSpec to figure
 
     for i, feature_category in enumerate(feature_categories):
-        
+
         cols = df.loc[:, df.columns.str.startswith(feature_category)]
-        values = cols.to_numpy().ravel() 
+        values = cols.to_numpy().ravel()
 
         if values.size == 0:
             raise Warning(f"No columns found starting with '{feature_category}'.")
@@ -2103,7 +2112,7 @@ def plot_mass_metrics(
         kde = KernelDensity(bandwidth=bandwidth, kernel=kernel)
         kde.fit(values[:, None])
         density = np.exp(kde.score_samples(x_grid[:, None]))
-    
+
         ax = fig.add_subplot(gs[i : i + 1, 0:])
         ax.set_yticks([])
         ax.set_facecolor("none")
@@ -2131,7 +2140,7 @@ def plot_mass_metrics(
                 label,
                 # fontweight="bold",
                 fontsize=row_label_fontsize,
-                ha="right",  
+                ha="right",
                 va="bottom",
                 transform=ax.transData,
                 clip_on=False,
@@ -2148,30 +2157,29 @@ def plot_mass_metrics(
 
 
 def plot_statistics_on_brain_plotly(
-        lh_annot_path,
-        rh_annot_path,
-        stats,
-        fsaverage="fsaverage",
-        surface_mesh_type="pial",
-        bg_map_mesh_type="sulc",
-        abs_threshold=None,
-        cmap="Reds",
-        symmetric_cbar=False,
-        bg_on_data=True,
-        show_colorbar=False,
-        title=None,
-        vmin=None,
-        vmax=None,
-        save_fig_path=None,
-        views=("lateral", "medial"),
-        hemispheres=("left", "right"),
-        show_parcel_contours=True,
-        contour_color="black",
-        contour_linewidth=3,
-        contour_levels=None,
-        contour_elevation=0.1,
-        show_fig=True
-        
+    lh_annot_path,
+    rh_annot_path,
+    stats,
+    fsaverage="fsaverage",
+    surface_mesh_type="pial",
+    bg_map_mesh_type="sulc",
+    abs_threshold=None,
+    cmap="Reds",
+    symmetric_cbar=False,
+    bg_on_data=True,
+    show_colorbar=False,
+    title=None,
+    vmin=None,
+    vmax=None,
+    save_fig_path=None,
+    views=("lateral", "medial"),
+    hemispheres=("left", "right"),
+    show_parcel_contours=True,
+    contour_color="black",
+    contour_linewidth=3,
+    contour_levels=None,
+    contour_elevation=0.1,
+    show_fig=True,
 ):
     """
     Project region-wise statistics onto the brain surface and plot them
@@ -2240,7 +2248,7 @@ def plot_statistics_on_brain_plotly(
     stats = {convert_region_name(k): v for k, v in stats.items()}
 
     annot_paths = {"left": lh_annot_path, "right": rh_annot_path}
-    hemi_short  = {"left": "lh", "right": "rh"}
+    hemi_short = {"left": "lh", "right": "rh"}
 
     fsaverage_meshes = datasets.fetch_surf_fsaverage(fsaverage)
 
@@ -2263,8 +2271,8 @@ def plot_statistics_on_brain_plotly(
         texture = np.full(labels.shape, np.nan)
         for region_idx, region_name_bytes in enumerate(region_names_bytes):
             region_name = region_name_bytes.decode("utf-8")
-            full_name   = f"ctx-{hs}-{region_name}"
-            stat_value  = stats.get(full_name, stats.get(region_name))
+            full_name = f"ctx-{hs}-{region_name}"
+            stat_value = stats.get(full_name, stats.get(region_name))
             if stat_value is not None:
                 texture[labels == region_idx] = stat_value
             else:
@@ -2273,9 +2281,11 @@ def plot_statistics_on_brain_plotly(
         textures[hemi] = texture
 
         surf_mesh = fsaverage_meshes[f"{surface_mesh_type}_{hemi}"]
-        bg_map    = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
+        bg_map = fsaverage_meshes[f"{bg_map_mesh_type}_{hemi}"]
 
-        levels = contour_levels if contour_levels is not None else list(np.unique(labels))
+        levels = (
+            contour_levels if contour_levels is not None else list(np.unique(labels))
+        )
 
         for view in views:
             fig = plotting.plot_surf_stat_map(
@@ -2340,7 +2350,9 @@ def plot_statistics_on_brain_plotly(
             # Lateral views zoom out more than medial — normalize the eye distance
             if view == "lateral":
                 zoom_factor = 0.80  # pull camera closer; tune between 0.6–0.9
-                eye = dict(x=eye.x * zoom_factor, y=eye.y * zoom_factor, z=eye.z * zoom_factor)
+                eye = dict(
+                    x=eye.x * zoom_factor, y=eye.y * zoom_factor, z=eye.z * zoom_factor
+                )
 
             combined.layout[scene_key].camera = dict(
                 eye=eye,
@@ -2389,7 +2401,9 @@ def plot_statistics_on_brain_plotly(
     )
 
     if missing_regions:
-        print(f"Statistics missing for {len(missing_regions)} regions: {missing_regions}")
+        print(
+            f"Statistics missing for {len(missing_regions)} regions: {missing_regions}"
+        )
 
     combined.show()
 
@@ -2404,8 +2418,6 @@ def plot_statistics_on_brain_plotly(
     return textures, combined
 
 
-
-
 def plot_50th_centiles_by_categories(
     categories,
     centile_cache,
@@ -2417,38 +2429,46 @@ def plot_50th_centiles_by_categories(
 ):
     # ── Constants ────────────────────────────────────────────────────────────
     STAGE_BOUNDARIES = [12, 20, 40, 60]
-    STAGE_LABELS     = ["Late\nChildhood", "Adolescence", "Young\nAdulthood",
-                        "Middle\nAdulthood", "Late\nAdulthood"]
-    AGE_TICKS        = [6, 10, 20, 40, 60, 80]
+    STAGE_LABELS = [
+        "Late\nChildhood",
+        "Adolescence",
+        "Young\nAdulthood",
+        "Middle\nAdulthood",
+        "Late\nAdulthood",
+    ]
+    AGE_TICKS = [6, 10, 20, 40, 60, 80]
 
     # ── Utility sub-functions ─────────────────────────────────────────────────
     def add_stage_bands(ax, x_min, x_max):
-        boundaries   = [b for b in STAGE_BOUNDARIES if x_min <= b < x_max]
-        x_edges      = [x_min] + boundaries + [x_max]
+        boundaries = [b for b in STAGE_BOUNDARIES if x_min <= b < x_max]
+        x_edges = [x_min] + boundaries + [x_max]
         stage_ranges = list(zip(x_edges[:-1], x_edges[1:]))
-        ylim         = ax.get_ylim()
+        ylim = ax.get_ylim()
 
         for i, (x0, x1) in enumerate(stage_ranges):
             ax.axvline(x0, color="#888888", linewidth=1.5, zorder=2, linestyle="--")
             ax.text(
-                (x0 + x1) / 2, 1.00,
+                (x0 + x1) / 2,
+                1.00,
                 STAGE_LABELS[i],
                 transform=ax.get_xaxis_transform(),
                 ha="center",
-                fontsize=15, color="#555555", rotation=35,
+                fontsize=15,
+                color="#555555",
+                rotation=35,
             )
 
         ax.set_ylim(ylim)
 
     def add_axis_break(ax, x_min):
-        xlim     = ax.get_xlim()
-        ylim     = ax.get_ylim()
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
         ax_width = xlim[1] - xlim[0]
-        y_span   = ylim[1] - ylim[0]
+        y_span = ylim[1] - ylim[0]
 
         x_break = x_min - ax_width * 0.015
-        gap     = ax_width * 0.01
-        dy      = y_span * 0.04
+        gap = ax_width * 0.01
+        dy = y_span * 0.04
 
         slash_kwargs = dict(color="black", linewidth=1.5, clip_on=False, zorder=10)
         for offset in [-gap / 2, gap / 2]:
@@ -2456,22 +2476,34 @@ def plot_50th_centiles_by_categories(
             ax.plot(
                 [xc - gap * 0.5, xc + gap * 0.5],
                 [ylim[0] - dy * 0.5, ylim[0] + dy * 1.5],
-                transform=ax.transData, **slash_kwargs,
+                transform=ax.transData,
+                **slash_kwargs,
             )
 
         ax.axvspan(xlim[0], x_break - gap, color="white", zorder=9, clip_on=False)
 
         ax.annotate(
-            "", xy=(x_break - gap, ylim[0]), xytext=(xlim[0], ylim[0]),
-            xycoords="data", textcoords="data", annotation_clip=False,
+            "",
+            xy=(x_break - gap, ylim[0]),
+            xytext=(xlim[0], ylim[0]),
+            xycoords="data",
+            textcoords="data",
+            annotation_clip=False,
             arrowprops=dict(arrowstyle="-", color="black", lw=0.8),
         )
 
         ax.annotate(
-            "0", xy=(xlim[0], ylim[0]), xycoords="data",
-            xytext=(0, -4), textcoords="offset points",
-            ha="center", va="top", fontsize=12, color="black",
-            clip_on=False, annotation_clip=False,
+            "0",
+            xy=(xlim[0], ylim[0]),
+            xycoords="data",
+            xytext=(0, -4),
+            textcoords="offset points",
+            ha="center",
+            va="top",
+            fontsize=12,
+            color="black",
+            clip_on=False,
+            annotation_clip=False,
         )
 
     def make_legend_handles(existing_handles):
@@ -2482,9 +2514,15 @@ def plot_50th_centiles_by_categories(
         ]
         extra = [
             plt.Line2D(
-                [0], [0], marker=m, color="w",
-                markerfacecolor="white", markeredgecolor="black",
-                markeredgewidth=0.8, markersize=6, label=lbl,
+                [0],
+                [0],
+                marker=m,
+                color="w",
+                markerfacecolor="white",
+                markeredgecolor="black",
+                markeredgewidth=0.8,
+                markersize=6,
+                label=lbl,
             )
             for m, lbl in marker_specs
         ]
@@ -2492,8 +2530,8 @@ def plot_50th_centiles_by_categories(
 
     # ── Main plotting logic ───────────────────────────────────────────────────
     n_cats = len(categories)
-    ncols  = 3
-    nrows  = int(np.ceil(n_cats / ncols))
+    ncols = 3
+    nrows = int(np.ceil(n_cats / ncols))
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 6 * nrows))
     axes = np.array(axes).flatten()
@@ -2510,42 +2548,75 @@ def plot_50th_centiles_by_categories(
                 print(f"Skipping {IDP} — not in cache")
                 continue
 
-            (x_vals_real, y_vals_pct,
-             peak_x, peak_y,
-             min_x, min_y,
-             slope_change_x, slope_change_y) = centile_cache[IDP]
+            (
+                x_vals_real,
+                y_vals_pct,
+                peak_x,
+                peak_y,
+                min_x,
+                min_y,
+                slope_change_x,
+                slope_change_y,
+            ) = centile_cache[IDP]
 
             x_vals_real = x_vals_real * 100
-            mask        = (x_vals_real >= age_min) & (x_vals_real <= age_max)
+            mask = (x_vals_real >= age_min) & (x_vals_real <= age_max)
             x_vals_real = x_vals_real[mask]
-            y_vals_pct  = y_vals_pct[mask]
+            y_vals_pct = y_vals_pct[mask]
 
             short_label = IDP.split("__")[-1] if "__" in IDP else IDP
-            color       = get_band_color(IDP, cat_name)
+            color = get_band_color(IDP, cat_name)
 
-            line, = ax.plot(
-                x_vals_real, y_vals_pct,
-                linewidth=3.5, label=short_label,
+            (line,) = ax.plot(
+                x_vals_real,
+                y_vals_pct,
+                linewidth=3.5,
+                label=short_label,
                 color=color if color else None,
-                alpha=0.6, zorder=3,
+                alpha=0.6,
+                zorder=3,
             )
             color = line.get_color()
 
             if age_min <= peak_x * 100 <= age_max:
-                ax.plot(peak_x * 100, peak_y, marker="^", markersize=10,
-                        color=color, zorder=5, alpha=0.5,
-                        markeredgecolor="black", markeredgewidth=1)
+                ax.plot(
+                    peak_x * 100,
+                    peak_y,
+                    marker="^",
+                    markersize=10,
+                    color=color,
+                    zorder=5,
+                    alpha=0.5,
+                    markeredgecolor="black",
+                    markeredgewidth=1,
+                )
 
             if age_min <= min_x * 100 <= age_max:
-                ax.plot(min_x * 100, min_y, marker="v", markersize=10,
-                        color=color, zorder=5, alpha=0.5,
-                        markeredgecolor="black", markeredgewidth=1)
+                ax.plot(
+                    min_x * 100,
+                    min_y,
+                    marker="v",
+                    markersize=10,
+                    color=color,
+                    zorder=5,
+                    alpha=0.5,
+                    markeredgecolor="black",
+                    markeredgewidth=1,
+                )
 
             for sx, sy in zip(slope_change_x * 100, slope_change_y):
                 if age_min <= sx <= age_max:
-                    ax.plot(sx, sy, marker="o", markersize=6,
-                            color=color, zorder=5, alpha=0.7,
-                            markeredgecolor="black", markeredgewidth=1)
+                    ax.plot(
+                        sx,
+                        sy,
+                        marker="o",
+                        markersize=6,
+                        color=color,
+                        zorder=5,
+                        alpha=0.7,
+                        markeredgecolor="black",
+                        markeredgewidth=1,
+                    )
 
         ax.set_xlim(age_min - 2, age_max)
 
@@ -2563,7 +2634,9 @@ def plot_50th_centiles_by_categories(
             handles, _ = ax.get_legend_handles_labels()
             ax.legend(
                 handles=make_legend_handles(handles),
-                fontsize=12, loc="best", borderaxespad=2.0,
+                fontsize=12,
+                loc="best",
+                borderaxespad=2.0,
             )
 
     for j in range(i + 1, len(axes)):

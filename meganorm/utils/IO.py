@@ -368,7 +368,7 @@ class Config(BaseModel):
     freesurfer_template_path: Optional[str] = None
     freesurfer_home: Optional[str] = None
     freesurfer_license: Optional[str] = None
-    coregisteration_scale_mode : Literal["uniform", "3-axis", None] = None
+    coregisteration_scale_mode: Literal["uniform", "3-axis", None] = None
     make_new_watershed_bem: bool = False
     gcaatlas: bool = True
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
@@ -584,13 +584,18 @@ class Config(BaseModel):
             )
             raise ValueError(err_msg)
         return self
-    
+
     @model_validator(mode="after")
     def env_noise_removal_same(self):
         if self.same_environmental_noise_removal:
-            if not self.apply_environmental_noise_ssp_with_eroom or not self.apply_environmental_noise_ica_with_ref_meg:
-                err_msg = "If you intened to apply the same environmental noise removal must choose between using" \
-                " ref_meg or empty room recording. You can not apply gradient compensation or maxwell filter across all scanners."
+            if (
+                not self.apply_environmental_noise_ssp_with_eroom
+                or not self.apply_environmental_noise_ica_with_ref_meg
+            ):
+                err_msg = (
+                    "If you intened to apply the same environmental noise removal must choose between using"
+                    " ref_meg or empty room recording. You can not apply gradient compensation or maxwell filter across all scanners."
+                )
             raise ValueError(err_msg)
         return self
 
