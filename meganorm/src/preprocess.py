@@ -681,6 +681,7 @@ def preprocess(
     gedai_duration=None,
     gedai_overlap=0.5,
     gedai_preliminary_broadband_noise_multiplier=6.0,
+    same_environmental_noise_removal=False,
     gedai_noise_multiplier=3.0,
     gedai_wavelet_type="haar",
     gedai_wavelet_level="auto",
@@ -919,6 +920,7 @@ def preprocess(
             ica_if_reject_by_annotation=ica_if_reject_by_annotation,
             environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
             environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
+            same_environmental_noise_removal=same_environmental_noise_removal
         )
 
     # Remove unwanted epochs associated with some events
@@ -1465,7 +1467,7 @@ def _chpi_usable(data, device):
     ----------
     data : mne.io.Raw
         Raw MEG data to check for usable cHPI information.
-    device : {"MEGIN", "CTF", "KIT"}
+    device : {"MEGIN", "CTF", "BTI"}
         Recording system type.
 
     Returns
@@ -1487,7 +1489,7 @@ def _chpi_usable(data, device):
         hlc = [ch for ch in data.ch_names if ch.startswith("HLC")]
         return len(hlc) > 0
 
-    elif device == "KIT":
+    elif device == "BTI":
         # no channel-name signature; just try the extractor
         try:
             mne.chpi.extract_chpi_locs_kit(data, verbose=False)
@@ -1568,17 +1570,17 @@ def head_motion_correction(
 
             empty_room_recording = mne.preprocessing.maxwell_filter(
                 empty_room_recording,
-                head_pos=None,  # If array, movement compensation will be performed.
+                head_pos=head_pos,  # head_pos must match the rs-data
                 cross_talk=None,  # TODO: this should be changed to the real cross_talk file
                 calibration=None,  # TODO: this should be changed to the real calibration file
             )
 
     # TODO, expand this if new device comes in!
-    elif device in ["CTF", "KIT"] and _chpi_usable(data, device=device):
+    elif device in ["CTF", "BTI"] and _chpi_usable(data, device=device):
         if device == "CTF":
             chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
 
-        elif device == "KIT":
+        elif device == "BTI":
             chpi_locs = mne.chpi.extract_chpi_locs_kit(data, verbose=False)
 
         else:
@@ -1625,6 +1627,7 @@ def remove_environmental_noise(
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
+    same_environmental_noise_removal=False
 ):
     """
     Suppress environmental (external) noise using a device-appropriate
@@ -1674,7 +1677,7 @@ def remove_environmental_noise(
         applied.
     """
     # gradient compensation for CTF datasets
-    if device == "CTF":
+    if device == "CTF" and not same_environmental_noise_removal:
         data, empty_room_recording = apply_gradient_comp(
             data,
             empty_room_recording=empty_room_recording,
@@ -1684,7 +1687,7 @@ def remove_environmental_noise(
         logger.info(msg)
 
     # If MEGIN device, apply tsss
-    elif device == "MEGIN":
+    elif device == "MEGIN" and not same_environmental_noise_removal:
         if not check_tsss(data):
             pass  # TODO: to be added
         else:

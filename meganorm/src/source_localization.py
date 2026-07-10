@@ -342,55 +342,24 @@ def rank_based_quality_control(
     return
 
 
-def corregistration(data, subject, subjects_dir, plot_3d, **kwargs):
+def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwargs):
     """
-    Coregister MEG data to MRI using fiducial alignment and iterative closest point (ICP).
+    Coregister MEG data to MRI, with optional scaling to a template MRI.
 
-    This function aligns the MEG head coordinate system to the MRI coordinate system using:
-    1. Fiducial point fitting (nasion and preauricular points).
-    2. Iterative Closest Point (ICP) alignment using head shape points.
-    3. Automatic removal of poorly fitting head shape points based on a distance threshold.
-    4. A final ICP refinement with adjusted parameters.
-
-    Optionally, a 3D plot can be displayed to assess the quality of coregistration.
-
-    Parameters
-    ----------
-    data : mne.io.Raw
-        Raw MEG data with digitized head shape and fiducial points.
-    subject : str
-        Subject name (must match an entry in the `subjects_dir`).
-    subjects_dir : str
-        Path to the FreeSurfer `SUBJECTS_DIR` containing MRI reconstructions.
-    plot_3d : bool
-        If True, display a 3D visualization of the final coregistration.
-    **kwargs : dict, optional
-        Optional parameters to control the coregistration steps:
-
-    -    fiducials : str default="estimated"
-            Fiducial information. Can be `'auto'`, `'estimated'`, or a dict/list of points.
-        - coregisteration_initial_n_iterations : int, default=6
-            Number of ICP iterations for the initial fit.
-        - coregisteration_initial_nasion_weight : float, default=2.0
-            Weight given to the nasion during the initial ICP step.
-        - coregisteration_distance_thr : float, default=0.005
-            Distance threshold in meters for omitting poorly fitting head shape points.
-        - coregisteration_final_n_iterations : int, default=20
-            Number of ICP iterations for the final fit.
-        - coregisteration_final_nasion_weight : float, default=10.0
-            Nasion weight used during the final ICP step.
-
-    References
-    ----------
-    https://mne.tools/stable/auto_tutorials/forward/25_automated_coreg.html
+    Same as before, but if `coregisteration_scale_mode` is set (e.g. "uniform"),
+    a scale factor is estimated during fitting and a physically scaled copy of
+    the subject's MRI is written to `subjects_dir` as `{subject}_scaled`.
+    Downstream steps (BEM, source space, parcellation) must use the returned
+    `fit_subject` name, not the original template name.
 
     Returns
     -------
-    None
-        The function modifies and visualizes the internal alignment state but does not return any object.
+    coreg : mne.coreg.Coregistration
+    fit_subject : str
+        The subject name to use for all subsequent anatomy-dependent steps
+        (equals `subject` if no scaling was applied, else `f"{subject}_scaled"`).
     """
 
-    # creates a standard head model subject sample (required for coregisteration)
     if not os.path.exists(
         os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
     ) or kwargs.get("make_new_watershed_bem"):
@@ -402,7 +371,7 @@ def corregistration(data, subject, subjects_dir, plot_3d, **kwargs):
             subjects_dir=subjects_dir,
             overwrite=True,
             gcaatlas=kwargs.get("gcaatlas", True),
-            volume="T1",  # TODO: this should be a data specific info
+            volume="T1",
             preflood=kwargs.get("preflood", None),
         )
 
@@ -413,21 +382,23 @@ def corregistration(data, subject, subjects_dir, plot_3d, **kwargs):
         fiducials=kwargs.get("corregistration_fiducials", "estimated"),
     )
 
-    # initial fit with fudicials
+    scale_mode = kwargs.get(
+        "coregisteration_scale_mode", None
+    )  # None, "uniform", "3-axis"
+    if scale_mode:
+        coreg.set_scale_mode(scale_mode)
+
     coreg.fit_fiducials()
 
-    # fit with icp
     coreg.fit_icp(
         n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
         nasion_weight=kwargs.get("coregisteration_initial_nasion_weight", 2.0),
         verbose=True,
     )
 
-    # removing bad head shape points that were not fitted on the brain nicely
-    # Removing any head shape point that is more than 5 mm away from the fitted MRI surface.
     coreg.omit_head_shape_points(
         distance=kwargs.get("coregisteration_distance_thr", 5.0 / 1000)
-    )  # distance is in meter
+    )
 
     coreg.fit_icp(
         n_iterations=kwargs.get("coregisteration_final_n_iterations", 20),
@@ -437,12 +408,50 @@ def corregistration(data, subject, subjects_dir, plot_3d, **kwargs):
 
     distance_head_mri = coreg.compute_dig_mri_distances()
     logger.info(
-        f"Average and STD distance between head shape points and MRI surface: {np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
+        f"Average and STD distance between head shape points and MRI surface: "
+        f"{np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
     )
+
+    fit_subject = subject
+    if scale_mode:
+        scale_id = participant_id or subject
+        scaled_subject = f"{scale_id}_scaled"
+        scaled_bem_exists = os.path.exists(
+            os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
+        )
+
+        if not scaled_bem_exists or kwargs.get("make_new_watershed_bem"):
+            logger.info(f"Estimated MRI scale factor: {coreg.scale}")
+            mne.scale_mri(
+                subject_from=subject,
+                subject_to=scaled_subject,
+                scale=coreg.scale,
+                subjects_dir=subjects_dir,
+                overwrite=True,
+                labels=True,
+                skip_fiducials=True,
+            )
+            logger.info(f"Scaled MRI subject written: {scaled_subject}")
+
+            mne.bem.make_watershed_bem(
+                subject=scaled_subject,
+                subjects_dir=subjects_dir,
+                overwrite=True,
+                gcaatlas=kwargs.get("gcaatlas", True),
+                volume="T1",
+                preflood=kwargs.get("preflood", None),
+            )
+            logger.info(
+                f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
+            )
+        else:
+            logger.info(f"Using existing scaled subject: {scaled_subject}")
+
+        fit_subject = scaled_subject
 
     if plot_3d:
         plot_kwargs = dict(
-            subject=subject,
+            subject=fit_subject,
             subjects_dir=subjects_dir,
             surfaces="head",
             dig=True,
@@ -455,7 +464,7 @@ def corregistration(data, subject, subjects_dir, plot_3d, **kwargs):
 
     logger.info("Automatic coregisteration is done!")
 
-    return coreg
+    return coreg, fit_subject
 
 
 def forward_solution(
@@ -1031,13 +1040,19 @@ def source_localization(
     if kwargs.get("freesurfer_license"):
         os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
 
+    participant_id = subject
     if kwargs.get("apply_mri_template"):
         subject, subjects_dir = prepare_template(
             subject=subject, project_dir=project_dir, **kwargs
         )
 
-    coreg = corregistration(
-        data=data, subject=subject, subjects_dir=subjects_dir, plot_3d=plot_3d, **kwargs
+    coreg, subject = corregistration(
+        data=data,
+        subject=subject,
+        subjects_dir=subjects_dir,
+        participant_id=participant_id,
+        plot_3d=plot_3d,
+        **kwargs,
     )
 
     fwd, src = forward_solution(

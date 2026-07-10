@@ -122,6 +122,7 @@ def sbatchfile(
     sbatch_input_7 = "empty_room_recording_path=$7\n"
     sbatch_input_8 = "event_record=$8\n"
     sbatch_input_9 = "event_of_interest=$9\n"
+    sbatch_input_10 = "device_type=${10}\n" 
 
     # if with_config:
     command = (
@@ -137,6 +138,7 @@ def sbatchfile(
     command += " --empty_room_recording_path $empty_room_recording_path"
     command += " --event_record $event_record"
     command += " --event_of_interest $event_of_interest"
+    command += " --device_type $device_type"
 
     bash_environment = [
         sbatch_init
@@ -161,6 +163,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_7
     bash_environment[0] += sbatch_input_8
     bash_environment[0] += sbatch_input_9
+    bash_environment[0] += sbatch_input_10  
 
     bash_environment[0] += command
 
@@ -265,6 +268,7 @@ def submit_jobs(
         event_of_interest = subjects[subject].get("event_of_interest")
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
+        device = subjects[subject]["device"] 
 
         command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
@@ -273,6 +277,7 @@ def submit_jobs(
         command = add_command(er_fname, command)
         command = add_command(event_record, command)
         command = add_command(event_of_interest, command)
+        command = add_command(device, command)
 
         subprocess.check_call(command, shell=True)
 
