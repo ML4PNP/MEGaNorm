@@ -464,6 +464,7 @@ def auto_parallel_feature_extraction(
     freesurfer_home=None,
     freesurfer_license=None,
     max_try=3,
+    combine_features_and_demographics=False
 ):
     """
     Automatically submits, monitors, and reruns jobs for feature extraction on multiple subjects,
@@ -646,14 +647,15 @@ def auto_parallel_feature_extraction(
         )
 
     # Merge demographic data and extracted f-IDPS
-    data_base_dirs = [values["base_dir"] for values in datasets.values()]
-    dataset_names = list(datasets.keys())
-    df = merge_fidp_demo(
-        datasets_paths=data_base_dirs,
-        features_dir=features_dir,
-        dataset_names=dataset_names,
-    )
-    df.to_csv(os.path.join(features_dir, "all_features.csv"))
+    if combine_features_and_demographics:
+        data_base_dirs = [values["base_dir"] for values in datasets.values()]
+        dataset_names = list(datasets.keys())
+        df = merge_fidp_demo(
+            datasets_paths=data_base_dirs,
+            features_dir=features_dir,
+            dataset_names=dataset_names,
+        )
+        df.to_csv(os.path.join(features_dir, "all_features.csv"))
 
     return failed_jobs
 
@@ -671,6 +673,7 @@ def sbatch_feature_extraction_runner(
     auto_collect=True,
     max_try=5,
     which_subjects=None,
+    combine_features_and_demographics = False
 ):
     """
     Set up and generate a SLURM sbatch script that launches the full
@@ -757,6 +760,7 @@ def sbatch_feature_extraction_runner(
         "max_try": max_try,
         "which_subjects": which_subjects,
         "datasets": datasets,
+        "combine_features_and_demographics": combine_features_and_demographics
     }
 
     features_dir = os.path.join(project_dir, "Features")
