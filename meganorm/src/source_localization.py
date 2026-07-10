@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from pathlib import Path
 from joblib import parallel_config, parallel_backend
+from mne.io.constants import FIFF
 import subprocess
 import numpy as np
 import logging
@@ -362,7 +363,7 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
 
     if not os.path.exists(
         os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
-    ) or kwargs.get("make_new_watershed_bem"):
+    ) or kwargs.get("force_new_watershed_bem"):
 
         logger.info("bem surface was not found; Creating a bem surface for the subject")
 
@@ -420,7 +421,7 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
             os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
         )
 
-        if not scaled_bem_exists or kwargs.get("make_new_watershed_bem"):
+        if not scaled_bem_exists:
             logger.info(f"Estimated MRI scale factor: {coreg.scale}")
             mne.scale_mri(
                 subject_from=subject,
@@ -433,17 +434,19 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
             )
             logger.info(f"Scaled MRI subject written: {scaled_subject}")
 
-            mne.bem.make_watershed_bem(
-                subject=scaled_subject,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                gcaatlas=kwargs.get("gcaatlas", True),
-                volume="T1",
-                preflood=kwargs.get("preflood", None),
-            )
-            logger.info(
-                f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
-            )
+            if kwargs.get("force_new_watershed_bem", False):
+                pass # TODO: is it necessary to make a new watershed mode after scaling?
+            # mne.bem.make_watershed_bem(
+            #     subject=scaled_subject,
+            #     subjects_dir=subjects_dir,
+            #     overwrite=True,
+            #     gcaatlas=kwargs.get("gcaatlas", True),
+            #     volume="T1",
+            #     preflood=kwargs.get("preflood", None),
+            # )
+            # logger.info(
+            #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
+            # )
         else:
             logger.info(f"Using existing scaled subject: {scaled_subject}")
 
@@ -1039,6 +1042,11 @@ def source_localization(
         )
     if kwargs.get("freesurfer_license"):
         os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
+    
+    if kwargs.get("which_sensor", "meg") in ["meg", "grad", "mag"]:
+        new_dig = [d for d in data.info['dig'] if d['kind'] != FIFF.FIFFV_POINT_EEG]
+        with data.info._unlock():
+            data.info['dig'] = new_dig
 
     participant_id = subject
     if kwargs.get("apply_mri_template"):

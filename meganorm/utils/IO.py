@@ -171,7 +171,7 @@ class Config(BaseModel):
         Use a template MRI instead of subject-specific anatomy.
     freesurfer_template_path, freesurfer_home, freesurfer_license : str or None
         Paths to FreeSurfer template derivatives, installation, and license.
-    make_new_watershed_bem : bool, default=False
+    force_new_watershed_bem : bool, default=False
         Recompute the watershed BEM surfaces.
     gcaatlas : bool, default=True
         Use the GCA atlas for subcortical segmentation.
@@ -369,7 +369,7 @@ class Config(BaseModel):
     freesurfer_home: Optional[str] = None
     freesurfer_license: Optional[str] = None
     coregisteration_scale_mode: Literal["uniform", "3-axis", None] = None
-    make_new_watershed_bem: bool = False
+    force_new_watershed_bem: bool = False
     gcaatlas: bool = True
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
     SL_conductivity: Tuple[float, ...] = (0.3,)
