@@ -1,4 +1,4 @@
-DOCKER_USER ?= smkia
+DOCKER_USER = smkia
 IMAGE_NAME = meganorm
 TAG = latest
 
