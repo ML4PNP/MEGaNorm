@@ -238,18 +238,16 @@ def main(args):
     start_time = datetime.now()
     logger.info(f"Starting the process for the subject {args.subject} at {start_time}:")
 
-    if args.line_freq == "None":
-        args.line_freq = None
-    if args.empty_room_recording_path == "None":
-        args.empty_room_recording_path = None
-    if args.surfaces_dir == "None":
-        args.surfaces_dir = None
-    if args.event_record == "None":
-        args.event_record = None
-    if args.event_of_interest == "None":
-        args.event_of_interest = None
-    if args.device_type == "None":
-        args.device_type = None
+    for attr in [
+        "line_freq",
+        "empty_room_recording_path",
+        "surfaces_dir",
+        "event_record",
+        "event_of_interest",
+        "device_type",
+    ]:
+        if getattr(args, attr) == "None":
+            setattr(args, attr, None)
 
     configs = Config.load(args.configs)
 
