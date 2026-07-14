@@ -1,3 +1,7 @@
+import os
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
 import matplotlib.pyplot as plt
 from pathlib import Path
 from joblib import parallel_config, parallel_backend
@@ -343,7 +347,59 @@ def rank_based_quality_control(
     return
 
 
-def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwargs):
+def save_coreg_screenshots(
+    info, trans, subject, subjects_dir, out_dir, participant_id, **kwargs
+):
+    import os
+    import mne
+    import pyvista
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    try:
+        pyvista.OFF_SCREEN = True
+        mne.viz.set_3d_backend("pyvistaqt")
+
+        fig = mne.viz.plot_alignment(
+            info,
+            trans=trans,
+            subject=subject,
+            subjects_dir=subjects_dir,
+            surfaces="head",
+            dig=True,
+            eeg=[],
+            meg="sensors",
+            show_axes=True,
+            coord_frame="meg",
+            mri_fiducials=kwargs.get("corregistration_fiducials", "estimated"),
+        )
+        plotter = fig.plotter
+        plotter.off_screen = True
+
+        views = {
+            "front": dict(azimuth=90, elevation=90),
+            "lateral_left": dict(azimuth=180, elevation=90),
+            "lateral_right": dict(azimuth=0, elevation=90),
+        }
+
+        for view_name, angles in views.items():
+            mne.viz.set_3d_view(fig, **angles, distance=0.6)
+            out_path = os.path.join(out_dir, f"{participant_id}_coreg_{view_name}.png")
+            plotter.screenshot(out_path)
+            logger.info(f"Saved coregistration screenshot: {out_path}")
+
+        mne.viz.close_3d_figure(fig)
+
+    except Exception as e:
+        logger.warning(
+            f"Coregistration screenshot failed for {participant_id}; "
+            f"skipping QC image, pipeline will continue. Error: {e}"
+        )
+
+
+def corregistration(
+    data, subject, subjects_dir, participant_id, qc_out_dir, plot_3d, **kwargs
+):
     """
     Coregister MEG data to MRI, with optional scaling to a template MRI.
 
@@ -415,27 +471,28 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
 
     fit_subject = subject
     if scale_mode:
-        scale_id = participant_id or subject
-        scaled_subject = f"{scale_id}_scaled"
-        scaled_bem_exists = os.path.exists(
-            os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
+        # scale_id = participant_id or subject
+        scaled_subject = f"{participant_id}_scaled"
+        # scaled_bem_exists = os.path.exists(
+        #     os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
+        # )
+
+        # if not scaled_bem_exists:
+        logger.info(f"Estimated MRI scale factor: {coreg.scale}")
+        mne.scale_mri(
+            subject_from=subject,
+            subject_to=scaled_subject,
+            scale=coreg.scale,
+            subjects_dir=subjects_dir,
+            overwrite=True,
+            labels=True,
+            skip_fiducials=True,
         )
+        logger.info(f"Scaled MRI subject written: {scaled_subject}")
 
-        if not scaled_bem_exists:
-            logger.info(f"Estimated MRI scale factor: {coreg.scale}")
-            mne.scale_mri(
-                subject_from=subject,
-                subject_to=scaled_subject,
-                scale=coreg.scale,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                labels=True,
-                skip_fiducials=True,
-            )
-            logger.info(f"Scaled MRI subject written: {scaled_subject}")
-
-            if kwargs.get("force_new_watershed_bem", False):
-                pass # TODO: is it necessary to make a new watershed mode after scaling?
+        # TODO: is it necessary to make a new watershed mode after scaling?
+        # if kwargs.get("force_new_watershed_bem", False):
+        #     pass  
             # mne.bem.make_watershed_bem(
             #     subject=scaled_subject,
             #     subjects_dir=subjects_dir,
@@ -447,23 +504,21 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
             # logger.info(
             #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
             # )
-        else:
-            logger.info(f"Using existing scaled subject: {scaled_subject}")
+        # else:
+        #     logger.info(f"Using existing scaled subject: {scaled_subject}")
 
         fit_subject = scaled_subject
 
-    if plot_3d:
-        plot_kwargs = dict(
+    if kwargs.get("take_screenshot_of_coregisteration", True):
+        save_coreg_screenshots(
+            info=data.info,
+            trans=coreg.trans,
             subject=fit_subject,
             subjects_dir=subjects_dir,
-            surfaces="head",
-            dig=True,
-            eeg=[],
-            meg="sensors",
-            show_axes=True,
-            coord_frame="meg",
+            out_dir=qc_out_dir,
+            participant_id=fit_subject,
+            **kwargs,
         )
-        fig = mne.viz.plot_alignment(data.info, trans=coreg.trans, **plot_kwargs)
 
     logger.info("Automatic coregisteration is done!")
 
@@ -1042,11 +1097,11 @@ def source_localization(
         )
     if kwargs.get("freesurfer_license"):
         os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
-    
+
     if kwargs.get("which_sensor", "meg") in ["meg", "grad", "mag"]:
-        new_dig = [d for d in data.info['dig'] if d['kind'] != FIFF.FIFFV_POINT_EEG]
+        new_dig = [d for d in data.info["dig"] if d["kind"] != FIFF.FIFFV_POINT_EEG]
         with data.info._unlock():
-            data.info['dig'] = new_dig
+            data.info["dig"] = new_dig
 
     participant_id = subject
     if kwargs.get("apply_mri_template"):
@@ -1059,6 +1114,7 @@ def source_localization(
         subject=subject,
         subjects_dir=subjects_dir,
         participant_id=participant_id,
+        qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
         plot_3d=plot_3d,
         **kwargs,
     )
