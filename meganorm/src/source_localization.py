@@ -2,6 +2,7 @@ import os
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
+from mne.io.constants import FIFF
 import matplotlib.pyplot as plt
 from pathlib import Path
 from joblib import parallel_config, parallel_backend
@@ -445,29 +446,36 @@ def corregistration(
     if scale_mode:
         coreg.set_scale_mode(scale_mode)
 
+    logger.info("Fitting corregisteration using fiducials...")
     coreg.fit_fiducials()
 
-    coreg.fit_icp(
-        n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
-        nasion_weight=kwargs.get("coregisteration_initial_nasion_weight", 2.0),
-        verbose=True,
-    )
+    n_extra, _, _, _ = check_digitization_points(data, logger)
 
-    coreg.omit_head_shape_points(
-        distance=kwargs.get("coregisteration_distance_thr", 5.0 / 1000)
-    )
+    if n_extra > 0:
+        logger.info("Applying ICP method using head shape points...")
+        coreg.fit_icp(
+            n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
+            nasion_weight=kwargs.get("coregisteration_initial_nasion_weight", 2.0),
+            verbose=True,
+        )
 
-    coreg.fit_icp(
-        n_iterations=kwargs.get("coregisteration_final_n_iterations", 20),
-        nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0),
-        verbose=True,
-    )
+        coreg.omit_head_shape_points(
+            distance=kwargs.get("coregisteration_distance_thr", 5.0 / 1000)
+        )
 
-    distance_head_mri = coreg.compute_dig_mri_distances()
-    logger.info(
-        f"Average and STD distance between head shape points and MRI surface: "
-        f"{np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
-    )
+        coreg.fit_icp(
+            n_iterations=kwargs.get("coregisteration_final_n_iterations", 20),
+            nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0),
+            verbose=True,
+        )
+
+        distance_head_mri = coreg.compute_dig_mri_distances()
+        logger.info(
+            f"Average and STD distance between head shape points and MRI surface: "
+            f"{np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
+        )
+    else:
+        logger.warning("Skipping ICP method due to missing head shape points.")
 
     fit_subject = subject
     if scale_mode:
@@ -1288,6 +1296,29 @@ def check_tsss(meg_data):
     max_info = proc_history[0].get("max_info", {})
     sss_cal = max_info.get("sss_info", [])
     return len(sss_cal) > 0
+
+
+def check_digitization_points(raw, logger):
+    dig = raw.info['dig']
+    n_extra = n_cardinal = n_hpi = n_eeg = 0
+    
+    if dig:
+        n_extra = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_EXTRA)
+        n_cardinal = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_CARDINAL)
+        n_hpi = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI)
+        n_eeg = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_EEG)
+
+        logger.info(f"Cardinal (fiducial) points: {n_cardinal}")
+        logger.info(f"HPI coil points: {n_hpi}")
+        logger.info(f"EEG electrode points: {n_eeg}")
+        logger.info(f"Extra headshape points: {n_extra}")
+
+        if n_extra == 0:
+            logger.warning("No headshape (extra) points — likely missing .pos file")
+    else:
+        logger.warning("No dig info at all")
+
+    return n_extra, n_cardinal, n_hpi, n_eeg
 
 
 def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
