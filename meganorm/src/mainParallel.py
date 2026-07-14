@@ -10,7 +10,7 @@ from pathlib import Path
 import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_epoch
-from meganorm.utils.IO import Config
+from meganorm.utils.IO import Config, load_recording
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
@@ -311,72 +311,10 @@ def main(args):
         ]  # TODO: it was originaly path[0]. Check if this correction is correct.
 
     device = device.upper()
-    # ------------------------------------------------------------
-    if not device == "BTI":
-        data = mne.io.read_raw(path, preload=True)
-        if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw(
-                empty_room_recording_path, preload=True
-            )
-            logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = None
-            logger.info("No empty room recording was found")
-        else:
-            empty_room_recording = None
-
-    elif device == "BTI":
-        data = mne.io.read_raw_bti(
-            pdf_fname=os.path.join(path, "c,rfDC"),
-            config_fname=os.path.join(path, "config"),
-            head_shape_fname=None,
-            preload=True,
-        )
-        if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw_bti(
-                pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
-                config_fname=os.path.join(empty_room_recording_path, "config"),
-                head_shape_fname=None,
-                preload=True,
-            )
-            logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = None
-            logger.info("No empty room recording was found")
-        else:
-            empty_room_recording = None
-
-    elif device == "ARTEMIS123":
-        if configs.apply_source_localization:
-            temp = str(Path(path).parent)
-            pos_files = glob.glob(f"{temp}/*.pos")
-            if not pos_files:
-                err_msg = f"No .pos file found next to the Artemis recording in {temp}."
-                logger.error(err_msg)
-                raise FileNotFoundError(err_msg)
-            pos_file = pos_files[0]
-            data = mne.io.read_raw_artemis123(
-                path,
-                preload=True,
-                pos_fname=pos_file,
-                add_head_trans=True,
-            )
-        else:
-            data = mne.io.read_raw_artemis123(
-                path,
-                preload=True,
-            )
-        if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw_artemis123(
-                empty_room_recording_path,
-                preload=True,
-            )
-            logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = None
-            logger.info("No empty room recording was found")
-        else:
-            empty_room_recording = None
+    # ------------------------------------------------------------ load data
+    data, empty_room_recording = load_recording(
+        device, path, empty_room_recording_path, configs, logger
+    )
 
     # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")

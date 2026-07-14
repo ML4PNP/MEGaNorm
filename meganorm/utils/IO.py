@@ -363,7 +363,7 @@ class Config(BaseModel):
     apply_source_localization: bool = False
     apply_empty_room_recording: bool = True
     apply_mri_QC: bool = False
-
+    take_screenshot_of_coregisteration: bool = True
     apply_mri_template: bool = False
     freesurfer_template_path: Optional[str] = None
     freesurfer_home: Optional[str] = None
@@ -635,6 +635,89 @@ class Config(BaseModel):
         with open(path, "r") as file:
             cfg = json.load(file)
         return cls(**cfg)
+
+
+def load_recording(device, path, empty_room_recording_path, configs, logger):
+    if device == "CTF":
+        data = mne.io.read_raw_ctf(path, preload=True)
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw_ctf(
+                empty_room_recording_path, preload=True
+            )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    elif device == "BTI":
+        data = mne.io.read_raw_bti(
+            pdf_fname=os.path.join(path, "c,rfDC"),
+            config_fname=os.path.join(path, "config"),
+            head_shape_fname=None,
+            preload=True,
+        )
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw_bti(
+                pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
+                config_fname=os.path.join(empty_room_recording_path, "config"),
+                head_shape_fname=None,
+                preload=True,
+            )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    elif device == "ARTEMIS123":
+        if configs.apply_source_localization:
+            temp = str(Path(path).parent)
+            pos_files = glob.glob(f"{temp}/*.pos")
+            if not pos_files:
+                err_msg = f"No .pos file found next to the Artemis recording in {temp}."
+                logger.error(err_msg)
+                raise FileNotFoundError(err_msg)
+            pos_file = pos_files[0]
+            data = mne.io.read_raw_artemis123(
+                path,
+                preload=True,
+                pos_fname=pos_file,
+                add_head_trans=True,
+            )
+        else:
+            data = mne.io.read_raw_artemis123(
+                path,
+                preload=True,
+            )
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw_artemis123(
+                empty_room_recording_path,
+                preload=True,
+            )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    else:
+        data = mne.io.read_raw(path, preload=True)
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw(
+                empty_room_recording_path, preload=True
+            )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    return data, empty_room_recording
 
 
 def separate_eyes_open_close_eeglab(
@@ -1108,6 +1191,7 @@ def set_path(project_dir):
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
+    save_psds_path = os.path.join(saved_outputs_path, "coregistration_QC")
     configurations = os.path.join(features_dir, "Configurations")
     mri_templates = os.path.join(features_dir, "MRI_templates")
 
