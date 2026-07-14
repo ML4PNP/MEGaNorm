@@ -4,6 +4,7 @@ os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
 from mne.io.constants import FIFF
 import matplotlib.pyplot as plt
+import nibabel as nib
 from pathlib import Path
 from joblib import parallel_config, parallel_backend
 from mne.io.constants import FIFF
@@ -12,6 +13,7 @@ import numpy as np
 import logging
 import re as re
 import shutil
+from pathlib import Path
 import time
 import mne
 import joblib
@@ -1031,6 +1033,7 @@ def parcellate(subject, subjects_dir, stc, src, source_space, **kwargs):
 
 
 def source_localization(
+    recording_path,
     project_dir,
     subject,
     subjects_dir,
@@ -1117,15 +1120,25 @@ def source_localization(
             subject=subject, project_dir=project_dir, **kwargs
         )
 
-    coreg, subject = corregistration(
-        data=data,
-        subject=subject,
-        subjects_dir=subjects_dir,
-        participant_id=participant_id,
-        qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
-        plot_3d=plot_3d,
-        **kwargs,
-    )
+    # This part is hardcoded and must be changed ASAP.
+    if "sub-ON" in subject:
+        matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
+        if not matches:
+            err_msg = f"No coordsystem.json found for {subject} in {Path(recording_path).parent}"
+            logger.error(err_msg)
+            raise FileNotFoundError(err_msg)
+        coreg, _ = trans_from_nimh(data, matches[0], subject, subjects_dir)
+    else:   
+        coreg, subject = corregistration(
+            data=data,
+            subject=subject,
+            subjects_dir=subjects_dir,
+            participant_id=participant_id,
+            qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
+            plot_3d=plot_3d,
+            **kwargs,
+        )
+        
 
     fwd, src = forward_solution(
         subject=subject,
@@ -1301,7 +1314,7 @@ def check_tsss(meg_data):
 def check_digitization_points(raw, logger):
     dig = raw.info['dig']
     n_extra = n_cardinal = n_hpi = n_eeg = 0
-    
+
     if dig:
         n_extra = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_EXTRA)
         n_cardinal = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_CARDINAL)
@@ -1319,6 +1332,35 @@ def check_digitization_points(raw, logger):
         logger.warning("No dig info at all")
 
     return n_extra, n_cardinal, n_hpi, n_eeg
+
+
+def trans_from_nimh(raw, coordsystem_json, subject, subjects_dir):
+
+    cs = json.load(open(coordsystem_json))
+    alm = cs["AnatomicalLandmarkCoordinates"]
+
+     # The MRI landmarks are in scanner space, but MNE works in FreeSurfer surface RAS space; a different origin 
+    t1 = nib.load(f"{subjects_dir}/{subject}/mri/T1.mgz")
+    scanner_to_surf = t1.header.get_vox2ras_tkr() @ np.linalg.inv(t1.header.get_vox2ras())
+
+    def lps_mm_to_surf_m(p):
+        p_ras = np.array(p, float) * [-1, -1, 1]
+        return (scanner_to_surf @ np.r_[p_ras, 1.0])[:3] / 1000.0
+
+    fids = [
+        dict(kind=FIFF.FIFFV_POINT_CARDINAL, ident=FIFF.FIFFV_POINT_LPA,
+             r=lps_mm_to_surf_m(alm["LPA"]), coord_frame=FIFF.FIFFV_COORD_MRI),
+        dict(kind=FIFF.FIFFV_POINT_CARDINAL, ident=FIFF.FIFFV_POINT_NASION,
+             r=lps_mm_to_surf_m(alm["NAS"]), coord_frame=FIFF.FIFFV_COORD_MRI),
+        dict(kind=FIFF.FIFFV_POINT_CARDINAL, ident=FIFF.FIFFV_POINT_RPA,
+             r=lps_mm_to_surf_m(alm["RPA"]), coord_frame=FIFF.FIFFV_COORD_MRI),
+    ]
+
+    coreg = mne.coreg.Coregistration(raw.info, subject=subject,
+                                     subjects_dir=subjects_dir,
+                                     fiducials=fids)   # list, not a filename
+    coreg.fit_fiducials()
+    return coreg, fids
 
 
 def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):

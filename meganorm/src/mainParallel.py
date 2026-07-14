@@ -459,6 +459,7 @@ def main(args):
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
         stc, labels = source_localization(
+            recording_path=path,
             project_dir=project_dir,
             subject=args.subject,
             subjects_dir=args.surfaces_dir,
