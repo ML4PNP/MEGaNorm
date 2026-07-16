@@ -381,6 +381,7 @@ class Config(BaseModel):
     )
     source_space_spacing_number: Literal[3, 4, 5, 6] = 4
 
+    save_transformation_FIF_file: bool = False
     coregisteration_final_n_iterations: int = 20
     coregisteration_final_nasion_weight: float = 10.0
     covariance_method: str = "empirical"
@@ -1191,7 +1192,8 @@ def set_path(project_dir):
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
-    save_psds_path = os.path.join(saved_outputs_path, "coregistration_QC")
+    save_coregistration_QC_path = os.path.join(saved_outputs_path, "coregistration_QC")
+    save_transformation_path = os.path.join(saved_outputs_path, "transformation_FIF_file")
     configurations = os.path.join(features_dir, "Configurations")
     mri_templates = os.path.join(features_dir, "MRI_templates")
 
@@ -1202,6 +1204,8 @@ def set_path(project_dir):
     make_folder(saved_outputs_path)
     make_folder(save_epochs_path)
     make_folder(save_psds_path)
+    make_folder(save_coregistration_QC_path)
+    make_folder(save_transformation_path)
     make_folder(configurations)
     make_folder(exluded_participants_path)
     make_folder(mri_templates)
