@@ -1,5 +1,5 @@
 import os
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
 from mne.io.constants import FIFF
@@ -14,6 +14,7 @@ import logging
 import re as re
 import shutil
 from pathlib import Path
+from meganorm.utils import data_specific_utils
 import time
 import mne
 import joblib
@@ -350,58 +351,9 @@ def rank_based_quality_control(
     return
 
 
-def save_coreg_screenshots(
-    info, trans, subject, subjects_dir, out_dir, participant_id, **kwargs
-):
-    import os
-    import mne
-    import pyvista
-
-    os.makedirs(out_dir, exist_ok=True)
-
-    try:
-        pyvista.OFF_SCREEN = True
-        mne.viz.set_3d_backend("pyvistaqt")
-
-        fig = mne.viz.plot_alignment(
-            info,
-            trans=trans,
-            subject=subject,
-            subjects_dir=subjects_dir,
-            surfaces="head",
-            dig=True,
-            eeg=[],
-            meg="sensors",
-            show_axes=True,
-            coord_frame="meg",
-            mri_fiducials=kwargs.get("corregistration_fiducials", "estimated"),
-        )
-        plotter = fig.plotter
-        plotter.off_screen = True
-
-        views = {
-            "front": dict(azimuth=90, elevation=90),
-            "lateral_left": dict(azimuth=180, elevation=90),
-            "lateral_right": dict(azimuth=0, elevation=90),
-        }
-
-        for view_name, angles in views.items():
-            mne.viz.set_3d_view(fig, **angles, distance=0.6)
-            out_path = os.path.join(out_dir, f"{participant_id}_coreg_{view_name}.png")
-            plotter.screenshot(out_path)
-            logger.info(f"Saved coregistration screenshot: {out_path}")
-
-        mne.viz.close_3d_figure(fig)
-
-    except Exception as e:
-        logger.warning(
-            f"Coregistration screenshot failed for {participant_id}; "
-            f"skipping QC image, pipeline will continue. Error: {e}"
-        )
-
 
 def corregistration(
-    data, subject, subjects_dir, participant_id, qc_out_dir, plot_3d, **kwargs
+    data, subject, subjects_dir, participant_id, plot_3d=False, qc_out_dir=False, trans_save_path=False, **kwargs
 ):
     """
     Coregister MEG data to MRI, with optional scaling to a template MRI.
@@ -502,33 +454,36 @@ def corregistration(
 
         # TODO: is it necessary to make a new watershed mode after scaling?
         # if kwargs.get("force_new_watershed_bem", False):
-        #     pass  
-            # mne.bem.make_watershed_bem(
-            #     subject=scaled_subject,
-            #     subjects_dir=subjects_dir,
-            #     overwrite=True,
-            #     gcaatlas=kwargs.get("gcaatlas", True),
-            #     volume="T1",
-            #     preflood=kwargs.get("preflood", None),
-            # )
-            # logger.info(
-            #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
-            # )
+        #     pass
+        # mne.bem.make_watershed_bem(
+        #     subject=scaled_subject,
+        #     subjects_dir=subjects_dir,
+        #     overwrite=True,
+        #     gcaatlas=kwargs.get("gcaatlas", True),
+        #     volume="T1",
+        #     preflood=kwargs.get("preflood", None),
+        # )
+        # logger.info(
+        #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
+        # )
         # else:
         #     logger.info(f"Using existing scaled subject: {scaled_subject}")
 
         fit_subject = scaled_subject
+    # TODO
+    # if kwargs.get("take_screenshot_of_coregisteration", True):
+    #     save_coreg_screenshots(
+    #         info=data.info,
+    #         trans=coreg.trans,
+    #         subject=fit_subject,
+    #         subjects_dir=subjects_dir,
+    #         out_dir=qc_out_dir,
+    #         participant_id=fit_subject,
+    #         **kwargs,
+    #     )
 
-    if kwargs.get("take_screenshot_of_coregisteration", True):
-        save_coreg_screenshots(
-            info=data.info,
-            trans=coreg.trans,
-            subject=fit_subject,
-            subjects_dir=subjects_dir,
-            out_dir=qc_out_dir,
-            participant_id=fit_subject,
-            **kwargs,
-        )
+    if kwargs.get("save_transformation_FIF_file", False):
+        mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
     logger.info("Automatic coregisteration is done!")
 
@@ -1127,18 +1082,18 @@ def source_localization(
             err_msg = f"No coordsystem.json found for {subject} in {Path(recording_path).parent}"
             logger.error(err_msg)
             raise FileNotFoundError(err_msg)
-        coreg, _ = trans_from_nimh(data, matches[0], subject, subjects_dir)
-    else:   
+        coreg, _ = data_specific_utils._trans_from_nimh(data, matches[0], subject, subjects_dir)
+    else:
         coreg, subject = corregistration(
             data=data,
             subject=subject,
             subjects_dir=subjects_dir,
             participant_id=participant_id,
+            trans_save_path=os.path.join(project_dir, "transformation_FIF_file", "coregistration_QC"),
             qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
             plot_3d=plot_3d,
             **kwargs,
         )
-        
 
     fwd, src = forward_solution(
         subject=subject,
@@ -1312,14 +1267,14 @@ def check_tsss(meg_data):
 
 
 def check_digitization_points(raw, logger):
-    dig = raw.info['dig']
+    dig = raw.info["dig"]
     n_extra = n_cardinal = n_hpi = n_eeg = 0
 
     if dig:
-        n_extra = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_EXTRA)
-        n_cardinal = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_CARDINAL)
-        n_hpi = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI)
-        n_eeg = sum(1 for d in dig if d['kind'] == FIFF.FIFFV_POINT_EEG)
+        n_extra = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_EXTRA)
+        n_cardinal = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_CARDINAL)
+        n_hpi = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_HPI)
+        n_eeg = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_EEG)
 
         logger.info(f"Cardinal (fiducial) points: {n_cardinal}")
         logger.info(f"HPI coil points: {n_hpi}")
@@ -1334,33 +1289,6 @@ def check_digitization_points(raw, logger):
     return n_extra, n_cardinal, n_hpi, n_eeg
 
 
-def trans_from_nimh(raw, coordsystem_json, subject, subjects_dir):
-
-    cs = json.load(open(coordsystem_json))
-    alm = cs["AnatomicalLandmarkCoordinates"]
-
-     # The MRI landmarks are in scanner space, but MNE works in FreeSurfer surface RAS space; a different origin 
-    t1 = nib.load(f"{subjects_dir}/{subject}/mri/T1.mgz")
-    scanner_to_surf = t1.header.get_vox2ras_tkr() @ np.linalg.inv(t1.header.get_vox2ras())
-
-    def lps_mm_to_surf_m(p):
-        p_ras = np.array(p, float) * [-1, -1, 1]
-        return (scanner_to_surf @ np.r_[p_ras, 1.0])[:3] / 1000.0
-
-    fids = [
-        dict(kind=FIFF.FIFFV_POINT_CARDINAL, ident=FIFF.FIFFV_POINT_LPA,
-             r=lps_mm_to_surf_m(alm["LPA"]), coord_frame=FIFF.FIFFV_COORD_MRI),
-        dict(kind=FIFF.FIFFV_POINT_CARDINAL, ident=FIFF.FIFFV_POINT_NASION,
-             r=lps_mm_to_surf_m(alm["NAS"]), coord_frame=FIFF.FIFFV_COORD_MRI),
-        dict(kind=FIFF.FIFFV_POINT_CARDINAL, ident=FIFF.FIFFV_POINT_RPA,
-             r=lps_mm_to_surf_m(alm["RPA"]), coord_frame=FIFF.FIFFV_COORD_MRI),
-    ]
-
-    coreg = mne.coreg.Coregistration(raw.info, subject=subject,
-                                     subjects_dir=subjects_dir,
-                                     fiducials=fids)   # list, not a filename
-    coreg.fit_fiducials()
-    return coreg, fids
 
 
 def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
