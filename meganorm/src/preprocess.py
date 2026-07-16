@@ -16,6 +16,7 @@ from gedai.gedai.gedai import (
 )  # TODO: This needs to be changed when meg branch is released
 from mne_icalabel import label_components
 from meganorm.src.source_localization import check_tsss
+from meganorm.utils import data_specific_utils
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
 from autoreject import AutoReject, set_matplotlib_defaults
@@ -762,11 +763,19 @@ def preprocess(
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
-    if event_record and event_of_interest:
+    # TODO: we need to remove this Hard-coded part ASAP. But for now,
+    # given that each aston MEG recording is composed of both eyes closed
+    # and eyes open, I seperated them like this:
+    if "sub-ast_1" in subject:
+        data = data_specific_utils._ast_get_rs_block(data, block_index=0)
+        events = None
+    elif event_record and event_of_interest:
         if device == "MEGIN":
             events = mne.read_events(event_record)
         elif device == "CTF":
             events = mne.find_events(data, stim_channel="UPPT001")
+        else:
+            events = None # TODO
     else:
         events = None
 
@@ -2453,6 +2462,7 @@ def extract_rs_blocks(
     if not pieces:
         err_msg = f"No RS blocks (id={rs_id}) longer than {segments_length}s found."
         logger.error(err_msg)
+        raise ValueError(err_msg)
 
     rs_raw = mne.concatenate_raws(pieces)
 
