@@ -1,5 +1,4 @@
 import os
-
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
 from mne.io.constants import FIFF
@@ -397,7 +396,7 @@ def corregistration(
     scale_mode = kwargs.get(
         "coregisteration_scale_mode", None
     )  # None, "uniform", "3-axis"
-    if scale_mode:
+    if scale_mode and kwargs.get("apply_mri_template", False):
         coreg.set_scale_mode(scale_mode)
 
     logger.info("Fitting corregisteration using fiducials...")
