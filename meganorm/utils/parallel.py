@@ -132,6 +132,13 @@ def sbatchfile(
         + mainParallel_path
         + " $source $target $subject $config"
     )
+    # command = (
+    #     "srun --cpus-per-task="
+    #     + str(core)
+    #     + " xvfb-run -a --server-args='-screen 0 1920x1080x24' python "
+    #     + mainParallel_path
+    #     + " $source $target $subject $config"
+    # )
 
     command += f" --line_freq $line_freq"
     command += f" --surfaces_dir $surfaces_dir"
@@ -322,8 +329,11 @@ def check_jobs_status(username, start_time, delay=20):
         if failed_job_names:
             print("Failed Jobs:", ", ".join(failed_job_names))
 
-        # Genuinely nothing left in flight -> stop monitoring.
-        if job_counts["PENDING"] + job_counts["RUNNING"] == 0:
+        n = (
+            job_counts["PENDING"] + job_counts["RUNNING"] - 1
+        )  # TODO: this "-1" should be removed: solution use job-id instead of time
+
+        if n <= 0:
             break
 
         time.sleep(delay)
@@ -464,7 +474,7 @@ def auto_parallel_feature_extraction(
     freesurfer_home=None,
     freesurfer_license=None,
     max_try=3,
-    combine_features_and_demographics=False
+    combine_features_and_demographics=False,
 ):
     """
     Automatically submits, monitors, and reruns jobs for feature extraction on multiple subjects,
@@ -673,7 +683,7 @@ def sbatch_feature_extraction_runner(
     auto_collect=True,
     max_try=5,
     which_subjects=None,
-    combine_features_and_demographics = False
+    combine_features_and_demographics=False,
 ):
     """
     Set up and generate a SLURM sbatch script that launches the full
@@ -760,7 +770,7 @@ def sbatch_feature_extraction_runner(
         "max_try": max_try,
         "which_subjects": which_subjects,
         "datasets": datasets,
-        "combine_features_and_demographics": combine_features_and_demographics
+        "combine_features_and_demographics": combine_features_and_demographics,
     }
 
     features_dir = os.path.join(project_dir, "Features")
