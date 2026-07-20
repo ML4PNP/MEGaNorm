@@ -280,6 +280,8 @@ class Config(BaseModel):
 
     drop_noisy_flat_channel: bool = True
 
+    remove_nonfinite_segment_threshold: PositiveInt = 5
+
     # ICA
     apply_ica_elbow_detection: bool = False
     ica_n_component: Optional[PositiveInt] = None

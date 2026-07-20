@@ -409,6 +409,7 @@ def main(args):
         segments_length=configs.segments_length,
         overlap=configs.segments_overlap,
         same_environmental_noise_removal=configs.same_environmental_noise_removal,
+        remove_nonfinite_segment_threshold=configs.remove_nonfinite_segment_threshold
     )
 
     # Remove UADC001 annotations - temp
