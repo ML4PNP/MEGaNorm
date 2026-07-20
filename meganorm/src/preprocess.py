@@ -1057,19 +1057,58 @@ def drop_noisy_meg_channels(
             "Therefore, bad channel detection using maxwell will be not applied."
         )
         logger.info(msg)
-        auto_noisy_chs = []
-        auto_flat_chs = []
+        # auto_noisy_chs = []
+        # auto_flat_chs = []
 
     else:
         if device == "CTF":
             data.apply_gradient_compensation(0)
 
-        auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-            data, return_scores=False, verbose=True, coord_frame="meg", ignore_ref=True
-        )
+        if device == "MEGIN":
+            auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
+                data,
+                return_scores=False,
+                verbose=True,
+                coord_frame="head",
+            )
+
+            if empty_room_recording:
+                eroom_auto_noisy_chs, eroom_auto_flat_chs = (
+                    mne.preprocessing.find_bad_channels_maxwell(
+                        empty_room_recording,
+                        return_scores=False,
+                        verbose=True,
+                        coord_frame="meg",
+                        calibration=None,
+                        cross_talk=None,
+                    )
+                )
+
+        else:
+            auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
+                data,
+                return_scores=False,
+                verbose=True,
+                coord_frame="meg",
+                ignore_ref=True,
+            )
+
+            if empty_room_recording:
+                eroom_auto_noisy_chs, eroom_auto_flat_chs = (
+                    mne.preprocessing.find_bad_channels_maxwell(
+                        empty_room_recording,
+                        return_scores=False,
+                        verbose=True,
+                        coord_frame="meg",
+                        ignore_ref=True,
+                        calibration=None,
+                        cross_talk=None,
+                    )
+                )
+
         data.info["bads"] += auto_noisy_chs + auto_flat_chs
         if empty_room_recording:
-            data.info["bads"] += empty_room_recording.info["bads"]
+            data.info["bads"] += empty_room_recording.info["bads"] + eroom_auto_noisy_chs + eroom_auto_flat_chs
 
         logger.warning(
             f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}"
@@ -1079,6 +1118,7 @@ def drop_noisy_meg_channels(
         )
 
     bads = data.info["bads"][:]
+    bads = list(set(data.info["bads"]))
     data.drop_channels(bads)
     if empty_room_recording:
         empty_room_recording.drop_channels(bads)
