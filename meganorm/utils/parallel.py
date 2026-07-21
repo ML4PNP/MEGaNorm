@@ -421,43 +421,71 @@ def check_user_jobs(username, start_time):
         return empty_counts.copy(), [], False
 
 
-def collect_results(target_dir, subjects, temp_path, file_name="features", clean=True):
+def collect_results(
+    target_dir, subjects, temp_path, file_name="features", clean=True, append=True
+):
     """
-    Collects and merges the results of all jobs into a single file.
+    Collect per-subject result files and merge them into a single CSV.
+
+    If ``append`` is True and an existing ``file_name``.csv is present in
+    ``target_dir``, the newly extracted subjects are added to it. Subjects
+    present in both the existing file and the new results are updated with
+    the new values (new rows win).
 
     Parameters
     ----------
     target_dir : str
-        Path to the target directory where the merged results will be saved.
+        Directory where the merged results CSV is written.
     subjects : dict
-        A dictionary with subject names as keys and their corresponding file paths as values.
+        Subject names (keys) whose per-subject CSVs are read from ``temp_path``.
     temp_path : str
-        Path to the temporary directory where individual subject result files are stored.
+        Directory holding the per-subject ``<subject>.csv`` files.
     file_name : str, optional
-        The name of the file where the merged results will be saved. Default is 'features'.
+        Base name of the merged output file. Default "features".
     clean : bool, optional
-        Whether to remove the temporary files after merging the results. Default is True.
-
-    Returns
-    -------
-    None
-        This function does not return anything but writes the merged results to a CSV file in the target directory.
+        Remove ``temp_path`` after merging. Default True.
+    append : bool, optional
+        Merge into an existing output file instead of overwriting it.
+        Default True.
     """
-
     if not os.path.isdir(target_dir):
         os.makedirs(target_dir)
 
-    all_features = []
+    out_path = os.path.join(target_dir, file_name + ".csv")
+
+    new_features = []
     for subject in subjects.keys():
         try:
-            all_features.append(
-                pd.read_csv(os.path.join(temp_path, subject + ".csv"), index_col=0)
-            )
-        except:
+            df = pd.read_csv(os.path.join(temp_path, subject + ".csv"), index_col=0)
+        except Exception:
             continue
-    features = pd.concat(all_features)
-    features.to_csv(os.path.join(target_dir, file_name + ".csv"))
-    if clean:
+        # tag each row with its subject so we can dedup on rerun
+        df["subject"] = subject
+        new_features.append(df)
+
+    if not new_features:
+        print("No new per-subject result files were found; nothing collected.")
+        # still clean temp if asked
+        if clean and os.path.isdir(temp_path):
+            shutil.rmtree(temp_path)
+        return
+
+    features = pd.concat(new_features)
+
+    if append and os.path.exists(out_path):
+        existing = pd.read_csv(out_path, index_col=0)
+        if "subject" not in existing.columns:
+            # older file without the tag; treat its index as the subject id
+            existing["subject"] = existing.index
+        combined = pd.concat([existing, features])
+        # new rows come last, so keep="last" lets reruns overwrite old values
+        combined = combined.drop_duplicates(subset="subject", keep="last")
+    else:
+        combined = features
+
+    combined.to_csv(out_path)
+
+    if clean and os.path.isdir(temp_path):
         shutil.rmtree(temp_path)
 
 
