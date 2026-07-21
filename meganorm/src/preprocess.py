@@ -768,7 +768,10 @@ def preprocess(
     # given that each aston MEG recording is composed of both eyes closed
     # and eyes open, I seperated them like this:
     if "sub-ast_1" in subject:
-        data = data_specific_utils._ast_get_rs_block(data, block_index=0)
+        data = data_specific_utils._ast_get_rs_block(
+            data, block_index=event_of_interest
+        )
+        logger.info(f"The {event_of_interest}th block of this Aston data was selected.")
         events = None
     elif event_record and event_of_interest:
         if device == "MEGIN":
@@ -1108,7 +1111,11 @@ def drop_noisy_meg_channels(
 
         data.info["bads"] += auto_noisy_chs + auto_flat_chs
         if empty_room_recording:
-            data.info["bads"] += empty_room_recording.info["bads"] + eroom_auto_noisy_chs + eroom_auto_flat_chs
+            data.info["bads"] += (
+                empty_room_recording.info["bads"]
+                + eroom_auto_noisy_chs
+                + eroom_auto_flat_chs
+            )
 
         logger.warning(
             f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}"
