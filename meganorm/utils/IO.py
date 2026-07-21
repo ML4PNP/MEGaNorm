@@ -655,10 +655,12 @@ def load_recording(device, path, empty_room_recording_path, configs, logger):
             empty_room_recording = None
 
     elif device == "BTI":
+        temp_hs_file_path = os.path.join(path, "hs_file")
+        hs_file = temp_hs_file_path if os.path.exists(temp_hs_file_path) else None
         data = mne.io.read_raw_bti(
             pdf_fname=os.path.join(path, "c,rfDC"),
             config_fname=os.path.join(path, "config"),
-            head_shape_fname=None,
+            head_shape_fname=hs_file,
             preload=True,
         )
         if empty_room_recording_path and configs.apply_source_localization:
