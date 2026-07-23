@@ -640,9 +640,20 @@ class Config(BaseModel):
         return cls(**cfg)
 
 
-def load_recording(device, path, empty_room_recording_path, configs, logger):
+def load_recording(device, path, empty_room_recording_path, configs, logger, pos_file=None):
+    """Load data"""
+    
     if device == "CTF":
         data = mne.io.read_raw_ctf(path, preload=True)
+        if pos_file:
+            digs = mne.io.artemis123.utils._read_pos(fname=pos_file)
+            with data.info._unlock():
+                data.info["dig"] += digs
+                data.info["dig"] = mne._fiff._digitization._format_dig_points(
+                    data.info["dig"]
+                )
+            logger.info("Head shape pos file was found and added to the CTF recording")
+
         if empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = mne.io.read_raw_ctf(
                 empty_room_recording_path, preload=True
@@ -685,17 +696,20 @@ def load_recording(device, path, empty_room_recording_path, configs, logger):
 
     elif device == "ARTEMIS123":
         if configs.apply_source_localization:
-            temp = str(Path(path).parent)
-            pos_files = glob.glob(f"{temp}/*.pos")
-            if not pos_files:
-                err_msg = f"No .pos file found next to the Artemis recording in {temp}."
-                logger.error(err_msg)
-                raise FileNotFoundError(err_msg)
-            pos_file = pos_files[0]
+            if pos_file:
+                resolved_pos_file = pos_file
+            else:
+                temp = str(Path(path).parent)
+                pos_files = glob.glob(f"{temp}/*.pos")
+                if not pos_files:
+                    err_msg = f"No .pos file found next to the Artemis recording in {temp}."
+                    logger.error(err_msg)
+                    raise FileNotFoundError(err_msg)
+                resolved_pos_file = pos_files[0]
             data = mne.io.read_raw_artemis123(
                 path,
                 preload=True,
-                pos_fname=pos_file,
+                pos_fname=resolved_pos_file,
                 add_head_trans=True,
             )
         else:
@@ -870,6 +884,9 @@ def merge_datasets_with_glob(datasets):
         event_file_ending = dataset_info.get("event_file_ending", None)
         event_of_interest = dataset_info.get("event_of_interest", None)
 
+        trans_file_p = dataset_info.get("trans_path", None)
+        pos_file_p = dataset_info.get("pos_path", None)
+
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
         ]
@@ -908,6 +925,22 @@ def merge_datasets_with_glob(datasets):
             else:
                 event_record_paths = None
 
+            # trans file
+            if trans_file_p:
+                trans_path = glob.glob(
+                    f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True
+                )
+            else:
+                trans_path = None
+
+            # pos file
+            if pos_file_p:
+                pos_path = glob.glob(
+                    f"{pos_file_p}/{subj}/**/*headshape.pos", recursive=True
+                )
+            else:
+                pos_path = None
+
             subjects.update(
                 {
                     subj: {
@@ -919,6 +952,8 @@ def merge_datasets_with_glob(datasets):
                         "dataset_name": dataset_name,
                         "event_record": join_with_star(event_record_paths),
                         "event_of_interest": str(event_of_interest),
+                        "trans_path":join_with_star(trans_path),
+                        "pos_path":join_with_star(pos_path)
                     }
                 }
             )

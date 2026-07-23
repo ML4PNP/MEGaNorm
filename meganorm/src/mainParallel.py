@@ -136,7 +136,20 @@ def main_argparser(args=None):
         help="MEG device type (e.g., MEGIN, CTF, BTI). Overrides inference "
         "from the file path when provided.",
     )
-
+    parser.add_argument(
+        "--pos_file",
+        type=str,
+        default=None,
+        help="Path to the subject's .pos headshape file (glob-resolved). "
+        "Used for ARTEMIS123 recordings during source localization.",
+    )
+    parser.add_argument(
+        "--trans_file",
+        type=str,
+        default=None,
+        help="Path to a precomputed -trans.fif coregistration file "
+        "(glob-resolved), used for source localization.",
+    )
     return parser.parse_args(args)
 
 
@@ -245,6 +258,8 @@ def main(args):
         "event_record",
         "event_of_interest",
         "device_type",
+        "pos_file",
+        "trans_file",
     ]:
         if getattr(args, attr) == "None":
             setattr(args, attr, None)
@@ -283,6 +298,20 @@ def main(args):
         event_record = None
         event_of_interest = None
 
+    if args.pos_file:
+        pos_file_paths = args.pos_file.split("*")
+        pos_file_paths = list(filter(lambda x: len(x), pos_file_paths))
+        pos_file = pos_file_paths[0]
+    else:
+        pos_file = None
+
+    if args.trans_file:
+        trans_file_paths = args.trans_file.split("*")
+        trans_file_paths = list(filter(lambda x: len(x), trans_file_paths))
+        trans_file = trans_file_paths[0]
+    else:
+        trans_file = None
+
     logger.warning(
         f"{len(paths)} recordings were detected for this subject. The first one"
         " will be used in this analysis."
@@ -311,7 +340,12 @@ def main(args):
     device = device.upper()
     # ------------------------------------------------------------ load data
     data, empty_room_recording = load_recording(
-        device, path, empty_room_recording_path, configs, logger
+        device=device,
+        path=path,
+        empty_room_recording_path=empty_room_recording_path,
+        configs=configs,
+        logger=logger,
+        pos_file=pos_file,
     )
 
     # ------------------------------------------------------------
@@ -409,7 +443,7 @@ def main(args):
         segments_length=configs.segments_length,
         overlap=configs.segments_overlap,
         same_environmental_noise_removal=configs.same_environmental_noise_removal,
-        remove_nonfinite_segment_threshold=configs.remove_nonfinite_segment_threshold
+        remove_nonfinite_segment_threshold=configs.remove_nonfinite_segment_threshold,
     )
 
     # Remove UADC001 annotations - temp
@@ -471,6 +505,7 @@ def main(args):
             inverse_operator=configs.SL_inverse_operator,
             figures_path=os.path.join(args.save_dir, "figures"),
             which_sensor_dict=which_sensor_dict,
+            precomputed_trans_path=trans_file,
             plot_3d=False,
             **configs.model_dump(),
         )
