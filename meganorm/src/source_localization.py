@@ -1001,6 +1001,7 @@ def source_localization(
     inverse_operator="lcmv",
     plot_3d=False,
     qc_ignore=[],
+    precomputed_trans_path=None,
     empty_room_recording=None,
     **kwargs,
 ):
@@ -1075,13 +1076,17 @@ def source_localization(
         )
 
     # This part is hardcoded and must be changed ASAP.
-    if "sub-ON" in subject:
+    if precomputed_trans_path:
+        transformation_matrix = mne.read_trans(precomputed_trans_path)
+        logger.info("A precomputed transformation matrix was loaded for corregistration")
+    elif "sub-ON" in subject:
         matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
         if not matches:
             err_msg = f"No coordsystem.json found for {subject} in {Path(recording_path).parent}"
             logger.error(err_msg)
             raise FileNotFoundError(err_msg)
         coreg, _ = data_specific_utils._trans_from_nimh(data, matches[0], subject, subjects_dir)
+        transformation_matrix = coreg.trans
     else:
         coreg, subject = corregistration(
             data=data,
@@ -1093,19 +1098,21 @@ def source_localization(
             plot_3d=plot_3d,
             **kwargs,
         )
+        transformation_matrix = coreg.trans
 
     fwd, src = forward_solution(
         subject=subject,
         subjects_dir=subjects_dir,
         data=data,
-        transformation_matrix=coreg.trans,
+        transformation_matrix=transformation_matrix,
         conductivity=conductivity,
         source_space=source_space,
         which_sensor_dict=which_sensor_dict,
         **kwargs,
     )
 
-    del coreg
+    if "coreg" in locals():
+        del coreg
 
     stc = inverse_solution(
         subject=subject,
