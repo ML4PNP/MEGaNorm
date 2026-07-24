@@ -378,10 +378,10 @@ class Config(BaseModel):
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
     # the spacing to use for source space specificatin
-    source_space_spacing: Literal["ico3", "ico4", "ico5", "ico6", "oct5", "oct6"] = (
-        "ico4"
-    )
-    source_space_spacing_number: Literal[3, 4, 5, 6] = 4
+    source_space_spacing: Literal[
+        "ico3", "ico4", "ico5", "ico6", "oct5", "oct6", "all"
+    ] = "ico4"
+    source_space_spacing_number: Literal[3, 4, 5, 6, None] = 4
 
     save_transformation_FIF_file: bool = False
     coregisteration_final_n_iterations: int = 20
@@ -513,6 +513,12 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def source_space_res(self):
+        if self.source_space_spacing == "all":
+            if self.source_space_spacing_number is not None:
+                raise ValueError(
+                    "source_space_spacing_number must be None when source_space_spacing='all'"
+                )
+            return self
         if int(self.source_space_spacing[-1]) != self.source_space_spacing_number:
             raise ValueError(
                 "The source_space_spacing and source_space_spacing_number should match"
@@ -640,9 +646,11 @@ class Config(BaseModel):
         return cls(**cfg)
 
 
-def load_recording(device, path, empty_room_recording_path, configs, logger, pos_file=None):
+def load_recording(
+    device, path, empty_room_recording_path, configs, logger, pos_file=None
+):
     """Load data"""
-    
+
     if device == "CTF":
         data = mne.io.read_raw_ctf(path, preload=True)
         if pos_file:
@@ -677,7 +685,7 @@ def load_recording(device, path, empty_room_recording_path, configs, logger, pos
             config_fname=os.path.join(path, "config"),
             head_shape_fname=hs_file,
             preload=True,
-            convert=convert
+            convert=convert,
         )
         if empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = mne.io.read_raw_bti(
@@ -702,7 +710,9 @@ def load_recording(device, path, empty_room_recording_path, configs, logger, pos
                 temp = str(Path(path).parent)
                 pos_files = glob.glob(f"{temp}/*.pos")
                 if not pos_files:
-                    err_msg = f"No .pos file found next to the Artemis recording in {temp}."
+                    err_msg = (
+                        f"No .pos file found next to the Artemis recording in {temp}."
+                    )
                     logger.error(err_msg)
                     raise FileNotFoundError(err_msg)
                 resolved_pos_file = pos_files[0]
@@ -952,8 +962,8 @@ def merge_datasets_with_glob(datasets):
                         "dataset_name": dataset_name,
                         "event_record": join_with_star(event_record_paths),
                         "event_of_interest": str(event_of_interest),
-                        "trans_path":join_with_star(trans_path),
-                        "pos_path":join_with_star(pos_path)
+                        "trans_path": join_with_star(trans_path),
+                        "pos_path": join_with_star(pos_path),
                     }
                 }
             )
@@ -1100,7 +1110,9 @@ def set_path(project_dir):
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
     save_coregistration_QC_path = os.path.join(saved_outputs_path, "coregistration_QC")
-    save_transformation_path = os.path.join(saved_outputs_path, "transformation_FIF_file")
+    save_transformation_path = os.path.join(
+        saved_outputs_path, "transformation_FIF_file"
+    )
     configurations = os.path.join(features_dir, "Configurations")
     mri_templates = os.path.join(features_dir, "MRI_templates")
 
