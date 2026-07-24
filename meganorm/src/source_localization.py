@@ -1,4 +1,5 @@
 import os
+
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
 from mne.io.constants import FIFF
@@ -350,9 +351,15 @@ def rank_based_quality_control(
     return
 
 
-
 def corregistration(
-    data, subject, subjects_dir, participant_id, plot_3d=False, qc_out_dir=False, trans_save_path=False, **kwargs
+    data,
+    subject,
+    subjects_dir,
+    participant_id,
+    plot_3d=False,
+    qc_out_dir=False,
+    trans_save_path=False,
+    **kwargs,
 ):
     """
     Coregister MEG data to MRI, with optional scaling to a template MRI.
@@ -360,7 +367,7 @@ def corregistration(
     Same as before, but if `coregisteration_scale_mode` is set (e.g. "uniform"),
     a scale factor is estimated during fitting and a physically scaled copy of
     the subject's MRI is written to `subjects_dir` as `{subject}_scaled`.
-    Downstream steps (BEM, source space, parcellation) must use the returned
+    Downstream steps (source space, parcellation) must use the returned
     `fit_subject` name, not the original template name.
 
     Returns
@@ -370,22 +377,6 @@ def corregistration(
         The subject name to use for all subsequent anatomy-dependent steps
         (equals `subject` if no scaling was applied, else `f"{subject}_scaled"`).
     """
-
-    if not os.path.exists(
-        os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
-    ) or kwargs.get("force_new_watershed_bem"):
-
-        logger.info("bem surface was not found; Creating a bem surface for the subject")
-
-        mne.bem.make_watershed_bem(
-            subject=subject,
-            subjects_dir=subjects_dir,
-            overwrite=True,
-            gcaatlas=kwargs.get("gcaatlas", True),
-            volume="T1",
-            preflood=kwargs.get("preflood", None),
-        )
-
     coreg = mne.coreg.Coregistration(
         data.info,
         subject=subject,
@@ -1075,17 +1066,37 @@ def source_localization(
             subject=subject, project_dir=project_dir, **kwargs
         )
 
+    if not os.path.exists(
+        os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
+    ) or kwargs.get("force_new_watershed_bem"):
+
+        logger.info("bem surface was not found; Creating a bem surface for the subject")
+
+        mne.bem.make_watershed_bem(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            overwrite=True,
+            gcaatlas=kwargs.get("gcaatlas", True),
+            volume="T1",
+            preflood=kwargs.get("preflood", None),
+        )
+
     # This part is hardcoded and must be changed ASAP.
     if precomputed_trans_path:
         transformation_matrix = mne.read_trans(precomputed_trans_path)
-        logger.info("A precomputed transformation matrix was loaded for corregistration")
+        logger.info(
+            "A precomputed transformation matrix was loaded for corregistration"
+        )
+
     elif "sub-ON" in subject:
         matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
         if not matches:
             err_msg = f"No coordsystem.json found for {subject} in {Path(recording_path).parent}"
             logger.error(err_msg)
             raise FileNotFoundError(err_msg)
-        coreg, _ = data_specific_utils._trans_from_nimh(data, matches[0], subject, subjects_dir)
+        coreg, _ = data_specific_utils._trans_from_nimh(
+            data, matches[0], subject, subjects_dir
+        )
         transformation_matrix = coreg.trans
     else:
         coreg, subject = corregistration(
@@ -1093,7 +1104,9 @@ def source_localization(
             subject=subject,
             subjects_dir=subjects_dir,
             participant_id=participant_id,
-            trans_save_path=os.path.join(project_dir, "transformation_FIF_file", "coregistration_QC"),
+            trans_save_path=os.path.join(
+                project_dir, "transformation_FIF_file", "coregistration_QC"
+            ),
             qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
             plot_3d=plot_3d,
             **kwargs,
@@ -1293,8 +1306,6 @@ def check_digitization_points(raw, logger):
         logger.warning("No dig info at all")
 
     return n_extra, n_cardinal, n_hpi, n_eeg
-
-
 
 
 def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
