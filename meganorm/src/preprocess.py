@@ -3,6 +3,7 @@ import mne
 import json
 import glob
 import logging
+from scipy import io
 import warnings
 import numpy as np
 import pandas as pd
@@ -21,7 +22,6 @@ from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
 from autoreject import AutoReject, set_matplotlib_defaults
 import autoreject
-
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
@@ -646,6 +646,7 @@ def preprocess(
     subject,
     freesurfer_dir,
     which_sensor: dict,
+    annotation_path=None,
     empty_room_recording=None,
     resampling_rate: int = 1000,
     remove_nonfinite_segment_threshold: int = 5,
@@ -777,6 +778,7 @@ def preprocess(
         if device == "MEGIN":
             events = mne.read_events(event_record)
         elif device == "CTF":
+            # TODO: stim_channel should be recieved from Users
             events = mne.find_events(data, stim_channel="UPPT001")
         else:
             events = None  # TODO
@@ -794,7 +796,18 @@ def preprocess(
 
     # head motion correction ----------------------
     movement_dur = None
-    if apply_Head_movement_correction and not which_sensor.get("eeg", False):
+
+    # externally-computed (e.g. Brainstorm) head-motion annotations -----
+    if annotation_path:
+        data, movement_dur = data_specific_utils._read_annotation_brainstorm(
+            data,
+            annotation_path=annotation_path,
+            annotation_lable="Bad",
+            logger=logger,
+        )
+        logger.info(f"Applied external head-motion annotations from {annotation_path}")
+
+    elif apply_Head_movement_correction and not which_sensor.get("eeg", False):
         data_temp = data.copy()
         empty_room_recording_temp = (
             empty_room_recording.copy() if empty_room_recording else None
@@ -1097,17 +1110,23 @@ def drop_noisy_meg_channels(
             )
 
             if empty_room_recording:
-                eroom_auto_noisy_chs, eroom_auto_flat_chs = (
-                    mne.preprocessing.find_bad_channels_maxwell(
-                        empty_room_recording,
-                        return_scores=False,
-                        verbose=True,
-                        coord_frame="meg",
-                        ignore_ref=True,
-                        calibration=None,
-                        cross_talk=None,
+                try:
+                    eroom_auto_noisy_chs, eroom_auto_flat_chs = (
+                        mne.preprocessing.find_bad_channels_maxwell(
+                            empty_room_recording,
+                            return_scores=False,
+                            verbose=True,
+                            coord_frame="meg",
+                            ignore_ref=True,
+                            calibration=None,
+                            cross_talk=None,
+                        )
                     )
-                )
+                except RuntimeError as e:
+                    logger.warning(
+                        f"Maxwell-based bad-channel detection failed on empty room: {e}. Skipping."
+                    )
+                    eroom_auto_noisy_chs, eroom_auto_flat_chs = [], []
 
         data.info["bads"] += auto_noisy_chs + auto_flat_chs
         if empty_room_recording:
