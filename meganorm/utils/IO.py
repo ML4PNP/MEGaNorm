@@ -897,6 +897,10 @@ def merge_datasets_with_glob(datasets):
         trans_file_p = dataset_info.get("trans_path", None)
         pos_file_p = dataset_info.get("pos_path", None)
 
+        annotation_p = dataset_info.get("annotation_path", None)
+        annotaion_task_name = dataset_info.get("annotaion_task_name", None)
+        annotation_ending = dataset_info.get("annotation_ending", None)
+
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
         ]
@@ -951,6 +955,14 @@ def merge_datasets_with_glob(datasets):
             else:
                 pos_path = None
 
+            if annotation_p:
+                annotation_path = glob.glob(
+                    f"{annotation_p}/{subj}/**/**{annotaion_task_name}**/{annotation_ending}",
+                    recursive=True,
+                )
+            else:
+                annotation_path = None
+
             subjects.update(
                 {
                     subj: {
@@ -964,6 +976,7 @@ def merge_datasets_with_glob(datasets):
                         "event_of_interest": str(event_of_interest),
                         "trans_path": join_with_star(trans_path),
                         "pos_path": join_with_star(pos_path),
+                        "annotation_path": join_with_star(annotation_path)
                     }
                 }
             )

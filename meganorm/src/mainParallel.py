@@ -150,6 +150,13 @@ def main_argparser(args=None):
         help="Path to a precomputed -trans.fif coregistration file "
         "(glob-resolved), used for source localization.",
     )
+    parser.add_argument(
+        "--annotation_path",
+        type=str,
+        default=None,
+        help="Path to a subject's annotation file (glob-resolved), used to "
+        "mark bad segments/events during preprocessing.",
+    )
     return parser.parse_args(args)
 
 
@@ -260,6 +267,7 @@ def main(args):
         "device_type",
         "pos_file",
         "trans_file",
+        "annotation_path",
     ]:
         if getattr(args, attr) == "None":
             setattr(args, attr, None)
@@ -311,6 +319,12 @@ def main(args):
         trans_file = trans_file_paths[0]
     else:
         trans_file = None
+    if args.annotation_path:
+        annotation_paths = args.annotation_path.split("*")
+        annotation_paths = list(filter(lambda x: len(x), annotation_paths))
+        annotation_path = annotation_paths[0]
+    else:
+        annotation_path = None
 
     logger.warning(
         f"{len(paths)} recordings were detected for this subject. The first one"
@@ -393,6 +407,7 @@ def main(args):
         device=device,
         subject=args.subject,
         freesurfer_dir=args.surfaces_dir,
+        annotation_path=annotation_path,
         n_component=configs.ica_n_component,
         ica_max_iter=configs.ica_max_iter,
         IcaMethod=configs.ica_method,

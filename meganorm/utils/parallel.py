@@ -125,6 +125,7 @@ def sbatchfile(
     sbatch_input_10 = "device_type=${10}\n"
     sbatch_input_11 = "pos_file=${11}\n"
     sbatch_input_12 = "trans_file=${12}\n"
+    sbatch_input_13 = "annotation_path=${13}\n"
 
     # if with_config:
     command = (
@@ -150,6 +151,7 @@ def sbatchfile(
     command += " --device_type $device_type"
     command += " --pos_file $pos_file"
     command += " --trans_file $trans_file"
+    command += " --annotation_path $annotation_path"
 
     bash_environment = [
         sbatch_init
@@ -177,6 +179,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_10
     bash_environment[0] += sbatch_input_11
     bash_environment[0] += sbatch_input_12
+    bash_environment[0] += sbatch_input_13
 
     bash_environment[0] += command
 
@@ -284,6 +287,7 @@ def submit_jobs(
         device = subjects[subject]["device"]
         trans_path = subjects[subject].get("trans_path")  
         pos_path = subjects[subject].get("pos_path")
+        annotation_path = subjects[subject].get("annotation_path")
 
         command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
@@ -295,6 +299,7 @@ def submit_jobs(
         command = add_command(device, command)
         command = add_command(pos_path, command)
         command = add_command(trans_path, command)
+        command = add_command(annotation_path, command)
         
 
         subprocess.check_call(command, shell=True)
