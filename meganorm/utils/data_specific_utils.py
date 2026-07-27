@@ -273,7 +273,7 @@ def _trans_from_hcp(raw, subject, subjects_dir, transform_path, tans_out_path):
 
 
 
-def read_annotation_brainstorm(data, annotation_path, annotation_lable="Bad", logger=None):
+def _read_annotation_brainstorm(data, annotation_path, annotation_lable="Bad", logger=None):
     mat = io.loadmat(annotation_path, struct_as_record=False, squeeze_me=True)
     F = mat['F']
 
