@@ -1105,7 +1105,7 @@ def source_localization(
             subjects_dir=subjects_dir,
             participant_id=participant_id,
             trans_save_path=os.path.join(
-                project_dir, "transformation_FIF_file", "coregistration_QC"
+                project_dir, "Saved_outputs", "transformation_FIF_file"
             ),
             qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
             plot_3d=plot_3d,
