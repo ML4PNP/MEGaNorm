@@ -274,6 +274,7 @@ def _trans_from_hcp(raw, subject, subjects_dir, transform_path, tans_out_path):
 
 
 def _read_annotation_brainstorm(data, annotation_path, annotation_lable="Bad", logger=None):
+    
     mat = io.loadmat(annotation_path, struct_as_record=False, squeeze_me=True)
     F = mat['F']
 
@@ -299,5 +300,11 @@ def _read_annotation_brainstorm(data, annotation_path, annotation_lable="Bad", l
     # 3. Build MNE annotations and attach to the raw recording
     annot = mne.Annotations(onset=onsets, duration=durations, description=descriptions)
 
-    data.set_annotations(annot)
-    return data
+    annot_dur = sum(annot.duration)
+    if logger:
+            logger.info(
+                f"Precomputed annotation detected {annot_dur}"
+                f" seconds of {annotation_lable}."
+            )
+    data.set_annotations(data.annotations + annot)
+    return data, annot_dur
