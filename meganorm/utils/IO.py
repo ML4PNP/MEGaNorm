@@ -653,14 +653,26 @@ def load_recording(
 
     if device == "CTF":
         data = mne.io.read_raw_ctf(path, preload=True)
+
         if pos_file:
-            digs = mne.io.artemis123.utils._read_pos(fname=pos_file)
-            with data.info._unlock():
-                data.info["dig"] += digs
-                data.info["dig"] = mne._fiff._digitization._format_dig_points(
-                    data.info["dig"]
+            ext = pos_file.split(".")[-1]
+            if ext == "pos":
+                digs = mne.io.artemis123.utils._read_pos(fname=pos_file)
+                with data.info._unlock():
+                    data.info["dig"] += digs
+                    data.info["dig"] = mne._fiff._digitization._format_dig_points(
+                        data.info["dig"]
+                    )
+                logger.info("Head shape .pos file was found and added to the CTF recording")
+            elif ext == "fif":
+                dig = mne.channels.read_dig_fif(pos_file)
+                data.set_montage(dig, on_missing='warn')
+                logger.info("Head shape .fif file was found and added to the CTF recording")
+            else:
+                logger.warning(
+                    f"pos_file '{pos_file}' has unrecognized extension '.{ext}'; "
+                    "no head-shape/dig info was added to the recording."
                 )
-            logger.info("Head shape pos file was found and added to the CTF recording")
 
         if empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = mne.io.read_raw_ctf(
@@ -896,6 +908,7 @@ def merge_datasets_with_glob(datasets):
 
         trans_file_p = dataset_info.get("trans_path", None)
         pos_file_p = dataset_info.get("pos_path", None)
+        pos_file_ending = dataset_info.get("pos_file_ending", None)
 
         annotation_p = dataset_info.get("annotation_path", None)
         annotaion_task_name = dataset_info.get("annotaion_task_name", None)
@@ -948,16 +961,16 @@ def merge_datasets_with_glob(datasets):
                 trans_path = None
 
             # pos file
-            if pos_file_p:
+            if pos_file_p and pos_file_ending:
                 pos_path = glob.glob(
-                    f"{pos_file_p}/{subj}/**/*headshape.pos", recursive=True
+                    f"{pos_file_p}/{subj}/**/*{pos_file_ending}", recursive=True
                 )
             else:
                 pos_path = None
 
             if annotation_p:
                 annotation_path = glob.glob(
-                    f"{annotation_p}/{subj}/**/**{annotaion_task_name}**/{annotation_ending}",
+                    f"{annotation_p}/{subj}/**/*{annotaion_task_name}*{annotation_ending}",
                     recursive=True,
                 )
             else:
