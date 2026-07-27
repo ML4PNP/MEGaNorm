@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import nibabel as nib
 import mne
+import re
+import scipy.io as io
 from mne.io.constants import FIFF
 
 
@@ -72,7 +74,6 @@ def _trans_from_nimh(raw, coordsystem_json, subject, subjects_dir):
     )  # list, not a filename
     coreg.fit_fiducials()
     return coreg, fids
-
 
 
 def separate_eyes_open_close_eeglab(
@@ -211,3 +212,92 @@ def separate_eyes_open_close_eeglab(
             mne.export.export_raw(
                 eyes_closed_file_path, raw_eyes_closed, fmt="eeglab", overwrite=True
             )
+
+
+def _trans_from_hcp(raw, subject, subjects_dir, transform_path, tans_out_path):
+    """
+    Parameters
+    ----------
+    raw : instance of mne.io.Raw
+        HCP MEG raw data, loaded via `mne.io.read_raw_bti` with
+        `convert=False`. Modified in place (coord_frame tags only).
+    subject : str
+        FreeSurfer subject ID (e.g. "sub-113922"), matching the
+        folder name under `subjects_dir` and used to locate
+        `mri/orig.mgz`.
+    subjects_dir : str or Path
+        Path to the FreeSurfer SUBJECTS_DIR containing `subject`'s
+        anatomical reconstruction.
+    transform_path : str or Path
+        Path to HCP's `{subject}_MEG_anatomy_transform.txt`, which
+        must contain a `transform.bti2spm` matrix.
+
+    """
+    for ch in raw.info["chs"]:
+        if ch["coord_frame"] == FIFF.FIFFV_MNE_COORD_4D_HEAD:
+            ch["coord_frame"] = FIFF.FIFFV_COORD_HEAD
+
+    with raw.info._unlock():
+        if raw.info["dev_head_t"] is not None:
+            raw.info["dev_head_t"]["to"] = FIFF.FIFFV_COORD_HEAD
+
+    def _parse_hcp_transform(path, key):
+        text = Path(path).read_text()
+        pattern = rf"transform\.{re.escape(key)}\s*=\s*\[(.*?)\];"
+        match = re.search(pattern, text, re.S)
+        nums = [
+            float(x)
+            for x in re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", match.group(1))
+        ]
+        return np.array(nums).reshape(4, 4)
+
+    def _scanner_ras_to_surface_ras_mm(subjects_dir, subject):
+        orig = nib.load(os.path.join(subjects_dir, subject, "mri", "orig.mgz"))
+        Norig = orig.header.get_vox2ras()
+        Torig = orig.header.get_vox2ras_tkr()
+        return Torig @ np.linalg.inv(Norig)
+
+    bti2spm_mm = _parse_hcp_transform(transform_path, key="bti2spm")
+    ras2surf_mm = _scanner_ras_to_surface_ras_mm(subjects_dir, subject)
+    head2surf_mm = ras2surf_mm @ bti2spm_mm
+
+    S = np.diag([1000.0, 1000.0, 1000.0, 1.0])
+    S_inv = np.diag([0.001, 0.001, 0.001, 1.0])
+    head2surf_m = S_inv @ head2surf_mm @ S
+
+    trans = mne.transforms.Transform("head", "mri", head2surf_m)
+
+    mne.write_trans(os.path.join(tans_out_path, "-trans.fif"), trans, overwrite=False)
+
+    return None
+
+
+
+def read_annotation_brainstorm(data, annotation_path, annotation_lable="Bad", logger=None):
+    mat = io.loadmat(annotation_path, struct_as_record=False, squeeze_me=True)
+    F = mat['F']
+
+    # 2. Pull out just the head-motion ('BAD') event group
+    onsets, durations, descriptions = [], [], []
+
+    for ev in np.atleast_1d(F.events):
+        label = str(ev.label)
+        if label != 'BAD': 
+            continue
+
+        times = np.atleast_2d(ev.times)   # shape (2, n_segments): row0=start, row1=end
+        for start, end in zip(times[0, :], times[1, :]):
+            onsets.append(float(start))
+            durations.append(float(end - start))
+            descriptions.append(annotation_lable)   # keep 'BAD' prefix so MNE excludes it
+
+    if logger:
+        logger.info(f"Found {len(onsets)} {annotation_lable} segments")
+        for o, d in zip(onsets, durations):
+            logger.info(f"  onset={o:.3f}s  duration={d:.3f}s")
+
+    # 3. Build MNE annotations and attach to the raw recording
+    annot = mne.Annotations(onset=onsets, duration=durations, description=descriptions)
+
+    data.set_annotations(annot)
+    return data
