@@ -473,6 +473,7 @@ def corregistration(
     #     )
 
     if kwargs.get("save_transformation_FIF_file", False):
+        trans_save_path = os.path.join(trans_save_path, f"{subject}-trans.fif")
         mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
     logger.info("Automatic coregisteration is done!")
