@@ -1,11 +1,20 @@
+import os
+
+os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
+from mne.io.constants import FIFF
 import matplotlib.pyplot as plt
+import nibabel as nib
 from pathlib import Path
 from joblib import parallel_config, parallel_backend
+from mne.io.constants import FIFF
 import subprocess
 import numpy as np
 import logging
 import re as re
 import shutil
+from pathlib import Path
+from meganorm.utils import data_specific_utils
 import time
 import mne
 import joblib
@@ -342,14 +351,23 @@ def rank_based_quality_control(
     return
 
 
-def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwargs):
+def corregistration(
+    data,
+    subject,
+    subjects_dir,
+    participant_id,
+    plot_3d=False,
+    qc_out_dir=False,
+    trans_save_path=False,
+    **kwargs,
+):
     """
     Coregister MEG data to MRI, with optional scaling to a template MRI.
 
     Same as before, but if `coregisteration_scale_mode` is set (e.g. "uniform"),
     a scale factor is estimated during fitting and a physically scaled copy of
     the subject's MRI is written to `subjects_dir` as `{subject}_scaled`.
-    Downstream steps (BEM, source space, parcellation) must use the returned
+    Downstream steps (source space, parcellation) must use the returned
     `fit_subject` name, not the original template name.
 
     Returns
@@ -359,22 +377,6 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
         The subject name to use for all subsequent anatomy-dependent steps
         (equals `subject` if no scaling was applied, else `f"{subject}_scaled"`).
     """
-
-    if not os.path.exists(
-        os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
-    ) or kwargs.get("make_new_watershed_bem"):
-
-        logger.info("bem surface was not found; Creating a bem surface for the subject")
-
-        mne.bem.make_watershed_bem(
-            subject=subject,
-            subjects_dir=subjects_dir,
-            overwrite=True,
-            gcaatlas=kwargs.get("gcaatlas", True),
-            volume="T1",
-            preflood=kwargs.get("preflood", None),
-        )
-
     coreg = mne.coreg.Coregistration(
         data.info,
         subject=subject,
@@ -385,82 +387,94 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
     scale_mode = kwargs.get(
         "coregisteration_scale_mode", None
     )  # None, "uniform", "3-axis"
-    if scale_mode:
+    if scale_mode and kwargs.get("apply_mri_template", False):
         coreg.set_scale_mode(scale_mode)
 
+    logger.info("Fitting corregisteration using fiducials...")
     coreg.fit_fiducials()
 
-    coreg.fit_icp(
-        n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
-        nasion_weight=kwargs.get("coregisteration_initial_nasion_weight", 2.0),
-        verbose=True,
-    )
+    n_extra, _, _, _ = check_digitization_points(data, logger)
 
-    coreg.omit_head_shape_points(
-        distance=kwargs.get("coregisteration_distance_thr", 5.0 / 1000)
-    )
+    if n_extra > 0:
+        logger.info("Applying ICP method using head shape points...")
+        coreg.fit_icp(
+            n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
+            nasion_weight=kwargs.get("coregisteration_initial_nasion_weight", 2.0),
+            verbose=True,
+        )
 
-    coreg.fit_icp(
-        n_iterations=kwargs.get("coregisteration_final_n_iterations", 20),
-        nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0),
-        verbose=True,
-    )
+        coreg.omit_head_shape_points(
+            distance=kwargs.get("coregisteration_distance_thr", 5.0 / 1000)
+        )
 
-    distance_head_mri = coreg.compute_dig_mri_distances()
-    logger.info(
-        f"Average and STD distance between head shape points and MRI surface: "
-        f"{np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
-    )
+        coreg.fit_icp(
+            n_iterations=kwargs.get("coregisteration_final_n_iterations", 20),
+            nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0),
+            verbose=True,
+        )
+
+        distance_head_mri = coreg.compute_dig_mri_distances()
+        logger.info(
+            f"Average and STD distance between head shape points and MRI surface: "
+            f"{np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
+        )
+    else:
+        logger.warning("Skipping ICP method due to missing head shape points.")
 
     fit_subject = subject
     if scale_mode:
-        scale_id = participant_id or subject
-        scaled_subject = f"{scale_id}_scaled"
-        scaled_bem_exists = os.path.exists(
-            os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
+        # scale_id = participant_id or subject
+        scaled_subject = f"{participant_id}_scaled"
+        # scaled_bem_exists = os.path.exists(
+        #     os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
+        # )
+
+        # if not scaled_bem_exists:
+        logger.info(f"Estimated MRI scale factor: {coreg.scale}")
+        mne.scale_mri(
+            subject_from=subject,
+            subject_to=scaled_subject,
+            scale=coreg.scale,
+            subjects_dir=subjects_dir,
+            overwrite=True,
+            labels=True,
+            skip_fiducials=True,
         )
+        logger.info(f"Scaled MRI subject written: {scaled_subject}")
 
-        if not scaled_bem_exists or kwargs.get("make_new_watershed_bem"):
-            logger.info(f"Estimated MRI scale factor: {coreg.scale}")
-            mne.scale_mri(
-                subject_from=subject,
-                subject_to=scaled_subject,
-                scale=coreg.scale,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                labels=True,
-                skip_fiducials=True,
-            )
-            logger.info(f"Scaled MRI subject written: {scaled_subject}")
-
-            mne.bem.make_watershed_bem(
-                subject=scaled_subject,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                gcaatlas=kwargs.get("gcaatlas", True),
-                volume="T1",
-                preflood=kwargs.get("preflood", None),
-            )
-            logger.info(
-                f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
-            )
-        else:
-            logger.info(f"Using existing scaled subject: {scaled_subject}")
+        # TODO: is it necessary to make a new watershed mode after scaling?
+        # if kwargs.get("force_new_watershed_bem", False):
+        #     pass
+        # mne.bem.make_watershed_bem(
+        #     subject=scaled_subject,
+        #     subjects_dir=subjects_dir,
+        #     overwrite=True,
+        #     gcaatlas=kwargs.get("gcaatlas", True),
+        #     volume="T1",
+        #     preflood=kwargs.get("preflood", None),
+        # )
+        # logger.info(
+        #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
+        # )
+        # else:
+        #     logger.info(f"Using existing scaled subject: {scaled_subject}")
 
         fit_subject = scaled_subject
+    # TODO
+    # if kwargs.get("take_screenshot_of_coregisteration", True):
+    #     save_coreg_screenshots(
+    #         info=data.info,
+    #         trans=coreg.trans,
+    #         subject=fit_subject,
+    #         subjects_dir=subjects_dir,
+    #         out_dir=qc_out_dir,
+    #         participant_id=fit_subject,
+    #         **kwargs,
+    #     )
 
-    if plot_3d:
-        plot_kwargs = dict(
-            subject=fit_subject,
-            subjects_dir=subjects_dir,
-            surfaces="head",
-            dig=True,
-            eeg=[],
-            meg="sensors",
-            show_axes=True,
-            coord_frame="meg",
-        )
-        fig = mne.viz.plot_alignment(data.info, trans=coreg.trans, **plot_kwargs)
+    if kwargs.get("save_transformation_FIF_file", False):
+        trans_save_path = os.path.join(trans_save_path, f"{subject}-trans.fif")
+        mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
     logger.info("Automatic coregisteration is done!")
 
@@ -965,6 +979,7 @@ def parcellate(subject, subjects_dir, stc, src, source_space, **kwargs):
 
 
 def source_localization(
+    recording_path,
     project_dir,
     subject,
     subjects_dir,
@@ -978,6 +993,7 @@ def source_localization(
     inverse_operator="lcmv",
     plot_3d=False,
     qc_ignore=[],
+    precomputed_trans_path=None,
     empty_room_recording=None,
     **kwargs,
 ):
@@ -1040,33 +1056,77 @@ def source_localization(
     if kwargs.get("freesurfer_license"):
         os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
 
+    if kwargs.get("which_sensor", "meg") in ["meg", "grad", "mag"]:
+        new_dig = [d for d in data.info["dig"] if d["kind"] != FIFF.FIFFV_POINT_EEG]
+        with data.info._unlock():
+            data.info["dig"] = new_dig
+
     participant_id = subject
     if kwargs.get("apply_mri_template"):
         subject, subjects_dir = prepare_template(
             subject=subject, project_dir=project_dir, **kwargs
         )
 
-    coreg, subject = corregistration(
-        data=data,
-        subject=subject,
-        subjects_dir=subjects_dir,
-        participant_id=participant_id,
-        plot_3d=plot_3d,
-        **kwargs,
-    )
+    if not os.path.exists(
+        os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
+    ) or kwargs.get("force_new_watershed_bem"):
+
+        logger.info("bem surface was not found; Creating a bem surface for the subject")
+
+        mne.bem.make_watershed_bem(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            overwrite=True,
+            gcaatlas=kwargs.get("gcaatlas", True),
+            volume="T1",
+            preflood=kwargs.get("preflood", None),
+        )
+
+    # This part is hardcoded and must be changed ASAP.
+    if precomputed_trans_path:
+        transformation_matrix = mne.read_trans(precomputed_trans_path)
+        logger.info(
+            "A precomputed transformation matrix was loaded for corregistration"
+        )
+
+    elif "sub-ON" in subject:
+        matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
+        if not matches:
+            err_msg = f"No coordsystem.json found for {subject} in {Path(recording_path).parent}"
+            logger.error(err_msg)
+            raise FileNotFoundError(err_msg)
+        coreg, _ = data_specific_utils._trans_from_nimh(
+            data, matches[0], subject, subjects_dir
+        )
+        transformation_matrix = coreg.trans
+    else:
+        coreg, subject = corregistration(
+            data=data,
+            subject=subject,
+            subjects_dir=subjects_dir,
+            participant_id=participant_id,
+            trans_save_path=os.path.join(
+                project_dir, "Saved_outputs", "transformation_FIF_file"
+            ),
+            qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
+            plot_3d=plot_3d,
+            **kwargs,
+        )
+        transformation_matrix = coreg.trans
 
     fwd, src = forward_solution(
         subject=subject,
         subjects_dir=subjects_dir,
         data=data,
-        transformation_matrix=coreg.trans,
+        transformation_matrix=transformation_matrix,
         conductivity=conductivity,
         source_space=source_space,
         which_sensor_dict=which_sensor_dict,
         **kwargs,
     )
 
-    del coreg
+    if "coreg" in locals():
+        del coreg
 
     stc = inverse_solution(
         subject=subject,
@@ -1224,6 +1284,29 @@ def check_tsss(meg_data):
     max_info = proc_history[0].get("max_info", {})
     sss_cal = max_info.get("sss_info", [])
     return len(sss_cal) > 0
+
+
+def check_digitization_points(raw, logger):
+    dig = raw.info["dig"]
+    n_extra = n_cardinal = n_hpi = n_eeg = 0
+
+    if dig:
+        n_extra = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_EXTRA)
+        n_cardinal = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_CARDINAL)
+        n_hpi = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_HPI)
+        n_eeg = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_EEG)
+
+        logger.info(f"Cardinal (fiducial) points: {n_cardinal}")
+        logger.info(f"HPI coil points: {n_hpi}")
+        logger.info(f"EEG electrode points: {n_eeg}")
+        logger.info(f"Extra headshape points: {n_extra}")
+
+        if n_extra == 0:
+            logger.warning("No headshape (extra) points — likely missing .pos file")
+    else:
+        logger.warning("No dig info at all")
+
+    return n_extra, n_cardinal, n_hpi, n_eeg
 
 
 def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):

@@ -10,7 +10,7 @@ from pathlib import Path
 import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_epoch
-from meganorm.utils.IO import Config
+from meganorm.utils.IO import Config, load_recording
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
@@ -76,6 +76,8 @@ def main_argparser(args=None):
         event_of_interest : str or None, default=None
             Event ID to extract epochs around (e.g. "16"). Only used if
             `event_record` is also provided.
+        device_type: Device type.
+            For MEG, only BTI, CTF, ARTEMIS123 and MEGIN are supported.
 
     Notes
     -----
@@ -134,7 +136,27 @@ def main_argparser(args=None):
         help="MEG device type (e.g., MEGIN, CTF, BTI). Overrides inference "
         "from the file path when provided.",
     )
-
+    parser.add_argument(
+        "--pos_file",
+        type=str,
+        default=None,
+        help="Path to the subject's .pos headshape file (glob-resolved). "
+        "Used for ARTEMIS123 recordings during source localization.",
+    )
+    parser.add_argument(
+        "--trans_file",
+        type=str,
+        default=None,
+        help="Path to a precomputed -trans.fif coregistration file "
+        "(glob-resolved), used for source localization.",
+    )
+    parser.add_argument(
+        "--annotation_path",
+        type=str,
+        default=None,
+        help="Path to a subject's annotation file (glob-resolved), used to "
+        "mark bad segments/events during preprocessing.",
+    )
     return parser.parse_args(args)
 
 
@@ -236,18 +258,19 @@ def main(args):
     start_time = datetime.now()
     logger.info(f"Starting the process for the subject {args.subject} at {start_time}:")
 
-    if args.line_freq == "None":
-        args.line_freq = None
-    if args.empty_room_recording_path == "None":
-        args.empty_room_recording_path = None
-    if args.surfaces_dir == "None":
-        args.surfaces_dir = None
-    if args.event_record == "None":
-        args.event_record = None
-    if args.event_of_interest == "None":
-        args.event_of_interest = None
-    if args.device_type == "None":
-        args.device_type = None
+    for attr in [
+        "line_freq",
+        "empty_room_recording_path",
+        "surfaces_dir",
+        "event_record",
+        "event_of_interest",
+        "device_type",
+        "pos_file",
+        "trans_file",
+        "annotation_path",
+    ]:
+        if getattr(args, attr) == "None":
+            setattr(args, attr, None)
 
     configs = Config.load(args.configs)
 
@@ -283,6 +306,26 @@ def main(args):
         event_record = None
         event_of_interest = None
 
+    if args.pos_file:
+        pos_file_paths = args.pos_file.split("*")
+        pos_file_paths = list(filter(lambda x: len(x), pos_file_paths))
+        pos_file = pos_file_paths[0]
+    else:
+        pos_file = None
+
+    if args.trans_file:
+        trans_file_paths = args.trans_file.split("*")
+        trans_file_paths = list(filter(lambda x: len(x), trans_file_paths))
+        trans_file = trans_file_paths[0]
+    else:
+        trans_file = None
+    if args.annotation_path:
+        annotation_paths = args.annotation_path.split("*")
+        annotation_paths = list(filter(lambda x: len(x), annotation_paths))
+        annotation_path = annotation_paths[0]
+    else:
+        annotation_path = None
+
     logger.warning(
         f"{len(paths)} recordings were detected for this subject. The first one"
         " will be used in this analysis."
@@ -309,72 +352,15 @@ def main(args):
         ]  # TODO: it was originaly path[0]. Check if this correction is correct.
 
     device = device.upper()
-    # ------------------------------------------------------------
-    if not device == "BTI":
-        data = mne.io.read_raw(path, preload=True)
-        if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw(
-                empty_room_recording_path, preload=True
-            )
-            logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = None
-            logger.info("No empty room recording was found")
-        else:
-            empty_room_recording = None
-
-    elif device == "BTI":
-        data = mne.io.read_raw_bti(
-            pdf_fname=os.path.join(path, "c,rfDC"),
-            config_fname=os.path.join(path, "config"),
-            head_shape_fname=None,
-            preload=True,
-        )
-        if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw_bti(
-                pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
-                config_fname=os.path.join(empty_room_recording_path, "config"),
-                head_shape_fname=None,
-                preload=True,
-            )
-            logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = None
-            logger.info("No empty room recording was found")
-        else:
-            empty_room_recording = None
-
-    elif device == "ARTEMIS123":
-        if configs.apply_source_localization:
-            temp = str(Path(path).parent)
-            pos_files = glob.glob(f"{temp}/*.pos")
-            if not pos_files:
-                err_msg = f"No .pos file found next to the Artemis recording in {temp}."
-                logger.error(err_msg)
-                raise FileNotFoundError(err_msg)
-            pos_file = pos_files[0]
-            data = mne.io.read_raw_artemis123(
-                path,
-                preload=True,
-                pos_fname=pos_file,
-                add_head_trans=True,
-            )
-        else:
-            data = mne.io.read_raw_artemis123(
-                path,
-                preload=True,
-            )
-        if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw_artemis123(
-                empty_room_recording_path,
-                preload=True,
-            )
-            logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = None
-            logger.info("No empty room recording was found")
-        else:
-            empty_room_recording = None
+    # ------------------------------------------------------------ load data
+    data, empty_room_recording = load_recording(
+        device=device,
+        path=path,
+        empty_room_recording_path=empty_room_recording_path,
+        configs=configs,
+        logger=logger,
+        pos_file=pos_file,
+    )
 
     # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")
@@ -421,6 +407,7 @@ def main(args):
         device=device,
         subject=args.subject,
         freesurfer_dir=args.surfaces_dir,
+        annotation_path=annotation_path,
         n_component=configs.ica_n_component,
         ica_max_iter=configs.ica_max_iter,
         IcaMethod=configs.ica_method,
@@ -471,6 +458,7 @@ def main(args):
         segments_length=configs.segments_length,
         overlap=configs.segments_overlap,
         same_environmental_noise_removal=configs.same_environmental_noise_removal,
+        remove_nonfinite_segment_threshold=configs.remove_nonfinite_segment_threshold,
     )
 
     # Remove UADC001 annotations - temp
@@ -519,6 +507,7 @@ def main(args):
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
         stc, labels = source_localization(
+            recording_path=path,
             project_dir=project_dir,
             subject=args.subject,
             subjects_dir=args.surfaces_dir,
@@ -531,6 +520,7 @@ def main(args):
             inverse_operator=configs.SL_inverse_operator,
             figures_path=os.path.join(args.save_dir, "figures"),
             which_sensor_dict=which_sensor_dict,
+            precomputed_trans_path=trans_file,
             plot_3d=False,
             **configs.model_dump(),
         )

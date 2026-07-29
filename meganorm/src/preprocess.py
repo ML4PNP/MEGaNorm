@@ -3,6 +3,7 @@ import mne
 import json
 import glob
 import logging
+from scipy import io
 import warnings
 import numpy as np
 import pandas as pd
@@ -16,11 +17,11 @@ from gedai.gedai.gedai import (
 )  # TODO: This needs to be changed when meg branch is released
 from mne_icalabel import label_components
 from meganorm.src.source_localization import check_tsss
+from meganorm.utils import data_specific_utils
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
 from autoreject import AutoReject, set_matplotlib_defaults
 import autoreject
-
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
@@ -645,8 +646,10 @@ def preprocess(
     subject,
     freesurfer_dir,
     which_sensor: dict,
+    annotation_path=None,
     empty_room_recording=None,
     resampling_rate: int = 1000,
+    remove_nonfinite_segment_threshold: int = 5,
     digital_filter=True,
     rereference_method="average",
     n_component: int = 30,
@@ -762,17 +765,49 @@ def preprocess(
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
-    if event_record and event_of_interest:
+    # TODO: we need to remove this Hard-coded part ASAP. But for now,
+    # given that each aston MEG recording is composed of both eyes closed
+    # and eyes open, I seperated them like this:
+    if "sub-ast_1" in subject:
+        data = data_specific_utils._ast_get_rs_block(
+            data, block_index=event_of_interest
+        )
+        logger.info(f"The {event_of_interest}th block of this Aston data was selected.")
+        events = None
+    elif event_record and event_of_interest:
         if device == "MEGIN":
             events = mne.read_events(event_record)
         elif device == "CTF":
+            # TODO: stim_channel should be recieved from Users
             events = mne.find_events(data, stim_channel="UPPT001")
+        else:
+            events = None  # TODO
     else:
         events = None
 
+    # Drop nonfinite if it is less than a thr
+    data, _ = annotate_nonfinite(
+        data,
+        picks="data",
+        description="BAD_nan",
+        remove_nonfinite_segment_threshold=remove_nonfinite_segment_threshold,
+        verbose=True,
+    )
+
     # head motion correction ----------------------
     movement_dur = None
-    if apply_Head_movement_correction and not which_sensor.get("eeg", False):
+
+    # externally-computed (e.g. Brainstorm) head-motion annotations -----
+    if annotation_path:
+        data, movement_dur = data_specific_utils._read_annotation_brainstorm(
+            data,
+            annotation_path=annotation_path,
+            annotation_lable="Bad",
+            logger=logger,
+        )
+        logger.info(f"Applied external head-motion annotations from {annotation_path}")
+
+    elif apply_Head_movement_correction and not which_sensor.get("eeg", False):
         data_temp = data.copy()
         empty_room_recording_temp = (
             empty_room_recording.copy() if empty_room_recording else None
@@ -1038,19 +1073,68 @@ def drop_noisy_meg_channels(
             "Therefore, bad channel detection using maxwell will be not applied."
         )
         logger.info(msg)
-        auto_noisy_chs = []
-        auto_flat_chs = []
+        # auto_noisy_chs = []
+        # auto_flat_chs = []
 
     else:
         if device == "CTF":
             data.apply_gradient_compensation(0)
 
-        auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-            data, return_scores=False, verbose=True, coord_frame="meg", ignore_ref=True
-        )
+        if device == "MEGIN":
+            auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
+                data,
+                return_scores=False,
+                verbose=True,
+                coord_frame="head",
+            )
+
+            if empty_room_recording:
+                eroom_auto_noisy_chs, eroom_auto_flat_chs = (
+                    mne.preprocessing.find_bad_channels_maxwell(
+                        empty_room_recording,
+                        return_scores=False,
+                        verbose=True,
+                        coord_frame="meg",
+                        calibration=None,
+                        cross_talk=None,
+                    )
+                )
+
+        else:
+            auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
+                data,
+                return_scores=False,
+                verbose=True,
+                coord_frame="meg",
+                ignore_ref=True,
+            )
+
+            if empty_room_recording:
+                try:
+                    eroom_auto_noisy_chs, eroom_auto_flat_chs = (
+                        mne.preprocessing.find_bad_channels_maxwell(
+                            empty_room_recording,
+                            return_scores=False,
+                            verbose=True,
+                            coord_frame="meg",
+                            ignore_ref=True,
+                            calibration=None,
+                            cross_talk=None,
+                        )
+                    )
+                except RuntimeError as e:
+                    logger.warning(
+                        f"Maxwell-based bad-channel detection failed on empty room: {e}. Skipping."
+                    )
+                    eroom_auto_noisy_chs, eroom_auto_flat_chs = [], []
+
         data.info["bads"] += auto_noisy_chs + auto_flat_chs
         if empty_room_recording:
-            data.info["bads"] += empty_room_recording.info["bads"]
+            data.info["bads"] += (
+                empty_room_recording.info["bads"]
+                + eroom_auto_noisy_chs
+                + eroom_auto_flat_chs
+            )
 
         logger.warning(
             f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}"
@@ -1060,6 +1144,7 @@ def drop_noisy_meg_channels(
         )
 
     bads = data.info["bads"][:]
+    bads = list(set(data.info["bads"]))
     data.drop_channels(bads)
     if empty_room_recording:
         empty_room_recording.drop_channels(bads)
@@ -2453,6 +2538,7 @@ def extract_rs_blocks(
     if not pieces:
         err_msg = f"No RS blocks (id={rs_id}) longer than {segments_length}s found."
         logger.error(err_msg)
+        raise ValueError(err_msg)
 
     rs_raw = mne.concatenate_raws(pieces)
 
@@ -2475,3 +2561,81 @@ def extract_rs_blocks(
     logger.info(f"\nKept {len(pieces)} RS block(s), total {rs_raw.times[-1]:.1f}s")
     logger.info(f"Built {len(seg_events)} epoch event(s) of {segments_length:.0f}s")
     return rs_raw, seg_events
+
+
+def annotate_nonfinite(
+    raw,
+    picks="data",
+    description="BAD_nan",
+    remove_nonfinite_segment_threshold=5,
+    pad=0.0,
+    verbose=True,
+):
+    """Annotate short contiguous NaN/Inf intervals as BAD and zero-fill them.
+
+    A segment shorter than `remove_nonfinite_segment_threshold` seconds is
+    annotated (so ICA/epochs skip it) and its samples are zeroed (so filtering/
+    resampling can't propagate NaN). A segment at or above the threshold is
+    treated as a compromised file and raises ValueError, so the subject is
+    skipped rather than silently carrying NaN into later steps.
+    """
+    raw.load_data()  # zero-fill needs preloaded data
+
+    if picks == "data":
+        picks_idx = mne.pick_types(raw.info, meg=True, eeg=True, ref_meg=False)
+    else:
+        picks_idx = (
+            mne.pick_channels(raw.ch_names, picks)
+            if isinstance(picks, (list, tuple))
+            else picks
+        )
+
+    data = raw.get_data(picks=picks_idx)
+    sfreq = raw.info["sfreq"]
+
+    bad = ~np.isfinite(data).all(axis=0)
+    if not bad.any():
+        return raw, []
+
+    edges = np.diff(bad.astype(np.int8))
+    starts = np.where(edges == 1)[0] + 1
+    ends = np.where(edges == -1)[0]
+    if bad[0]:
+        starts = np.r_[0, starts]
+    if bad[-1]:
+        ends = np.r_[ends, len(bad) - 1]
+
+    offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
+
+    onsets, durations, descs, intervals = [], [], [], []
+    for s, e in zip(starts, ends):
+        onset = raw.times[s] + offset - pad
+        dur = (e - s + 1) / sfreq + 2 * pad
+
+        # only short segments are handled; a long one means a compromised file
+        if dur >= remove_nonfinite_segment_threshold:
+            err_msg = (
+                f"Non-finite segment of {dur:.1f}s at {raw.times[s]:.1f}s "
+                f"meets/exceeds {remove_nonfinite_segment_threshold}s — "
+                f"file likely compromised; skipping this recording."
+            )
+            logger.error(err_msg)
+            raise ValueError(err_msg)
+
+        onsets.append(max(onset, 0.0))
+        durations.append(dur)
+        descs.append(description)
+        intervals.append((float(raw.times[s]), float(raw.times[e]), int(e - s + 1)))
+        if verbose:
+            logger.info(
+                f"{description}: {raw.times[s]:.3f}–{raw.times[e]:.3f}s "
+                f"({e - s + 1} samples)"
+            )
+
+    annot = mne.Annotations(onsets, durations, descs, orig_time=raw.info["meas_date"])
+    raw.set_annotations(raw.annotations + annot)
+
+    # excise the actual NaN/Inf so filtering/resampling can't spread it
+    np.nan_to_num(raw._data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return raw, intervals
