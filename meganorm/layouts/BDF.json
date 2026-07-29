@@ -1,5 +1,5 @@
 {
-    "VHDR_EEG_ALL": {
+    "BDF_EEG_ALL": {
         "EEG_ALL": [
             "Fp1",
             "Fp2",
@@ -37,7 +37,7 @@
         ]
     },
 
-  "VHDR_EEG_LOBE": {
+  "BDF_EEG_LOBE": {
     "frontal_lh_": [
         "Fp1", 
         "F7", 
