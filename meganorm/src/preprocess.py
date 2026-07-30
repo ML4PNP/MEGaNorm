@@ -445,8 +445,8 @@ def prepare_eeg_data(data, path):
 
         except Exception as e:
             logger.warning(
-                "Could not set EEG montage: %s."
-                "Continuing without a montage. This may raise issues for ICA labeling.", 
+                "Could not set EEG montage: %s"
+                " Continuing without a montage. This may raise issues for ICA labeling.", 
                 e,
             )
 
