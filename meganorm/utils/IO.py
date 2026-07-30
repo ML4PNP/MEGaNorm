@@ -663,11 +663,15 @@ def load_recording(
                     data.info["dig"] = mne._fiff._digitization._format_dig_points(
                         data.info["dig"]
                     )
-                logger.info("Head shape .pos file was found and added to the CTF recording")
+                logger.info(
+                    "Head shape .pos file was found and added to the CTF recording"
+                )
             elif ext == "fif":
                 dig = mne.channels.read_dig_fif(pos_file)
-                data.set_montage(dig, on_missing='warn')
-                logger.info("Head shape .fif file was found and added to the CTF recording")
+                data.set_montage(dig, on_missing="warn")
+                logger.info(
+                    "Head shape .fif file was found and added to the CTF recording"
+                )
             else:
                 logger.warning(
                     f"pos_file '{pos_file}' has unrecognized extension '.{ext}'; "
@@ -827,7 +831,8 @@ def merge_fidp_demo(
         demographic_df = pd.concat([demographic_df, demo], axis=0)
 
     # Drop unnecessary columns
-    demographic_df.drop(columns=drop_columns, errors="ignore", inplace=True)
+    if drop_columns:
+        demographic_df.drop(columns=drop_columns, errors="ignore", inplace=True)
 
     # Load features
     feature_path = os.path.join(features_dir, "all_features.csv")
@@ -970,7 +975,7 @@ def merge_datasets_with_glob(datasets):
 
             if annotation_p:
                 annotation_path = glob.glob(
-                    f"{annotation_p}/{subj}/**/*{annotaion_task_name}*{annotation_ending}",
+                    f"{annotation_p}/*{subj}*/**/*{annotaion_task_name}*{annotation_ending}",
                     recursive=True,
                 )
             else:
@@ -989,7 +994,7 @@ def merge_datasets_with_glob(datasets):
                         "event_of_interest": str(event_of_interest),
                         "trans_path": join_with_star(trans_path),
                         "pos_path": join_with_star(pos_path),
-                        "annotation_path": join_with_star(annotation_path)
+                        "annotation_path": join_with_star(annotation_path),
                     }
                 }
             )
