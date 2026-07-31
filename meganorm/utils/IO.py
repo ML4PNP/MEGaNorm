@@ -914,6 +914,8 @@ def merge_datasets_with_glob(datasets):
         annotaion_task_name = dataset_info.get("annotaion_task_name", None)
         annotation_ending = dataset_info.get("annotation_ending", None)
 
+        layout_path = dataset_info.get("layout_path", None)
+
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
         ]
@@ -989,7 +991,8 @@ def merge_datasets_with_glob(datasets):
                         "event_of_interest": str(event_of_interest),
                         "trans_path": join_with_star(trans_path),
                         "pos_path": join_with_star(pos_path),
-                        "annotation_path": join_with_star(annotation_path)
+                        "annotation_path": join_with_star(annotation_path),
+                        "layout_path": layout_path
                     }
                 }
             )

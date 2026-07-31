@@ -182,7 +182,7 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     return band_power / total_power
 
 
-def summarizeFeatures(df, device, which_layout, which_sensor):
+def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     """
     Summarizes a feature DataFrame by averaging channels based on a specified sensor layout.
 
@@ -191,9 +191,9 @@ def summarizeFeatures(df, device, which_layout, which_sensor):
     or predefined brain regions (e.g., lobes).
 
     The function computes the mean of selected channels (e.g., MEG, EEG) according to a layout
-    specified in a JSON file. The layout file is selected based on the recording device
-    (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional (lobe-level)
-    parcellation.
+    specified in a JSON file. The layout file is selected based on the specified layout path or when none is given, 
+    on the recording device (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional 
+    (lobe-level) parcellation.
 
     Example layout for regional parcellation:
         "FIF_MEG_LOBE": {
@@ -220,6 +220,8 @@ def summarizeFeatures(df, device, which_layout, which_sensor):
         Layout type to use: 'all' for global averaging or 'lobe' for region-based averaging.
     which_sensor : dict
         Dictionary indicating which sensor modalities to include (e.g., {'meg': True, 'eeg': False}).
+    layout_path: str,  optional
+        Path to a custom JSON layout file. If None, a default layout is loaded based on recording device
 
     Returns
     -------
@@ -227,26 +229,54 @@ def summarizeFeatures(df, device, which_layout, which_sensor):
         A new DataFrame where columns represent averaged parcels and rows represent samples.
     """
     df.dropna(axis=0, how="all", inplace=True)
-    summrized_df = pd.DataFrame(index=df.index)
+    summarized_df = pd.DataFrame(index=df.index)
 
     # TODO: If both meg and eeg is True, this won't work!
     if which_layout == "all":
-        summrized_df[which_layout] = df.mean(axis=1)
+        summarized_df[which_layout] = df.mean(axis=1)
 
     else:
         modality = [
-            s_type for s_type, if_alculate in which_sensor.items() if if_alculate
+            s_type
+            for s_type, if_alculate in which_sensor.items()
+            if if_alculate
         ][0]
 
         layout_name = (
-            device.upper() + "_" + modality.upper() + "_" + which_layout.upper()
+            device.upper()
+            + "_"
+            + modality.upper()
+            + "_"
+            + which_layout.upper()
         )
-        layout = load_specific_layout(device.upper(), layout_name)
+
+        if layout_path:
+            with open(layout_path, "r") as file:
+                layouts = json.load(file)
+
+            layout = layouts[layout_name]
+
+            logger.info(
+                "User-specified layout '%s' from %s is used.",
+                layout_name,
+                layout_path,
+            )
+
+        else:
+            layout = load_specific_layout(
+                device.upper(),
+                layout_name,
+            )
+
+            logger.info(
+                "Default layout '%s' is used.",
+                layout_name,
+            )
 
         for parcel_name, channels_list in layout.items():
-            summrized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
+            summarized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
 
-    return summrized_df
+    return summarized_df
 
 
 def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
@@ -447,6 +477,7 @@ def feature_extract(
     aperiodic_mode: str,
     min_r_squared: float,
     power_band_ratios_list: List[tuple],
+    layout_path: str | None = None,
 ) -> pd.DataFrame:
     """
     Extract features from FOOOF models for each channel and frequency band.
@@ -801,6 +832,7 @@ def feature_extract(
             device=device,
             which_layout=which_layout,
             which_sensor=which_sensor,
+            layout_path=layout_path,
         )
 
     # Flatten the DataFrame and create neww column names

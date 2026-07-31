@@ -157,6 +157,14 @@ def main_argparser(args=None):
         help="Path to a subject's annotation file (glob-resolved), used to "
         "mark bad segments/events during preprocessing.",
     )
+    parser.add_argument(
+        "--layout_path", 
+        type=str, 
+        default=None, 
+        help="Path to a subject's layout file, used to "
+        "summarize features.",
+         
+    )
     return parser.parse_args(args)
 
 
@@ -268,6 +276,7 @@ def main(args):
         "pos_file",
         "trans_file",
         "annotation_path",
+        "layout_path"
     ]:
         if getattr(args, attr) == "None":
             setattr(args, attr, None)
@@ -582,6 +591,7 @@ def main(args):
         aperiodic_mode=configs.aperiodic_mode,
         min_r_squared=configs.min_r_squared,
         power_band_ratios_list=configs.power_band_ratios_list,
+        layout_path=args.layout_path
     )
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
