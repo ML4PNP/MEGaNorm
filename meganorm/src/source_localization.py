@@ -422,7 +422,7 @@ def corregistration(
         logger.warning("Skipping ICP method due to missing head shape points.")
 
     fit_subject = subject
-    if scale_mode:
+    if scale_mode and kwargs.get("apply_mri_template", False):
         # scale_id = participant_id or subject
         scaled_subject = f"{participant_id}_scaled"
         # scaled_bem_exists = os.path.exists(
@@ -660,17 +660,17 @@ def inverse_solution(
     """
     # if tSSS has already been applied, return the rank in info
     if check_tsss(meg_data=data):
-        segments_rank = mne.compute_rank(segments, rank="info")
+        segments_rank = mne.compute_rank(data, rank="info")
     else:
         # this estimates the rank after scaling
-        segments_rank = mne.compute_rank(segments, rank=None)
+        segments_rank = mne.compute_rank(data, rank=None)
 
     if empty_room_recording is not None:
         noise_cov = mne.compute_raw_covariance(
             empty_room_recording,
             method=kwargs.get("covariance_method", "empirical"),
             n_jobs=kwargs.get("n_jobs", 1),
-        )  # TODO: change to epoch later
+        )  
 
         logger.info(
             "Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten"
@@ -717,9 +717,10 @@ def inverse_solution(
         )
 
         # compute segments covaraince
-        segments_cov = mne.compute_covariance(
-            segments,
+        segments_cov = mne.compute_raw_covariance(
+            data,
             method=kwargs.get("covariance_method", "empirical"),
+            reject_by_annotation=True,
             rank=lcmv_rank,  # TODO: this should be removed
             n_jobs=kwargs.get("n_jobs", 1),
         )
@@ -1082,13 +1083,13 @@ def source_localization(
             preflood=kwargs.get("preflood", None),
         )
 
-    # This part is hardcoded and must be changed ASAP.
+    
     if precomputed_trans_path:
         transformation_matrix = mne.read_trans(precomputed_trans_path)
         logger.info(
             "A precomputed transformation matrix was loaded for corregistration"
         )
-
+    # This part is hardcoded and must be changed ASAP.
     elif "sub-ON" in subject:
         matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
         if not matches:
