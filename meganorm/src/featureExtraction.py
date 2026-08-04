@@ -50,7 +50,7 @@ def abs_canonical_power(
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
     band_power = np.trapezoid(psd[band_indices], freqs[band_indices])
 
-    return np.log10(band_power)
+    return band_power
 
 
 def rel_canonical_power(
@@ -130,7 +130,7 @@ def abs_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     )
 
     band_power = np.trapezoid(psd[peak_range_indices], freqs[peak_range_indices])
-    return np.log10(band_power)
+    return band_power
 
 
 def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, band_name):
@@ -278,7 +278,7 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     if power_den == 0:
         return np.nan
 
-    return np.log10(power_num / power_den)
+    return power_num / power_den
 
 
 def compute_hemispheric_asymmetry(
