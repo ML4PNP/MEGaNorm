@@ -300,7 +300,7 @@ def main(args):
     if args.event_record:
         event_record_paths = args.event_record.split("*")
         event_record_paths = list(filter(lambda x: len(x), event_record_paths))
-        event_record = event_record_paths[0]
+        event_record = event_record_paths[configs.which_meg_session]
         event_of_interest = int(args.event_of_interest)
     else:
         event_record = None
@@ -309,20 +309,20 @@ def main(args):
     if args.pos_file:
         pos_file_paths = args.pos_file.split("*")
         pos_file_paths = list(filter(lambda x: len(x), pos_file_paths))
-        pos_file = pos_file_paths[0]
+        pos_file = pos_file_paths[configs.which_meg_session]
     else:
         pos_file = None
 
     if args.trans_file:
         trans_file_paths = args.trans_file.split("*")
         trans_file_paths = list(filter(lambda x: len(x), trans_file_paths))
-        trans_file = trans_file_paths[0]
+        trans_file = trans_file_paths[configs.which_meg_session]
     else:
         trans_file = None
     if args.annotation_path:
         annotation_paths = args.annotation_path.split("*")
         annotation_paths = list(filter(lambda x: len(x), annotation_paths))
-        annotation_path = annotation_paths[0]
+        annotation_path = annotation_paths[configs.which_meg_session]
     else:
         annotation_path = None
 
@@ -501,6 +501,15 @@ def main(args):
             thresh_method=configs.autoreject_thresh_method,
             random_state=configs.random_state,
             segment_events=segment_events,
+        )
+    # ------------------------------------------------------------
+    if configs.save_segmented_data:
+        save_segments_path = os.path.join(
+            Path(args.save_dir).parent, "Saved_outputs", "Segments", args.subject
+        )
+        os.makedirs(save_segments_path, exist_ok=True)
+        segments.save(
+            f"{save_segments_path}/{args.subject}-segments-epo.fif", overwrite=True
         )
 
     # ------------------------------------------------------------

@@ -781,7 +781,7 @@ def preprocess(
             # TODO: stim_channel should be recieved from Users
             events = mne.find_events(data, stim_channel="UPPT001")
         else:
-            events = None  # TODO
+            events = mne.read_events(event_record)
     else:
         events = None
 
