@@ -23,6 +23,7 @@ from pydantic import (
     NegativeInt,
     model_validator,
 )
+from mne.io.constants import FIFF
 
 
 class BandRatio(BaseModel):
@@ -337,6 +338,7 @@ class Config(BaseModel):
     apply_ica: bool = True
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
+    save_segmented_data:bool = False
     rereference_method: Literal["average", "REST", "None"] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
@@ -382,6 +384,7 @@ class Config(BaseModel):
         "ico3", "ico4", "ico5", "ico6", "oct5", "oct6", "all"
     ] = "ico4"
     source_space_spacing_number: Literal[3, 4, 5, 6, None] = 4
+    source_space_add_dist: Literal["patch", True, False] = "patch"
 
     save_transformation_FIF_file: bool = False
     coregisteration_final_n_iterations: int = 20
@@ -396,7 +399,7 @@ class Config(BaseModel):
     ] = "unit-noise-gain"
 
     # This parameter scales the activation to correct for head-center bias.
-    beamforme_depth: confloat(ge=0, le=1) = 0.08
+    beamforme_depth: confloat(ge=0, le=1) = 0.8
 
     # this is used for regularaizing the data covariance (shifting the matrix)
     inverse_regularization_value: confloat(ge=0, le=1) = 0.05
@@ -646,6 +649,67 @@ class Config(BaseModel):
         return cls(**cfg)
 
 
+def _resolve_artemis_pos_file(path, pos_file, logger):
+    """Return an explicit pos/dig file, or find one near the recording."""
+    if pos_file:
+        return pos_file
+
+    # .pos usually lives in a sibling Headshape/ folder, not next to the run,
+    # so widen the search one directory up before giving up.
+    search_roots = [Path(path).parent, Path(path).parents[1]]
+    for root in search_roots:
+        matches = sorted(glob.glob(f"{root}/**/*.pos", recursive=True))
+        if matches:
+            if len(matches) > 1:
+                logger.warning(
+                    f"{len(matches)} .pos files found under {root}; using {matches[0]}."
+                )
+            return matches[0]
+
+    err_msg = (
+        f"No .pos file found near the Artemis recording {path} "
+        f"(searched {', '.join(str(r) for r in search_roots)})."
+    )
+    logger.error(err_msg)
+    raise FileNotFoundError(err_msg)
+
+
+def _add_artemis_headshape(data, path, pos_file, logger):
+    """Attach head-shape points to an already-converted Artemis FIF."""
+    existing = data.info["dig"] or []
+    n_extra = sum(1 for d in existing if d["kind"] == FIFF.FIFFV_POINT_EXTRA)
+    if n_extra:
+        logger.info(
+            f"Artemis FIF already carries {n_extra} head-shape points; "
+            "not adding any from a .pos/.fif file."
+        )
+        return data
+
+    resolved = _resolve_artemis_pos_file(path, pos_file, logger)
+    ext = str(resolved).split(".")[-1].lower()
+
+    if ext == "pos":
+        digs = mne.io.artemis123.utils._read_pos(fname=resolved)
+        with data.info._unlock():
+            data.info["dig"] = existing + digs
+            data.info["dig"] = mne._fiff._digitization._format_dig_points(
+                data.info["dig"]
+            )
+        logger.info(f"Head shape .pos file {resolved} was added to the Artemis FIF.")
+    elif ext == "fif":
+        dig = mne.channels.read_dig_fif(resolved)
+        data.set_montage(dig, on_missing="warn")
+        logger.info(f"Head shape .fif file {resolved} was added to the Artemis FIF.")
+    else:
+        logger.warning(
+            f"pos_file '{resolved}' has unrecognized extension '.{ext}'; "
+            "no head-shape/dig info was added to the recording."
+        )
+
+    return data
+
+
+
 def load_recording(
     device, path, empty_room_recording_path, configs, logger, pos_file=None
 ):
@@ -719,35 +783,37 @@ def load_recording(
             empty_room_recording = None
 
     elif device == "ARTEMIS123":
-        if configs.apply_source_localization:
-            if pos_file:
-                resolved_pos_file = pos_file
-            else:
-                temp = str(Path(path).parent)
-                pos_files = glob.glob(f"{temp}/*.pos")
-                if not pos_files:
-                    err_msg = (
-                        f"No .pos file found next to the Artemis recording in {temp}."
-                    )
-                    logger.error(err_msg)
-                    raise FileNotFoundError(err_msg)
-                resolved_pos_file = pos_files[0]
-            data = mne.io.read_raw_artemis123(
-                path,
-                preload=True,
-                pos_fname=resolved_pos_file,
-                add_head_trans=True,
-            )
+        # Artemis recordings may arrive as the native .bin or as a FIF that was
+        # converted beforehand. read_raw_artemis123 only accepts the .bin, so
+        # anything already in FIF goes through the standard FIF reader.
+        if str(path).lower().endswith(".fif"):
+            data = mne.io.read_raw_fif(path, preload=True)
+            if configs.apply_source_localization:
+                data = _add_artemis_headshape(data, path, pos_file, logger)
         else:
-            data = mne.io.read_raw_artemis123(
-                path,
-                preload=True,
-            )
+            if configs.apply_source_localization:
+                data = mne.io.read_raw_artemis123(
+                    path,
+                    preload=True,
+                    pos_fname=_resolve_artemis_pos_file(path, pos_file, logger),
+                    add_head_trans=True,
+                )
+            else:
+                data = mne.io.read_raw_artemis123(
+                    path,
+                    preload=True,
+                )
+
         if empty_room_recording_path and configs.apply_source_localization:
-            empty_room_recording = mne.io.read_raw_artemis123(
-                empty_room_recording_path,
-                preload=True,
-            )
+            if str(empty_room_recording_path).lower().endswith(".fif"):
+                empty_room_recording = mne.io.read_raw_fif(
+                    empty_room_recording_path, preload=True
+                )
+            else:
+                empty_room_recording = mne.io.read_raw_artemis123(
+                    empty_room_recording_path,
+                    preload=True,
+                )
             logger.info("Empty room recording was found")
         elif not empty_room_recording_path and configs.apply_source_localization:
             empty_room_recording = None
