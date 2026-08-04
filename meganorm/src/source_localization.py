@@ -660,10 +660,10 @@ def inverse_solution(
     """
     # if tSSS has already been applied, return the rank in info
     if check_tsss(meg_data=data):
-        segments_rank = mne.compute_rank(data, rank="info")
+        data_rank = mne.compute_rank(data, rank="info")
     else:
         # this estimates the rank after scaling
-        segments_rank = mne.compute_rank(data, rank=None)
+        data_rank = mne.compute_rank(data, rank=None)
 
     if empty_room_recording is not None:
         noise_cov = mne.compute_raw_covariance(
@@ -679,14 +679,14 @@ def inverse_solution(
 
         noise_rank = mne.compute_rank(empty_room_recording)
 
-        mag_in_data = bool("mag" in segments_rank)
-        grad_in_data = bool("grad" in segments_rank)
+        mag_in_data = bool("mag" in data_rank)
+        grad_in_data = bool("grad" in data_rank)
         if mag_in_data:
-            if segments_rank["mag"] < noise_rank["mag"]:
-                noise_rank["mag"] = segments_rank["mag"]
+            if data_rank["mag"] < noise_rank["mag"]:
+                noise_rank["mag"] = data_rank["mag"]
         if grad_in_data:
-            if segments_rank["grad"] < noise_rank["grad"]:
-                noise_rank["grad"] = segments_rank["grad"]
+            if data_rank["grad"] < noise_rank["grad"]:
+                noise_rank["grad"] = data_rank["grad"]
 
         # According to MNE: When a noise covariance is used for whitening,
         # this should reflect the rank of that covariance, otherwise
@@ -705,9 +705,9 @@ def inverse_solution(
         )
 
         noise_cov = mne.make_ad_hoc_cov(
-            info=segments.info, std=kwargs.get("ad_hoc_cov_std", None)
+            info=data.info, std=kwargs.get("ad_hoc_cov_std", None)
         )
-        lcmv_rank = segments_rank.copy()
+        lcmv_rank = data_rank.copy()
 
     if inverse_operator == "lcmv":
         logger.info(
@@ -716,8 +716,8 @@ def inverse_solution(
             f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', 'max-power')} for `pick_ori`."
         )
 
-        # compute segments covaraince
-        segments_cov = mne.compute_raw_covariance(
+        # compute data covaraince
+        data_cov = mne.compute_raw_covariance(
             data,
             method=kwargs.get("covariance_method", "empirical"),
             reject_by_annotation=True,
@@ -751,7 +751,7 @@ def inverse_solution(
         filters = mne.beamformer.make_lcmv(
             segments.info,
             forward=fwd,
-            data_cov=segments_cov,
+            data_cov=data_cov,
             noise_cov=noise_cov,
             reg=kwargs.get(
                 "inverse_regularization_value", 0.05
