@@ -2304,6 +2304,63 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
     )
 
 
+def _annotate_dropped_epochs(
+    raw, onset_samples, segments_length, description="BAD_dropped_epoch"
+):
+    """
+    Mark dropped-epoch time ranges as BAD annotations on the raw object.
+
+    Epoch-level rejection decisions leave no trace on the continuous data,
+    so anything computed from `raw` afterwards (e.g. a covariance matrix
+    for source localization) would silently include segments the analysis
+    discarded. This writes those ranges back as annotations so
+    `reject_by_annotation=True` consumers honour them.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Continuous recording, modified in place.
+    onset_samples : array-like of int
+        Epoch onsets in absolute samples, as stored in an MNE events array.
+    segments_length : float
+        Epoch length in seconds; used as the annotation duration.
+    description : str, optional
+        Annotation label. Default is "BAD_dropped_epoch".
+
+    Returns
+    -------
+    mne.io.Raw
+        The same object, with annotations appended.
+    """
+    onset_samples = np.asarray(onset_samples)
+    if onset_samples.size == 0:
+        return raw
+
+    sfreq = raw.info["sfreq"]
+    # match the offset convention used by annotate_nonfinite
+    offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
+    onsets = [
+        max((s - raw.first_samp) / sfreq + offset, 0.0) for s in onset_samples
+    ]
+
+    annot = mne.Annotations(
+        onset=onsets,
+        duration=[segments_length] * len(onsets),
+        description=[description] * len(onsets),
+        orig_time=raw.info["meas_date"],
+    )
+    raw.set_annotations(raw.annotations + annot)
+
+    logger.info(
+        f"Annotated {len(onsets)} dropped epoch(s) as '{description}' "
+        f"({len(onsets) * segments_length:.1f}s excluded from later "
+        "annotation-aware steps such as covariance estimation)."
+    )
+    return raw
+
+
+
+
 def auto_reject_segmentation(
     raw,
     sampling_rate: float,
@@ -2318,6 +2375,7 @@ def auto_reject_segmentation(
     thresh_method="bayesian_optimization",
     random_state=42,
     segment_events=None,
+    annotate_bad_epochs=True,
 ):
     """
     Segment continuous data into fixed-length epochs and clean them
@@ -2325,12 +2383,17 @@ def auto_reject_segmentation(
 
     Crops the raw data (or uses precomputed segment events), builds
     fixed-length epochs, and fits AutoReject to automatically
-    interpolate or reject noisy epochs.
+    interpolate or reject noisy epochs. Epochs discarded by AutoReject
+    are optionally annotated back onto `raw` so that downstream
+    annotation-aware computations (e.g. `compute_raw_covariance`) exclude
+    them.
 
     Parameters
     ----------
     raw : mne.io.Raw
-        Continuous MEG/EEG recording.
+        Continuous MEG/EEG recording. Modified in place: cropped when
+        `segment_events` is None, and annotated when
+        `annotate_bad_epochs` is True.
     sampling_rate : float
         Sampling rate of the data in Hz.
     tmin : float, optional
@@ -2366,6 +2429,9 @@ def auto_reject_segmentation(
     segment_events : ndarray or None, optional
         Precomputed MNE-style events array defining epoch onsets. If
         provided, `tmin`/`tmax` cropping is skipped.
+    annotate_bad_epochs : bool, optional
+        If True, mark AutoReject-discarded epochs as 'BAD_autoreject'
+        annotations on `raw`. Default is True.
 
     Returns
     -------
@@ -2380,12 +2446,19 @@ def auto_reject_segmentation(
     ValueError
         If `tmax` is not negative, if no epochs could be created, or
         if fewer than 3 epochs are available for AutoReject.
+
+    Notes
+    -----
+    Epochs that AutoReject *interpolates* rather than discards are not
+    annotated: the repair exists only in `epochs_clean`, so `raw` still
+    holds the original samples at those times. Check the interpolated
+    percentage in the log if this matters for covariance estimation.
     """
 
     if tmax >= 0:
         raise ValueError("The 'tmax' must be a negative number")
 
-    tmax = int(np.shape(raw.get_data())[1] / sampling_rate + tmax)
+    tmax = int(raw.n_times / sampling_rate + tmax)
 
     if segment_events is None:
         raw.crop(tmin=tmin, tmax=tmax)
@@ -2442,6 +2515,18 @@ def auto_reject_segmentation(
     ar.fit(epochs)
     epochs_clean, reject_log = ar.transform(epochs, return_log=True)
 
+    if annotate_bad_epochs:
+        # reject_log is indexed over the epochs handed to AutoReject, which
+        # may already be fewer than `events` if reject_by_annotation dropped
+        # some at construction — so index epochs.events, never `events`.
+        bad_mask = np.asarray(reject_log.bad_epochs, dtype=bool)
+        _annotate_dropped_epochs(
+            raw,
+            onset_samples=epochs.events[bad_mask, 0],
+            segments_length=segments_length,
+            description="BAD_autoreject",
+        )
+
     total_epochs = len(epochs)
     retained_epochs = len(epochs_clean)
     discarded_epochs = total_epochs - retained_epochs
@@ -2471,6 +2556,7 @@ def auto_reject_segmentation(
 
     logger.info(log_msg)
     return epochs_clean, reject_log
+
 
 
 def extract_rs_blocks(
