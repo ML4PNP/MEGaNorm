@@ -768,7 +768,7 @@ def preprocess(
     # TODO: we need to remove this Hard-coded part ASAP. But for now,
     # given that each aston MEG recording is composed of both eyes closed
     # and eyes open, I seperated them like this:
-    if "sub-ast_1" in subject:
+    if "sub-ast1_" in subject:
         data = data_specific_utils._ast_get_rs_block(
             data, block_index=event_of_interest
         )
