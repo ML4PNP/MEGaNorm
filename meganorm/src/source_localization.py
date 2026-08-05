@@ -721,7 +721,7 @@ def inverse_solution(
             data,
             method=kwargs.get("covariance_method", "empirical"),
             reject_by_annotation=True,
-            rank=lcmv_rank,  # TODO: this should be removed
+            # rank=lcmv_rank,  # TODO: this should be removed
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
@@ -970,7 +970,7 @@ def parcellate(subject, subjects_dir, stc, src, source_space, **kwargs):
         stcs=stc,
         labels=labels,
         src=src,
-        mode=kwargs.get("parcellation_mode", "auto"),
+        mode=kwargs.get("parcellation_mode", "mean"),
         return_generator=False,
     )
 
