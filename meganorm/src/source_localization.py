@@ -439,8 +439,10 @@ def corregistration(
             subjects_dir=subjects_dir,
             overwrite=True,
             labels=True,
+            annot=True,
             skip_fiducials=True,
         )
+        # Note that scale_mri also scale labels and bem models internally
         logger.info(f"Scaled MRI subject written: {scaled_subject}")
 
         if scaled_mri_save_path:
