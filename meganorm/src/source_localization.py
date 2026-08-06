@@ -2,6 +2,7 @@ import os
 
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
+os.environ.setdefault("MPLBACKEND", "Agg")
 from mne.io.constants import FIFF
 import matplotlib.pyplot as plt
 import nibabel as nib
@@ -22,6 +23,7 @@ import glob
 import json
 import pandas as pd
 import os
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 logger = logging.getLogger(__name__)
 
@@ -617,7 +619,7 @@ def inverse_solution(
     segments,
     fwd,
     inverse_operator,
-    figures_path,
+    project_dir,
     which_sensor_dict,
     source_space=None,
     empty_room_recording=None,
@@ -684,6 +686,14 @@ def inverse_solution(
             n_jobs=kwargs.get("n_jobs", 1),
         )  
 
+        save_cov_figures(
+            noise_cov, 
+            empty_room_recording.info, 
+            out_dir=os.path.join(project_dir, "Saved_outputs", "Covariance_figures"),
+            subject=subject, 
+            tag="noiseCovariance", 
+            logger=logger)
+
         logger.info(
             "Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten"
             "the data"
@@ -736,6 +746,14 @@ def inverse_solution(
             # rank=lcmv_rank,  # TODO: this should be removed
             n_jobs=kwargs.get("n_jobs", 1),
         )
+
+        save_cov_figures(
+            data_cov, 
+            data.info, 
+            out_dir=os.path.join(project_dir, "Saved_outputs", "Covariance_figures"),
+            subject=subject, 
+            tag="dataCovariance", 
+            logger=logger)
 
         if not kwargs.get("beamforme_depth") and source_space == "volumetric":
             error_msg = (
@@ -1150,7 +1168,7 @@ def source_localization(
         inverse_operator=inverse_operator,
         source_space=source_space,
         empty_room_recording=empty_room_recording,
-        figures_path=figures_path,
+        project_dir=project_dir,
         qc_ignore=qc_ignore,
         which_sensor_dict=which_sensor_dict,
         **kwargs,
@@ -1500,3 +1518,20 @@ def prepare_template(subject, project_dir, **kwargs):
     )
 
     return surface_name, surface_path
+
+
+
+def save_cov_figures(cov, info, out_dir, subject, tag, logger=None):
+    """Save covariance matrix + singular-value figures without opening a GUI."""
+
+    os.makedirs(out_dir, exist_ok=True)
+    fig_cov, fig_svd = cov.plot(info, show=False)
+    for fig, kind in ((fig_cov, "matrix"), (fig_svd, "svd")):
+        fig.savefig(
+            os.path.join(out_dir, f"{subject}_{tag}_{kind}.png"),
+            dpi=150, bbox_inches="tight",
+        )
+        plt.close(fig)
+
+    if logger is not None:
+        logger.info(f"Saved {tag} covariance figures to {out_dir}")
