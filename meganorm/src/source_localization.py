@@ -356,9 +356,8 @@ def corregistration(
     subject,
     subjects_dir,
     participant_id,
-    plot_3d=False,
-    qc_out_dir=False,
     trans_save_path=False,
+    scaled_mri_save_path=False,
     **kwargs,
 ):
     """
@@ -442,6 +441,19 @@ def corregistration(
         )
         logger.info(f"Scaled MRI subject written: {scaled_subject}")
 
+        if scaled_mri_save_path:
+            src = Path(subjects_dir) / scaled_subject
+            dst_root = Path(scaled_mri_save_path)
+            dst = dst_root / scaled_subject
+            dst_root.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.move(str(src), str(dst))
+            subjects_dir = dst_root
+            logger.info(f"Scaled MRI moved to {dst}")
+
+        fit_subject = scaled_subject
+
         # TODO: is it necessary to make a new watershed mode after scaling?
         # if kwargs.get("force_new_watershed_bem", False):
         #     pass
@@ -459,7 +471,7 @@ def corregistration(
         # else:
         #     logger.info(f"Using existing scaled subject: {scaled_subject}")
 
-        fit_subject = scaled_subject
+        
     # TODO
     # if kwargs.get("take_screenshot_of_coregisteration", True):
     #     save_coreg_screenshots(
@@ -473,12 +485,12 @@ def corregistration(
     #     )
 
     if kwargs.get("save_transformation_FIF_file", False):
-        trans_save_path = os.path.join(trans_save_path, f"{subject}-trans.fif")
+        trans_save_path = os.path.join(trans_save_path, f"{fit_subject}-trans.fif")
         mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
     logger.info("Automatic coregisteration is done!")
 
-    return coreg, fit_subject
+    return coreg, fit_subject, subjects_dir
 
 
 def forward_solution(
@@ -1101,7 +1113,7 @@ def source_localization(
         )
         transformation_matrix = coreg.trans
     else:
-        coreg, subject = corregistration(
+        coreg, subject, subjects_dir = corregistration(
             data=data,
             subject=subject,
             subjects_dir=subjects_dir,
@@ -1109,8 +1121,9 @@ def source_localization(
             trans_save_path=os.path.join(
                 project_dir, "Saved_outputs", "transformation_FIF_file"
             ),
-            qc_out_dir=os.path.join(project_dir, "Saved_outputs", "coregistration_QC"),
-            plot_3d=plot_3d,
+            scaled_mri_save_path=os.path.join(
+                project_dir, "Saved_outputs", "MRI_templates"
+            ),
             **kwargs,
         )
         transformation_matrix = coreg.trans
