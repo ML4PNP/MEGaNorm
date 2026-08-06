@@ -1112,7 +1112,16 @@ def source_localization(
             volume="T1",
             preflood=kwargs.get("preflood", None),
         )
-
+    
+    orientation = kwargs.get("bem_plot_orientations", "coronal")
+    if orientation is not None:
+        save_bem_figure(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            out_dir=os.path.join(project_dir, "Saved_outputs", "BEM_figures"),
+            orientation=orientation,
+            logger=logger,
+        )
     
     if precomputed_trans_path:
         transformation_matrix = mne.read_trans(precomputed_trans_path)
@@ -1535,3 +1544,27 @@ def save_cov_figures(cov, info, out_dir, subject, tag, logger=None):
 
     if logger is not None:
         logger.info(f"Saved {tag} covariance figures to {out_dir}")
+
+
+
+def save_bem_figure(subject, subjects_dir, out_dir, orientation="coronal",
+                    slices=None, logger=None):
+    """Save a BEM/MRI overlay figure without opening a GUI."""
+
+    os.makedirs(out_dir, exist_ok=True)
+    fig = mne.viz.plot_bem(
+        subject=subject,
+        subjects_dir=subjects_dir,
+        brain_surfaces="white",
+        orientation=orientation,
+        slices=slices,
+        show=False,
+    )
+    fig.savefig(
+        os.path.join(out_dir, f"{subject}_bem_{orientation}.png"),
+        dpi=150, bbox_inches="tight",
+    )
+    plt.close(fig)
+
+    if logger is not None:
+        logger.info(f"Saved BEM figure to {out_dir}")

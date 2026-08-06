@@ -379,6 +379,8 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
+    bem_plot_orientations: Literal['coronal', 'axial', 'sagittal', None] = "coronal"
+
     # the spacing to use for source space specificatin
     source_space_spacing: Literal[
         "ico3", "ico4", "ico5", "ico6", "oct5", "oct6", "all"
@@ -1207,6 +1209,7 @@ def set_path(project_dir):
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
     save_coregistration_QC_path = os.path.join(saved_outputs_path, "coregistration_QC")
     save_covariance_figures_path = os.path.join(saved_outputs_path, "Covariance_figures")
+    save_BEM_figures_path = os.path.join(saved_outputs_path, "BEM_figures")
     save_transformation_path = os.path.join(
         saved_outputs_path, "transformation_FIF_file"
     )
@@ -1221,6 +1224,7 @@ def set_path(project_dir):
     make_folder(save_psds_path)
     make_folder(save_coregistration_QC_path)
     make_folder(save_covariance_figures_path)
+    make_folder(save_BEM_figures_path)
     make_folder(save_transformation_path)
     make_folder(configurations)
     make_folder(exluded_participants_path)
