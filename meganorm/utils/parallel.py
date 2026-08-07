@@ -12,6 +12,7 @@ import meganorm.src.mainParallel
 from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
+from meganorm.src.normative_modeling import anova_group_level_effect
 
 
 def progress_bar(current, total, bar_length=20):
@@ -285,7 +286,7 @@ def submit_jobs(
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
         device = subjects[subject]["device"]
-        trans_path = subjects[subject].get("trans_path")  
+        trans_path = subjects[subject].get("trans_path")
         pos_path = subjects[subject].get("pos_path")
         annotation_path = subjects[subject].get("annotation_path")
 
@@ -300,7 +301,6 @@ def submit_jobs(
         command = add_command(pos_path, command)
         command = add_command(trans_path, command)
         command = add_command(annotation_path, command)
-        
 
         subprocess.check_call(command, shell=True)
 
@@ -438,7 +438,12 @@ def check_user_jobs(username, start_time):
 
 
 def collect_results(
-    target_dir, subjects, temp_path, file_name="features", clean=True, append=True
+    target_dir,
+    subjects,
+    temp_path,
+    file_name="features",
+    clean=True,
+    append=True,
 ):
     """
     Collect per-subject result files and merge them into a single CSV.
@@ -710,6 +715,14 @@ def auto_parallel_feature_extraction(
             dataset_names=dataset_names,
         )
         df.to_csv(os.path.join(features_dir, "all_features.csv"))
+
+        for batch_effect in ["site", "sex"]:
+            anova_group_level_effect(
+                df,
+                batch_effect,
+                save_tag="raw",
+                save_output_path=os.path.join(project_dir, "Features/Saved_outputs/Grouping_effects"),
+            )
 
     return failed_jobs
 

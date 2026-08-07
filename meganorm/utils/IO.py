@@ -1215,6 +1215,7 @@ def set_path(project_dir):
     )
     configurations = os.path.join(features_dir, "Configurations")
     mri_templates = os.path.join(features_dir, "MRI_templates")
+    save_grouping_effect = os.path.join(saved_outputs_path, "Grouping_effects")
 
     make_folder(features_dir)
     make_folder(features_log_path)
@@ -1229,6 +1230,7 @@ def set_path(project_dir):
     make_folder(configurations)
     make_folder(exluded_participants_path)
     make_folder(mri_templates)
+    make_folder(save_grouping_effect)
 
     # Normative models
     nm_dir = os.path.join(project_dir, "Normative_models")
