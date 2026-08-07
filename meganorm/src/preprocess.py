@@ -22,8 +22,14 @@ from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
 from autoreject import AutoReject, set_matplotlib_defaults
 import autoreject
+
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
+
+
+# Constants for tSSS
+_FRAME = {1: "meg", 4: "head"}
+_REQUIRED = ("origin", "int_order", "ext_order", "frame")
 
 
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
@@ -1274,9 +1280,8 @@ def apply_gradient_comp(ctf_meg_data, empty_room_recording=None, grade=3):
 
 def apply_tsss(
     data,
-    cross_talk_path,
-    calibration_path,
-    head_pos_path=None,
+    cross_talk_path=None,
+    calibration_path=None,
     empty_room_record=None,
     st_duration=10.0,
     st_correlation=0.98,
@@ -1343,37 +1348,49 @@ def apply_tsss(
     .. [2] MNE-Python documentation:
        https://mne.tools/stable/generated/mne.preprocessing.maxwell_filter.html
     """
+    if not check_tsss(data):
 
-    if head_pos_path:
-        head_pos = mne.chpi.read_head_pos(head_pos_path)
-    else:
-        head_pos = None
-
-    data_tsss = mne.preprocessing.maxwell_filter(
-        raw=data,
-        calibration=calibration_path,
-        cross_talk=cross_talk_path,
-        st_duration=st_duration,
-        st_correlation=st_correlation,
-        head_pos=head_pos,
-    )
-
-    if empty_room_record:
-
-        empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
-            raw_er=empty_room_record
-        )
-
-        empty_room_record = mne.preprocessing.maxwell_filter(
-            raw=empty_room_record,
+        data = mne.preprocessing.maxwell_filter(
+            raw=data,
             calibration=calibration_path,
             cross_talk=cross_talk_path,
             st_duration=st_duration,
             st_correlation=st_correlation,
-            head_pos=head_pos,
         )
+        if empty_room_record:
+            empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+                raw_er=empty_room_record, raw=data
+            )
+            empty_room_record = mne.preprocessing.maxwell_filter(
+                raw=empty_room_record,
+                calibration=calibration_path,
+                cross_talk=cross_talk_path,
+                st_duration=st_duration,
+                st_correlation=st_correlation,
+            )
 
-    return data_tsss, empty_room_record
+    else:
+        if empty_room_record is not None and not check_tsss(empty_room_record):
+            msg = "While this MEGIN rs-MEG has been corrected for environmental noise using tSSS, it " \
+            "has not been applied to the empty room recrding as well. This can cause problem in the " \
+            "LCMV source localization. Therefore, tSSS will be applied to the eroom. "
+            logger.info(msg)
+            tsss_info = tsss_params(data.info)
+
+            empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+                empty_room_record, raw=data, bads="from_raw"
+            )
+            empty_room_record = mne.preprocessing.maxwell_filter(
+                empty_room_record,
+                destination=None,   # prepare_emptyroom already set dev_head_t from raw
+                **tsss_info,
+            )
+
+        else:
+            msg = "The data has already been preprocessed for environmental noise using tSSS."
+            logger.info(msg)
+
+    return data, empty_room_record
 
 
 def drop_noisy_segments(segments, z_thr):
@@ -1771,11 +1788,12 @@ def remove_environmental_noise(
 
     # If MEGIN device, apply tsss
     elif device == "MEGIN" and not same_environmental_noise_removal:
-        if not check_tsss(data):
-            pass  # TODO: to be added
-        else:
-            msg = "The data has already been preprocessed for environmental noise using tSSS."
-            logger.info(msg)
+        data, empty_room_recording = apply_tsss(
+            data,
+            empty_room_record=empty_room_recording,
+            st_duration=10.0,  # TODO: congig
+            st_correlation=0.98,  # TODO: congig
+        )
 
     elif apply_environmental_noise_ssp_with_eroom:
         if empty_room_recording:
@@ -2339,9 +2357,7 @@ def _annotate_dropped_epochs(
     sfreq = raw.info["sfreq"]
     # match the offset convention used by annotate_nonfinite
     offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
-    onsets = [
-        max((s - raw.first_samp) / sfreq + offset, 0.0) for s in onset_samples
-    ]
+    onsets = [max((s - raw.first_samp) / sfreq + offset, 0.0) for s in onset_samples]
 
     annot = mne.Annotations(
         onset=onsets,
@@ -2357,8 +2373,6 @@ def _annotate_dropped_epochs(
         "annotation-aware steps such as covariance estimation)."
     )
     return raw
-
-
 
 
 def auto_reject_segmentation(
@@ -2558,7 +2572,6 @@ def auto_reject_segmentation(
     return epochs_clean, reject_log
 
 
-
 def extract_rs_blocks(
     raw, events, rs_id, sampling_rate, segments_length, overlap, seg_event_id=1
 ):
@@ -2725,3 +2738,93 @@ def annotate_nonfinite(
     np.nan_to_num(raw._data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
     return raw, intervals
+
+
+def sss_records(info):
+    """All SSS expansions recorded in proc_history, newest-first as stored."""
+    out = []
+    for i, ph in enumerate(info.get("proc_history", [])):
+        m = ph.get("max_info") or {}
+        si = m.get("sss_info") or {}
+        if not si:
+            continue
+        st = m.get("max_st") or {}
+        out.append(
+            {
+                "idx": i,
+                "creator": ph.get("creator"),
+                "date": ph.get("date"),
+                "origin": si.get("origin"),
+                "frame": si.get("frame"),
+                "int_order": si.get("in_order"),
+                "ext_order": si.get("out_order"),
+                "nfree": si.get("nfree"),
+                "st_duration": st.get("buflen"),
+                "st_correlation": st.get("subspcorr"),
+                "has_cal": bool(m.get("sss_cal")),
+                "has_ctc": bool(m.get("sss_ctc")),
+            }
+        )
+    return out
+
+
+def _complete(r):
+    return all(r.get(k) is not None for k in _REQUIRED)
+
+
+def _is_tsss(r):
+    return (
+        r.get("st_duration") is not None
+        and r["st_duration"] > 0
+        and r.get("st_correlation") is not None
+    )
+
+
+def _find_tsss(records):
+    """The record describing the actual tSSS pass, or None.
+
+    Later records are re-expansions (e.g. MaxFilter -trans default) that
+    carry neither -st nor cal/ctc, so the earliest tSSS record is the one
+    whose parameters the data actually reflects.
+    """
+    cand = [r for r in records if _complete(r) and _is_tsss(r)]
+    if not cand:
+        return None
+    if len(cand) == 1:
+        return cand[0]
+    if any(r["date"] is None for r in cand):
+        logger.warning(
+            "Multiple tSSS records found but some lack timestamps; "
+            "using the first one (idx=%d).",
+            cand[0]["idx"],
+        )
+        return cand[0]
+    r = min(cand, key=lambda r: r["date"])
+    logger.warning(
+        "Multiple tSSS records found; using the earliest (idx=%d).", r["idx"]
+    )
+    return r
+
+
+def tsss_params(info):
+    """kwargs for mne.preprocessing.maxwell_filter reproducing the tSSS pass."""
+    r = _find_tsss(sss_records(info))
+    if r is None:
+        raise ValueError("No complete tSSS record found in proc_history of Raw data.")
+    frame = _FRAME.get(r["frame"])
+    if frame is None:
+        raise ValueError(f"Unknown coord frame code {r['frame']!r}")
+    logger.info(
+        "Reproducing tSSS from proc_history[%d] (%s, nfree=%s)",
+        r["idx"],
+        r["creator"],
+        r["nfree"],
+    )
+    return dict(
+        origin=np.asarray(r["origin"], dtype=float),
+        int_order=int(r["int_order"]),
+        ext_order=int(r["ext_order"]),
+        coord_frame=frame,
+        st_duration=float(r["st_duration"]),
+        st_correlation=float(r["st_correlation"]),
+    )
