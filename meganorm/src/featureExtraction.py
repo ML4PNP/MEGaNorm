@@ -1067,7 +1067,10 @@ class PYRASADecomposer(SpectralDecomposer):
         params.append(aperiodic_params_of_interest["Offset"].item())
         # exponent
         params.append(aperiodic_params_of_interest["Exponent_1"].item())
-        params.append(aperiodic_params_of_interest["Exponent_2"].item())
+        if self.mode == "knee":
+            params.append(aperiodic_params_of_interest["Exponent_2"].item())
+        elif self.mode == "fixed":
+            params.append(np.nan)
 
         return params
 
@@ -1091,21 +1094,41 @@ class PYRASADecomposer(SpectralDecomposer):
 
     def get_peak_params(self, fmin, fmax):
         """
-        Placeholder for peak parameter extraction (not implemented for
-        PYRASA models).
+        Extract peak parameters within a given frequency range.
 
         Parameters
         ----------
         fmin : float
-            Lower bound of the frequency band.
+            Lower bound of the frequency range.
         fmax : float
-            Upper bound of the frequency band.
+            Upper bound of the frequency range.
 
         Returns
         -------
-        None, None
+        dominant_peak : tuple or None
+            (center frequency, power, width) of the strongest peak in the
+            range, or None if no peak is found.
+        band_peaks : list of tuple or None
+            All peaks found within the frequency range, or None if none
+            are found.
         """
-        return None, None  # TODO
+        try:
+            df = self.model.periodic.get_peaks(cut_spectrum=(fmin, fmax))
+        except ValueError as e:
+            logger.warning(
+                f"Peak detection failed for {self.ch_name} in [{fmin}, {fmax}] Hz: {e}"
+            )
+            return None, None
+
+        sel = df.loc[df["ch_name"] == self.ch_name, ["cf", "pw", "bw"]].dropna()
+
+        if sel.empty:
+            return None, None
+
+        band_peaks = [tuple(row) for row in sel.to_numpy(dtype=float)]
+        dominant_peak = max(band_peaks, key=lambda x: x[1])
+
+        return dominant_peak, band_peaks
 
     def get_r_squared(self):
         """
