@@ -364,6 +364,7 @@ def create_feature_container(
         "Offset",
         "Exponent",
         "Exponent_2",
+        "Knee_Frequency",
     ]
 
     # Features that are per-band but use ratio naming (num_over_den) instead of band names
@@ -588,6 +589,18 @@ def feature_extract(
                 feature_arr = spectral_model.get_aperiodic_params()[2]
                 feature_container = add_feature(
                     feature_container, feature_arr, "Exponent_2", channel_name, ""
+                )
+
+        if feature_categories.get("Knee_Frequency"):
+            if aperiodic_mode == "knee" and isinstance(
+                spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched
+            ):
+                feature_container = add_feature(
+                    feature_container,
+                    spectral_model.get_aperiodic_params()[3],
+                    "Knee_Frequency",
+                    channel_name,
+                    "",
                 )
 
         # isolate periodic parts of signals
@@ -1069,8 +1082,9 @@ class PYRASADecomposer(SpectralDecomposer):
         params.append(aperiodic_params_of_interest["Exponent_1"].item())
         if self.mode == "knee":
             params.append(aperiodic_params_of_interest["Exponent_2"].item())
-        elif self.mode == "fixed":
-            params.append(np.nan)
+            params.append(aperiodic_params_of_interest["Knee Frequency (Hz)"].item())
+        else:
+            params.extend([np.nan, np.nan])
 
         return params
 
