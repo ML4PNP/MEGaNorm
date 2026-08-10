@@ -41,6 +41,8 @@ def progress_bar(current, total, bar_length=20):
 def sbatchfile(
     mainParallel_path,
     bash_file_path,
+    modules=None,
+    conda_env="meganorm",
     log_path=None,
     module="mne",
     time="1:00:00",
@@ -50,10 +52,7 @@ def sbatchfile(
     node=1,
     batch_file_name="batch_job",
     freesurfer_home=None,
-    freesurfer_license=None,
-    with_config=None,
-    # with_source_localization = None,
-    # with_empty_room_recording = None
+    freesurfer_license=None
 ):
     """
     Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
@@ -66,8 +65,10 @@ def sbatchfile(
         Path where the generated batch job file will be saved.
     log_path : str, optional
         Path to the log file where output from the job will be saved. Default is None.
-    module : str, optional
-        The module to load in the batch job environment. Default is 'mne'.
+    modules : list of str, optional
+        List of modules to load in the batch job environment. Default is None.
+    conda_env : str, optional
+        The conda environment to activate in the batch job environment. Default is 'meganorm'.
     time : str, optional
         Maximum wall time for the job (format: HH:MM:SS). Default is '1:00:00'.
     memory : str, optional
@@ -80,8 +81,6 @@ def sbatchfile(
         Number of nodes to request for the job. Default is 1.
     batch_file_name : str, optional
         Name for the generated batch job file. Default is 'batch_job'.
-    with_config : bool, optional
-        Whether to include the configuration in the batch file. Default is True.
 
     Returns
     -------
@@ -95,19 +94,20 @@ def sbatchfile(
     sbatch_time = "#SBATCH --time=" + time + "\n"
     sbatch_memory = "#SBATCH --mem=" + memory + "\n"
 
+    if modules is not None:
+        for module in modules:
+            sbatch_module = "module load " + module + "\n"
+
+    sbatch_module = "source activate " + conda_env + "\n"
+
     if freesurfer_home:
         sbatch_module = (
-            "source activate "
-            + module
-            + "\n"
-            + f"export FREESURFER_HOME={freesurfer_home}\n"
+            f"export FREESURFER_HOME={freesurfer_home}\n"
             + f"export FREESURFER_LICENSE={freesurfer_license}\n"
             +
             # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
             "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
-        )
-    else:
-        sbatch_module = "source activate " + module + "\n"
+        )        
 
     if log_path is not None:
         sbatch_log_out = "#SBATCH -o " + log_path + "/%x_%j.out" + "\n"
