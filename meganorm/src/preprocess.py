@@ -269,13 +269,15 @@ def AutoIca_with_IcaLabel(
     # Identify and exclude artifact components based on probability threshold of being an artifact
     bad_components = []
     for idx, label in enumerate(labels["labels"]):
+        probability = labels["y_pred_proba"][idx]
         if (
             label == physiological_noise_type
-            and labels["y_pred_proba"][idx] > iclabel_thr
+            and probability > iclabel_thr
         ):
             bad_components.append(idx)
+            logger.info("Component %d identified as %s with probability %.3f", idx, label,probability,)
 
-    logger.info("Number of bad Components identified by ICALabel:", len(bad_components))
+    logger.info(f"Number of bad Components identified by ICALabel: {len(bad_components)}")
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
@@ -445,10 +447,13 @@ def prepare_eeg_data(data, path):
             )
             data.set_montage(eeg_montage)
 
+            logger.info( "EEG montage set from %s with %d channel positions", montage_files[0], len(ch_positions),)
+
         except Exception as e:
-            print(f"Error setting montage: {e}")
-            print(
-                "Continuing without a montage. This may raise issues for ICA labeling."
+            logger.warning(
+                "Could not set EEG montage: %s"
+                " Continuing without a montage. This may raise issues for ICA labeling.", 
+                e,
             )
 
     return data
