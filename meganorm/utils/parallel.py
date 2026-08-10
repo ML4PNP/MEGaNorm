@@ -585,6 +585,15 @@ def auto_parallel_feature_extraction(
     subjects = merge_datasets_with_glob(datasets)
     conf = meganorm.utils.IO.Config.load(path=config_file_path)
 
+    from meganorm.src.source_localization import produce_aparc_a2009s_aseg
+
+    if conf.apply_mri_template:
+        produce_aparc_a2009s_aseg(
+            save_path=conf.freesurfer_template_path,
+            freesurfer_home=freesurfer_home,
+            freesurfer_license=freesurfer_license,
+        )
+
     all_qc_passed_samples = []
     all_qc_failed_samples = []
     all_missing_samples = []
@@ -721,7 +730,9 @@ def auto_parallel_feature_extraction(
                 df,
                 batch_effect,
                 save_tag="raw",
-                save_output_path=os.path.join(project_dir, "Features/Saved_outputs/Grouping_effects"),
+                save_output_path=os.path.join(
+                    project_dir, "Features/Saved_outputs/Grouping_effects"
+                ),
             )
 
     return failed_jobs
