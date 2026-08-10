@@ -338,7 +338,7 @@ class Config(BaseModel):
     apply_ica: bool = True
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
-    save_segmented_data:bool = False
+    save_segmented_data: bool = False
     rereference_method: Literal["average", "REST", "None"] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
@@ -379,7 +379,7 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
-    bem_plot_orientations: Literal['coronal', 'axial', 'sagittal', None] = "coronal"
+    bem_plot_orientations: Literal["coronal", "axial", "sagittal", None] = "coronal"
 
     # the spacing to use for source space specificatin
     source_space_spacing: Literal[
@@ -398,7 +398,7 @@ class Config(BaseModel):
     beamformer_pick_ori: Literal[None, "normal", "max-power", "vector"] = "max-power"
     beamformer_weight_norm: Literal[
         None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"
-    ] = "unit-noise-gain"
+    ] = "unit-noise-gain-invariant"
 
     # This parameter scales the activation to correct for head-center bias.
     beamforme_depth: confloat(ge=0, le=1) = 0.8
@@ -482,6 +482,7 @@ class Config(BaseModel):
         "Adjusted_Band_Ratio": True,
         "OriginalPSD_Band_Ratio": True,
         "Hemispheric_Asymmetry_index": True,
+        "Knee_Frequency": False,
     }
 
     fooof_res_save_path: Optional[str] = None
@@ -709,7 +710,6 @@ def _add_artemis_headshape(data, path, pos_file, logger):
         )
 
     return data
-
 
 
 def load_recording(
@@ -1208,7 +1208,9 @@ def set_path(project_dir):
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
     save_coregistration_QC_path = os.path.join(saved_outputs_path, "coregistration_QC")
-    save_covariance_figures_path = os.path.join(saved_outputs_path, "Covariance_figures")
+    save_covariance_figures_path = os.path.join(
+        saved_outputs_path, "Covariance_figures"
+    )
     save_BEM_figures_path = os.path.join(saved_outputs_path, "BEM_figures")
     save_transformation_path = os.path.join(
         saved_outputs_path, "transformation_FIF_file"
