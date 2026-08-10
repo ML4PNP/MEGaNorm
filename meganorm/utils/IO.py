@@ -23,6 +23,7 @@ from pydantic import (
     NegativeInt,
     model_validator,
 )
+from mne.io.constants import FIFF
 
 
 class BandRatio(BaseModel):
@@ -171,7 +172,7 @@ class Config(BaseModel):
         Use a template MRI instead of subject-specific anatomy.
     freesurfer_template_path, freesurfer_home, freesurfer_license : str or None
         Paths to FreeSurfer template derivatives, installation, and license.
-    make_new_watershed_bem : bool, default=False
+    force_new_watershed_bem : bool, default=False
         Recompute the watershed BEM surfaces.
     gcaatlas : bool, default=True
         Use the GCA atlas for subcortical segmentation.
@@ -280,6 +281,8 @@ class Config(BaseModel):
 
     drop_noisy_flat_channel: bool = True
 
+    remove_nonfinite_segment_threshold: PositiveInt = 5
+
     # ICA
     apply_ica_elbow_detection: bool = False
     ica_n_component: Optional[PositiveInt] = None
@@ -335,6 +338,7 @@ class Config(BaseModel):
     apply_ica: bool = True
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
+    save_segmented_data: bool = False
     rereference_method: Literal["average", "REST", "None"] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
@@ -363,24 +367,28 @@ class Config(BaseModel):
     apply_source_localization: bool = False
     apply_empty_room_recording: bool = True
     apply_mri_QC: bool = False
-
+    take_screenshot_of_coregisteration: bool = True
     apply_mri_template: bool = False
     freesurfer_template_path: Optional[str] = None
     freesurfer_home: Optional[str] = None
     freesurfer_license: Optional[str] = None
     coregisteration_scale_mode: Literal["uniform", "3-axis", None] = None
-    make_new_watershed_bem: bool = False
+    force_new_watershed_bem: bool = False
     gcaatlas: bool = True
     SL_source_space: Literal["surface", "volumetric"] = "volumetric"
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
-    # the spacing to use for source space specificatin
-    source_space_spacing: Literal["ico3", "ico4", "ico5", "ico6", "oct5", "oct6"] = (
-        "ico4"
-    )
-    source_space_spacing_number: Literal[3, 4, 5, 6] = 4
+    bem_plot_orientations: Literal["coronal", "axial", "sagittal", None] = "coronal"
 
+    # the spacing to use for source space specificatin
+    source_space_spacing: Literal[
+        "ico3", "ico4", "ico5", "ico6", "oct5", "oct6", "all"
+    ] = "ico4"
+    source_space_spacing_number: Literal[3, 4, 5, 6, None] = 4
+    source_space_add_dist: Literal["patch", True, False] = "patch"
+
+    save_transformation_FIF_file: bool = False
     coregisteration_final_n_iterations: int = 20
     coregisteration_final_nasion_weight: float = 10.0
     covariance_method: str = "empirical"
@@ -390,10 +398,10 @@ class Config(BaseModel):
     beamformer_pick_ori: Literal[None, "normal", "max-power", "vector"] = "max-power"
     beamformer_weight_norm: Literal[
         None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"
-    ] = "unit-noise-gain"
+    ] = "unit-noise-gain-invariant"
 
     # This parameter scales the activation to correct for head-center bias.
-    beamforme_depth: confloat(ge=0, le=1) = 0.08
+    beamforme_depth: confloat(ge=0, le=1) = 0.8
 
     # this is used for regularaizing the data covariance (shifting the matrix)
     inverse_regularization_value: confloat(ge=0, le=1) = 0.05
@@ -474,6 +482,7 @@ class Config(BaseModel):
         "Adjusted_Band_Ratio": True,
         "OriginalPSD_Band_Ratio": True,
         "Hemispheric_Asymmetry_index": True,
+        "Knee_Frequency": False,
     }
 
     fooof_res_save_path: Optional[str] = None
@@ -510,6 +519,12 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def source_space_res(self):
+        if self.source_space_spacing == "all":
+            if self.source_space_spacing_number is not None:
+                raise ValueError(
+                    "source_space_spacing_number must be None when source_space_spacing='all'"
+                )
+            return self
         if int(self.source_space_spacing[-1]) != self.source_space_spacing_number:
             raise ValueError(
                 "The source_space_spacing and source_space_spacing_number should match"
@@ -637,142 +652,191 @@ class Config(BaseModel):
         return cls(**cfg)
 
 
-def separate_eyes_open_close_eeglab(
-    input_base_path,
-    output_base_path,
-    annotation_description_open,
-    annotation_description_close,
-    trim_before=5,
-    trim_after=5,
+def _resolve_artemis_pos_file(path, pos_file, logger):
+    """Return an explicit pos/dig file, or find one near the recording."""
+    if pos_file:
+        return pos_file
+
+    # .pos usually lives in a sibling Headshape/ folder, not next to the run,
+    # so widen the search one directory up before giving up.
+    search_roots = [Path(path).parent, Path(path).parents[1]]
+    for root in search_roots:
+        matches = sorted(glob.glob(f"{root}/**/*.pos", recursive=True))
+        if matches:
+            if len(matches) > 1:
+                logger.warning(
+                    f"{len(matches)} .pos files found under {root}; using {matches[0]}."
+                )
+            return matches[0]
+
+    err_msg = (
+        f"No .pos file found near the Artemis recording {path} "
+        f"(searched {', '.join(str(r) for r in search_roots)})."
+    )
+    logger.error(err_msg)
+    raise FileNotFoundError(err_msg)
+
+
+def _add_artemis_headshape(data, path, pos_file, logger):
+    """Attach head-shape points to an already-converted Artemis FIF."""
+    existing = data.info["dig"] or []
+    n_extra = sum(1 for d in existing if d["kind"] == FIFF.FIFFV_POINT_EXTRA)
+    if n_extra:
+        logger.info(
+            f"Artemis FIF already carries {n_extra} head-shape points; "
+            "not adding any from a .pos/.fif file."
+        )
+        return data
+
+    resolved = _resolve_artemis_pos_file(path, pos_file, logger)
+    ext = str(resolved).split(".")[-1].lower()
+
+    if ext == "pos":
+        digs = mne.io.artemis123.utils._read_pos(fname=resolved)
+        with data.info._unlock():
+            data.info["dig"] = existing + digs
+            data.info["dig"] = mne._fiff._digitization._format_dig_points(
+                data.info["dig"]
+            )
+        logger.info(f"Head shape .pos file {resolved} was added to the Artemis FIF.")
+    elif ext == "fif":
+        dig = mne.channels.read_dig_fif(resolved)
+        data.set_montage(dig, on_missing="warn")
+        logger.info(f"Head shape .fif file {resolved} was added to the Artemis FIF.")
+    else:
+        logger.warning(
+            f"pos_file '{resolved}' has unrecognized extension '.{ext}'; "
+            "no head-shape/dig info was added to the recording."
+        )
+
+    return data
+
+
+def load_recording(
+    device, path, empty_room_recording_path, configs, logger, pos_file=None
 ):
-    """
-    Split resting-state EEGLAB recordings into separate eyes-open and
-    eyes-closed files based on annotations.
+    """Load data"""
 
-    Scans `input_base_path` for BIDS-style resting-state ``.set`` files,
-    extracts and trims annotated eyes-open and eyes-closed segments,
-    concatenates each condition's segments, and writes them out as new
-    EEGLAB ``.set`` files under a subject-specific folder in
-    `output_base_path`.
+    if device == "CTF":
+        data = mne.io.read_raw_ctf(path, preload=True)
 
-    Parameters
-    ----------
-    input_base_path : str
-        Root directory containing subject subfolders with resting-state
-        EEGLAB recordings, matched via the pattern
-        ``*/eeg/*_task-rest_eeg.set``.
-    output_base_path : str
-        Root directory where the separated eyes-open and eyes-closed
-        files will be saved, created if it does not already exist.
-    annotation_description_open : str
-        Annotation description label marking eyes-open segments.
-    annotation_description_close : str
-        Annotation description label marking eyes-closed segments.
-    trim_before : float, optional
-        Duration in seconds to trim from the start of each annotated
-        segment. Default is 5.
-    trim_after : float, optional
-        Duration in seconds to trim from the end of each annotated
-        segment. Default is 5.
-
-    Returns
-    -------
-    None
-    """
-    # Ensure output directory exists
-    if not os.path.exists(output_base_path):
-        os.makedirs(output_base_path)
-
-    search_pattern = os.path.join(input_base_path, "*/eeg/*_task-rest_eeg.set")
-    raw_set_paths = glob.glob(
-        search_pattern, recursive=True
-    )  # Use glob to find all .set files in the input directory
-
-    # Loop through all found .set files
-    for set_path in raw_set_paths:
-        subject_id = Path(set_path).parts[
-            -3
-        ]  # Extract subject number from the file path
-        subject_output_path = os.path.join(
-            output_base_path, subject_id, "eeg"
-        )  # Create the subject-specific output path
-
-        # Ensure output directory for the subject exists
-        if not os.path.exists(subject_output_path):
-            os.makedirs(subject_output_path)
-
-        # Load the raw .set file (EEGLAB format)
-        raw = mne.io.read_raw(set_path, preload=True)
-
-        # Extract annotations
-        annotations = raw.annotations
-
-        # Separate eyes open and eyes closed events
-        eyes_open_events = annotations[
-            annotations.description == annotation_description_open
-        ]
-        eyes_closed_events = annotations[
-            annotations.description == annotation_description_close
-        ]
-
-        # Extract and concatenate eyes open segments
-        eyes_open_data = []
-        for onset, duration in zip(eyes_open_events.onset, eyes_open_events.duration):
-
-            if duration <= trim_before + trim_after:
-                print(
-                    f"Skipping event with onset {onset} and duration {duration} (invalid after trimming)"
+        if pos_file:
+            ext = pos_file.split(".")[-1]
+            if ext == "pos":
+                digs = mne.io.artemis123.utils._read_pos(fname=pos_file)
+                with data.info._unlock():
+                    data.info["dig"] += digs
+                    data.info["dig"] = mne._fiff._digitization._format_dig_points(
+                        data.info["dig"]
+                    )
+                logger.info(
+                    "Head shape .pos file was found and added to the CTF recording"
                 )
-                continue
-
-            # Trim the first 5s and last 5s from each event
-            trimmed_onset = onset + trim_before
-            trimmed_duration = duration - trim_before - trim_after
-            start_sample = int(trimmed_onset * raw.info["sfreq"])
-            stop_sample = int((trimmed_onset + trimmed_duration) * raw.info["sfreq"])
-            eyes_open_data.append(raw[:, start_sample:stop_sample][0])
-
-        if eyes_open_data:
-            eyes_open_data_concat = np.concatenate(eyes_open_data, axis=1)
-            raw_eyes_open = mne.io.RawArray(eyes_open_data_concat, raw.info)
-
-            # Save eyes open data as a new .set file
-            eyes_open_file_path = os.path.join(
-                subject_output_path, f"{subject_id}_task-eyesopen_eeg.set"
-            )
-            mne.export.export_raw(
-                eyes_open_file_path, raw_eyes_open, fmt="eeglab", overwrite=True
-            )
-
-        # Extract and concatenate eyes closed segments
-        eyes_closed_data = []
-        for onset, duration in zip(
-            eyes_closed_events.onset, eyes_closed_events.duration
-        ):
-
-            if duration <= trim_before + trim_after:
-                print(
-                    f"Skipping event with onset {onset} and duration {duration} (invalid after trimming)"
+            elif ext == "fif":
+                dig = mne.channels.read_dig_fif(pos_file)
+                data.set_montage(dig, on_missing="warn")
+                logger.info(
+                    "Head shape .fif file was found and added to the CTF recording"
                 )
-                continue
+            else:
+                logger.warning(
+                    f"pos_file '{pos_file}' has unrecognized extension '.{ext}'; "
+                    "no head-shape/dig info was added to the recording."
+                )
 
-            trimmed_onset = onset + trim_before
-            trimmed_duration = duration - trim_before - trim_after
-            start_sample = int(trimmed_onset * raw.info["sfreq"])
-            stop_sample = int((trimmed_onset + trimmed_duration) * raw.info["sfreq"])
-            eyes_closed_data.append(raw[:, start_sample:stop_sample][0])
-
-        if eyes_closed_data:
-            eyes_closed_data_concat = np.concatenate(eyes_closed_data, axis=1)
-            raw_eyes_closed = mne.io.RawArray(eyes_closed_data_concat, raw.info)
-
-            # Save eyes closed data as a new .set file
-            eyes_closed_file_path = os.path.join(
-                subject_output_path, f"{subject_id}_task-eyesclosed_eeg.set"
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw_ctf(
+                empty_room_recording_path, preload=True
             )
-            mne.export.export_raw(
-                eyes_closed_file_path, raw_eyes_closed, fmt="eeglab", overwrite=True
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    elif device == "BTI":
+        temp_hs_file_path = os.path.join(path, "hs_file")
+        hs_file = temp_hs_file_path if os.path.exists(temp_hs_file_path) else None
+        if not hs_file:
+            convert = False
+        else:
+            convert = True
+        data = mne.io.read_raw_bti(
+            pdf_fname=os.path.join(path, "c,rfDC"),
+            config_fname=os.path.join(path, "config"),
+            head_shape_fname=hs_file,
+            preload=True,
+            convert=convert,
+        )
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw_bti(
+                pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
+                config_fname=os.path.join(empty_room_recording_path, "config"),
+                head_shape_fname=None,
+                convert=convert,
+                preload=True,
             )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    elif device == "ARTEMIS123":
+        # Artemis recordings may arrive as the native .bin or as a FIF that was
+        # converted beforehand. read_raw_artemis123 only accepts the .bin, so
+        # anything already in FIF goes through the standard FIF reader.
+        if str(path).lower().endswith(".fif"):
+            data = mne.io.read_raw_fif(path, preload=True)
+            if configs.apply_source_localization:
+                data = _add_artemis_headshape(data, path, pos_file, logger)
+        else:
+            if configs.apply_source_localization:
+                data = mne.io.read_raw_artemis123(
+                    path,
+                    preload=True,
+                    pos_fname=_resolve_artemis_pos_file(path, pos_file, logger),
+                    add_head_trans=True,
+                )
+            else:
+                data = mne.io.read_raw_artemis123(
+                    path,
+                    preload=True,
+                )
+
+        if empty_room_recording_path and configs.apply_source_localization:
+            if str(empty_room_recording_path).lower().endswith(".fif"):
+                empty_room_recording = mne.io.read_raw_fif(
+                    empty_room_recording_path, preload=True
+                )
+            else:
+                empty_room_recording = mne.io.read_raw_artemis123(
+                    empty_room_recording_path,
+                    preload=True,
+                )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    else:
+        data = mne.io.read_raw(path, preload=True)
+        if empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = mne.io.read_raw(
+                empty_room_recording_path, preload=True
+            )
+            logger.info("Empty room recording was found")
+        elif not empty_room_recording_path and configs.apply_source_localization:
+            empty_room_recording = None
+            logger.info("No empty room recording was found")
+        else:
+            empty_room_recording = None
+
+    return data, empty_room_recording
 
 
 def merge_fidp_demo(
@@ -835,7 +899,8 @@ def merge_fidp_demo(
         demographic_df = pd.concat([demographic_df, demo], axis=0)
 
     # Drop unnecessary columns
-    demographic_df.drop(columns=drop_columns, errors="ignore", inplace=True)
+    if drop_columns:
+        demographic_df.drop(columns=drop_columns, errors="ignore", inplace=True)
 
     # Load features
     feature_path = os.path.join(features_dir, "all_features.csv")
@@ -899,7 +964,7 @@ def merge_datasets_with_glob(datasets):
         task = dataset_info["task"]
         ending = dataset_info["ending"]
 
-        device = dataset_info["device_type"]
+        device = dataset_info.get("device_type", None)
 
         line_freq = dataset_info.get("line_freq", 50)
 
@@ -913,6 +978,16 @@ def merge_datasets_with_glob(datasets):
         event_file_task = dataset_info.get("event_file_task", None)
         event_file_ending = dataset_info.get("event_file_ending", None)
         event_of_interest = dataset_info.get("event_of_interest", None)
+
+        trans_file_p = dataset_info.get("trans_path", None)
+        pos_file_p = dataset_info.get("pos_path", None)
+        pos_file_ending = dataset_info.get("pos_file_ending", None)
+
+        annotation_p = dataset_info.get("annotation_path", None)
+        annotaion_task_name = dataset_info.get("annotaion_task_name", None)
+        annotation_ending = dataset_info.get("annotation_ending", None)
+
+        layout_path = dataset_info.get("layout_path", None)
 
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
@@ -952,6 +1027,30 @@ def merge_datasets_with_glob(datasets):
             else:
                 event_record_paths = None
 
+            # trans file
+            if trans_file_p:
+                trans_path = glob.glob(
+                    f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True
+                )
+            else:
+                trans_path = None
+
+            # pos file
+            if pos_file_p and pos_file_ending:
+                pos_path = glob.glob(
+                    f"{pos_file_p}/{subj}/**/*{pos_file_ending}", recursive=True
+                )
+            else:
+                pos_path = None
+
+            if annotation_p:
+                annotation_path = glob.glob(
+                    f"{annotation_p}/*{subj}*/**/*{annotaion_task_name}*{annotation_ending}",
+                    recursive=True,
+                )
+            else:
+                annotation_path = None
+
             subjects.update(
                 {
                     subj: {
@@ -963,6 +1062,10 @@ def merge_datasets_with_glob(datasets):
                         "dataset_name": dataset_name,
                         "event_record": join_with_star(event_record_paths),
                         "event_of_interest": str(event_of_interest),
+                        "trans_path": join_with_star(trans_path),
+                        "pos_path": join_with_star(pos_path),
+                        "annotation_path": join_with_star(annotation_path),
+                        "layout_path": layout_path
                     }
                 }
             )
@@ -1103,24 +1206,36 @@ def set_path(project_dir):
     features_dir = os.path.join(project_dir, "Features")
     features_log_path = os.path.join(features_dir, "log_slurm_jobs")
     features_temp_path = os.path.join(features_dir, "temp")
-    figures_dir = os.path.join(features_dir, "figures")
     exluded_participants_path = os.path.join(features_dir, "excluded_participants")
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
+    save_coregistration_QC_path = os.path.join(saved_outputs_path, "coregistration_QC")
+    save_covariance_figures_path = os.path.join(
+        saved_outputs_path, "Covariance_figures"
+    )
+    save_BEM_figures_path = os.path.join(saved_outputs_path, "BEM_figures")
+    save_transformation_path = os.path.join(
+        saved_outputs_path, "transformation_FIF_file"
+    )
     configurations = os.path.join(features_dir, "Configurations")
     mri_templates = os.path.join(features_dir, "MRI_templates")
+    save_grouping_effect = os.path.join(saved_outputs_path, "Grouping_effects")
 
     make_folder(features_dir)
     make_folder(features_log_path)
     make_folder(features_temp_path)
-    make_folder(figures_dir)
     make_folder(saved_outputs_path)
     make_folder(save_epochs_path)
     make_folder(save_psds_path)
+    make_folder(save_coregistration_QC_path)
+    make_folder(save_covariance_figures_path)
+    make_folder(save_BEM_figures_path)
+    make_folder(save_transformation_path)
     make_folder(configurations)
     make_folder(exluded_participants_path)
     make_folder(mri_templates)
+    make_folder(save_grouping_effect)
 
     # Normative models
     nm_dir = os.path.join(project_dir, "Normative_models")

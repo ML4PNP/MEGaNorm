@@ -3,6 +3,7 @@ import mne
 import json
 import glob
 import logging
+from scipy import io
 import warnings
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from gedai.gedai.gedai import (
 )  # TODO: This needs to be changed when meg branch is released
 from mne_icalabel import label_components
 from meganorm.src.source_localization import check_tsss
+from meganorm.utils import data_specific_utils
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
 from autoreject import AutoReject, set_matplotlib_defaults
@@ -23,6 +25,11 @@ import autoreject
 
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
+
+
+# Constants for tSSS
+_FRAME = {1: "meg", 4: "head"}
+_REQUIRED = ("origin", "int_order", "ext_order", "frame")
 
 
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
@@ -262,13 +269,15 @@ def AutoIca_with_IcaLabel(
     # Identify and exclude artifact components based on probability threshold of being an artifact
     bad_components = []
     for idx, label in enumerate(labels["labels"]):
+        probability = labels["y_pred_proba"][idx]
         if (
             label == physiological_noise_type
-            and labels["y_pred_proba"][idx] > iclabel_thr
+            and probability > iclabel_thr
         ):
             bad_components.append(idx)
+            logger.info("Component %d identified as %s with probability %.3f", idx, label,probability,)
 
-    logger.info("Number of bad Components identified by ICALabel:", len(bad_components))
+    logger.info(f"Number of bad Components identified by ICALabel: {len(bad_components)}")
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
@@ -438,10 +447,13 @@ def prepare_eeg_data(data, path):
             )
             data.set_montage(eeg_montage)
 
+            logger.info( "EEG montage set from %s with %d channel positions", montage_files[0], len(ch_positions),)
+
         except Exception as e:
-            print(f"Error setting montage: {e}")
-            print(
-                "Continuing without a montage. This may raise issues for ICA labeling."
+            logger.warning(
+                "Could not set EEG montage: %s"
+                " Continuing without a montage. This may raise issues for ICA labeling.", 
+                e,
             )
 
     return data
@@ -645,8 +657,10 @@ def preprocess(
     subject,
     freesurfer_dir,
     which_sensor: dict,
+    annotation_path=None,
     empty_room_recording=None,
     resampling_rate: int = 1000,
+    remove_nonfinite_segment_threshold: int = 5,
     digital_filter=True,
     rereference_method="average",
     n_component: int = 30,
@@ -762,17 +776,49 @@ def preprocess(
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
-    if event_record and event_of_interest:
+    # TODO: we need to remove this Hard-coded part ASAP. But for now,
+    # given that each aston MEG recording is composed of both eyes closed
+    # and eyes open, I seperated them like this:
+    if "sub-ast1_" in subject:
+        data = data_specific_utils._ast_get_rs_block(
+            data, block_index=event_of_interest
+        )
+        logger.info(f"The {event_of_interest}th block of this Aston data was selected.")
+        events = None
+    elif event_record and event_of_interest:
         if device == "MEGIN":
             events = mne.read_events(event_record)
         elif device == "CTF":
+            # TODO: stim_channel should be recieved from Users
             events = mne.find_events(data, stim_channel="UPPT001")
+        else:
+            events = mne.read_events(event_record)
     else:
         events = None
 
+    # Drop nonfinite if it is less than a thr
+    data, _ = annotate_nonfinite(
+        data,
+        picks="data",
+        description="BAD_nan",
+        remove_nonfinite_segment_threshold=remove_nonfinite_segment_threshold,
+        verbose=True,
+    )
+
     # head motion correction ----------------------
     movement_dur = None
-    if apply_Head_movement_correction and not which_sensor.get("eeg", False):
+
+    # externally-computed (e.g. Brainstorm) head-motion annotations -----
+    if annotation_path:
+        data, movement_dur = data_specific_utils._read_annotation_brainstorm(
+            data,
+            annotation_path=annotation_path,
+            annotation_lable="Bad",
+            logger=logger,
+        )
+        logger.info(f"Applied external head-motion annotations from {annotation_path}")
+
+    elif apply_Head_movement_correction and not which_sensor.get("eeg", False):
         data_temp = data.copy()
         empty_room_recording_temp = (
             empty_room_recording.copy() if empty_room_recording else None
@@ -1038,19 +1084,68 @@ def drop_noisy_meg_channels(
             "Therefore, bad channel detection using maxwell will be not applied."
         )
         logger.info(msg)
-        auto_noisy_chs = []
-        auto_flat_chs = []
+        # auto_noisy_chs = []
+        # auto_flat_chs = []
 
     else:
         if device == "CTF":
             data.apply_gradient_compensation(0)
 
-        auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-            data, return_scores=False, verbose=True, coord_frame="meg", ignore_ref=True
-        )
+        if device == "MEGIN":
+            auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
+                data,
+                return_scores=False,
+                verbose=True,
+                coord_frame="head",
+            )
+
+            if empty_room_recording:
+                eroom_auto_noisy_chs, eroom_auto_flat_chs = (
+                    mne.preprocessing.find_bad_channels_maxwell(
+                        empty_room_recording,
+                        return_scores=False,
+                        verbose=True,
+                        coord_frame="meg",
+                        calibration=None,
+                        cross_talk=None,
+                    )
+                )
+
+        else:
+            auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
+                data,
+                return_scores=False,
+                verbose=True,
+                coord_frame="meg",
+                ignore_ref=True,
+            )
+
+            if empty_room_recording:
+                try:
+                    eroom_auto_noisy_chs, eroom_auto_flat_chs = (
+                        mne.preprocessing.find_bad_channels_maxwell(
+                            empty_room_recording,
+                            return_scores=False,
+                            verbose=True,
+                            coord_frame="meg",
+                            ignore_ref=True,
+                            calibration=None,
+                            cross_talk=None,
+                        )
+                    )
+                except RuntimeError as e:
+                    logger.warning(
+                        f"Maxwell-based bad-channel detection failed on empty room: {e}. Skipping."
+                    )
+                    eroom_auto_noisy_chs, eroom_auto_flat_chs = [], []
+
         data.info["bads"] += auto_noisy_chs + auto_flat_chs
         if empty_room_recording:
-            data.info["bads"] += empty_room_recording.info["bads"]
+            data.info["bads"] += (
+                empty_room_recording.info["bads"]
+                + eroom_auto_noisy_chs
+                + eroom_auto_flat_chs
+            )
 
         logger.warning(
             f"Number of noisy channels that were droped from the subject's recording: {len(auto_noisy_chs)}"
@@ -1060,6 +1155,7 @@ def drop_noisy_meg_channels(
         )
 
     bads = data.info["bads"][:]
+    bads = list(set(data.info["bads"]))
     data.drop_channels(bads)
     if empty_room_recording:
         empty_room_recording.drop_channels(bads)
@@ -1189,9 +1285,8 @@ def apply_gradient_comp(ctf_meg_data, empty_room_recording=None, grade=3):
 
 def apply_tsss(
     data,
-    cross_talk_path,
-    calibration_path,
-    head_pos_path=None,
+    cross_talk_path=None,
+    calibration_path=None,
     empty_room_record=None,
     st_duration=10.0,
     st_correlation=0.98,
@@ -1258,37 +1353,49 @@ def apply_tsss(
     .. [2] MNE-Python documentation:
        https://mne.tools/stable/generated/mne.preprocessing.maxwell_filter.html
     """
+    if not check_tsss(data):
 
-    if head_pos_path:
-        head_pos = mne.chpi.read_head_pos(head_pos_path)
-    else:
-        head_pos = None
-
-    data_tsss = mne.preprocessing.maxwell_filter(
-        raw=data,
-        calibration=calibration_path,
-        cross_talk=cross_talk_path,
-        st_duration=st_duration,
-        st_correlation=st_correlation,
-        head_pos=head_pos,
-    )
-
-    if empty_room_record:
-
-        empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
-            raw_er=empty_room_record
-        )
-
-        empty_room_record = mne.preprocessing.maxwell_filter(
-            raw=empty_room_record,
+        data = mne.preprocessing.maxwell_filter(
+            raw=data,
             calibration=calibration_path,
             cross_talk=cross_talk_path,
             st_duration=st_duration,
             st_correlation=st_correlation,
-            head_pos=head_pos,
         )
+        if empty_room_record:
+            empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+                raw_er=empty_room_record, raw=data
+            )
+            empty_room_record = mne.preprocessing.maxwell_filter(
+                raw=empty_room_record,
+                calibration=calibration_path,
+                cross_talk=cross_talk_path,
+                st_duration=st_duration,
+                st_correlation=st_correlation,
+            )
 
-    return data_tsss, empty_room_record
+    else:
+        if empty_room_record is not None and not check_tsss(empty_room_record):
+            msg = "While this MEGIN rs-MEG has been corrected for environmental noise using tSSS, it " \
+            "has not been applied to the empty room recrding as well. This can cause problem in the " \
+            "LCMV source localization. Therefore, tSSS will be applied to the eroom. "
+            logger.info(msg)
+            tsss_info = tsss_params(data.info)
+
+            empty_room_record = mne.preprocessing.maxwell_filter_prepare_emptyroom(
+                empty_room_record, raw=data, bads="from_raw"
+            )
+            empty_room_record = mne.preprocessing.maxwell_filter(
+                empty_room_record,
+                destination=None,   # prepare_emptyroom already set dev_head_t from raw
+                **tsss_info,
+            )
+
+        else:
+            msg = "The data has already been preprocessed for environmental noise using tSSS."
+            logger.info(msg)
+
+    return data, empty_room_record
 
 
 def drop_noisy_segments(segments, z_thr):
@@ -1686,11 +1793,12 @@ def remove_environmental_noise(
 
     # If MEGIN device, apply tsss
     elif device == "MEGIN" and not same_environmental_noise_removal:
-        if not check_tsss(data):
-            pass  # TODO: to be added
-        else:
-            msg = "The data has already been preprocessed for environmental noise using tSSS."
-            logger.info(msg)
+        data, empty_room_recording = apply_tsss(
+            data,
+            empty_room_record=empty_room_recording,
+            st_duration=10.0,  # TODO: congig
+            st_correlation=0.98,  # TODO: congig
+        )
 
     elif apply_environmental_noise_ssp_with_eroom:
         if empty_room_recording:
@@ -2219,6 +2327,59 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
     )
 
 
+def _annotate_dropped_epochs(
+    raw, onset_samples, segments_length, description="BAD_dropped_epoch"
+):
+    """
+    Mark dropped-epoch time ranges as BAD annotations on the raw object.
+
+    Epoch-level rejection decisions leave no trace on the continuous data,
+    so anything computed from `raw` afterwards (e.g. a covariance matrix
+    for source localization) would silently include segments the analysis
+    discarded. This writes those ranges back as annotations so
+    `reject_by_annotation=True` consumers honour them.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Continuous recording, modified in place.
+    onset_samples : array-like of int
+        Epoch onsets in absolute samples, as stored in an MNE events array.
+    segments_length : float
+        Epoch length in seconds; used as the annotation duration.
+    description : str, optional
+        Annotation label. Default is "BAD_dropped_epoch".
+
+    Returns
+    -------
+    mne.io.Raw
+        The same object, with annotations appended.
+    """
+    onset_samples = np.asarray(onset_samples)
+    if onset_samples.size == 0:
+        return raw
+
+    sfreq = raw.info["sfreq"]
+    # match the offset convention used by annotate_nonfinite
+    offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
+    onsets = [max((s - raw.first_samp) / sfreq + offset, 0.0) for s in onset_samples]
+
+    annot = mne.Annotations(
+        onset=onsets,
+        duration=[segments_length] * len(onsets),
+        description=[description] * len(onsets),
+        orig_time=raw.info["meas_date"],
+    )
+    raw.set_annotations(raw.annotations + annot)
+
+    logger.info(
+        f"Annotated {len(onsets)} dropped epoch(s) as '{description}' "
+        f"({len(onsets) * segments_length:.1f}s excluded from later "
+        "annotation-aware steps such as covariance estimation)."
+    )
+    return raw
+
+
 def auto_reject_segmentation(
     raw,
     sampling_rate: float,
@@ -2233,6 +2394,7 @@ def auto_reject_segmentation(
     thresh_method="bayesian_optimization",
     random_state=42,
     segment_events=None,
+    annotate_bad_epochs=True,
 ):
     """
     Segment continuous data into fixed-length epochs and clean them
@@ -2240,12 +2402,17 @@ def auto_reject_segmentation(
 
     Crops the raw data (or uses precomputed segment events), builds
     fixed-length epochs, and fits AutoReject to automatically
-    interpolate or reject noisy epochs.
+    interpolate or reject noisy epochs. Epochs discarded by AutoReject
+    are optionally annotated back onto `raw` so that downstream
+    annotation-aware computations (e.g. `compute_raw_covariance`) exclude
+    them.
 
     Parameters
     ----------
     raw : mne.io.Raw
-        Continuous MEG/EEG recording.
+        Continuous MEG/EEG recording. Modified in place: cropped when
+        `segment_events` is None, and annotated when
+        `annotate_bad_epochs` is True.
     sampling_rate : float
         Sampling rate of the data in Hz.
     tmin : float, optional
@@ -2281,6 +2448,9 @@ def auto_reject_segmentation(
     segment_events : ndarray or None, optional
         Precomputed MNE-style events array defining epoch onsets. If
         provided, `tmin`/`tmax` cropping is skipped.
+    annotate_bad_epochs : bool, optional
+        If True, mark AutoReject-discarded epochs as 'BAD_autoreject'
+        annotations on `raw`. Default is True.
 
     Returns
     -------
@@ -2295,12 +2465,19 @@ def auto_reject_segmentation(
     ValueError
         If `tmax` is not negative, if no epochs could be created, or
         if fewer than 3 epochs are available for AutoReject.
+
+    Notes
+    -----
+    Epochs that AutoReject *interpolates* rather than discards are not
+    annotated: the repair exists only in `epochs_clean`, so `raw` still
+    holds the original samples at those times. Check the interpolated
+    percentage in the log if this matters for covariance estimation.
     """
 
     if tmax >= 0:
         raise ValueError("The 'tmax' must be a negative number")
 
-    tmax = int(np.shape(raw.get_data())[1] / sampling_rate + tmax)
+    tmax = int(raw.n_times / sampling_rate + tmax)
 
     if segment_events is None:
         raw.crop(tmin=tmin, tmax=tmax)
@@ -2356,6 +2533,18 @@ def auto_reject_segmentation(
 
     ar.fit(epochs)
     epochs_clean, reject_log = ar.transform(epochs, return_log=True)
+
+    if annotate_bad_epochs:
+        # reject_log is indexed over the epochs handed to AutoReject, which
+        # may already be fewer than `events` if reject_by_annotation dropped
+        # some at construction — so index epochs.events, never `events`.
+        bad_mask = np.asarray(reject_log.bad_epochs, dtype=bool)
+        _annotate_dropped_epochs(
+            raw,
+            onset_samples=epochs.events[bad_mask, 0],
+            segments_length=segments_length,
+            description="BAD_autoreject",
+        )
 
     total_epochs = len(epochs)
     retained_epochs = len(epochs_clean)
@@ -2453,6 +2642,7 @@ def extract_rs_blocks(
     if not pieces:
         err_msg = f"No RS blocks (id={rs_id}) longer than {segments_length}s found."
         logger.error(err_msg)
+        raise ValueError(err_msg)
 
     rs_raw = mne.concatenate_raws(pieces)
 
@@ -2475,3 +2665,171 @@ def extract_rs_blocks(
     logger.info(f"\nKept {len(pieces)} RS block(s), total {rs_raw.times[-1]:.1f}s")
     logger.info(f"Built {len(seg_events)} epoch event(s) of {segments_length:.0f}s")
     return rs_raw, seg_events
+
+
+def annotate_nonfinite(
+    raw,
+    picks="data",
+    description="BAD_nan",
+    remove_nonfinite_segment_threshold=5,
+    pad=0.0,
+    verbose=True,
+):
+    """Annotate short contiguous NaN/Inf intervals as BAD and zero-fill them.
+
+    A segment shorter than `remove_nonfinite_segment_threshold` seconds is
+    annotated (so ICA/epochs skip it) and its samples are zeroed (so filtering/
+    resampling can't propagate NaN). A segment at or above the threshold is
+    treated as a compromised file and raises ValueError, so the subject is
+    skipped rather than silently carrying NaN into later steps.
+    """
+    raw.load_data()  # zero-fill needs preloaded data
+
+    if picks == "data":
+        picks_idx = mne.pick_types(raw.info, meg=True, eeg=True, ref_meg=False)
+    else:
+        picks_idx = (
+            mne.pick_channels(raw.ch_names, picks)
+            if isinstance(picks, (list, tuple))
+            else picks
+        )
+
+    data = raw.get_data(picks=picks_idx)
+    sfreq = raw.info["sfreq"]
+
+    bad = ~np.isfinite(data).all(axis=0)
+    if not bad.any():
+        return raw, []
+
+    edges = np.diff(bad.astype(np.int8))
+    starts = np.where(edges == 1)[0] + 1
+    ends = np.where(edges == -1)[0]
+    if bad[0]:
+        starts = np.r_[0, starts]
+    if bad[-1]:
+        ends = np.r_[ends, len(bad) - 1]
+
+    offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
+
+    onsets, durations, descs, intervals = [], [], [], []
+    for s, e in zip(starts, ends):
+        onset = raw.times[s] + offset - pad
+        dur = (e - s + 1) / sfreq + 2 * pad
+
+        # only short segments are handled; a long one means a compromised file
+        if dur >= remove_nonfinite_segment_threshold:
+            err_msg = (
+                f"Non-finite segment of {dur:.1f}s at {raw.times[s]:.1f}s "
+                f"meets/exceeds {remove_nonfinite_segment_threshold}s — "
+                f"file likely compromised; skipping this recording."
+            )
+            logger.error(err_msg)
+            raise ValueError(err_msg)
+
+        onsets.append(max(onset, 0.0))
+        durations.append(dur)
+        descs.append(description)
+        intervals.append((float(raw.times[s]), float(raw.times[e]), int(e - s + 1)))
+        if verbose:
+            logger.info(
+                f"{description}: {raw.times[s]:.3f}–{raw.times[e]:.3f}s "
+                f"({e - s + 1} samples)"
+            )
+
+    annot = mne.Annotations(onsets, durations, descs, orig_time=raw.info["meas_date"])
+    raw.set_annotations(raw.annotations + annot)
+
+    # excise the actual NaN/Inf so filtering/resampling can't spread it
+    np.nan_to_num(raw._data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return raw, intervals
+
+
+def sss_records(info):
+    """All SSS expansions recorded in proc_history, newest-first as stored."""
+    out = []
+    for i, ph in enumerate(info.get("proc_history", [])):
+        m = ph.get("max_info") or {}
+        si = m.get("sss_info") or {}
+        if not si:
+            continue
+        st = m.get("max_st") or {}
+        out.append(
+            {
+                "idx": i,
+                "creator": ph.get("creator"),
+                "date": ph.get("date"),
+                "origin": si.get("origin"),
+                "frame": si.get("frame"),
+                "int_order": si.get("in_order"),
+                "ext_order": si.get("out_order"),
+                "nfree": si.get("nfree"),
+                "st_duration": st.get("buflen"),
+                "st_correlation": st.get("subspcorr"),
+                "has_cal": bool(m.get("sss_cal")),
+                "has_ctc": bool(m.get("sss_ctc")),
+            }
+        )
+    return out
+
+
+def _complete(r):
+    return all(r.get(k) is not None for k in _REQUIRED)
+
+
+def _is_tsss(r):
+    return (
+        r.get("st_duration") is not None
+        and r["st_duration"] > 0
+        and r.get("st_correlation") is not None
+    )
+
+
+def _find_tsss(records):
+    """The record describing the actual tSSS pass, or None.
+
+    Later records are re-expansions (e.g. MaxFilter -trans default) that
+    carry neither -st nor cal/ctc, so the earliest tSSS record is the one
+    whose parameters the data actually reflects.
+    """
+    cand = [r for r in records if _complete(r) and _is_tsss(r)]
+    if not cand:
+        return None
+    if len(cand) == 1:
+        return cand[0]
+    if any(r["date"] is None for r in cand):
+        logger.warning(
+            "Multiple tSSS records found but some lack timestamps; "
+            "using the first one (idx=%d).",
+            cand[0]["idx"],
+        )
+        return cand[0]
+    r = min(cand, key=lambda r: r["date"])
+    logger.warning(
+        "Multiple tSSS records found; using the earliest (idx=%d).", r["idx"]
+    )
+    return r
+
+
+def tsss_params(info):
+    """kwargs for mne.preprocessing.maxwell_filter reproducing the tSSS pass."""
+    r = _find_tsss(sss_records(info))
+    if r is None:
+        raise ValueError("No complete tSSS record found in proc_history of Raw data.")
+    frame = _FRAME.get(r["frame"])
+    if frame is None:
+        raise ValueError(f"Unknown coord frame code {r['frame']!r}")
+    logger.info(
+        "Reproducing tSSS from proc_history[%d] (%s, nfree=%s)",
+        r["idx"],
+        r["creator"],
+        r["nfree"],
+    )
+    return dict(
+        origin=np.asarray(r["origin"], dtype=float),
+        int_order=int(r["int_order"]),
+        ext_order=int(r["ext_order"]),
+        coord_frame=frame,
+        st_duration=float(r["st_duration"]),
+        st_correlation=float(r["st_correlation"]),
+    )

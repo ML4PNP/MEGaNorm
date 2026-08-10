@@ -12,6 +12,7 @@ import meganorm.src.mainParallel
 from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
+from meganorm.src.normative_modeling import anova_group_level_effect
 
 
 def progress_bar(current, total, bar_length=20):
@@ -123,6 +124,10 @@ def sbatchfile(
     sbatch_input_8 = "event_record=$8\n"
     sbatch_input_9 = "event_of_interest=$9\n"
     sbatch_input_10 = "device_type=${10}\n"
+    sbatch_input_11 = "pos_file=${11}\n"
+    sbatch_input_12 = "trans_file=${12}\n"
+    sbatch_input_13 = "annotation_path=${13}\n"
+    sbatch_input_14 = "layout_path=${14}\n"
 
     # if with_config:
     command = (
@@ -132,6 +137,13 @@ def sbatchfile(
         + mainParallel_path
         + " $source $target $subject $config"
     )
+    # command = (
+    #     "srun --cpus-per-task="
+    #     + str(core)
+    #     + " xvfb-run -a --server-args='-screen 0 1920x1080x24' python "
+    #     + mainParallel_path
+    #     + " $source $target $subject $config"
+    # )
 
     command += f" --line_freq $line_freq"
     command += f" --surfaces_dir $surfaces_dir"
@@ -139,6 +151,10 @@ def sbatchfile(
     command += " --event_record $event_record"
     command += " --event_of_interest $event_of_interest"
     command += " --device_type $device_type"
+    command += " --pos_file $pos_file"
+    command += " --trans_file $trans_file"
+    command += " --annotation_path $annotation_path"
+    command += " --layout_path $layout_path"
 
     bash_environment = [
         sbatch_init
@@ -164,6 +180,10 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_8
     bash_environment[0] += sbatch_input_9
     bash_environment[0] += sbatch_input_10
+    bash_environment[0] += sbatch_input_11
+    bash_environment[0] += sbatch_input_12
+    bash_environment[0] += sbatch_input_13
+    bash_environment[0] += sbatch_input_14
 
     bash_environment[0] += command
 
@@ -269,6 +289,10 @@ def submit_jobs(
         mri_surface = subjects[subject]["mri_surface"]
         line_freq = subjects[subject]["line_freq"]
         device = subjects[subject]["device"]
+        trans_path = subjects[subject].get("trans_path")
+        pos_path = subjects[subject].get("pos_path")
+        annotation_path = subjects[subject].get("annotation_path")
+        layout_path = subjects[subject].get("layout_path")
 
         command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
@@ -278,6 +302,10 @@ def submit_jobs(
         command = add_command(event_record, command)
         command = add_command(event_of_interest, command)
         command = add_command(device, command)
+        command = add_command(pos_path, command)
+        command = add_command(trans_path, command)
+        command = add_command(annotation_path, command)
+        command = add_command(layout_path, command)
 
         subprocess.check_call(command, shell=True)
 
@@ -322,8 +350,11 @@ def check_jobs_status(username, start_time, delay=20):
         if failed_job_names:
             print("Failed Jobs:", ", ".join(failed_job_names))
 
-        # Genuinely nothing left in flight -> stop monitoring.
-        if job_counts["PENDING"] + job_counts["RUNNING"] == 0:
+        n = (
+            job_counts["PENDING"] + job_counts["RUNNING"] - 1
+        )  # TODO: this "-1" should be removed: solution use job-id instead of time
+
+        if n <= 0:
             break
 
         time.sleep(delay)
@@ -411,43 +442,76 @@ def check_user_jobs(username, start_time):
         return empty_counts.copy(), [], False
 
 
-def collect_results(target_dir, subjects, temp_path, file_name="features", clean=True):
+def collect_results(
+    target_dir,
+    subjects,
+    temp_path,
+    file_name="features",
+    clean=True,
+    append=True,
+):
     """
-    Collects and merges the results of all jobs into a single file.
+    Collect per-subject result files and merge them into a single CSV.
+
+    If ``append`` is True and an existing ``file_name``.csv is present in
+    ``target_dir``, the newly extracted subjects are added to it. Subjects
+    present in both the existing file and the new results are updated with
+    the new values (new rows win).
 
     Parameters
     ----------
     target_dir : str
-        Path to the target directory where the merged results will be saved.
+        Directory where the merged results CSV is written.
     subjects : dict
-        A dictionary with subject names as keys and their corresponding file paths as values.
+        Subject names (keys) whose per-subject CSVs are read from ``temp_path``.
     temp_path : str
-        Path to the temporary directory where individual subject result files are stored.
+        Directory holding the per-subject ``<subject>.csv`` files.
     file_name : str, optional
-        The name of the file where the merged results will be saved. Default is 'features'.
+        Base name of the merged output file. Default "features".
     clean : bool, optional
-        Whether to remove the temporary files after merging the results. Default is True.
-
-    Returns
-    -------
-    None
-        This function does not return anything but writes the merged results to a CSV file in the target directory.
+        Remove ``temp_path`` after merging. Default True.
+    append : bool, optional
+        Merge into an existing output file instead of overwriting it.
+        Default True.
     """
-
     if not os.path.isdir(target_dir):
         os.makedirs(target_dir)
 
-    all_features = []
+    out_path = os.path.join(target_dir, file_name + ".csv")
+
+    new_features = []
     for subject in subjects.keys():
         try:
-            all_features.append(
-                pd.read_csv(os.path.join(temp_path, subject + ".csv"), index_col=0)
-            )
-        except:
+            df = pd.read_csv(os.path.join(temp_path, subject + ".csv"), index_col=0)
+        except Exception:
             continue
-    features = pd.concat(all_features)
-    features.to_csv(os.path.join(target_dir, file_name + ".csv"))
-    if clean:
+        # tag each row with its subject so we can dedup on rerun
+        df["subject"] = subject
+        new_features.append(df)
+
+    if not new_features:
+        print("No new per-subject result files were found; nothing collected.")
+        # still clean temp if asked
+        if clean and os.path.isdir(temp_path):
+            shutil.rmtree(temp_path)
+        return
+
+    features = pd.concat(new_features)
+
+    if append and os.path.exists(out_path):
+        existing = pd.read_csv(out_path, index_col=0)
+        if "subject" not in existing.columns:
+            # older file without the tag; treat its index as the subject id
+            existing["subject"] = existing.index
+        combined = pd.concat([existing, features])
+        # new rows come last, so keep="last" lets reruns overwrite old values
+        combined = combined.drop_duplicates(subset="subject", keep="last")
+    else:
+        combined = features
+
+    combined.to_csv(out_path)
+
+    if clean and os.path.isdir(temp_path):
         shutil.rmtree(temp_path)
 
 
@@ -464,6 +528,7 @@ def auto_parallel_feature_extraction(
     freesurfer_home=None,
     freesurfer_license=None,
     max_try=3,
+    combine_features_and_demographics=False,
 ):
     """
     Automatically submits, monitors, and reruns jobs for feature extraction on multiple subjects,
@@ -524,6 +589,15 @@ def auto_parallel_feature_extraction(
     features_dir = os.path.join(project_dir, "Features")
     subjects = merge_datasets_with_glob(datasets)
     conf = meganorm.utils.IO.Config.load(path=config_file_path)
+
+    from meganorm.src.source_localization import produce_aparc_a2009s_aseg
+
+    if conf.apply_mri_template:
+        produce_aparc_a2009s_aseg(
+            save_path=conf.freesurfer_template_path,
+            freesurfer_home=freesurfer_home,
+            freesurfer_license=freesurfer_license,
+        )
 
     all_qc_passed_samples = []
     all_qc_failed_samples = []
@@ -646,14 +720,25 @@ def auto_parallel_feature_extraction(
         )
 
     # Merge demographic data and extracted f-IDPS
-    data_base_dirs = [values["base_dir"] for values in datasets.values()]
-    dataset_names = list(datasets.keys())
-    df = merge_fidp_demo(
-        datasets_paths=data_base_dirs,
-        features_dir=features_dir,
-        dataset_names=dataset_names,
-    )
-    df.to_csv(os.path.join(features_dir, "all_features.csv"))
+    if combine_features_and_demographics:
+        data_base_dirs = [values["base_dir"] for values in datasets.values()]
+        dataset_names = list(datasets.keys())
+        df = merge_fidp_demo(
+            datasets_paths=data_base_dirs,
+            features_dir=features_dir,
+            dataset_names=dataset_names,
+        )
+        df.to_csv(os.path.join(features_dir, "all_features.csv"))
+
+        for batch_effect in ["site", "sex"]:
+            anova_group_level_effect(
+                df,
+                batch_effect,
+                save_tag="raw",
+                save_output_path=os.path.join(
+                    project_dir, "Features/Saved_outputs/Grouping_effects"
+                ),
+            )
 
     return failed_jobs
 
@@ -671,6 +756,7 @@ def sbatch_feature_extraction_runner(
     auto_collect=True,
     max_try=5,
     which_subjects=None,
+    combine_features_and_demographics=False,
 ):
     """
     Set up and generate a SLURM sbatch script that launches the full
@@ -757,6 +843,7 @@ def sbatch_feature_extraction_runner(
         "max_try": max_try,
         "which_subjects": which_subjects,
         "datasets": datasets,
+        "combine_features_and_demographics": combine_features_and_demographics,
     }
 
     features_dir = os.path.join(project_dir, "Features")

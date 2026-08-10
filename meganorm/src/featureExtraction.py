@@ -50,7 +50,7 @@ def abs_canonical_power(
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
     band_power = np.trapezoid(psd[band_indices], freqs[band_indices])
 
-    return np.log10(band_power)
+    return band_power
 
 
 def rel_canonical_power(
@@ -130,7 +130,7 @@ def abs_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     )
 
     band_power = np.trapezoid(psd[peak_range_indices], freqs[peak_range_indices])
-    return np.log10(band_power)
+    return band_power
 
 
 def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, band_name):
@@ -182,7 +182,7 @@ def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     return band_power / total_power
 
 
-def summarizeFeatures(df, device, which_layout, which_sensor):
+def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     """
     Summarizes a feature DataFrame by averaging channels based on a specified sensor layout.
 
@@ -191,9 +191,9 @@ def summarizeFeatures(df, device, which_layout, which_sensor):
     or predefined brain regions (e.g., lobes).
 
     The function computes the mean of selected channels (e.g., MEG, EEG) according to a layout
-    specified in a JSON file. The layout file is selected based on the recording device
-    (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional (lobe-level)
-    parcellation.
+    specified in a JSON file. The layout file is selected based on the specified layout path or when none is given, 
+    on the recording device (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional 
+    (lobe-level) parcellation.
 
     Example layout for regional parcellation:
         "FIF_MEG_LOBE": {
@@ -220,6 +220,8 @@ def summarizeFeatures(df, device, which_layout, which_sensor):
         Layout type to use: 'all' for global averaging or 'lobe' for region-based averaging.
     which_sensor : dict
         Dictionary indicating which sensor modalities to include (e.g., {'meg': True, 'eeg': False}).
+    layout_path: str,  optional
+        Path to a custom JSON layout file. If None, a default layout is loaded based on recording device
 
     Returns
     -------
@@ -227,26 +229,54 @@ def summarizeFeatures(df, device, which_layout, which_sensor):
         A new DataFrame where columns represent averaged parcels and rows represent samples.
     """
     df.dropna(axis=0, how="all", inplace=True)
-    summrized_df = pd.DataFrame(index=df.index)
+    summarized_df = pd.DataFrame(index=df.index)
 
     # TODO: If both meg and eeg is True, this won't work!
     if which_layout == "all":
-        summrized_df[which_layout] = df.mean(axis=1)
+        summarized_df[which_layout] = df.mean(axis=1)
 
     else:
         modality = [
-            s_type for s_type, if_alculate in which_sensor.items() if if_alculate
+            s_type
+            for s_type, if_alculate in which_sensor.items()
+            if if_alculate
         ][0]
 
         layout_name = (
-            device.upper() + "_" + modality.upper() + "_" + which_layout.upper()
+            device.upper()
+            + "_"
+            + modality.upper()
+            + "_"
+            + which_layout.upper()
         )
-        layout = load_specific_layout(device.upper(), layout_name)
+
+        if layout_path:
+            with open(layout_path, "r") as file:
+                layouts = json.load(file)
+
+            layout = layouts[layout_name]
+
+            logger.info(
+                "User-specified layout '%s' from %s is used.",
+                layout_name,
+                layout_path,
+            )
+
+        else:
+            layout = load_specific_layout(
+                device.upper(),
+                layout_name,
+            )
+
+            logger.info(
+                "Default layout '%s' is used.",
+                layout_name,
+            )
 
         for parcel_name, channels_list in layout.items():
-            summrized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
+            summarized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
 
-    return summrized_df
+    return summarized_df
 
 
 def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
@@ -278,7 +308,7 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     if power_den == 0:
         return np.nan
 
-    return np.log10(power_num / power_den)
+    return power_num / power_den
 
 
 def compute_hemispheric_asymmetry(
@@ -364,6 +394,7 @@ def create_feature_container(
         "Offset",
         "Exponent",
         "Exponent_2",
+        "Knee_Frequency",
     ]
 
     # Features that are per-band but use ratio naming (num_over_den) instead of band names
@@ -447,6 +478,7 @@ def feature_extract(
     aperiodic_mode: str,
     min_r_squared: float,
     power_band_ratios_list: List[tuple],
+    layout_path: str | None = None,
 ) -> pd.DataFrame:
     """
     Extract features from FOOOF models for each channel and frequency band.
@@ -588,6 +620,18 @@ def feature_extract(
                 feature_arr = spectral_model.get_aperiodic_params()[2]
                 feature_container = add_feature(
                     feature_container, feature_arr, "Exponent_2", channel_name, ""
+                )
+
+        if feature_categories.get("Knee_Frequency"):
+            if aperiodic_mode == "knee" and isinstance(
+                spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched
+            ):
+                feature_container = add_feature(
+                    feature_container,
+                    spectral_model.get_aperiodic_params()[3],
+                    "Knee_Frequency",
+                    channel_name,
+                    "",
                 )
 
         # isolate periodic parts of signals
@@ -801,6 +845,7 @@ def feature_extract(
             device=device,
             which_layout=which_layout,
             which_sensor=which_sensor,
+            layout_path=layout_path,
         )
 
     # Flatten the DataFrame and create neww column names
@@ -1067,7 +1112,11 @@ class PYRASADecomposer(SpectralDecomposer):
         params.append(aperiodic_params_of_interest["Offset"].item())
         # exponent
         params.append(aperiodic_params_of_interest["Exponent_1"].item())
-        params.append(aperiodic_params_of_interest["Exponent_2"].item())
+        if self.mode == "knee":
+            params.append(aperiodic_params_of_interest["Exponent_2"].item())
+            params.append(aperiodic_params_of_interest["Knee Frequency (Hz)"].item())
+        else:
+            params.extend([np.nan, np.nan])
 
         return params
 
@@ -1091,21 +1140,41 @@ class PYRASADecomposer(SpectralDecomposer):
 
     def get_peak_params(self, fmin, fmax):
         """
-        Placeholder for peak parameter extraction (not implemented for
-        PYRASA models).
+        Extract peak parameters within a given frequency range.
 
         Parameters
         ----------
         fmin : float
-            Lower bound of the frequency band.
+            Lower bound of the frequency range.
         fmax : float
-            Upper bound of the frequency band.
+            Upper bound of the frequency range.
 
         Returns
         -------
-        None, None
+        dominant_peak : tuple or None
+            (center frequency, power, width) of the strongest peak in the
+            range, or None if no peak is found.
+        band_peaks : list of tuple or None
+            All peaks found within the frequency range, or None if none
+            are found.
         """
-        return None, None  # TODO
+        try:
+            df = self.model.periodic.get_peaks(cut_spectrum=(fmin, fmax))
+        except ValueError as e:
+            logger.warning(
+                f"Peak detection failed for {self.ch_name} in [{fmin}, {fmax}] Hz: {e}"
+            )
+            return None, None
+
+        sel = df.loc[df["ch_name"] == self.ch_name, ["cf", "pw", "bw"]].dropna()
+
+        if sel.empty:
+            return None, None
+
+        band_peaks = [tuple(row) for row in sel.to_numpy(dtype=float)]
+        dominant_peak = max(band_peaks, key=lambda x: x[1])
+
+        return dominant_peak, band_peaks
 
     def get_r_squared(self):
         """

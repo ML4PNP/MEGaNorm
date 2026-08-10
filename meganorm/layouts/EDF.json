@@ -69,7 +69,7 @@
     },
 
     "EDF_EEG_LOBE": {
-        "frontal_left": [
+        "frontal_lh_": [
             "Fp1",
             "AF7",
             "AF3",
@@ -82,7 +82,7 @@
             "FC1"
         ],
 
-        "frontal_right": [
+        "frontal_rh_": [
             "Fp2",
             "AF4",
             "AF8",
@@ -95,35 +95,35 @@
             "FC6"
         ],
 
-        "central_left": [
+        "central_lh_": [
             "FT7",
             "C5",
             "C3",
             "C1"
         ],
 
-        "central_right": [
+        "central_rh_": [
             "FT8",
             "C2",
             "C4",
             "C6"
         ],
 
-        "temporal_left": [
+        "temporal_lh_": [
             "FT9",
             "T7",
             "TP9",
             "TP7"
         ],
 
-        "temporal_right": [
+        "temporal_rh_": [
             "FT10",
             "T8",
             "TP10",
             "TP8"
         ],
 
-        "parietal_left": [
+        "parietal_lh_": [
             "CP5",
             "CP3",
             "CP1",
@@ -136,7 +136,7 @@
             "PO3"
         ],
 
-        "parietal_right": [
+        "parietal_rh_": [
             "CP2",
             "CP4",
             "CP6",
@@ -149,11 +149,11 @@
             "PO10"
         ],
 
-        "occipital_left": [
+        "occipital_lh_": [
             "O1"
         ],
 
-        "occipital_right": [
+        "occipital_rh_": [
             "O2"
         ]
     }

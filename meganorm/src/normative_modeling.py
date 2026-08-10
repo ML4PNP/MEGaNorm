@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import arviz as az
+import pingouin as pg
 import xarray as xr
 import pymc as pm
 import json
@@ -726,3 +727,48 @@ def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
         slope_change_x,
         slope_change_y,
     )
+
+
+def anova_group_level_effect(
+    data,
+    batch_effect,
+    ignore_columns=["age", "sex", "site", "eyes", "diagnosis"],
+    save_tag="",
+    save_output_path=False,
+):
+
+    res = {}
+
+    for name in data.columns:
+
+        if name in ignore_columns or name == batch_effect:
+            continue
+            
+        sub = pd.DataFrame(
+            {
+                name: data[name],
+                batch_effect: data[batch_effect],
+            }
+        )
+        sub = sub.replace([np.inf, -np.inf], np.nan)
+        sub = sub.dropna()
+
+        try:
+            aov = pg.anova(data=sub, dv=name, between=batch_effect, detailed=False)
+            p = float(aov["p_unc"].iloc[0])
+            np2 = float(aov["np2"].iloc[0])
+        except :
+            p = np2 = None
+
+        res[name] = {"p_val": p, "np2": np2}
+
+    if save_output_path:
+        save_path = os.path.join(
+            save_output_path, f"{batch_effect}_group_effect_{save_tag}.json"
+        )
+        with open(save_path, "w") as file:
+            json.dump(res, file, indent=2)
+    else:
+        print(res)
+
+    return res

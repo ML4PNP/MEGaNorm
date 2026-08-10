@@ -1,11 +1,21 @@
+import os
+
+os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
+os.environ.setdefault("MPLBACKEND", "Agg")
+from mne.io.constants import FIFF
 import matplotlib.pyplot as plt
+import nibabel as nib
 from pathlib import Path
 from joblib import parallel_config, parallel_backend
+from mne.io.constants import FIFF
 import subprocess
 import numpy as np
 import logging
 import re as re
 import shutil
+from pathlib import Path
+from meganorm.utils import data_specific_utils
 import time
 import mne
 import joblib
@@ -13,6 +23,7 @@ import glob
 import json
 import pandas as pd
 import os
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 logger = logging.getLogger(__name__)
 
@@ -342,14 +353,22 @@ def rank_based_quality_control(
     return
 
 
-def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwargs):
+def corregistration(
+    data,
+    subject,
+    subjects_dir,
+    participant_id,
+    trans_save_path=False,
+    scaled_mri_save_path=False,
+    **kwargs,
+):
     """
     Coregister MEG data to MRI, with optional scaling to a template MRI.
 
     Same as before, but if `coregisteration_scale_mode` is set (e.g. "uniform"),
     a scale factor is estimated during fitting and a physically scaled copy of
     the subject's MRI is written to `subjects_dir` as `{subject}_scaled`.
-    Downstream steps (BEM, source space, parcellation) must use the returned
+    Downstream steps (source space, parcellation) must use the returned
     `fit_subject` name, not the original template name.
 
     Returns
@@ -359,22 +378,6 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
         The subject name to use for all subsequent anatomy-dependent steps
         (equals `subject` if no scaling was applied, else `f"{subject}_scaled"`).
     """
-
-    if not os.path.exists(
-        os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
-    ) or kwargs.get("make_new_watershed_bem"):
-
-        logger.info("bem surface was not found; Creating a bem surface for the subject")
-
-        mne.bem.make_watershed_bem(
-            subject=subject,
-            subjects_dir=subjects_dir,
-            overwrite=True,
-            gcaatlas=kwargs.get("gcaatlas", True),
-            volume="T1",
-            preflood=kwargs.get("preflood", None),
-        )
-
     coreg = mne.coreg.Coregistration(
         data.info,
         subject=subject,
@@ -385,86 +388,113 @@ def corregistration(data, subject, subjects_dir, participant_id, plot_3d, **kwar
     scale_mode = kwargs.get(
         "coregisteration_scale_mode", None
     )  # None, "uniform", "3-axis"
-    if scale_mode:
+    if scale_mode and kwargs.get("apply_mri_template", False):
         coreg.set_scale_mode(scale_mode)
 
+    logger.info("Fitting corregisteration using fiducials...")
     coreg.fit_fiducials()
 
-    coreg.fit_icp(
-        n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
-        nasion_weight=kwargs.get("coregisteration_initial_nasion_weight", 2.0),
-        verbose=True,
-    )
+    n_extra, _, _, _ = check_digitization_points(data, logger)
 
-    coreg.omit_head_shape_points(
-        distance=kwargs.get("coregisteration_distance_thr", 5.0 / 1000)
-    )
-
-    coreg.fit_icp(
-        n_iterations=kwargs.get("coregisteration_final_n_iterations", 20),
-        nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0),
-        verbose=True,
-    )
-
-    distance_head_mri = coreg.compute_dig_mri_distances()
-    logger.info(
-        f"Average and STD distance between head shape points and MRI surface: "
-        f"{np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
-    )
-
-    fit_subject = subject
-    if scale_mode:
-        scale_id = participant_id or subject
-        scaled_subject = f"{scale_id}_scaled"
-        scaled_bem_exists = os.path.exists(
-            os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
+    if n_extra > 0:
+        logger.info("Applying ICP method using head shape points...")
+        coreg.fit_icp(
+            n_iterations=kwargs.get("coregisteration_initial_n_iterations", 6),
+            nasion_weight=kwargs.get("coregisteration_initial_nasion_weight", 2.0),
+            verbose=True,
         )
 
-        if not scaled_bem_exists or kwargs.get("make_new_watershed_bem"):
-            logger.info(f"Estimated MRI scale factor: {coreg.scale}")
-            mne.scale_mri(
-                subject_from=subject,
-                subject_to=scaled_subject,
-                scale=coreg.scale,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                labels=True,
-                skip_fiducials=True,
-            )
-            logger.info(f"Scaled MRI subject written: {scaled_subject}")
+        coreg.omit_head_shape_points(
+            distance=kwargs.get("coregisteration_distance_thr", 5.0 / 1000)
+        )
 
-            mne.bem.make_watershed_bem(
-                subject=scaled_subject,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                gcaatlas=kwargs.get("gcaatlas", True),
-                volume="T1",
-                preflood=kwargs.get("preflood", None),
-            )
-            logger.info(
-                f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
-            )
-        else:
-            logger.info(f"Using existing scaled subject: {scaled_subject}")
+        coreg.fit_icp(
+            n_iterations=kwargs.get("coregisteration_final_n_iterations", 20),
+            nasion_weight=kwargs.get("coregisteration_final_nasion_weight", 10.0),
+            verbose=True,
+        )
+
+        distance_head_mri = coreg.compute_dig_mri_distances()
+        logger.info(
+            f"Average and STD distance between head shape points and MRI surface: "
+            f"{np.mean(distance_head_mri)} and {np.std(distance_head_mri)}"
+        )
+    else:
+        logger.warning("Skipping ICP method due to missing head shape points.")
+
+    fit_subject = subject
+    if scale_mode and kwargs.get("apply_mri_template", False):
+        # scale_id = participant_id or subject
+        scaled_subject = f"{participant_id}_scaled"
+        # scaled_bem_exists = os.path.exists(
+        #     os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
+        # )
+
+        # if not scaled_bem_exists:
+        logger.info(f"Estimated MRI scale factor: {coreg.scale}")
+        mne.scale_mri(
+            subject_from=subject,
+            subject_to=scaled_subject,
+            scale=coreg.scale,
+            subjects_dir=subjects_dir,
+            overwrite=True,
+            labels=True,
+            annot=True,
+            skip_fiducials=True,
+        )
+        # Note that scale_mri also scale labels and bem models internally
+        logger.info(f"Scaled MRI subject written: {scaled_subject}")
+
+        if scaled_mri_save_path:
+            src = Path(subjects_dir) / scaled_subject
+            dst_root = Path(scaled_mri_save_path)
+            dst = dst_root / scaled_subject
+            dst_root.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.move(str(src), str(dst))
+            subjects_dir = dst_root
+            logger.info(f"Scaled MRI moved to {dst}")
 
         fit_subject = scaled_subject
 
-    if plot_3d:
-        plot_kwargs = dict(
-            subject=fit_subject,
-            subjects_dir=subjects_dir,
-            surfaces="head",
-            dig=True,
-            eeg=[],
-            meg="sensors",
-            show_axes=True,
-            coord_frame="meg",
-        )
-        fig = mne.viz.plot_alignment(data.info, trans=coreg.trans, **plot_kwargs)
+        # TODO: is it necessary to make a new watershed mode after scaling?
+        # if kwargs.get("force_new_watershed_bem", False):
+        #     pass
+        # mne.bem.make_watershed_bem(
+        #     subject=scaled_subject,
+        #     subjects_dir=subjects_dir,
+        #     overwrite=True,
+        #     gcaatlas=kwargs.get("gcaatlas", True),
+        #     volume="T1",
+        #     preflood=kwargs.get("preflood", None),
+        # )
+        # logger.info(
+        #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
+        # )
+        # else:
+        #     logger.info(f"Using existing scaled subject: {scaled_subject}")
+
+        
+    # TODO
+    # if kwargs.get("take_screenshot_of_coregisteration", True):
+    #     save_coreg_screenshots(
+    #         info=data.info,
+    #         trans=coreg.trans,
+    #         subject=fit_subject,
+    #         subjects_dir=subjects_dir,
+    #         out_dir=qc_out_dir,
+    #         participant_id=fit_subject,
+    #         **kwargs,
+    #     )
+
+    if kwargs.get("save_transformation_FIF_file", False):
+        trans_save_path = os.path.join(trans_save_path, f"{fit_subject}-trans.fif")
+        mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
     logger.info("Automatic coregisteration is done!")
 
-    return coreg, fit_subject
+    return coreg, fit_subject, subjects_dir
 
 
 def forward_solution(
@@ -591,7 +621,7 @@ def inverse_solution(
     segments,
     fwd,
     inverse_operator,
-    figures_path,
+    project_dir,
     which_sensor_dict,
     source_space=None,
     empty_room_recording=None,
@@ -646,17 +676,25 @@ def inverse_solution(
     """
     # if tSSS has already been applied, return the rank in info
     if check_tsss(meg_data=data):
-        segments_rank = mne.compute_rank(segments, rank="info")
+        data_rank = mne.compute_rank(data, rank="info")
     else:
         # this estimates the rank after scaling
-        segments_rank = mne.compute_rank(segments, rank=None)
+        data_rank = mne.compute_rank(data, rank=None)
 
     if empty_room_recording is not None:
         noise_cov = mne.compute_raw_covariance(
             empty_room_recording,
             method=kwargs.get("covariance_method", "empirical"),
             n_jobs=kwargs.get("n_jobs", 1),
-        )  # TODO: change to epoch later
+        )  
+
+        save_cov_figures(
+            noise_cov, 
+            empty_room_recording.info, 
+            out_dir=os.path.join(project_dir, "Saved_outputs", "Covariance_figures"),
+            subject=subject, 
+            tag="noiseCovariance", 
+            logger=logger)
 
         logger.info(
             "Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten"
@@ -665,14 +703,14 @@ def inverse_solution(
 
         noise_rank = mne.compute_rank(empty_room_recording)
 
-        mag_in_data = bool("mag" in segments_rank)
-        grad_in_data = bool("grad" in segments_rank)
+        mag_in_data = bool("mag" in data_rank)
+        grad_in_data = bool("grad" in data_rank)
         if mag_in_data:
-            if segments_rank["mag"] < noise_rank["mag"]:
-                noise_rank["mag"] = segments_rank["mag"]
+            if data_rank["mag"] < noise_rank["mag"]:
+                noise_rank["mag"] = data_rank["mag"]
         if grad_in_data:
-            if segments_rank["grad"] < noise_rank["grad"]:
-                noise_rank["grad"] = segments_rank["grad"]
+            if data_rank["grad"] < noise_rank["grad"]:
+                noise_rank["grad"] = data_rank["grad"]
 
         # According to MNE: When a noise covariance is used for whitening,
         # this should reflect the rank of that covariance, otherwise
@@ -691,9 +729,9 @@ def inverse_solution(
         )
 
         noise_cov = mne.make_ad_hoc_cov(
-            info=segments.info, std=kwargs.get("ad_hoc_cov_std", None)
+            info=data.info, std=kwargs.get("ad_hoc_cov_std", None)
         )
-        lcmv_rank = segments_rank.copy()
+        lcmv_rank = data_rank.copy()
 
     if inverse_operator == "lcmv":
         logger.info(
@@ -702,13 +740,22 @@ def inverse_solution(
             f"to shift the matrix so it can be invertible. Furthermore, we will use {kwargs.get('beamformer_pick_ori', 'max-power')} for `pick_ori`."
         )
 
-        # compute segments covaraince
-        segments_cov = mne.compute_covariance(
-            segments,
+        # compute data covaraince
+        data_cov = mne.compute_raw_covariance(
+            data,
             method=kwargs.get("covariance_method", "empirical"),
-            rank=lcmv_rank,  # TODO: this should be removed
+            reject_by_annotation=True,
+            # rank=lcmv_rank,  # TODO: this should be removed
             n_jobs=kwargs.get("n_jobs", 1),
         )
+
+        save_cov_figures(
+            data_cov, 
+            data.info, 
+            out_dir=os.path.join(project_dir, "Saved_outputs", "Covariance_figures"),
+            subject=subject, 
+            tag="dataCovariance", 
+            logger=logger)
 
         if not kwargs.get("beamforme_depth") and source_space == "volumetric":
             error_msg = (
@@ -736,7 +783,7 @@ def inverse_solution(
         filters = mne.beamformer.make_lcmv(
             segments.info,
             forward=fwd,
-            data_cov=segments_cov,
+            data_cov=data_cov,
             noise_cov=noise_cov,
             reg=kwargs.get(
                 "inverse_regularization_value", 0.05
@@ -955,7 +1002,7 @@ def parcellate(subject, subjects_dir, stc, src, source_space, **kwargs):
         stcs=stc,
         labels=labels,
         src=src,
-        mode=kwargs.get("parcellation_mode", "auto"),
+        mode=kwargs.get("parcellation_mode", "mean"),
         return_generator=False,
     )
 
@@ -965,6 +1012,7 @@ def parcellate(subject, subjects_dir, stc, src, source_space, **kwargs):
 
 
 def source_localization(
+    recording_path,
     project_dir,
     subject,
     subjects_dir,
@@ -978,6 +1026,7 @@ def source_localization(
     inverse_operator="lcmv",
     plot_3d=False,
     qc_ignore=[],
+    precomputed_trans_path=None,
     empty_room_recording=None,
     **kwargs,
 ):
@@ -1040,33 +1089,87 @@ def source_localization(
     if kwargs.get("freesurfer_license"):
         os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
 
+    if kwargs.get("which_sensor", "meg") in ["meg", "grad", "mag"]:
+        new_dig = [d for d in data.info["dig"] if d["kind"] != FIFF.FIFFV_POINT_EEG]
+        with data.info._unlock():
+            data.info["dig"] = new_dig
+
     participant_id = subject
     if kwargs.get("apply_mri_template"):
         subject, subjects_dir = prepare_template(
             subject=subject, project_dir=project_dir, **kwargs
         )
 
-    coreg, subject = corregistration(
-        data=data,
-        subject=subject,
-        subjects_dir=subjects_dir,
-        participant_id=participant_id,
-        plot_3d=plot_3d,
-        **kwargs,
-    )
+    if not os.path.exists(
+        os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
+    ) or kwargs.get("force_new_watershed_bem"):
+
+        logger.info("bem surface was not found; Creating a bem surface for the subject")
+
+        mne.bem.make_watershed_bem(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            overwrite=True,
+            gcaatlas=kwargs.get("gcaatlas", True),
+            volume="T1",
+            preflood=kwargs.get("preflood", None),
+        )
+    
+    orientation = kwargs.get("bem_plot_orientations", "coronal")
+    if orientation is not None:
+        save_bem_figure(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            out_dir=os.path.join(project_dir, "Saved_outputs", "BEM_figures"),
+            orientation=orientation,
+            logger=logger,
+        )
+    
+    if precomputed_trans_path:
+        transformation_matrix = mne.read_trans(precomputed_trans_path)
+        logger.info(
+            "A precomputed transformation matrix was loaded for corregistration"
+        )
+    # This part is hardcoded and must be changed ASAP.
+    elif "sub-ON" in subject:
+        matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
+        if not matches:
+            err_msg = f"No coordsystem.json found for {subject} in {Path(recording_path).parent}"
+            logger.error(err_msg)
+            raise FileNotFoundError(err_msg)
+        coreg, _ = data_specific_utils._trans_from_nimh(
+            data, matches[0], subject, subjects_dir
+        )
+        transformation_matrix = coreg.trans
+    else:
+        coreg, subject, subjects_dir = corregistration(
+            data=data,
+            subject=subject,
+            subjects_dir=subjects_dir,
+            participant_id=participant_id,
+            trans_save_path=os.path.join(
+                project_dir, "Saved_outputs", "transformation_FIF_file"
+            ),
+            scaled_mri_save_path=os.path.join(
+                project_dir, "Saved_outputs", "MRI_templates"
+            ),
+            **kwargs,
+        )
+        transformation_matrix = coreg.trans
 
     fwd, src = forward_solution(
         subject=subject,
         subjects_dir=subjects_dir,
         data=data,
-        transformation_matrix=coreg.trans,
+        transformation_matrix=transformation_matrix,
         conductivity=conductivity,
         source_space=source_space,
         which_sensor_dict=which_sensor_dict,
         **kwargs,
     )
 
-    del coreg
+    if "coreg" in locals():
+        del coreg
 
     stc = inverse_solution(
         subject=subject,
@@ -1076,7 +1179,7 @@ def source_localization(
         inverse_operator=inverse_operator,
         source_space=source_space,
         empty_room_recording=empty_room_recording,
-        figures_path=figures_path,
+        project_dir=project_dir,
         qc_ignore=qc_ignore,
         which_sensor_dict=which_sensor_dict,
         **kwargs,
@@ -1224,6 +1327,29 @@ def check_tsss(meg_data):
     max_info = proc_history[0].get("max_info", {})
     sss_cal = max_info.get("sss_info", [])
     return len(sss_cal) > 0
+
+
+def check_digitization_points(raw, logger):
+    dig = raw.info["dig"]
+    n_extra = n_cardinal = n_hpi = n_eeg = 0
+
+    if dig:
+        n_extra = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_EXTRA)
+        n_cardinal = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_CARDINAL)
+        n_hpi = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_HPI)
+        n_eeg = sum(1 for d in dig if d["kind"] == FIFF.FIFFV_POINT_EEG)
+
+        logger.info(f"Cardinal (fiducial) points: {n_cardinal}")
+        logger.info(f"HPI coil points: {n_hpi}")
+        logger.info(f"EEG electrode points: {n_eeg}")
+        logger.info(f"Extra headshape points: {n_extra}")
+
+        if n_extra == 0:
+            logger.warning("No headshape (extra) points — likely missing .pos file")
+    else:
+        logger.warning("No dig info at all")
+
+    return n_extra, n_cardinal, n_hpi, n_eeg
 
 
 def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
@@ -1403,3 +1529,44 @@ def prepare_template(subject, project_dir, **kwargs):
     )
 
     return surface_name, surface_path
+
+
+
+def save_cov_figures(cov, info, out_dir, subject, tag, logger=None):
+    """Save covariance matrix + singular-value figures without opening a GUI."""
+
+    os.makedirs(out_dir, exist_ok=True)
+    fig_cov, fig_svd = cov.plot(info, show=False)
+    for fig, kind in ((fig_cov, "matrix"), (fig_svd, "svd")):
+        fig.savefig(
+            os.path.join(out_dir, f"{subject}_{tag}_{kind}.png"),
+            dpi=150, bbox_inches="tight",
+        )
+        plt.close(fig)
+
+    if logger is not None:
+        logger.info(f"Saved {tag} covariance figures to {out_dir}")
+
+
+
+def save_bem_figure(subject, subjects_dir, out_dir, orientation="coronal",
+                    slices=None, logger=None):
+    """Save a BEM/MRI overlay figure without opening a GUI."""
+
+    os.makedirs(out_dir, exist_ok=True)
+    fig = mne.viz.plot_bem(
+        subject=subject,
+        subjects_dir=subjects_dir,
+        brain_surfaces="white",
+        orientation=orientation,
+        slices=slices,
+        show=False,
+    )
+    fig.savefig(
+        os.path.join(out_dir, f"{subject}_bem_{orientation}.png"),
+        dpi=150, bbox_inches="tight",
+    )
+    plt.close(fig)
+
+    if logger is not None:
+        logger.info(f"Saved BEM figure to {out_dir}")
