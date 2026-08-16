@@ -478,7 +478,10 @@ def feature_extract(
     aperiodic_mode: str,
     min_r_squared: float,
     power_band_ratios_list: List[tuple],
+    freq_range_low:int,
+    freq_range_high:int,
     layout_path: str | None = None,
+
 ) -> pd.DataFrame:
     """
     Extract features from FOOOF models for each channel and frequency band.
@@ -562,11 +565,11 @@ def feature_extract(
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
         try:
             ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode, scale=False
+                fit_func=aperiodic_mode, scale=False, fit_bounds=[freq_range_low+1, freq_range_high-1]
             )
         except Exception as e:
             ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode, scale=True
+                fit_func=aperiodic_mode, scale=True, fit_bounds=[freq_range_low+1, freq_range_high-1]
             )
             logger.info(f"Data was rescaled in PYRASA due to numerical instability!")
 
@@ -1111,8 +1114,10 @@ class PYRASADecomposer(SpectralDecomposer):
         # offset
         params.append(aperiodic_params_of_interest["Offset"].item())
         # exponent
-        params.append(aperiodic_params_of_interest["Exponent_1"].item())
-        if self.mode == "knee":
+        if self.mode == "fixed":
+            params.append(aperiodic_params_of_interest["Exponent"].item())
+        elif self.mode == "knee":
+            params.append(aperiodic_params_of_interest["Exponent_1"].item())
             params.append(aperiodic_params_of_interest["Exponent_2"].item())
             params.append(aperiodic_params_of_interest["Knee Frequency (Hz)"].item())
         else:
