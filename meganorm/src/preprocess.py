@@ -766,6 +766,8 @@ def preprocess(
     mne.io.Raw
         Preprocessed MEG/EEG data.
     """
+    logger.info(f"Duration of the signal before preprocessing was {data.times[-1]:.1f}s")
+
     # since pick_channels can not seperate mag and grad signals
     # if not (which_sensor["meg"] or which_sensor["eeg"]):
     if which_sensor["grad"] or which_sensor["mag"]:
@@ -851,7 +853,9 @@ def preprocess(
     # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
     orig_sampling_rate = sampling_rate
+    logger.info(f"Original sampling rate was {orig_sampling_rate}.")
     if resampling_rate and resampling_rate != sampling_rate:
+        logger.info(f"The recording will be resampled to {resampling_rate}")
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
         sampling_rate = resampling_rate
         # resampling empty room recording
@@ -1088,12 +1092,13 @@ def drop_noisy_meg_channels(
         # auto_flat_chs = []
 
     else:
+        data_temp = data.copy()
         if device == "CTF":
-            data.apply_gradient_compensation(0)
+            data_temp.apply_gradient_compensation(0)
 
         if device == "MEGIN":
             auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-                data,
+                data_temp,
                 return_scores=False,
                 verbose=True,
                 coord_frame="head",
@@ -1113,7 +1118,7 @@ def drop_noisy_meg_channels(
 
         else:
             auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-                data,
+                data_temp,
                 return_scores=False,
                 verbose=True,
                 coord_frame="meg",
