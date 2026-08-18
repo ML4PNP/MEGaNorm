@@ -10,6 +10,7 @@
 [![Zenodo DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441320.svg)](https://doi.org/10.5281/zenodo.15441320)
 [![Docker](https://img.shields.io/docker/pulls/smkia/meganorm)](https://img.shields.io/docker/pulls/smkia/meganorm)
 [![Downloads](https://static.pepy.tech/personalized-badge/meganorm?period=month&units=international_system&left_text=PyPI%20downloads/month)](https://pypi.org/project/meganorm/)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14128/badge)](https://www.bestpractices.dev/projects/14128)
 
 <p align="center">
   <img src="docs/images/logo.png" alt="MEGaNorm Logo" width="180"/>
