@@ -228,6 +228,15 @@ def parameterize_psds(
             hset_info=irasa_hset,
         )
 
+        assert psds.shape[-1] == len(freqs), (
+            f"raw spectrum {psds.shape} vs freqs {freqs.shape}"
+        )
+
+        per = spectral_models.periodic.get_data().squeeze()
+        assert per.shape[-1] == len(freqs), (
+            f"periodic {per.shape} vs freqs {freqs.shape}"
+        )
+
     return spectral_models, psds, freqs
 
 
