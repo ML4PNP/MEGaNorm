@@ -270,14 +270,18 @@ def AutoIca_with_IcaLabel(
     bad_components = []
     for idx, label in enumerate(labels["labels"]):
         probability = labels["y_pred_proba"][idx]
-        if (
-            label == physiological_noise_type
-            and probability > iclabel_thr
-        ):
+        if label == physiological_noise_type and probability > iclabel_thr:
             bad_components.append(idx)
-            logger.info("Component %d identified as %s with probability %.3f", idx, label,probability,)
+            logger.info(
+                "Component %d identified as %s with probability %.3f",
+                idx,
+                label,
+                probability,
+            )
 
-    logger.info(f"Number of bad Components identified by ICALabel: {len(bad_components)}")
+    logger.info(
+        f"Number of bad Components identified by ICALabel: {len(bad_components)}"
+    )
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
@@ -447,12 +451,16 @@ def prepare_eeg_data(data, path):
             )
             data.set_montage(eeg_montage)
 
-            logger.info( "EEG montage set from %s with %d channel positions", montage_files[0], len(ch_positions),)
+            logger.info(
+                "EEG montage set from %s with %d channel positions",
+                montage_files[0],
+                len(ch_positions),
+            )
 
         except Exception as e:
             logger.warning(
                 "Could not set EEG montage: %s"
-                " Continuing without a montage. This may raise issues for ICA labeling.", 
+                " Continuing without a montage. This may raise issues for ICA labeling.",
                 e,
             )
 
@@ -766,7 +774,9 @@ def preprocess(
     mne.io.Raw
         Preprocessed MEG/EEG data.
     """
-    logger.info(f"Duration of the signal before preprocessing was {data.times[-1]:.1f}s")
+    logger.info(
+        f"Duration of the signal before preprocessing was {data.times[-1]:.1f}s"
+    )
 
     # since pick_channels can not seperate mag and grad signals
     # if not (which_sensor["meg"] or which_sensor["eeg"]):
@@ -1381,9 +1391,11 @@ def apply_tsss(
 
     else:
         if empty_room_record is not None and not check_tsss(empty_room_record):
-            msg = "While this MEGIN rs-MEG has been corrected for environmental noise using tSSS, it " \
-            "has not been applied to the empty room recrding as well. This can cause problem in the " \
-            "LCMV source localization. Therefore, tSSS will be applied to the eroom. "
+            msg = (
+                "While this MEGIN rs-MEG has been corrected for environmental noise using tSSS, it "
+                "has not been applied to the empty room recrding as well. This can cause problem in the "
+                "LCMV source localization. Therefore, tSSS will be applied to the eroom. "
+            )
             logger.info(msg)
             tsss_info = tsss_params(data.info)
 
@@ -1392,7 +1404,7 @@ def apply_tsss(
             )
             empty_room_record = mne.preprocessing.maxwell_filter(
                 empty_room_record,
-                destination=None,   # prepare_emptyroom already set dev_head_t from raw
+                destination=None,  # prepare_emptyroom already set dev_head_t from raw
                 **tsss_info,
             )
 
@@ -2539,6 +2551,11 @@ def auto_reject_segmentation(
     epochs.load_data()
 
     ar.fit(epochs)
+    logger.info(
+        "AutoReject selected parameters: consensus = %s, n_interpolate = %s",
+        {k: float(v) for k, v in ar.consensus_.items()},
+        {k: int(v) for k, v in ar.n_interpolate_.items()},
+    )
     epochs_clean, reject_log = ar.transform(epochs, return_log=True)
 
     if annotate_bad_epochs:
@@ -2563,14 +2580,11 @@ def auto_reject_segmentation(
     )
 
     log_msg = (
-        f"Epoch rejection summary:\n"
-        f"  Total epochs   : {total_epochs}\n"
-        f"  Retained       : {retained_epochs} "
-        f"({100 - pct_discarded:.1f}% | {retained_epochs * segments_length:.1f}s)\n"
-        f"  Interpolated   : {interpolated_epochs} "
-        f"({pct_interpolated:.1f}% | {interpolated_epochs * segments_length:.1f}s)\n"
-        f"  Discarded      : {discarded_epochs} "
-        f"({pct_discarded:.1f}% | {discarded_epochs * segments_length:.1f}s)"
+        f"Epoch rejection summary ({total_epochs} epochs):\n"
+        f"  Retained     : {retained_epochs} ({100 - pct_discarded:.1f}%)\n"
+        f"  Discarded    : {discarded_epochs} ({pct_discarded:.1f}%)\n"
+        f"  Interpolated : {interpolated_epochs} ({pct_interpolated:.1f}%) "
+        f"epochs had at least one channel interpolated"
     )
 
     if retained_epochs == 0:
@@ -2582,9 +2596,14 @@ def auto_reject_segmentation(
 
     logger.info(log_msg)
 
-    save_autoreject_plot_p = os.path.join(project_dir, "Saved_outputs", "auto_reject_plot", f"{subject}_autoreject_res_plot.png")
+    save_autoreject_plot_p = os.path.join(
+        project_dir,
+        "Saved_outputs",
+        "auto_reject_plot",
+        f"{subject}_autoreject_res_plot.png",
+    )
     fig = reject_log.plot("horizontal", show=False)
-    fig.savefig(save_autoreject_plot_p, dpi=600, bbox_inches='tight')
+    fig.savefig(save_autoreject_plot_p, dpi=600, bbox_inches="tight")
     plt.close(fig)
 
     return epochs_clean, reject_log
