@@ -355,6 +355,8 @@ class Config(BaseModel):
     segments_length: PositiveInt = 10
     segments_overlap: int = 2
 
+    save_preprocessed_data: bool = True
+
     # autoreject
     autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
     autoreject_consensus_percs: List[float] = list(np.linspace(0, 1.0, 11))
@@ -1210,7 +1212,9 @@ def set_path(project_dir):
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
+    save_preprocessed_data = os.path.join(saved_outputs_path, "Preprocessed_data")
     save_coregistration_QC_path = os.path.join(saved_outputs_path, "coregistration_QC")
+    save_auto_reject_plot = os.path.join(saved_outputs_path, "auto_reject_plot")
     save_covariance_figures_path = os.path.join(
         saved_outputs_path, "Covariance_figures"
     )
@@ -1236,6 +1240,8 @@ def set_path(project_dir):
     make_folder(exluded_participants_path)
     make_folder(mri_templates)
     make_folder(save_grouping_effect)
+    make_folder(save_preprocessed_data)
+    make_folder(save_auto_reject_plot)
 
     # Normative models
     nm_dir = os.path.join(project_dir, "Normative_models")
