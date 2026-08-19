@@ -897,15 +897,15 @@ def preprocess(
     # digital filter --------------------------------
     if digital_filter:
         data.filter(
-            l_freq=int(cutoffFreqLow),
-            h_freq=int(cutoffFreqHigh),
+            l_freq=cutoffFreqLow,
+            h_freq=cutoffFreqHigh,
             n_jobs=-1,
             verbose=False,
         )
         if empty_room_recording:
             empty_room_recording.filter(
-                l_freq=int(cutoffFreqLow),
-                h_freq=int(cutoffFreqHigh),
+                l_freq=cutoffFreqLow,
+                h_freq=cutoffFreqHigh,
                 n_jobs=-1,
                 verbose=False,
             )
@@ -2388,6 +2388,8 @@ def _annotate_dropped_epochs(
 def auto_reject_segmentation(
     raw,
     sampling_rate: float,
+    subject,
+    project_dir,
     tmin: float = 20,
     tmax: float = -20,
     segments_length: float = 10,
@@ -2579,6 +2581,12 @@ def auto_reject_segmentation(
         )
 
     logger.info(log_msg)
+
+    save_autoreject_plot_p = os.path.join(project_dir, "Saved_outputs", "auto_reject_plot", f"{subject}_autoreject_res_plot.png")
+    fig = reject_log.plot("horizontal", show=False)
+    fig.savefig(save_autoreject_plot_p, dpi=600, bbox_inches='tight')
+    plt.close(fig)
+
     return epochs_clean, reject_log
 
 
