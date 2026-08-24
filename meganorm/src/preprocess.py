@@ -785,6 +785,7 @@ def preprocess(
             data, empty_room_recording, which_sensor
         )
 
+    data = fix_physiological_channel_types(data)
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
@@ -2865,3 +2866,22 @@ def tsss_params(info):
         st_duration=float(r["st_duration"]),
         st_correlation=float(r["st_correlation"]),
     )
+
+
+
+def fix_physiological_channel_types(data, device="CTF", path=None):
+    """Retype ECG/EOG channels that CTF stores in the EEG section of res4."""
+    if device != "CTF":
+        return data
+    mapping = {}
+    for ch, ch_type in zip(data.ch_names, data.get_channel_types()):
+        if ch_type in ("eeg", "misc"):
+            name = ch.upper()
+            if "EOG" in name:
+                mapping[ch] = "eog"
+            elif "ECG" in name or "EKG" in name:
+                mapping[ch] = "ecg"
+    if mapping:
+        data.set_channel_types(mapping)
+        # logger.info(f"Retyped physiological channels: {mapping}")
+    return data
