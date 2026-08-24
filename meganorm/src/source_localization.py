@@ -1,4 +1,5 @@
 import os
+import contextlib
 
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "3.3")
@@ -23,6 +24,7 @@ import glob
 import json
 import pandas as pd
 import os
+
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 logger = logging.getLogger(__name__)
@@ -475,7 +477,6 @@ def corregistration(
         # else:
         #     logger.info(f"Using existing scaled subject: {scaled_subject}")
 
-        
     # TODO
     # if kwargs.get("take_screenshot_of_coregisteration", True):
     #     save_coreg_screenshots(
@@ -686,15 +687,16 @@ def inverse_solution(
             empty_room_recording,
             method=kwargs.get("covariance_method", "empirical"),
             n_jobs=kwargs.get("n_jobs", 1),
-        )  
+        )
 
         save_cov_figures(
-            noise_cov, 
-            empty_room_recording.info, 
+            noise_cov,
+            empty_room_recording.info,
             out_dir=os.path.join(project_dir, "Saved_outputs", "Covariance_figures"),
-            subject=subject, 
-            tag="noiseCovariance", 
-            logger=logger)
+            subject=subject,
+            tag="noiseCovariance",
+            logger=logger,
+        )
 
         logger.info(
             "Noise covariance was calculated from  empty room recordings. This will be used to pre-whiten"
@@ -750,12 +752,13 @@ def inverse_solution(
         )
 
         save_cov_figures(
-            data_cov, 
-            data.info, 
+            data_cov,
+            data.info,
             out_dir=os.path.join(project_dir, "Saved_outputs", "Covariance_figures"),
-            subject=subject, 
-            tag="dataCovariance", 
-            logger=logger)
+            subject=subject,
+            tag="dataCovariance",
+            logger=logger,
+        )
 
         if not kwargs.get("beamforme_depth") and source_space == "volumetric":
             error_msg = (
@@ -1106,15 +1109,21 @@ def source_localization(
 
         logger.info("bem surface was not found; Creating a bem surface for the subject")
 
-        mne.bem.make_watershed_bem(
-            subject=subject,
-            subjects_dir=subjects_dir,
-            overwrite=True,
-            gcaatlas=kwargs.get("gcaatlas", True),
-            volume="T1",
-            preflood=kwargs.get("preflood", None),
+        bem_log_path = os.path.join(
+            project_dir, "Saved_outputs", "BEM_logs", f"{subject}_watershed_bem.log"
         )
-    
+        with capture_mne_log(bem_log_path):
+            mne.bem.make_watershed_bem(
+                subject=subject,
+                subjects_dir=subjects_dir,
+                overwrite=True,
+                gcaatlas=kwargs.get("gcaatlas", True),
+                volume="T1",
+                preflood=kwargs.get("preflood", None),
+                verbose="debug",
+            )
+        logger.info(f"Watershed BEM log saved to {bem_log_path}")
+
     orientation = kwargs.get("bem_plot_orientations", "coronal")
     if orientation is not None:
         save_bem_figure(
@@ -1124,7 +1133,7 @@ def source_localization(
             orientation=orientation,
             logger=logger,
         )
-    
+
     if precomputed_trans_path:
         transformation_matrix = mne.read_trans(precomputed_trans_path)
         logger.info(
@@ -1531,7 +1540,6 @@ def prepare_template(subject, project_dir, **kwargs):
     return surface_name, surface_path
 
 
-
 def save_cov_figures(cov, info, out_dir, subject, tag, logger=None):
     """Save covariance matrix + singular-value figures without opening a GUI."""
 
@@ -1540,7 +1548,8 @@ def save_cov_figures(cov, info, out_dir, subject, tag, logger=None):
     for fig, kind in ((fig_cov, "matrix"), (fig_svd, "svd")):
         fig.savefig(
             os.path.join(out_dir, f"{subject}_{tag}_{kind}.png"),
-            dpi=150, bbox_inches="tight",
+            dpi=150,
+            bbox_inches="tight",
         )
         plt.close(fig)
 
@@ -1548,9 +1557,9 @@ def save_cov_figures(cov, info, out_dir, subject, tag, logger=None):
         logger.info(f"Saved {tag} covariance figures to {out_dir}")
 
 
-
-def save_bem_figure(subject, subjects_dir, out_dir, orientation="coronal",
-                    slices=None, logger=None):
+def save_bem_figure(
+    subject, subjects_dir, out_dir, orientation="coronal", slices=None, logger=None
+):
     """Save a BEM/MRI overlay figure without opening a GUI."""
 
     os.makedirs(out_dir, exist_ok=True)
@@ -1564,9 +1573,35 @@ def save_bem_figure(subject, subjects_dir, out_dir, orientation="coronal",
     )
     fig.savefig(
         os.path.join(out_dir, f"{subject}_bem_{orientation}.png"),
-        dpi=150, bbox_inches="tight",
+        dpi=150,
+        bbox_inches="tight",
     )
     plt.close(fig)
 
     if logger is not None:
         logger.info(f"Saved BEM figure to {out_dir}")
+
+
+@contextlib.contextmanager
+def capture_mne_log(log_path, level=logging.DEBUG, mode="w"):
+    """Temporarily tee MNE's logger output into `log_path`."""
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    mne_logger = logging.getLogger("mne")
+    handler = logging.FileHandler(log_path, mode=mode)
+    handler.setLevel(level)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)-8s | %(message)s")
+    )
+
+    prev_level = mne_logger.level
+    mne_logger.addHandler(handler)
+    # make sure records actually reach the handler
+    if prev_level > level or prev_level == logging.NOTSET:
+        mne_logger.setLevel(level)
+    try:
+        yield log_path
+    finally:
+        mne_logger.removeHandler(handler)
+        handler.close()
+        mne_logger.setLevel(prev_level)
