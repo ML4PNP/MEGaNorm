@@ -191,8 +191,8 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     or predefined brain regions (e.g., lobes).
 
     The function computes the mean of selected channels (e.g., MEG, EEG) according to a layout
-    specified in a JSON file. The layout file is selected based on the specified layout path or when none is given, 
-    on the recording device (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional 
+    specified in a JSON file. The layout file is selected based on the specified layout path or when none is given,
+    on the recording device (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional
     (lobe-level) parcellation.
 
     Example layout for regional parcellation:
@@ -237,17 +237,11 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
 
     else:
         modality = [
-            s_type
-            for s_type, if_alculate in which_sensor.items()
-            if if_alculate
+            s_type for s_type, if_alculate in which_sensor.items() if if_alculate
         ][0]
 
         layout_name = (
-            device.upper()
-            + "_"
-            + modality.upper()
-            + "_"
-            + which_layout.upper()
+            device.upper() + "_" + modality.upper() + "_" + which_layout.upper()
         )
 
         if layout_path:
@@ -478,10 +472,9 @@ def feature_extract(
     aperiodic_mode: str,
     min_r_squared: float,
     power_band_ratios_list: List[tuple],
-    freq_range_low:int,
-    freq_range_high:int,
+    freq_range_low: int,
+    freq_range_high: int,
     layout_path: str | None = None,
-
 ) -> pd.DataFrame:
     """
     Extract features from FOOOF models for each channel and frequency band.
@@ -565,11 +558,15 @@ def feature_extract(
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
         try:
             ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode, scale=False, fit_bounds=[freq_range_low+1, freq_range_high-1]
+                fit_func=aperiodic_mode,
+                scale=False,
+                fit_bounds=[freq_range_low + 1, freq_range_high - 1],
             )
         except Exception as e:
             ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode, scale=True, fit_bounds=[freq_range_low+1, freq_range_high-1]
+                fit_func=aperiodic_mode,
+                scale=True,
+                fit_bounds=[freq_range_low + 1, freq_range_high - 1],
             )
             logger.info(f"Data was rescaled in PYRASA due to numerical instability!")
 
@@ -865,7 +862,7 @@ def feature_extract(
     logger.info(f"The shape of the extracted features: {final_df.shape}")
     final_df.index = [subject_id]
 
-    return final_df
+    return final_df, ap
 
 
 class SpectralDecomposer(ABC):
@@ -1093,6 +1090,7 @@ class PYRASADecomposer(SpectralDecomposer):
         self.ch_name = ch_name
         self.ch_num = ch_num
 
+
     def get_aperiodic_params(self):
         """
         Return the aperiodic parameters for the channel from the fitted
@@ -1125,6 +1123,7 @@ class PYRASADecomposer(SpectralDecomposer):
 
         return params
 
+
     def get_periodic_spectrum(self, original_psds=None):
         """
         Return the periodic component of the spectrum for the channel
@@ -1142,6 +1141,7 @@ class PYRASADecomposer(SpectralDecomposer):
         """
         # print(self.model.periodic.get_data().squeeze().shape)
         return self.model.periodic.get_data().squeeze()[self.ch_num, :]
+
 
     def get_peak_params(self, fmin, fmax):
         """
@@ -1164,7 +1164,9 @@ class PYRASADecomposer(SpectralDecomposer):
             are found.
         """
         try:
-            df = self.model.periodic.get_peaks(cut_spectrum=(fmin, fmax))
+            df = self.model.periodic.get_peaks(
+                cut_spectrum=(fmin, fmax), peak_threshold=1.5
+            )
         except ValueError as e:
             logger.warning(
                 f"Peak detection failed for {self.ch_name} in [{fmin}, {fmax}] Hz: {e}"
@@ -1180,6 +1182,7 @@ class PYRASADecomposer(SpectralDecomposer):
         dominant_peak = max(band_peaks, key=lambda x: x[1])
 
         return dominant_peak, band_peaks
+
 
     def get_r_squared(self):
         """
