@@ -344,3 +344,70 @@ def irasa_epochs(
         ),
     )
 
+
+
+def computePsdIrasa(
+    segments,
+    hset_info=(1.05, 2.0, 0.05),
+    freq_range_low=3,
+    freq_range_high=40,
+):
+    """
+    Compute PSD using the same Welch settings IRASA uses internally, so
+    PSDs computed here are directly comparable to spectra produced by
+    `irasa_epochs` (the raw spectrum, and by extension the aperiodic and
+    periodic fits) -- unlike `computePsd`, which uses independent
+    `psd_n_fft`/`psd_n_overlap`/`psd_n_per_seg` settings and therefore is
+    not on the same footing as IRASA's own spectrum.
+
+    Mirrors `irasa_epochs`'s `kwargs_psd`: a single window spanning the
+    full epoch length (no averaging over sub-segments, no overlap), with
+    `nfft` computed from the epoch length and the IRASA hset's maximum
+    resampling factor so the frequency grid matches what IRASA itself
+    would produce for the same epochs and hset.
+
+    Parameters
+    ----------
+    segments : mne.Epochs
+        Segmented data for which PSD will be computed.
+    hset_info : tuple of (float, float, float)
+        (min, max, step) resampling factors, as passed to IRASA. Only the
+        max value is used here, to reproduce IRASA's `nfft` choice.
+    freq_range_low : float
+        Lower frequency bound to keep in the output (Hz).
+    freq_range_high : float
+        Upper frequency bound to keep in the output (Hz).
+
+    Returns
+    -------
+    psds : np.ndarray
+        Per-channel PSD, averaged across epochs, shape (n_channels, n_freqs).
+    freqs : np.ndarray
+        Frequency values corresponding to the PSD.
+
+    Notes
+    -----
+    Uses `scipy.signal.welch` directly (rather than MNE's `compute_psd`)
+    to exactly reproduce `irasa_epochs`'s literal `kwargs_psd`
+    (`nperseg` tied to the full epoch length, `noverlap=0`, a computed
+    `nfft`). This is a different assumption than MNE's own default
+    resolution of `n_per_seg=None` (which ties it to `n_fft`), so this
+    function should not be treated as interchangeable with `computePsd`.
+    """
+    from scipy.signal import welch
+
+    data_array = segments.get_data(copy=True)  # (n_epochs, n_channels, n_times)
+    fs = segments.info["sfreq"]
+    n_times = data_array.shape[-1]
+    nfft = int(2 ** np.ceil(np.log2(int(n_times * np.max(hset_info)))))
+
+    psd_list = []
+    for epoch in data_array:
+        freqs, psd = welch(
+            epoch, fs=fs, nperseg=n_times, noverlap=0, nfft=nfft, axis=-1
+        )
+        psd_list.append(psd)
+    psds = np.array(psd_list).mean(axis=0)  # (n_channels, n_freqs)
+
+    freq_mask = (freqs >= freq_range_low) & (freqs <= freq_range_high)
+    return psds[:, freq_mask], freqs[freq_mask]
