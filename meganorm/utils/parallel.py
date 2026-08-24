@@ -273,7 +273,7 @@ def submit_jobs(
         batch_file_name=job_configs["batch_file_name"],
         freesurfer_home=freesurfer_home,
         freesurfer_license=freesurfer_license,
-        with_config=config_file is not None,
+        # with_config=config_file is not None,
         # with_source_localization=surfaces_dir is not None,
         # with_empty_room_recording=empty_room_recording is not None
     )
