@@ -326,7 +326,7 @@ class Config(BaseModel):
     ctf_gradient_comp_level: PositiveInt = 3
     apply_environmental_noise_ssp_with_eroom: bool = False
     apply_environmental_noise_ica_with_ref_meg: bool = True
-    environmental_noise_ica_with_ref_meg_thr: float = 2.5
+    environmental_noise_ica_with_ref_meg_thr: float = 2.0
     ica_if_reject_by_annotation: bool = True
     environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = (
         "separate"
@@ -381,6 +381,13 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
+
+    bem_preflood_parameter_space: List[int] = (10, 15, 20, 30, 35)
+    bem_preflood: int = 25
+    bem_gcaatlas: bool = True
+    bem_max_erosion_pct: float = 15.0
+    bem_suspect_erosion_pct: float = 0.2
+    bem_max_fine_segmentation_iteration: int = 100
     bem_plot_orientations: Literal["coronal", "axial", "sagittal", None] = "coronal"
 
     # the spacing to use for source space specificatin

@@ -1108,21 +1108,25 @@ def source_localization(
     ) or kwargs.get("force_new_watershed_bem"):
 
         logger.info("bem surface was not found; Creating a bem surface for the subject")
-
         bem_log_path = os.path.join(
             project_dir, "Saved_outputs", "BEM_logs", f"{subject}_watershed_bem.log"
         )
-        with capture_mne_log(bem_log_path):
-            mne.bem.make_watershed_bem(
-                subject=subject,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                gcaatlas=kwargs.get("gcaatlas", True),
-                volume="T1",
-                preflood=kwargs.get("preflood", None),
-                verbose="debug",
-            )
-        logger.info(f"Watershed BEM log saved to {bem_log_path}")
+        make_bem_model(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            bem_log_path=bem_log_path,
+            max_erosion_pct=kwargs.get("bem_max_erosion_pct", 15.0),
+            suspect_erosion_pct=kwargs.get("bem_suspect_erosion_pct", 0.2),
+            max_fine_segmentation_iteration=kwargs.get(
+                "bem_max_fine_segmentation_iteration", 100
+            ),
+            gcaatlas=kwargs.get("bem_gcaatlas", True),
+            volume="T1",
+            preflood=kwargs.get("bem_preflood", None),
+            preflood_parameter_space=kwargs.get(
+                "bem_preflood_parameter_space", (10, 15, 20, 30, 35)
+            ),
+        )
 
     orientation = kwargs.get("bem_plot_orientations", "coronal")
     if orientation is not None:
@@ -1605,3 +1609,83 @@ def capture_mne_log(log_path, level=logging.DEBUG, mode="w"):
         mne_logger.removeHandler(handler)
         handler.close()
         mne_logger.setLevel(prev_level)
+
+
+def make_bem_model(
+    subject,
+    subjects_dir,
+    bem_log_path,
+    max_erosion_pct=15.0,
+    suspect_erosion_pct=0.2,
+    max_fine_segmentation_iteration=100,
+    gcaatlas=True,
+    volume="T1",
+    preflood=None,
+    preflood_parameter_space=(10, 15, 20, 30, 35),
+):
+    """Run watershed BEM, retrying with alternative preflood heights if the
+    surfaces look degenerate.
+
+    The surfaces are written to disk by MNE; this returns a dict describing the
+    preflood value that worked and its log metrics.
+
+    Raises RuntimeError if no value in the parameter space produces a good run.
+    """
+    bem_log_path = Path(bem_log_path)
+    bem_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _parse_log():
+        text = bem_log_path.read_text(errors="replace")
+        e = re.search(r"before\s+Erosion-Dilat\w*\s+([\d.]+)%", text)
+        i = re.search(r"Fine Segmentation\.+(\d+) iterations", text)
+        if e is None:
+            raise RuntimeError(
+                f"Could not find erosion percentage in {bem_log_path}; "
+                "watershed probably failed before segmentation."
+            )
+        return float(e.group(1)), int(i.group(1)) if i else 0
+
+    def _is_bad(ero, iters):
+        return ero > max_erosion_pct or (
+            ero > suspect_erosion_pct and iters > max_fine_segmentation_iteration
+        )
+
+    def _run(pf):
+        with capture_mne_log(bem_log_path):
+            mne.bem.make_watershed_bem(
+                subject=subject,
+                subjects_dir=subjects_dir,
+                overwrite=True,
+                gcaatlas=gcaatlas,
+                volume=volume,
+                preflood=pf,
+                verbose="debug",
+            )
+        logger.info(f"Watershed BEM log saved to {bem_log_path}")
+        return _parse_log()
+
+    attempts = [preflood, *preflood_parameter_space]
+
+    for idx, pf in enumerate(attempts):
+        ero, iters = _run(pf)
+
+        if not _is_bad(ero, iters):
+            logger.info(
+                f"{subject}: watershed BEM ok with preflood={pf} "
+                f"(erosion {ero}%, {iters} iterations)"
+            )
+            return {"preflood": pf, "erosion_pct": ero, "iterations": iters}
+
+        nxt = attempts[idx + 1] if idx + 1 < len(attempts) else None
+        tail = f" — retrying with preflood of {nxt}" if nxt is not None else ""
+        logger.warning(
+            f"{subject}: bad watershed BEM with preflood={pf} "
+            f"(erosion {ero}%, {iters} iterations){tail}"
+        )
+
+    err_msg = (
+        f"{subject}: BEM surfaces with different preflood values were all faulty "
+        f"(tried {attempts})."
+    )
+    logger.error(err_msg)
+    raise RuntimeError(err_msg)
