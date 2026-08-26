@@ -785,7 +785,7 @@ def preprocess(
             data, empty_room_recording, which_sensor
         )
 
-    data = fix_physiological_channel_types(data, device=device)
+    data = fix_physiological_channel_types(data)
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
@@ -1750,23 +1750,16 @@ def remove_environmental_noise(
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
-    ssp_n_grad=3,
-    ssp_n_mag=3,
+    same_environmental_noise_removal=False,
 ):
     """
     Suppress environmental (external) noise using a device-appropriate
     strategy.
 
-    For CTF data, applies gradient compensation. For MEGIN data, applies
-    tSSS (or relies on it if already applied). On non-MEGIN systems,
-    environmental noise can additionally be suppressed via SSP projectors
-    computed from an empty-room recording, or via reference-MEG-based ICA.
-
-    Every operator applied to `data` is applied to `empty_room_recording`
-    as well. Both SSP and reference-MEG ICA are rank-reducing: if the
-    empty room keeps dimensions the data has lost, the noise covariance
-    used for LCMV whitening describes a different subspace than the
-    beamformer weights.
+    For CTF data, applies gradient compensation. For MEGIN data,
+    relies on tSSS if already applied. Otherwise, environmental noise
+    can be suppressed via SSP projectors computed from an empty-room
+    recording, or via reference-MEG-based ICA.
 
     Parameters
     ----------
@@ -1776,12 +1769,13 @@ def remove_environmental_noise(
         Recording system type, determining the default noise-removal
         strategy.
     empty_room_recording : mne.io.Raw, optional
-        Empty-room recording. Receives the same operators as `data`.
+        Empty-room recording used for gradient compensation or SSP
+        projector estimation.
     ctf_gradient_comp_level : int, optional
         Gradient compensation grade to apply for CTF data. Default is 3.
     apply_environmental_noise_ssp_with_eroom : bool, optional
         Whether to compute and apply SSP projectors from the empty-room
-        recording. Default is False. See Notes on circularity.
+        recording. Default is False.
     apply_environmental_noise_ica_with_ref_meg : bool, optional
         Whether to use reference-MEG-based ICA to remove environmental
         noise. Default is False.
@@ -1790,127 +1784,71 @@ def remove_environmental_noise(
         components. Default is 2.5.
     ica_if_reject_by_annotation : bool, optional
         Whether to reject data by annotation when fitting the
-        reference-MEG ICA and scoring components. Default is True.
+        reference-MEG ICA. Default is True.
     environmental_noise_ica_with_ref_meg_method : {"together", "separate"}, optional
         Strategy for combining reference-MEG and data channels during
         ICA-based artifact detection. Default is "together".
     environmental_noise_ica_with_ref_meg_measure : str, optional
         Scoring measure used by `find_bads_ref`. Default is "zscore".
-    same_environmental_noise_removal : bool, optional
-        If True, skip all environmental noise removal (the data is
-        assumed to already be corrected). Default is False.
-    ssp_n_grad, ssp_n_mag : int, optional
-        Number of SSP projectors to compute per channel type. Default 3
-        each. Note that MNE types CTF axial gradiometers as 'mag', so
-        `ssp_n_grad` has no effect on CTF data.
 
     Returns
     -------
     data : mne.io.Raw
         Data with environmental noise suppressed.
     empty_room_recording : mne.io.Raw or None
-        Empty-room recording, carrying the same operators as `data`.
-
-    Notes
-    -----
-    Computing SSP projectors from the same empty-room recording that is
-    later used for the noise covariance is degenerate: the top-variance
-    directions are projected out and the covariance is then estimated
-    from the residual, leaving it small and near-singular in exactly the
-    directions LCMV whitens along. Prefer a separate empty-room run, or
-    leave SSP off and let gradient compensation plus the empty-room
-    covariance carry the environmental structure.
+        Empty-room recording, updated if gradient compensation was
+        applied.
     """
     # gradient compensation for CTF datasets
-    if device == "CTF":
+    if device == "CTF" and not same_environmental_noise_removal:
         data, empty_room_recording = apply_gradient_comp(
             data,
             empty_room_recording=empty_room_recording,
             grade=ctf_gradient_comp_level,
         )
-        logger.info(
-            "The data was preprocessed for environmental noise using "
-            "gradient compensation."
-        )
+        msg = "The data was preprocessed for environmental noise using gradient compensation."
+        logger.info(msg)
 
     # If MEGIN device, apply tsss
-    elif device == "MEGIN":
+    elif device == "MEGIN" and not same_environmental_noise_removal:
         data, empty_room_recording = apply_tsss(
             data,
             empty_room_record=empty_room_recording,
-            st_duration=10.0,  # TODO: config
-            st_correlation=0.98,  # TODO: config
+            st_duration=10.0,  # TODO: congig
+            st_correlation=0.98,  # TODO: congig
         )
 
-    if device != "MEGIN":
+    elif apply_environmental_noise_ssp_with_eroom:
+        if empty_room_recording:
+            empty_room_projs = mne.compute_proj_raw(
+                empty_room_recording, n_grad=3, n_mag=3
+            )
+            data.add_proj(empty_room_projs)
+            data.apply_proj()
+            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info['projs'])}"
+        else:
+            msg = (
+                "Empty_room_recording is inavailable to perform SSP for environmental noise suppression."
+                " Please, use another method to remove environmental noise."
+            )
+            logger.info(msg)
 
-        # SSP from the empty room --------------------------------
-        if apply_environmental_noise_ssp_with_eroom:
-            if empty_room_recording is None:
-                logger.warning(
-                    "apply_environmental_noise_ssp_with_eroom=True but no "
-                    "empty-room recording is available; skipping SSP. Please "
-                    "use another method to remove environmental noise."
-                )
-            else:
-                # apply_proj() applies everything in info['projs'], not only
-                # what we add below, so a pre-existing mismatch would make the
-                # two recordings diverge even with identical new projectors
-                existing_data = {p["desc"] for p in data.info["projs"]}
-                existing_er = {
-                    p["desc"] for p in empty_room_recording.info["projs"]
-                }
-                if existing_data != existing_er:
-                    logger.warning(
-                        "Subject data and empty room carry different "
-                        "pre-existing projectors (%s vs %s); the noise "
-                        "covariance may not match the data subspace.",
-                        sorted(existing_data - existing_er),
-                        sorted(existing_er - existing_data),
-                    )
+    elif apply_environmental_noise_ica_with_ref_meg:
 
-                empty_room_projs = mne.compute_proj_raw(
-                    empty_room_recording,
-                    n_grad=ssp_n_grad,
-                    n_mag=ssp_n_mag,
-                    n_jobs=1,
-                )
-
-                data.add_proj(empty_room_projs)
-                data.apply_proj()
-                empty_room_recording.add_proj(empty_room_projs)
-                empty_room_recording.apply_proj()
-
-                logger.info(
-                    "Applied %d empty-room SSP projector(s) for environmental "
-                    "noise suppression to both the subject data and the "
-                    "empty-room recording.",
-                    len(empty_room_projs),
-                )
-
-        # -- reference-MEG ICA --------------------------------------
         has_ref_meg = "ref_meg" in data.get_channel_types()
-        if apply_environmental_noise_ica_with_ref_meg:
-            if not has_ref_meg:
-                logger.warning(
-                    "apply_environmental_noise_ica_with_ref_meg=True but no "
-                    "ref_meg channels are present in the data; skipping."
-                )
-            else:
-                data, empty_room_recording, bad_ic, _ = find_ref_meg_artifact(
-                    data,
-                    empty_room_recording=empty_room_recording,
-                    environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
-                    ica_if_reject_by_annotation=ica_if_reject_by_annotation,
-                    environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
-                    environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
-                )
-                logger.info(
-                    "Removed %d ICA component(s) using reference MEG for "
-                    "suppressing environmental noise, from both the subject "
-                    "data and the empty-room recording.",
-                    len(bad_ic),
-                )
+        if has_ref_meg:
+            data, bad_ic, scores = find_ref_meg_artifact(
+                data,
+                environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+                ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+                environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+                environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
+            )
+
+            logger.info(
+                "Number of components removed by ICA for suppressing environmental noise using reference MEG: %d",
+                len(bad_ic),
+            )
 
     return data, empty_room_recording
 
@@ -1918,65 +1856,41 @@ def remove_environmental_noise(
 def find_ref_meg_artifact(
     data,
     environmental_noise_ica_with_ref_meg_thr,
-    empty_room_recording=None,
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
-    n_components=60,
-    n_ref_components=20,
-    random_state=42,
 ):
     """
     Identify and remove environmental-noise ICA components using
     reference MEG channels.
 
-    Adapted from the MNE-Python tutorials.
-
-    Fits ICA jointly on MEG and reference-MEG channels and uses
-    `ICA.find_bads_ref` to detect components correlated with
-    reference-channel activity. When `method` is "separate", a second ICA
-    is fit on the reference channels alone and its sources are appended
-    to the data before scoring; the unmixing applied to the data is the
-    joint one in either case.
-
-    The fitted unmixing is applied to `empty_room_recording` as well.
-    Each excluded component costs one rank dimension, so an empty room
-    that keeps those dimensions would yield a noise covariance with
-    variance in directions the cleaned data no longer contains.
+    Fits ICA jointly on MEG and reference-MEG channels (or separately,
+    depending on `environmental_noise_ica_with_ref_meg_method`) and
+    uses `ICA.find_bads_ref` to detect components correlated with
+    reference-channel activity.
 
     Parameters
     ----------
     data : mne.io.Raw
         Raw MEG data containing reference MEG channels.
     environmental_noise_ica_with_ref_meg_thr : float
-        Threshold passed to `find_bads_ref` for flagging bad components.
-    empty_room_recording : mne.io.Raw, optional
-        Empty-room recording. Must carry the same channels (including
-        ref_meg) and, for CTF, the same gradient compensation grade as
-        `data`; otherwise cleaning is skipped with a warning.
+        Threshold passed to `find_bads_ref` for flagging bad
+        components.
     ica_if_reject_by_annotation : bool, optional
-        Whether to reject data by annotation when fitting the ICA and
-        when scoring components. Default is True.
+        Whether to reject data by annotation during ICA fitting.
+        Default is True.
     environmental_noise_ica_with_ref_meg_method : {"together", "separate"}, optional
-        Detection strategy passed to `find_bads_ref`. Default "together".
+        If "together", ICA is fit jointly on MEG and reference
+        channels. If "separate", a separate ICA is fit on reference
+        channels and its sources are added to the data before
+        artifact detection. Default is "together".
     environmental_noise_ica_with_ref_meg_measure : str, optional
         Scoring measure used by `find_bads_ref`. Default is "zscore".
-    n_components : int, optional
-        Components for the joint MEG + reference-MEG ICA. Default 60.
-    n_ref_components : int, optional
-        Components for the reference-only ICA used by the "separate"
-        method. Default 20.
-    random_state : int, optional
-        Seed for the ICA decomposition. Fixed by default so the operator
-        applied to the empty room is reproducible across runs.
 
     Returns
     -------
     data : mne.io.Raw
         Data with identified environmental-noise components removed.
-    empty_room_recording : mne.io.Raw or None
-        Empty-room recording with the same components removed, or None if
-        none was provided.
     bad_comps : list of int
         Indices of ICA components excluded as environmental noise.
     scores : ndarray
@@ -1986,15 +1900,15 @@ def find_ref_meg_artifact(
 
     all_picks = mne.pick_types(data_tog.info, meg=True, ref_meg=True)
     tog_ica = mne.preprocessing.ICA(
-        n_components=n_components,
-        max_iter="auto",
-        allow_ref_meg=True,
-        random_state=random_state,
+        n_components=20, max_iter="auto", allow_ref_meg=True
     )
-    tog_ica.fit(
+    tog_ica.fit(data_tog, picks=all_picks)
+    bad_comps, scores = tog_ica.find_bads_ref(
         data_tog,
-        picks=all_picks,
         reject_by_annotation=ica_if_reject_by_annotation,
+        method="together",
+        threshold=environmental_noise_ica_with_ref_meg_thr,
+        measure=environmental_noise_ica_with_ref_meg_measure,
     )
 
     if environmental_noise_ica_with_ref_meg_method == "separate":
@@ -2002,64 +1916,29 @@ def find_ref_meg_artifact(
         data_sep = data.copy()
         ref_picks = mne.pick_types(data_sep.info, meg=False, ref_meg=True)
         ref_ica = mne.preprocessing.ICA(
-            n_components=n_ref_components,
-            max_iter="auto",
-            allow_ref_meg=True,
-            random_state=random_state,
+            n_components=2, max_iter="auto", allow_ref_meg=True
         )
         ref_ica.fit(data_sep, picks=ref_picks)
 
-        # a copy shares tog_ica's unmixing matrix; only the component
-        # selection below differs, which is why the same operator is
-        # valid for the empty room in either branch
-        ica_used = tog_ica.copy()
+        ica_sep = tog_ica.copy()
         ref_comps = ref_ica.get_sources(data_sep)
-        ref_comps.rename_channels(
-            {ic: "REF_ICA" + ic for ic in ref_comps.ch_names}
-        )
+        for ic in ref_comps.ch_names:
+            ref_comps.rename_channels({ic: "REF_ICA" + ic})
         data_sep.add_channels([ref_comps])
 
-        bad_comps, scores = ica_used.find_bads_ref(
+        bad_comps, scores = ica_sep.find_bads_ref(
             data_sep,
-            threshold=environmental_noise_ica_with_ref_meg_thr,
-            reject_by_annotation=ica_if_reject_by_annotation,
             method="separate",
-            measure=environmental_noise_ica_with_ref_meg_measure,
         )
 
-        data = ica_used.apply(data_sep, exclude=bad_comps)
-        data.drop_channels(ref_comps.ch_names)
+        data = ica_sep.apply(data_sep, exclude=bad_comps)
 
     else:
-        ica_used = tog_ica
-        bad_comps, scores = ica_used.find_bads_ref(
-            data_tog,
-            reject_by_annotation=ica_if_reject_by_annotation,
-            method="together",
-            threshold=environmental_noise_ica_with_ref_meg_thr,
-            measure=environmental_noise_ica_with_ref_meg_measure,
-        )
+        data = tog_ica.apply(data_tog, exclude=bad_comps)
 
-        data = ica_used.apply(data_tog, exclude=bad_comps)
+        # TODO: data_clean.drop_channels(ref_comps.ch_names)
 
-    if empty_room_recording is not None:
-        missing = set(ica_used.ch_names) - set(empty_room_recording.ch_names)
-        if missing:
-            logger.warning(
-                "Reference-MEG ICA could not be applied to the empty room: "
-                "%d channel(s) missing (%s). The noise covariance will not "
-                "match the rank of the cleaned data.",
-                len(missing),
-                sorted(missing)[:5],
-            )
-        else:
-            empty_room_recording.load_data()
-            empty_room_recording = ica_used.apply(
-                empty_room_recording, exclude=bad_comps
-            )
-
-    return data, empty_room_recording, bad_comps, scores
-
+    return data, bad_comps, scores
 
 
 def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier):
@@ -2987,6 +2866,7 @@ def tsss_params(info):
         st_duration=float(r["st_duration"]),
         st_correlation=float(r["st_correlation"]),
     )
+
 
 
 def fix_physiological_channel_types(data, device="CTF", path=None):
