@@ -418,7 +418,7 @@ class Config(BaseModel):
 
     # the pacellation to use
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
-    parcellation_mode = "auto"
+    parcellation_mode: Literal["mean_flip", "mean", "auto", "pca_flip", "max"] = "auto"
 
     # A custom parcellation file
     parcellation_annot_fname: Optional[Path] = None
