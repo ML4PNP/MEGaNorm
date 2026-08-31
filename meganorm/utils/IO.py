@@ -339,7 +339,7 @@ class Config(BaseModel):
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
     save_segmented_data: bool = False
-    rereference_method: Literal["average", "REST", "None"] = "average"
+    rereference_method: Literal["average", "REST", None] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
     mag_var_threshold: float = 5000e-15
@@ -418,6 +418,7 @@ class Config(BaseModel):
 
     # the pacellation to use
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
+    parcellation_mode = "auto"
 
     # A custom parcellation file
     parcellation_annot_fname: Optional[Path] = None
@@ -874,7 +875,7 @@ def load_recording(
 
 
 def merge_fidp_demo(
-    datasets_paths: list,
+    demographic_paths: list,
     features_dir: str,
     dataset_names: list,
     drop_columns: list = ["eyes"],
@@ -912,20 +913,16 @@ def merge_fidp_demo(
             the 'all_features.csv' file is missing in the provided features directory.
     """
 
-    # Initialize empty DataFrame
     demographic_df = pd.DataFrame()
 
-    # Loop through dataset paths
-    for counter, dataset_path in enumerate(datasets_paths):
-        demo_path = os.path.join(dataset_path, "participants_bids.tsv")
-        if not os.path.exists(demo_path):
+    for counter, demo_path in enumerate(demographic_paths):
+        if not demo_path or not os.path.exists(demo_path):
             raise FileNotFoundError(
-                f"The file 'participants_bids.tsv' is missing from the directory: {dataset_path}. "
-                "This file must be created using the 'make_demo_file_bids' function and placed in "
-                "the corresponding dataset directory."
+                f"The demographic file for dataset '{dataset_names[counter]}' was not "
+                f"found at: {demo_path}. Set 'demographic_path' for this dataset, or "
+                "create the file with 'make_demo_file_bids'."
             )
-        demo = pd.read_csv(demo_path, sep="\t", index_col=0)
-        demo.index = demo.index.astype(str)
+        demo = load_demographic_file(demo_path)
 
         if "site" not in demo.columns:
             demo["site"] = dataset_names[counter]
@@ -1022,6 +1019,9 @@ def merge_datasets_with_glob(datasets):
         annotation_ending = dataset_info.get("annotation_ending", None)
 
         layout_path = dataset_info.get("layout_path", None)
+        demographic_path = dataset_info.get(
+            "demographic_path", os.path.join(base_dir, "participants_bids.tsv")
+        )
 
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
@@ -1100,11 +1100,27 @@ def merge_datasets_with_glob(datasets):
                         "pos_path": join_with_star(pos_path),
                         "annotation_path": join_with_star(annotation_path),
                         "layout_path": layout_path,
+                        "demographic_path": demographic_path,
                     }
                 }
             )
 
     return subjects
+
+
+def load_demographic_file(path, index_col=0):
+    """Read a participants/demographic table (.tsv, .txt, .csv, .xlsx)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".tsv", ".txt"):
+        df = pd.read_csv(path, sep="\t", index_col=index_col)
+    elif ext == ".csv":
+        df = pd.read_csv(path, index_col=index_col)
+    elif ext in (".xlsx", ".xls"):
+        df = pd.read_excel(path, index_col=index_col)
+    else:
+        raise ValueError(f"Unsupported demographic file type: {path}")
+    df.index = df.index.astype(str)
+    return df
 
 
 def make_demo_file_bids(

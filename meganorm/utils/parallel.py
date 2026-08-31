@@ -128,6 +128,7 @@ def sbatchfile(
     sbatch_input_12 = "trans_file=${12}\n"
     sbatch_input_13 = "annotation_path=${13}\n"
     sbatch_input_14 = "layout_path=${14}\n"
+    sbatch_input_15 = "demographic_path=${15}\n"
 
     # if with_config:
     command = (
@@ -155,6 +156,7 @@ def sbatchfile(
     command += " --trans_file $trans_file"
     command += " --annotation_path $annotation_path"
     command += " --layout_path $layout_path"
+    command += " --demographic_path $demographic_path"
 
     bash_environment = [
         sbatch_init
@@ -184,6 +186,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_12
     bash_environment[0] += sbatch_input_13
     bash_environment[0] += sbatch_input_14
+    bash_environment[0] += sbatch_input_15
 
     bash_environment[0] += command
 
@@ -293,6 +296,7 @@ def submit_jobs(
         pos_path = subjects[subject].get("pos_path")
         annotation_path = subjects[subject].get("annotation_path")
         layout_path = subjects[subject].get("layout_path")
+        demographic_path = subjects[subject].get("demographic_path")
 
         command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
@@ -306,6 +310,7 @@ def submit_jobs(
         command = add_command(trans_path, command)
         command = add_command(annotation_path, command)
         command = add_command(layout_path, command)
+        command = add_command(demographic_path, command)
 
         subprocess.check_call(command, shell=True)
 
@@ -721,10 +726,14 @@ def auto_parallel_feature_extraction(
 
     # Merge demographic data and extracted f-IDPS
     if combine_features_and_demographics:
-        data_base_dirs = [values["base_dir"] for values in datasets.values()]
+        demographic_paths = [
+            values.get("demographic_path")
+            or os.path.join(values["base_dir"], "participants_bids.tsv")
+            for values in datasets.values()
+        ]
         dataset_names = list(datasets.keys())
         df = merge_fidp_demo(
-            datasets_paths=data_base_dirs,
+            demographic_paths=demographic_paths,
             features_dir=features_dir,
             dataset_names=dataset_names,
         )

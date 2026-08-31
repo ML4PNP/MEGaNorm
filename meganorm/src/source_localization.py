@@ -1004,7 +1004,7 @@ def parcellate(subject, subjects_dir, stc, src, source_space, **kwargs):
         stcs=stc,
         labels=labels,
         src=src,
-        mode=kwargs.get("parcellation_mode", "mean"),
+        mode=kwargs.get("parcellation_mode", "auto"),
         return_generator=False,
     )
 
@@ -1030,6 +1030,7 @@ def source_localization(
     qc_ignore=[],
     precomputed_trans_path=None,
     empty_room_recording=None,
+    demographic_path=None,
     **kwargs,
 ):
     """
@@ -1099,7 +1100,7 @@ def source_localization(
     participant_id = subject
     if kwargs.get("apply_mri_template"):
         subject, subjects_dir = prepare_template(
-            subject=subject, project_dir=project_dir, **kwargs
+            subject=subject, demographic_file_p=demographic_path, **kwargs
         )
 
     if not os.path.exists(
@@ -1471,7 +1472,7 @@ def nearest_template_dir(age_months, subjects_dir):
     return name, os.path.join(subjects_dir)
 
 
-def prepare_template(subject, project_dir, **kwargs):
+def prepare_template(subject, demographic_file_p, **kwargs):
     """
     Select an age-matched anatomical template for a subject and, if
     needed, generate its Destrieux volumetric segmentation.
@@ -1523,17 +1524,19 @@ def prepare_template(subject, project_dir, **kwargs):
             freesurfer_license=kwargs.get("freesurfer_license"),
         )
 
-    temp_path = os.path.join(project_dir, "Configurations", "runner_params.json")
-    with open(temp_path, "r") as file:
-        runner_params = json.load(file)
+    if not os.path.exists(demographic_file_p):
+        err_msg = (
+            f"Demographic file not found at {demographic_file_p}; it is required to "
+            f"age-match an MRI template for {subject}."
+        )
+        logger.error(err_msg)
+        raise FileNotFoundError(err_msg)
+    
+    from meganorm.utils.IO import load_demographic_file
 
-    dataset_name = runner_params["subjects"][subject]["dataset_name"]
-    demographic_file_p = os.path.join(
-        runner_params["datasets"][dataset_name]["base_dir"], "participants_bids.tsv"
-    )
-    demographic_file = pd.read_csv(demographic_file_p, sep="\t", index_col=0)
-    demographic_file.index = demographic_file.index.astype(str)
+    demographic_file = load_demographic_file(demographic_file_p)
     age = demographic_file.loc[subject]["age"]
+
 
     age_months = age * 12
     surface_name, surface_path = nearest_template_dir(
