@@ -797,10 +797,9 @@ def inverse_solution(
             depth=kwargs.get("beamforme_depth", None),
         )
 
-    stc = mne.beamformer.apply_lcmv_epochs(segments, filters=filters)
+        return mne.beamformer.apply_lcmv_epochs(segments, filters=filters)
 
-    logger.info("Source estimate is done!")
-    return stc
+    return None
 
 
 def morph_stc(
