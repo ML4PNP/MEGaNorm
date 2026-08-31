@@ -1441,3 +1441,32 @@ def find_other_meg_session(
         if len(rs_record_paths) > which_session - 1:
             new_paths.update({subject: rs_record_paths[which_session - 1]})
     return new_paths
+
+
+def check_demographic_format(df):
+    """Raise ValueError if a demographic table is not in the standard format."""
+
+    DEMOGRAPHIC_REQUIRED_COLUMNS = ("participant_id", "age", "sex", "eyes")
+    DEMOGRAPHIC_ALLOWED_SEX = ("Male", "Female")
+
+    if "participant_id" in df.columns:
+        ids = df["participant_id"]
+    else:
+        ids = df.index.to_series()
+
+    for col in DEMOGRAPHIC_REQUIRED_COLUMNS:
+        if col != "participant_id" and col not in df.columns:
+            raise ValueError(f"The demographic file is missing the '{col}' column.")
+
+    if not all(isinstance(v, str) for v in ids.dropna()):
+        raise ValueError("All participant IDs must be strings.")
+
+    if not pd.api.types.is_numeric_dtype(df["age"]):
+        raise ValueError("The 'age' column must hold integers or floats.")
+
+    unexpected = set(df["sex"].dropna().unique()) - set(DEMOGRAPHIC_ALLOWED_SEX)
+    if unexpected:
+        raise ValueError(
+            f"The 'sex' column holds {sorted(unexpected)}; "
+            f"only {list(DEMOGRAPHIC_ALLOWED_SEX)} are allowed."
+        )
