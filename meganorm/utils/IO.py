@@ -381,7 +381,6 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
-
     bem_preflood_parameter_space: List[int] = (10, 15, 20, 30, 35)
     bem_preflood: int = 25
     bem_gcaatlas: bool = True
@@ -610,20 +609,6 @@ class Config(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def env_noise_removal_same(self):
-        if self.same_environmental_noise_removal:
-            if (
-                not self.apply_environmental_noise_ssp_with_eroom
-                or not self.apply_environmental_noise_ica_with_ref_meg
-            ):
-                err_msg = (
-                    "If you intened to apply the same environmental noise removal must choose between using"
-                    " ref_meg or empty room recording. You can not apply gradient compensation or maxwell filter across all scanners."
-                )
-            raise ValueError(err_msg)
-        return self
-
-    @model_validator(mode="after")
     def gedai_params_check(self):
         method = self.gedai_method
         wavelet_level = self.gedai_wavelet_level
@@ -721,6 +706,40 @@ def _add_artemis_headshape(data, path, pos_file, logger):
     return data
 
 
+def select_session_path(pattern, index=0):
+    """
+    Resolve a '*'-separated glob pattern to a single path.
+
+    Returns None when `pattern` is falsy, so callers can pass optional
+    CLI arguments straight through.
+    """
+    if not pattern:
+        return None
+    candidates = [p for p in pattern.split("*") if p]
+    return candidates[index]
+
+
+def infer_device(path, device_type, which_sensor, logger):
+    """Determine the acquisition device from an explicit override or the path."""
+    MEG_DEVICE_BY_EXTENSION = {"ds": "CTF", "fif": "MEGIN", "bin": "ARTEMIS123"}
+    if which_sensor == "eeg":
+        # TODO: was originally path[0]. Check if this correction is correct.
+        return path.split(".")[-1].upper()
+
+    if device_type:
+        return device_type.upper()
+    if "4D" in path:
+        return "BTI"
+
+    extension = path.split(".")[-1]
+    if extension in MEG_DEVICE_BY_EXTENSION:
+        return MEG_DEVICE_BY_EXTENSION[extension]
+
+    err_msg = "The provided MEG recording is not supported yet."
+    logger.error(err_msg)
+    raise ValueError(err_msg)
+
+
 def load_recording(
     device, path, empty_room_recording_path, configs, logger, pos_file=None
 ):
@@ -753,14 +772,20 @@ def load_recording(
                     "no head-shape/dig info was added to the recording."
                 )
 
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and (
+            configs.apply_source_localization
+            or configs.apply_environmental_noise_ssp_with_eroom
+        ):
             empty_room_recording = mne.io.read_raw_ctf(
                 empty_room_recording_path, preload=True
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and (
+            configs.apply_source_localization
+            or configs.apply_environmental_noise_ssp_with_eroom
+        ):
             empty_room_recording = None
-            logger.info("No empty room recording was found")
+            logger.warning("No empty room recording was found")
         else:
             empty_room_recording = None
 
@@ -1074,7 +1099,7 @@ def merge_datasets_with_glob(datasets):
                         "trans_path": join_with_star(trans_path),
                         "pos_path": join_with_star(pos_path),
                         "annotation_path": join_with_star(annotation_path),
-                        "layout_path": layout_path
+                        "layout_path": layout_path,
                     }
                 }
             )
