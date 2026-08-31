@@ -28,7 +28,18 @@ from nilearn.datasets import (
     load_fsaverage_data,
     load_nki,
 )
+from meganorm.src.preprocess import (
+    preprocess,
+    segment_epoch,
+    drop_noisy_meg_channels,
+    prepare_eeg_data,
+    auto_reject_segmentation,
+)
+from meganorm.src.psdParameterize import parameterize_psds, computePsd, computePsdIrasa
 from nilearn.plotting import plot_surf_roi, plot_surf_contours
+
+_trapz = getattr(np, "trapezoid", np.trapz)  # numpy >=2.0 renamed trapz
+from fooof.sim.gen import gen_aperiodic, gen_periodic
 
 
 # ***
@@ -2645,3 +2656,488 @@ def plot_50th_centiles_by_categories(
     plt.tight_layout()
     plt.savefig(output_path, dpi=dpi, bbox_inches="tight")
     plt.show()
+
+
+def psd_stage_report(
+    raw_data,
+    filtered_data,
+    rejected_segments,
+    which_sensor_dict,
+    configs,
+    subject,
+    out_dir,
+    raw_sampling_rate,
+    filtered_sampling_rate,
+    sl_segments=None,
+    spectral_models=None,
+    parametrization_method=None,
+    aperiodic_mode=None,
+    aperiodic_fit_result=None,
+    normalize=True,
+):
+    """
+    Compute and plot PSDs of segmented data across pipeline stages, split
+    across two panels:
+
+    Top panel (log-log): the four PSD stages plus the aperiodic (1/f) fit,
+    all unit-area normalized (if `normalize=True`) so curves of very
+    different absolute scale are comparable by shape. The aperiodic curve
+    plotted is the actual estimated aperiodic component -- for IRASA,
+    `spectral_models.aperiodic.get_data()` (the empirical resampled/
+    median-combined curve from the IRASA algorithm itself); for FOOOF,
+    `gen_aperiodic` evaluated at the model's own fitted parameters. Unlike
+    the PSD stages (each normalized by its own area), the aperiodic curve
+    is normalized using the SAME per-channel area as the PSD stage it was
+    actually fit on (Source-localized if present, otherwise Rejected) --
+    NOT its own area. An aperiodic curve has no peaks to concentrate area
+    in, so an independent unit-area normalization would force its whole
+    baseline artificially higher just to reach the same total area as a
+    peaky PSD, making it look inflated everywhere except at real peaks
+    even though nothing is wrong with the fit itself. Reusing the matched
+    stage's area keeps both curves on the same physically meaningful
+    scale. The median knee frequency is marked with a vertical line --
+    see below for where it comes from.
+
+    Bottom panel (log-x, linear-y): the periodic (oscillatory) component
+    only, NOT unit-area normalized (its own area can be near zero, which
+    would blow up a normalized curve into numerical noise) and clipped to
+    [mean - 4*SD, mean + 4*SD] of its own values, so a single near-zero
+    or noisy point can't distort the whole panel's scale. Linear y-axis
+    is used deliberately, since clipped values can be slightly negative
+    (periodic power is an estimated residual, not a true PSD), which a
+    log axis cannot display.
+
+    Stages (all segmented/epoched, none continuous):
+        1. Raw       - straight from the unprocessed recording; no
+                        filtering, ICA, or bad-segment removal.
+        2. Preprocessed - segmented from `filtered_data`; no bad-segment
+                        removal (isolates what preprocessing itself did).
+        3. Rejected  - `rejected_segments` as produced by the pipeline's
+                        `autoreject` or `fixed_thr` bad-segment removal.
+        4. Source-localized - `sl_segments`, if provided.
+        5. Aperiodic fit - the aperiodic (1/f) component of `spectral_models`,
+                        if provided (top panel).
+        6. Periodic fit - the periodic (oscillatory) component of
+                        `spectral_models`, if provided (bottom panel).
+
+    When `parametrization_method == "irasa"`, every PSD stage is computed
+    via `computePsdIrasa`, which reproduces IRASA's own internal Welch
+    settings (single full-length window, no overlap, `nfft` derived from
+    `configs.irasa_hset`) -- NOT the config's `psd_n_fft`/`psd_n_overlap`/
+    `psd_n_per_seg`. This keeps every curve on the same frequency-grid and
+    windowing basis as the aperiodic/periodic fits. For `parametrization_
+    method == "fooof"`, stages are computed via `computePsd` using the
+    config's Welch settings instead.
+
+    Knee frequency: this function does NOT fit its own knee model. For
+    `parametrization_method == "irasa"`, the knee is read from
+    `aperiodic_fit_result` -- the pyrasa aperiodic-fit object already
+    computed once by `feature_extract` (via
+    `spectral_models.aperiodic.fit_aperiodic_model(fit_func=aperiodic_mode,
+    ...)`) and passed in here, so the model is fit exactly once per
+    subject rather than once for feature extraction and again for this
+    plot. Because that fit only includes a "Knee Frequency (Hz)" column
+    when `aperiodic_mode == "knee"`, the knee marker only appears in that
+    case (not for `aperiodic_mode == "fixed"`) -- this mirrors what the
+    pipeline actually fit, rather than always fitting a knee model
+    independently of the configured mode. The median of the finite,
+    positive knee frequencies across channels is marked with a vertical
+    line. For `parametrization_method == "fooof"` with `aperiodic_mode ==
+    "knee"`, the knee is instead read directly from FOOOF's own fitted
+    `aperiodic_params` (FOOOF always fits its own knee parameter in that
+    mode, so there is nothing to reuse from elsewhere).
+
+    Parameters
+    ----------
+    raw_data : mne.io.Raw
+        The recording exactly as loaded, before any preprocessing. Must be
+        a copy taken right after `load_recording`, since later steps
+        mutate the working `data` object in place.
+    filtered_data : mne.io.Raw
+        Preprocessed (filtered/cleaned) continuous data.
+    rejected_segments : mne.Epochs
+        The segmented epochs after bad-segment removal (i.e. the pipeline's
+        `segments` variable, captured before it gets reassigned to the
+        source-localized epochs).
+    which_sensor_dict : dict
+        Sensor-type flags as built in `main` (e.g. {"meg": True, ...}).
+    configs : Config
+        Loaded pipeline config; segmentation, PSD, and IRASA settings are
+        read from it directly so all stages use identical settings.
+    subject : str
+        Subject ID, used in the plot title/filename.
+    out_dir : str
+        Directory to save the figure into (created if missing).
+    raw_sampling_rate : float or int
+        Sampling rate of `raw_data` (its native rate, pre-resampling).
+    filtered_sampling_rate : float or int
+        Sampling rate of `filtered_data` / `rejected_segments` /
+        `sl_segments` (post-preprocessing, e.g. post-resampling).
+    sl_segments : mne.Epochs or None
+        Source-localized epochs, if source localization was applied.
+    spectral_models : FOOOFGroup | pyrasa.irasa_mne.mne_objs.IrasaEpoched | None
+        Fitted spectral model from `parameterize_psds`, used to extract and
+        overlay the aperiodic and periodic components. If None, those
+        curves and the knee-frequency marker are skipped.
+    parametrization_method : str or None
+        Either "fooof" or "irasa"; must match how `spectral_models` was
+        produced, and determines how each PSD stage and the knee frequency
+        are computed (see above). Required if `spectral_models` is given.
+    aperiodic_mode : str or None
+        The aperiodic mode used to fit `spectral_models` (e.g. "fixed" or
+        "knee"). For FOOOF this selects how the aperiodic curve is
+        reconstructed and whether the knee is read from its params. For
+        IRASA it only affects whether `aperiodic_fit_result` has a knee
+        column (see above); it is not used to fit anything in this
+        function directly.
+    aperiodic_fit_result : pyrasa aperiodic fit result or None
+        The object returned as the second element of `feature_extract`'s
+        return tuple for IRASA `spectral_models` (None for FOOOF). Reused
+        here to read the knee frequency without re-fitting. If None for an
+        IRASA run, no knee marker is drawn.
+    normalize : bool
+        If True, the top-panel PSD stages and aperiodic fit are scaled to
+        unit area before averaging/plotting (see above for how the
+        aperiodic curve's area is chosen). Does NOT apply to the periodic
+        panel, which is never unit-area normalized.
+
+    Returns
+    -------
+    dict[str, tuple[np.ndarray, np.ndarray]]
+        Curves plotted, mapping label -> (freqs, psds), including the
+        aperiodic and periodic fits if plotted (not the knee-frequency
+        marker, which is a vertical line rather than a curve).
+
+    Notes
+    -----
+    Raw-stage segmentation skips event-based epoching and any bad-segment
+    removal (`bad_segment_removal_method=None`, `ica_if_reject_by_annotation=
+    False`, `segment_events=None`) since annotations/events are only
+    available after preprocessing. If your recording relies on
+    event-locked epochs, treat the raw stage as an approximate,
+    fixed-length-segmented reference rather than an exact match.
+
+    For FOOOF, the periodic component is reconstructed per channel as
+    `10**(aperiodic_fit + peak_fit) - 10**aperiodic_fit` (i.e. full model
+    minus aperiodic, in linear power units) rather than the raw log-space
+    peak fit, so it sits on the same additive scale as the PSD curves.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    def _segment_kwargs(sampling_rate, segment_events=None):
+        return dict(
+            which_sensor=which_sensor_dict,
+            sampling_rate=int(round(sampling_rate)),
+            tmin=configs.segments_tmin,
+            tmax=configs.segments_tmax,
+            segments_length=configs.segments_length,
+            overlap=configs.segments_overlap,
+            ica_if_reject_by_annotation=False,
+            bad_segment_removal_method=None,
+            mag_var_threshold=configs.mag_var_threshold,
+            grad_var_threshold=configs.grad_var_threshold,
+            eeg_var_threshold=configs.eeg_var_threshold,
+            mag_flat_threshold=configs.mag_flat_threshold,
+            grad_flat_threshold=configs.grad_flat_threshold,
+            eeg_flat_threshold=configs.eeg_flat_threshold,
+            segment_events=segment_events,
+        )
+
+    def _compute_stage_psd(segments):
+        """
+        PSD for one stage, computed the same way as the final model's
+        input spectrum -- via `computePsdIrasa` when `parametrization_method`
+        is "irasa" (so every stage matches IRASA's own nfft/nperseg/noverlap
+        and is directly comparable to the aperiodic/periodic fits), or via
+        `computePsd` with the config's Welch settings otherwise.
+        """
+        if parametrization_method == "irasa":
+            return computePsdIrasa(
+                segments=segments,
+                hset_info=configs.irasa_hset,
+                freq_range_low=configs.fooof_freq_range_low,
+                freq_range_high=configs.fooof_freq_range_high,
+            )
+        return computePsd(
+            segments=segments,
+            freq_range_low=configs.fooof_freq_range_low,
+            freq_range_high=configs.fooof_freq_range_high,
+            sampling_rate=int(round(segments.info["sfreq"])),
+            psd_method=configs.psd_method,
+            psd_n_overlap=configs.psd_n_overlap,
+            psd_n_fft=configs.psd_n_fft,
+            n_per_seg=configs.psd_n_per_seg,
+        )
+
+    def _channel_area(psds, freqs):
+        """Per-channel area under the curve, used to reuse one stage's
+        normalization scale on another curve (e.g. the aperiodic fit)."""
+        psds = np.asarray(psds, dtype=float)
+        if psds.ndim == 3:  # (n_epochs, n_channels, n_freqs)
+            psds = psds.mean(axis=0)
+        if psds.ndim == 1:
+            psds = psds[np.newaxis, :]
+        area = _trapz(psds, freqs, axis=-1)
+        area[area == 0] = 1.0
+        return area
+
+    def _stats(psds, freqs, do_normalize, reference_area=None):
+        psds = np.asarray(psds, dtype=float)
+        if psds.ndim == 3:  # (n_epochs, n_channels, n_freqs)
+            psds = psds.mean(axis=0)
+        if psds.ndim == 1:
+            psds = psds[np.newaxis, :]
+        if do_normalize:
+            if reference_area is not None:
+                area = reference_area
+            else:
+                area = _trapz(psds, freqs, axis=-1)
+                area[area == 0] = 1.0
+            psds = psds / area[:, None]
+        n_ch = psds.shape[0]
+        mean = psds.mean(axis=0)
+        sem = (
+            psds.std(axis=0, ddof=1) / np.sqrt(n_ch)
+            if n_ch > 1
+            else np.zeros_like(mean)
+        )
+        return mean, np.clip(mean - 1.96 * sem, 1e-30, None), mean + 1.96 * sem, n_ch
+
+    def _aperiodic_curve():
+        """
+        Extract the per-channel aperiodic PSD/fit and its frequency axis.
+        This is the actual estimated curve, not a synthetic/generated one:
+        for IRASA it is `spectral_models.aperiodic.get_data()`, the
+        empirical resampled/median-combined curve from the IRASA algorithm
+        itself; for FOOOF it is `gen_aperiodic` evaluated at the model's
+        own fitted parameters, which reconstructs the fitted curve FOOOF
+        already estimated (FOOOF does not store the aperiodic curve as a
+        standalone array the way IRASA does, only its fitted parameters).
+        """
+        if parametrization_method == "fooof":
+            ap_params = spectral_models.get_params("aperiodic_params")
+            ap_freqs = spectral_models.freqs
+            ap_psds = np.array(
+                [
+                    10 ** gen_aperiodic(ap_freqs, params, aperiodic_mode)
+                    for params in ap_params
+                ]
+            )
+            return ap_psds, ap_freqs
+        elif parametrization_method == "irasa":
+            ap_psds = np.squeeze(spectral_models.aperiodic.get_data(), axis=0)
+            ap_freqs = spectral_models.aperiodic.freqs
+            return ap_psds, ap_freqs
+        else:
+            raise ValueError(
+                f"Unsupported parametrization_method for aperiodic extraction: "
+                f"{parametrization_method!r}"
+            )
+
+    def _periodic_curve():
+        """Extract per-channel periodic (oscillatory) PSD and its frequency axis."""
+        if parametrization_method == "fooof":
+            per_freqs = spectral_models.freqs
+            periodic_psds = []
+            for result in spectral_models.group_results:
+                ap_fit_log = gen_aperiodic(
+                    per_freqs, result.aperiodic_params, aperiodic_mode
+                )
+                if result.peak_params.size:
+                    full_fit_log = ap_fit_log + gen_periodic(
+                        per_freqs, result.peak_params.flatten()
+                    )
+                else:
+                    full_fit_log = ap_fit_log.copy()
+                # additive, linear-power periodic component: full model minus
+                # aperiodic, NOT the raw log-space peak fit (which is a
+                # multiplicative modulation term and not directly comparable
+                # to PSD curves on this axis)
+                periodic_linear = 10**full_fit_log - 10**ap_fit_log
+                periodic_psds.append(periodic_linear)
+            return np.array(periodic_psds), per_freqs
+        elif parametrization_method == "irasa":
+            per_psds = np.squeeze(spectral_models.periodic.get_data(), axis=0)
+            per_freqs = spectral_models.periodic.freqs
+            return per_psds, per_freqs
+        else:
+            raise ValueError(
+                f"Unsupported parametrization_method for periodic extraction: "
+                f"{parametrization_method!r}"
+            )
+
+    def _knee_freq_from_ap(ap):
+        """
+        Read the knee frequency (Hz) from an already-fitted pyrasa
+        aperiodic-fit object, WITHOUT re-fitting. `ap` is expected to be
+        the object `feature_extract` already computed via
+        `spectral_models.aperiodic.fit_aperiodic_model(...)`. Returns
+        (None, 0) if `ap` is None or has no "Knee Frequency (Hz)" column
+        (e.g. because `aperiodic_mode` was "fixed", not "knee").
+        """
+        if ap is None:
+            return None, 0
+        params = getattr(ap, "aperiodic_params", None)
+        if params is None or "Knee Frequency (Hz)" not in params.columns:
+            return None, 0
+        knee_freqs = params["Knee Frequency (Hz)"].dropna().to_numpy()
+        knee_freqs = knee_freqs[np.isfinite(knee_freqs) & (knee_freqs > 0)]
+        if knee_freqs.size == 0:
+            return None, 0
+        return float(np.median(knee_freqs)), int(knee_freqs.size)
+
+    def _mean_knee_freq():
+        """Knee frequency (Hz), or (None, 0) if not applicable / not available."""
+        if parametrization_method == "irasa":
+            return _knee_freq_from_ap(aperiodic_fit_result)
+        elif parametrization_method == "fooof" and aperiodic_mode == "knee":
+            knee_freqs = []
+            for result in spectral_models.group_results:
+                offset, knee, exponent = result.aperiodic_params
+                if exponent > 0 and knee > 0:
+                    knee_freqs.append(knee ** (1.0 / exponent))
+            if not knee_freqs:
+                return None, 0
+            return float(np.median(knee_freqs)), len(knee_freqs)
+        return None, 0
+
+    stages = {}
+
+    # Stage 1: raw, unprocessed, segmented (no filtering/ICA/rejection)
+    raw_segments = segment_epoch(data=raw_data, **_segment_kwargs(raw_sampling_rate))
+    stages["Raw"] = _compute_stage_psd(raw_segments)
+    del raw_segments
+
+    # Stage 2: preprocessed, segmented without bad-segment removal
+    prep_segments = segment_epoch(
+        data=filtered_data, **_segment_kwargs(filtered_sampling_rate)
+    )
+    stages["Preprocessed"] = _compute_stage_psd(prep_segments)
+    del prep_segments
+
+    # Stage 3: after bad-segment removal (autoreject / fixed_thr)
+    rejected_label = f"Rejected ({configs.bad_segment_removal_method})"
+    stages[rejected_label] = _compute_stage_psd(rejected_segments)
+
+    # Stage 4: source-localized segments (optional)
+    if sl_segments is not None:
+        stages["Source-localized"] = _compute_stage_psd(sl_segments)
+
+    # Aperiodic fit (top panel) and periodic fit (bottom panel), extracted
+    # once and shared with the knee-frequency lookup
+    aperiodic_label = None
+    periodic_curve = None
+    knee_freq, knee_n_ch = None, 0
+    aperiodic_reference_area = None
+    if spectral_models is not None and parametrization_method is not None:
+        ap_psds, ap_freqs = _aperiodic_curve()
+        aperiodic_label = f"Aperiodic fit ({parametrization_method})"
+        stages[aperiodic_label] = (ap_psds, ap_freqs)
+
+        per_psds, per_freqs = _periodic_curve()
+        periodic_curve = (per_psds, per_freqs)
+
+        knee_freq, knee_n_ch = _mean_knee_freq()
+
+        # The aperiodic fit was actually computed on the source-localized
+        # segments if source localization ran, otherwise on the rejected
+        # segments -- reuse THAT stage's per-channel area rather than the
+        # aperiodic curve's own area (see docstring for why).
+        matched_label = (
+            "Source-localized" if sl_segments is not None else rejected_label
+        )
+        matched_psds, matched_freqs = stages[matched_label]
+        aperiodic_reference_area = _channel_area(matched_psds, matched_freqs)
+
+    # ---- Plot: top panel = PSD stages + aperiodic, bottom = periodic -----
+    if periodic_curve is not None:
+        fig, (ax1, ax2) = plt.subplots(
+            2, 1, figsize=(9, 9), gridspec_kw={"height_ratios": [2, 1]}
+        )
+    else:
+        fig, ax1 = plt.subplots(figsize=(9, 5.5))
+        ax2 = None
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    for (label, (psds, freqs)), color in zip(stages.items(), colors):
+        is_aperiodic = label == aperiodic_label
+        reference_area = aperiodic_reference_area if is_aperiodic else None
+        mean, lo, hi, n_ch = _stats(
+            psds, freqs, normalize, reference_area=reference_area
+        )
+        linestyle = "--" if is_aperiodic else "-"
+        ax1.fill_between(freqs, lo, hi, color=color, alpha=0.20, linewidth=0)
+        ax1.loglog(
+            freqs,
+            mean,
+            lw=2,
+            color=color,
+            linestyle=linestyle,
+            label=f"{label} (n_ch={n_ch})",
+        )
+
+    if knee_freq is not None:
+        ax1.axvline(
+            knee_freq,
+            color="black",
+            linestyle=":",
+            lw=1.5,
+            label=f"Knee freq (median={knee_freq:.2f} Hz, n_ch={knee_n_ch})",
+        )
+
+    ax1.set_xlabel("Log Frequency (Hz)")
+    ax1.set_ylabel("Log Normalized PSD (a.u.)" if normalize else "Log PSD")
+    ax1.set_title(f"Subject {subject} - PSD across pipeline stages")
+    ax1.legend(fontsize=9)
+
+    if periodic_curve is not None:
+        per_psds, per_freqs = periodic_curve
+        # NOT unit-area normalized: the periodic component's own area can be
+        # near zero (little/no oscillatory power in parts of the spectrum),
+        # and dividing by a near-zero area would amplify noise into huge
+        # spurious values, exactly the blow-up this panel is meant to avoid.
+        mean, lo, hi, n_ch_per = _stats(per_psds, per_freqs, do_normalize=False)
+
+        mu, sigma = mean.mean(), mean.std()
+        lower_bound, upper_bound = mu - 4 * sigma, mu + 4 * sigma
+        mean_clipped = np.clip(mean, lower_bound, upper_bound)
+        lo_clipped = np.clip(lo, lower_bound, upper_bound)
+        hi_clipped = np.clip(hi, lower_bound, upper_bound)
+
+        ax2.fill_between(
+            per_freqs,
+            lo_clipped,
+            hi_clipped,
+            color="tab:brown",
+            alpha=0.25,
+            linewidth=0,
+        )
+        ax2.plot(
+            per_freqs,
+            mean_clipped,
+            lw=2,
+            color="tab:brown",
+            linestyle=":",
+            label=f"Periodic fit ({parametrization_method}) (n_ch={n_ch_per})",
+        )
+        if knee_freq is not None:
+            ax2.axvline(
+                knee_freq,
+                color="black",
+                linestyle=":",
+                lw=1.5,
+                label=f"Knee freq (median={knee_freq:.2f} Hz, n_ch={knee_n_ch})",
+            )
+        ax2.set_xscale("log")
+        ax2.set_xlabel("Log Frequency (Hz)")
+        ax2.set_ylabel("Periodic power (a.u.)\n(clipped to mean \u00b1 4 SD)")
+        ax2.set_title("Periodic (oscillatory) component")
+        ax2.legend(fontsize=9)
+
+    fig.tight_layout()
+    fig.savefig(
+        os.path.join(out_dir, f"{subject}-psd-stages.png"), dpi=400, bbox_inches="tight"
+    )
+    plt.close(fig)
+
+    return stages
