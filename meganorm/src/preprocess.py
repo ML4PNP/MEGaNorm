@@ -82,6 +82,7 @@ def auto_ica_with_corr(
     IcaMethod="fastica",
     which_sensor={"meg": True, "eeg": True},
     auto_ica_corr_thr=0.9,
+    random_state=42,
 ):
     """
     Performs automated ICA for artifact removal by identifying components that
@@ -132,7 +133,7 @@ def auto_ica_with_corr(
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
-        random_state=42,
+        random_state=random_state,
         verbose=False,
     )
     ica.fit(data, verbose=False, picks=["eeg", "meg", "grad", "mag"])
@@ -180,6 +181,7 @@ def auto_ica_with_mean(
     IcaMethod="fastica",
     which_sensor={"meg": True, "eeg": True},
     auto_ica_corr_thr=0.9,
+    random_state=42,
 ):
     """
     Performs ICA-based artifact rejection using MNE’s built-in ECG correlation method.
@@ -218,7 +220,7 @@ def auto_ica_with_mean(
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
-        random_state=42,
+        random_state=random_state,
         verbose=False,
     )
     ica.fit(data, verbose=False, picks=["eeg", "meg", "mag", "grad"])
@@ -296,6 +298,7 @@ def apply_auto_ica_pipeline(
     ica_max_iter,
     IcaMethod,
     auto_ica_corr_thr,
+    random_state=42,
 ):
     """
     Apply ICA automatically depending on available physiological channels
@@ -356,6 +359,7 @@ def apply_auto_ica_pipeline(
                     which_sensor=which_sensor,
                     physiological_sensor=phys_activity_type,
                     auto_ica_corr_thr=auto_ica_corr_thr,
+                    random_state=random_state,
                 )
 
             elif not if_elec_exist and phys_activity_type == "ecg":
@@ -369,6 +373,7 @@ def apply_auto_ica_pipeline(
                     IcaMethod=IcaMethod,
                     which_sensor=which_sensor,
                     auto_ica_corr_thr=auto_ica_corr_thr,
+                    random_state=random_state,
                 )
 
         # -------- EEG --------
@@ -386,6 +391,7 @@ def apply_auto_ica_pipeline(
                     which_sensor=which_sensor,
                     physiological_sensor=phys_activity_type,
                     auto_ica_corr_thr=auto_ica_corr_thr,
+                    random_state=random_state,
                 )
 
             elif not if_elec_exist and ICA_flag:
@@ -703,7 +709,6 @@ def preprocess(
     gedai_duration=None,
     gedai_overlap=0.5,
     gedai_preliminary_broadband_noise_multiplier=6.0,
-    same_environmental_noise_removal=False,
     gedai_noise_multiplier=3.0,
     gedai_wavelet_type="haar",
     gedai_wavelet_level="auto",
@@ -716,6 +721,7 @@ def preprocess(
     event_of_interest=None,
     segments_length=10,
     overlap=5,
+    random_state=42,
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data.
@@ -785,7 +791,7 @@ def preprocess(
             data, empty_room_recording, which_sensor
         )
 
-    data = fix_physiological_channel_types(data)
+    data = fix_physiological_channel_types(data, device=device)
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
@@ -980,7 +986,8 @@ def preprocess(
             ica_if_reject_by_annotation=ica_if_reject_by_annotation,
             environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
             environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
-            same_environmental_noise_removal=same_environmental_noise_removal,
+            ica_method=IcaMethod,
+            random_state=random_state,
         )
 
     # Remove unwanted epochs associated with some events
@@ -1015,6 +1022,7 @@ def preprocess(
             ica_max_iter,
             IcaMethod,
             auto_ica_corr_thr,
+            random_state=random_state,
         )
     else:
         number_of_reduced_ic = 0
@@ -1720,7 +1728,7 @@ def head_motion_correction(
             )
         )
 
-        data.set_annotations(movement_annotation)
+        data.set_annotations(data.annotations + movement_annotation)
         movement_dur = sum(movement_annotation.duration)
         logger.info(
             f"Movement annotation algorithm using cHPI coils detected {movement_dur}"
@@ -1746,11 +1754,12 @@ def remove_environmental_noise(
     ctf_gradient_comp_level=3,
     apply_environmental_noise_ssp_with_eroom=False,
     apply_environmental_noise_ica_with_ref_meg=False,
-    environmental_noise_ica_with_ref_meg_thr=2.5,
+    environmental_noise_ica_with_ref_meg_thr=3,
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
-    same_environmental_noise_removal=False,
+    ica_method="fastica",
+    random_state=42,
 ):
     """
     Suppress environmental (external) noise using a device-appropriate
@@ -1800,17 +1809,18 @@ def remove_environmental_noise(
         applied.
     """
     # gradient compensation for CTF datasets
-    if device == "CTF" and not same_environmental_noise_removal:
+    if device == "CTF":
         data, empty_room_recording = apply_gradient_comp(
             data,
             empty_room_recording=empty_room_recording,
             grade=ctf_gradient_comp_level,
         )
-        msg = "The data was preprocessed for environmental noise using gradient compensation."
-        logger.info(msg)
+        logger.info(
+            "The data was preprocessed for environmental noise using gradient compensation."
+        )
 
     # If MEGIN device, apply tsss
-    elif device == "MEGIN" and not same_environmental_noise_removal:
+    elif device == "MEGIN":
         data, empty_room_recording = apply_tsss(
             data,
             empty_room_record=empty_room_recording,
@@ -1818,49 +1828,63 @@ def remove_environmental_noise(
             st_correlation=0.98,  # TODO: congig
         )
 
-    elif apply_environmental_noise_ssp_with_eroom:
-        if empty_room_recording:
-            empty_room_projs = mne.compute_proj_raw(
-                empty_room_recording, n_grad=3, n_mag=3
-            )
-            data.add_proj(empty_room_projs)
-            data.apply_proj()
-            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info['projs'])}"
-        else:
-            msg = (
-                "Empty_room_recording is inavailable to perform SSP for environmental noise suppression."
-                " Please, use another method to remove environmental noise."
-            )
+    if device != "MEGIN":
+        if apply_environmental_noise_ssp_with_eroom:
+            if empty_room_recording:
+                empty_room_projs = mne.compute_proj_raw(
+                    empty_room_recording, n_grad=3, n_mag=3
+                )
+                data.add_proj(empty_room_projs)
+                data.apply_proj()
+
+                empty_room_recording.add_proj(empty_room_projs)
+                empty_room_recording.apply_proj()
+                msg = (
+                    f"Added {len(empty_room_projs)} empty-room SSP projector(s) to "
+                    "the data and empty-room recording."
+                )
+            else:
+                msg = (
+                    "Empty_room_recording is inavailable to perform SSP for environmental noise suppression."
+                    " Please, use another method to remove environmental noise."
+                )
             logger.info(msg)
 
-    elif apply_environmental_noise_ica_with_ref_meg:
+        if apply_environmental_noise_ica_with_ref_meg:
+            has_ref_meg = "ref_meg" in data.get_channel_types()
+            if has_ref_meg:
+                data, bad_ic, _, empty_room_recording = find_ref_meg_artifact(
+                    data,
+                    empty_room_recording=empty_room_recording,
+                    environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+                    ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+                    environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+                    environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
+                    ica_method=ica_method,
+                    random_state=random_state,
+                )
 
-        has_ref_meg = "ref_meg" in data.get_channel_types()
-        if has_ref_meg:
-            data, bad_ic, scores = find_ref_meg_artifact(
-                data,
-                environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
-                ica_if_reject_by_annotation=ica_if_reject_by_annotation,
-                environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
-                environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
-            )
-
-            logger.info(
-                "Number of components removed by ICA for suppressing environmental noise using reference MEG: %d",
-                len(bad_ic),
-            )
+                logger.info(
+                    "Number of components removed by ICA for suppressing environmental noise using reference MEG: %d",
+                    len(bad_ic),
+                )
 
     return data, empty_room_recording
 
 
 def find_ref_meg_artifact(
     data,
-    environmental_noise_ica_with_ref_meg_thr,
+    ica_method="fastica",
+    empty_room_recording=None,
+    environmental_noise_ica_with_ref_meg_thr=3,
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
+    random_state=42,
 ):
     """
+    This function was taken from MNE tutorials.
+
     Identify and remove environmental-noise ICA components using
     reference MEG channels.
 
@@ -1900,23 +1924,34 @@ def find_ref_meg_artifact(
 
     all_picks = mne.pick_types(data_tog.info, meg=True, ref_meg=True)
     tog_ica = mne.preprocessing.ICA(
-        n_components=20, max_iter="auto", allow_ref_meg=True
+        n_components=None,
+        max_iter="auto",
+        method=ica_method,
+        allow_ref_meg=True,
+        random_state=random_state,
     )
     tog_ica.fit(data_tog, picks=all_picks)
-    bad_comps, scores = tog_ica.find_bads_ref(
-        data_tog,
-        reject_by_annotation=ica_if_reject_by_annotation,
-        method="together",
-        threshold=environmental_noise_ica_with_ref_meg_thr,
-        measure=environmental_noise_ica_with_ref_meg_measure,
-    )
+    
+    if environmental_noise_ica_with_ref_meg_method == "together":
+        bad_comps, scores = tog_ica.find_bads_ref(
+            data_tog,
+            reject_by_annotation=ica_if_reject_by_annotation,
+            method="together",
+            threshold=environmental_noise_ica_with_ref_meg_thr,
+            measure=environmental_noise_ica_with_ref_meg_measure,
+        )
+        data = tog_ica.apply(data_tog, exclude=bad_comps)
 
-    if environmental_noise_ica_with_ref_meg_method == "separate":
+    elif environmental_noise_ica_with_ref_meg_method == "separate":
 
         data_sep = data.copy()
         ref_picks = mne.pick_types(data_sep.info, meg=False, ref_meg=True)
         ref_ica = mne.preprocessing.ICA(
-            n_components=2, max_iter="auto", allow_ref_meg=True
+            n_components=None,
+            max_iter="auto",
+            method=ica_method,
+            allow_ref_meg=True,
+            random_state=random_state,
         )
         ref_ica.fit(data_sep, picks=ref_picks)
 
@@ -1928,17 +1963,24 @@ def find_ref_meg_artifact(
 
         bad_comps, scores = ica_sep.find_bads_ref(
             data_sep,
+            threshold=environmental_noise_ica_with_ref_meg_thr,
+            reject_by_annotation=ica_if_reject_by_annotation,
             method="separate",
+            measure=environmental_noise_ica_with_ref_meg_measure,
         )
 
         data = ica_sep.apply(data_sep, exclude=bad_comps)
+        data.drop_channels(ref_comps.ch_names)
 
     else:
-        data = tog_ica.apply(data_tog, exclude=bad_comps)
+        raise ValueError("Wrong argument for environmental_noise_ica_with_ref_meg_method.")
 
-        # TODO: data_clean.drop_channels(ref_comps.ch_names)
+        # if empty_room_recording is not None:
+        #     empty_room_recording = ica_sep.apply(
+        #         empty_room_recording, exclude=bad_comps
+        #     )
 
-    return data, bad_comps, scores
+    return data, bad_comps, scores, empty_room_recording
 
 
 def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier):
@@ -2866,7 +2908,6 @@ def tsss_params(info):
         st_duration=float(r["st_duration"]),
         st_correlation=float(r["st_correlation"]),
     )
-
 
 
 def fix_physiological_channel_types(data, device="CTF", path=None):
