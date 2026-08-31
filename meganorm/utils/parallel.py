@@ -13,6 +13,7 @@ from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
 from meganorm.src.normative_modeling import anova_group_level_effect
+from meganorm.utils.IO import check_demographic_format, load_demographic_file
 
 
 def progress_bar(current, total, bar_length=20):
@@ -828,6 +829,20 @@ def sbatch_feature_extraction_runner(
 
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path
+
+
+    if (config_file or Config()).apply_mri_template or combine_features_and_demographics:
+        for dataset_name, values in datasets.items():
+            demo_path = values.get("demographic_path") or os.path.join(
+                values["base_dir"], "participants_bids.tsv"
+            )
+            if not os.path.exists(demo_path):
+                raise FileNotFoundError(
+                    f"The demographic file for '{dataset_name}' was not found at "
+                    f"{demo_path}. Set 'demographic_path' for this dataset, or "
+                    "create the file with 'make_demo_file_bids'."
+                )
+            check_demographic_format(load_demographic_file(demo_path))
 
     features_dir = os.path.join(project_dir, "Features")
     config_file_path = os.path.join(
