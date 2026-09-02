@@ -38,7 +38,7 @@ from meganorm.src.preprocess import (
 from meganorm.src.psdParameterize import parameterize_psds, computePsd, computePsdIrasa
 from nilearn.plotting import plot_surf_roi, plot_surf_contours
 
-_trapz = getattr(np, "trapezoid", np.trapz)  # numpy >=2.0 renamed trapz
+_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz  
 from fooof.sim.gen import gen_aperiodic, gen_periodic
 
 
