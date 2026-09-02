@@ -555,6 +555,8 @@ def feature_extract(
         feature_categories, freq_bands, channel_names, power_band_ratios_list
     )
 
+    ap = None 
+    
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
         try:
             ap = spectral_models.aperiodic.fit_aperiodic_model(
