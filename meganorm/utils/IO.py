@@ -444,6 +444,8 @@ class Config(BaseModel):
     save_source_localized_epochs: bool = False
     save_psds: bool = False
 
+    lowest_num_of_epochs = None
+
     # Feature extraction
     freq_bands: Dict[str, Tuple[int, int]] = {
         "Theta": (3, 8),

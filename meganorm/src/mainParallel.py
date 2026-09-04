@@ -24,7 +24,6 @@ from meganorm.src.featureExtraction import feature_extract
 from meganorm.plots.plots import psd_stage_report
 
 
-
 def main_argparser(args=None):
     """
     Build and parse command-line arguments for the feature extraction script.
@@ -286,7 +285,7 @@ def main(args):
         "trans_file",
         "annotation_path",
         "layout_path",
-        "demographic_path"
+        "demographic_path",
     ]:
         if getattr(args, attr) == "None":
             setattr(args, attr, None)
@@ -314,7 +313,7 @@ def main(args):
 
     event_of_interest = int(args.event_of_interest) if event_record else None
 
-    paths = args.dir.split("*")    
+    paths = args.dir.split("*")
     paths = list(filter(lambda x: len(x), paths))
     logger.warning(
         f"{len(paths)} recordings were detected for this subject. "
@@ -433,7 +432,7 @@ def main(args):
         segments_length=configs.segments_length,
         overlap=configs.segments_overlap,
         remove_nonfinite_segment_threshold=configs.remove_nonfinite_segment_threshold,
-        random_state=configs.random_state
+        random_state=configs.random_state,
     )
 
     if configs.save_preprocessed_data:
@@ -502,6 +501,17 @@ def main(args):
         segments.save(
             f"{save_segments_path}/{args.subject}-segments-epo.fif", overwrite=True
         )
+
+    if configs.lowest_num_of_epochs is not None:
+        rejected_segments = segments.copy()
+        rejected_segments.drop_bad()          # no-op if rejection already ran
+
+        n_kept = len(rejected_segments)
+
+        if n_kept < configs.lowest_num_of_epochs:
+            err_msg = f"The number of extracted epochs is below the specified minimum threshold of {configs.lowest_num_of_epochs}."
+            logger.error(err_msg)
+            raise Exception(err_msg)
 
     # ------------------------------------------------------------
     sl_segments = None  # populated below if source localization runs
@@ -593,7 +603,6 @@ def main(args):
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 
- 
 
     logger.info(
         f"The feature extraction process for the subject {args.subject} is complete."
