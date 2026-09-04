@@ -555,6 +555,7 @@ def feature_extract(
         feature_categories, freq_bands, channel_names, power_band_ratios_list
     )
 
+    ap = None
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
         try:
             ap = spectral_models.aperiodic.fit_aperiodic_model(
@@ -1165,7 +1166,9 @@ class PYRASADecomposer(SpectralDecomposer):
         """
         try:
             df = self.model.periodic.get_peaks(
-                cut_spectrum=(fmin, fmax), peak_threshold=1.5
+                cut_spectrum=(fmin-1, fmax+1), 
+                peak_threshold=1.5,
+                peak_width_limits=(1, 12.0)
             )
         except ValueError as e:
             logger.warning(
