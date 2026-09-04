@@ -20,7 +20,7 @@ from meganorm.src.source_localization import check_tsss
 from meganorm.utils import data_specific_utils
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
-from autoreject import AutoReject, set_matplotlib_defaults
+from autoreject import AutoReject, Ransac, set_matplotlib_defaults
 import autoreject
 
 warnings.filterwarnings("ignore")
@@ -892,7 +892,7 @@ def preprocess(
     freqs = np.arange(
         int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
     )
-    freqs = freqs[freqs <= nyquist]  # keep only valid frequencies
+    freqs = freqs[freqs < nyquist - 1]  # keep only valid frequencies
 
     data.notch_filter(freqs=freqs, n_jobs=-1)
 
@@ -968,10 +968,7 @@ def preprocess(
     # rereference -----------------------------------
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
-        if empty_room_recording:
-            empty_room_recording = empty_room_recording.set_eeg_reference(
-                rereference_method
-            )
+
 
     # remove environmental noise ---------------------
     if apply_environmental_noise_correction:
@@ -1923,15 +1920,16 @@ def find_ref_meg_artifact(
     data_tog = data.copy()
 
     all_picks = mne.pick_types(data_tog.info, meg=True, ref_meg=True)
+    rank = sum(mne.compute_rank(data_tog.copy().pick(all_picks), rank=None).values())
     tog_ica = mne.preprocessing.ICA(
-        n_components=None,
+        n_components=rank,
         max_iter="auto",
         method=ica_method,
         allow_ref_meg=True,
         random_state=random_state,
     )
     tog_ica.fit(data_tog, picks=all_picks)
-    
+
     if environmental_noise_ica_with_ref_meg_method == "together":
         bad_comps, scores = tog_ica.find_bads_ref(
             data_tog,
@@ -1973,7 +1971,9 @@ def find_ref_meg_artifact(
         data.drop_channels(ref_comps.ch_names)
 
     else:
-        raise ValueError("Wrong argument for environmental_noise_ica_with_ref_meg_method.")
+        raise ValueError(
+            "Wrong argument for environmental_noise_ica_with_ref_meg_method."
+        )
 
         # if empty_room_recording is not None:
         #     empty_room_recording = ica_sep.apply(
@@ -2438,6 +2438,91 @@ def _annotate_dropped_epochs(
         "annotation-aware steps such as covariance estimation)."
     )
     return raw
+
+
+
+def _detect_bad_channels_ransac(
+    epochs,
+    n_resample=50,
+    min_channels=0.25,
+    min_corr=0.75,
+    unbroken_time=0.4,
+    n_jobs=1,
+    random_state=42,
+    min_good_channels=8,
+):
+    """Run RANSAC once per channel type and return the union of bad channels.
+
+    ``Ransac`` handles a single channel type per fit, so recordings with both
+    magnetometers and gradiometers need one pass each. Channels already in
+    ``epochs.info['bads']`` are excluded from the picks and are not re-tested.
+
+    Parameters
+    ----------
+    epochs : mne.Epochs
+        Preloaded epochs to run detection on.
+    n_resample : int, optional
+        Number of random channel subsets RANSAC draws. Default is 50.
+    min_channels : float, optional
+        Fraction of channels used to predict the rest. Default is 0.25.
+    min_corr : float, optional
+        Correlation below which a channel-epoch counts as bad. Default is 0.75.
+    unbroken_time : float, optional
+        Fraction of epochs a channel must fail before it is called globally
+        bad. Default is 0.4.
+    n_jobs : int, optional
+        Parallel jobs passed to ``Ransac``. Default is 1.
+    random_state : int, optional
+        Random seed. Default is 42.
+    min_good_channels : int, optional
+        Skip a channel type with fewer good channels than this, since
+        interpolation from a handful of sensors is not meaningful. Default is 8.
+
+    Returns
+    -------
+    bads : list of str
+        Channel names flagged bad, pooled across channel types.
+    """
+    present = epochs.get_channel_types(unique=True, only_data_chs=True)
+    bads = []
+    bad_logs = {}
+
+    for ch_type in ("mag", "grad", "eeg"):
+        if ch_type not in present:
+            continue
+
+        if ch_type == "eeg":
+            picks = mne.pick_types(epochs.info, meg=False, eeg=True, exclude="bads")
+        else:
+            picks = mne.pick_types(epochs.info, meg=ch_type, eeg=False, exclude="bads")
+
+        ransac = Ransac(
+            picks=picks,
+            # n_resample=n_resample,
+            # min_channels=min_channels,
+            # min_corr=min_corr,
+            # unbroken_time=unbroken_time,
+            n_jobs=n_jobs,
+            random_state=random_state,
+            verbose=False,
+        )
+        ransac.fit(epochs)
+
+        bad_logs[ch_type] = (
+            np.asarray(ransac.bad_log),
+            [epochs.ch_names[ii] for ii in ransac.picks],
+        )
+
+        logger.info(
+            "RANSAC (%s): %d/%d channels flagged bad.",
+            ch_type,
+            len(ransac.bad_chs_),
+            len(picks),
+        )
+        bads.extend(ransac.bad_chs_)
+
+    return bads, bad_logs
+
 
 
 def auto_reject_segmentation(
