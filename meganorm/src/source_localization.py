@@ -1531,12 +1531,11 @@ def prepare_template(subject, demographic_file_p, **kwargs):
         )
         logger.error(err_msg)
         raise FileNotFoundError(err_msg)
-    
+
     from meganorm.utils.IO import load_demographic_file
 
     demographic_file = load_demographic_file(demographic_file_p)
     age = demographic_file.loc[subject]["age"]
-
 
     age_months = age * 12
     surface_name, surface_path = nearest_template_dir(
