@@ -2835,13 +2835,56 @@ def annotate_nonfinite(
     pad=0.0,
     verbose=True,
 ):
-    """Annotate short contiguous NaN/Inf intervals as BAD and zero-fill them.
+    """
+    Annotate short contiguous NaN/Inf intervals as BAD and zero-fill them.
 
-    A segment shorter than `remove_nonfinite_segment_threshold` seconds is
-    annotated (so ICA/epochs skip it) and its samples are zeroed (so filtering/
-    resampling can't propagate NaN). A segment at or above the threshold is
-    treated as a compromised file and raises ValueError, so the subject is
-    skipped rather than silently carrying NaN into later steps.
+    Scans the selected channels for time points where any channel is
+    non-finite, groups them into contiguous intervals, and adds a BAD
+    annotation over each one so that annotation-aware steps (ICA, epoching,
+    covariance estimation) skip them. The offending samples are then replaced
+    by zeros across *all* channels, because filtering and resampling would
+    otherwise propagate NaN/Inf across the whole recording.
+
+    Intervals lasting at least `remove_nonfinite_segment_threshold` seconds are
+    treated as evidence of a compromised file rather than a transient glitch,
+    and raise `ValueError` so the recording is skipped instead of silently
+    carrying corrupted data into later steps.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Continuous MEG/EEG recording. Modified in place: data are preloaded,
+        annotations are appended, and non-finite samples are zeroed.
+    picks : "data" or list of str or array-like of int, optional
+        Channels to scan for non-finite values. "data" (default) selects MEG
+        and EEG channels, excluding reference MEG. A list of channel names or
+        an array of indices may be given instead. Note that this only controls
+        *detection*; zero-filling is applied to the full data array.
+    description : str, optional
+        Label used for the added annotations. Default is "BAD_nan". Must start
+        with "BAD" for MNE's `reject_by_annotation` machinery to honour it.
+    remove_nonfinite_segment_threshold : float, optional
+        Duration in seconds at or above which a non-finite interval is
+        considered fatal rather than repairable. Default is 5.
+    pad : float, optional
+        Extra padding in seconds added on each side of every annotated
+        interval. Default is 0.0. Padding widens the annotation only; the
+        zero-filling still covers exactly the non-finite samples.
+    verbose : bool, optional
+        If True, log the start time, end time, and sample count of each
+        detected interval. Default is True.
+
+    Returns
+    -------
+    raw : mne.io.Raw
+        The same object, with BAD annotations added and non-finite samples
+        replaced by zeros. Returned unchanged (apart from preloading) when no
+        non-finite samples are present.
+    intervals : list of tuple
+        One ``(start_s, end_s, n_samples)`` tuple per annotated interval, with
+        times in seconds relative to the start of the recording and
+        `n_samples` the number of non-finite samples it spans. Empty if the
+        data are clean.
     """
     raw.load_data()  # zero-fill needs preloaded data
 
