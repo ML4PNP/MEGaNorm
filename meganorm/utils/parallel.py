@@ -54,7 +54,7 @@ def sbatchfile(
     node=1,
     batch_file_name="batch_job",
     freesurfer_home=None,
-    freesurfer_license=None
+    freesurfer_license=None,
 ):
     """
     Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
@@ -109,7 +109,7 @@ def sbatchfile(
             +
             # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
             "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
-        )        
+        )
 
     if log_path is not None:
         sbatch_log_out = "#SBATCH -o " + log_path + "/%x_%j.out" + "\n"
@@ -737,6 +737,7 @@ def auto_parallel_feature_extraction(
             demographic_paths=demographic_paths,
             features_dir=features_dir,
             dataset_names=dataset_names,
+            drop_columns=None,
         )
         df.to_csv(os.path.join(features_dir, "all_features.csv"))
 
@@ -830,8 +831,9 @@ def sbatch_feature_extraction_runner(
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path
 
-
-    if (config_file or Config()).apply_mri_template or combine_features_and_demographics:
+    if (
+        config_file or Config()
+    ).apply_mri_template or combine_features_and_demographics:
         for dataset_name, values in datasets.items():
             demo_path = values.get("demographic_path") or os.path.join(
                 values["base_dir"], "participants_bids.tsv"
