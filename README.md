@@ -98,9 +98,25 @@ This mounts:
 
 Jupyter will open in your browser on [http://localhost:8888](http://localhost:8888)
 
+
+---
+## FreeSurfer installation (necessary for source localization)
+If you plan to use the MEGaNorm package for source localization, you must first download and install FreeSurfer from [https://surfer.nmr.mgh.harvard.edu/fswiki/DownloadAndInstall](https://surfer.nmr.mgh.harvard.edu/fswiki/DownloadAndInstall). You will also need to obtain a FreeSurfer license key and provide it to the MEGaNorm package.
+
+After installing FreeSurfer, you need to run the FreeSurfer cortical reconstruction pipeline on your MRI data using the following commands:
+
+```bash
+export FREESURFER_HOME=/usr/local/freesurfer
+source $FREESURFER_HOME/SetUpFreeSurfer.sh
+export SUBJECTS_DIR=/path/to/your/subjects
+
+recon-all -s sub-01 -i /path/to/sub-01_T1w.nii.gz -all
+```
+
+For more details on the recon-all pipeline, please refer to the FreeSurfer recon-all documentation: [https://surfer.nmr.mgh.harvard.edu/fswiki/recon-all](https://surfer.nmr.mgh.harvard.edu/fswiki/recon-all)
 ---
 
-## 📒 Getting Started (under construction)
+## Getting Started (under construction)
 
 👉 **documentation** Early helpers are available at: [https://meganorm.readthedocs.io](https://meganorm.readthedocs.io). We are working hard to add more thorough documentations and tutorials and they will be available soon.
 
@@ -112,7 +128,7 @@ Explore examples in the [`notebooks/`](notebooks/) folder.
 
 ---
 
-## 🧚‍♂️ Testing (under construction)
+## Testing (under construction)
 
 Run unit tests using:
 
@@ -122,7 +138,7 @@ pytest tests/
 
 ---
 
-## 🧠 Citing MEGaNorm
+## Citing MEGaNorm
 
 * Citing the package (**DOI**: [10.5281/zenodo.15441320](https://doi.org/10.5281/zenodo.15441320)): You can download BibTeX and other citation formats directly from the [Zenodo page](https://doi.org/10.5281/zenodo.15441320): Zamanzadeh, M., Verduyn, Y., & Kia, S. M. (2025). MEGaNorm: a Python package for normative modeling on MEG and EEG data (v0.1.0). Zenodo. 
 
