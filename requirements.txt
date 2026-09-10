@@ -7,6 +7,7 @@ plotly==5.24.1
 scikit_learn>=1.8.0
 tqdm==4.67.3
 mne>=1.12.1
+nilearn==0.13.1
 mne_bids==0.18.0
 mne_icalabel==0.7.0
 fooof==1.1.0
