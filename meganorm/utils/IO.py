@@ -444,7 +444,7 @@ class Config(BaseModel):
     save_source_localized_epochs: bool = False
     save_psds: bool = False
 
-    lowest_num_of_epochs = None
+    lowest_num_of_epochs: Optional[int] = None
 
     # Feature extraction
     freq_bands: Dict[str, Tuple[int, int]] = {
@@ -468,10 +468,6 @@ class Config(BaseModel):
         BandRatio(numerator="Delta", denominator="Beta"),
         BandRatio(numerator="Delta", denominator="Alpha"),
         BandRatio(numerator="Delta", denominator="Theta"),
-        BandRatio(numerator="Beta", denominator="Gamma"),
-        BandRatio(numerator="Alpha", denominator="Gamma"),
-        BandRatio(numerator="Theta", denominator="Gamma"),
-        BandRatio(numerator="Delta", denominator="Gamma"),
     ]
 
     min_r_squared: confloat(ge=0, le=1) = 0.9
