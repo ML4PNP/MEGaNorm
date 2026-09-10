@@ -114,6 +114,7 @@ recon-all -s sub-01 -i /path/to/sub-01_T1w.nii.gz -all
 ```
 
 For more details on the recon-all pipeline, please refer to the FreeSurfer recon-all documentation: [https://surfer.nmr.mgh.harvard.edu/fswiki/recon-all](https://surfer.nmr.mgh.harvard.edu/fswiki/recon-all)
+
 ---
 
 ## Getting Started (under construction)
