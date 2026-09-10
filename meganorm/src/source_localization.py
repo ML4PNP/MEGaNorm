@@ -1625,13 +1625,59 @@ def make_bem_model(
     preflood=None,
     preflood_parameter_space=(10, 15, 20, 30, 35),
 ):
-    """Run watershed BEM, retrying with alternative preflood heights if the
-    surfaces look degenerate.
+    """
+    Run FreeSurfer's watershed BEM, retrying with alternative preflood heights.
 
-    The surfaces are written to disk by MNE; this returns a dict describing the
-    preflood value that worked and its log metrics.
+    Calls `mne.bem.make_watershed_bem` for a subject and inspects the captured
+    FreeSurfer log to decide whether the resulting surfaces are usable. The
+    watershed algorithm is sensitive to the preflood height: a poor choice can
+    leak into the skull or collapse the inner skull surface. When the log
+    suggests a degenerate run, the function retries with the next preflood
+    value from `preflood_parameter_space` until a run passes the checks or all
+    values are exhausted.
 
-    Raises RuntimeError if no value in the parameter space produces a good run.
+    A run is considered bad if the reported erosion-dilation percentage exceeds
+    `max_erosion_pct`, or if it exceeds `suspect_erosion_pct` while fine
+    segmentation needed more than `max_fine_segmentation_iteration` iterations.
+
+    Parameters
+    ----------
+    subject : str
+        Subject identifier as used in FreeSurfer (must exist in `subjects_dir`).
+    subjects_dir : str or Path
+        Path to the FreeSurfer SUBJECTS_DIR. Surfaces are written under
+        `subjects_dir/subject/bem/`.
+    bem_log_path : str or Path
+        Path to the file where MNE/FreeSurfer log output is written. Parent
+        directories are created if needed, and the file is overwritten on each
+        attempt. The erosion percentage and iteration count are parsed from it.
+    max_erosion_pct : float, default=15.0
+        Erosion-dilation percentage above which a run is rejected outright.
+    suspect_erosion_pct : float, default=0.2
+        Erosion-dilation percentage above which a run is only rejected if it
+        also required an excessive number of fine-segmentation iterations.
+    max_fine_segmentation_iteration : int, default=100
+        Fine-segmentation iteration count considered excessive, used together
+        with `suspect_erosion_pct`.
+    gcaatlas : bool, default=True
+        Whether to use the GCA atlas when running the watershed algorithm.
+        Passed through to `mne.bem.make_watershed_bem`.
+    volume : str, default="T1"
+        Name of the volume in `subjects_dir/subject/mri` to segment.
+    preflood : int or None, default=None
+        Preflood height to try first. `None` lets FreeSurfer use its default.
+    preflood_parameter_space : tuple of int, default=(10, 15, 20, 30, 35)
+        Fallback preflood heights, tried in order after `preflood` fails.
+
+    Returns
+    -------
+    info : dict
+        Description of the successful attempt, with keys:
+
+        - ``"preflood"`` : the preflood value that produced usable surfaces.
+        - ``"erosion_pct"`` : float, the parsed erosion-dilation percentage.
+        - ``"iterations"`` : int, the fine-segmentation iteration count
+          (0 if not reported in the log).
     """
     bem_log_path = Path(bem_log_path)
     bem_log_path.parent.mkdir(parents=True, exist_ok=True)
