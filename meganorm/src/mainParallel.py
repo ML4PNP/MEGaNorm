@@ -504,7 +504,7 @@ def main(args):
 
     if configs.lowest_num_of_epochs is not None:
         rejected_segments = segments.copy()
-        rejected_segments.drop_bad()  # no-op if rejection already ran
+        rejected_segments.drop_bad()          # no-op if rejection already ran
 
         n_kept = len(rejected_segments)
 
