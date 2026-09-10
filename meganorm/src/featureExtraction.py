@@ -1091,7 +1091,6 @@ class PYRASADecomposer(SpectralDecomposer):
         self.ch_name = ch_name
         self.ch_num = ch_num
 
-
     def get_aperiodic_params(self):
         """
         Return the aperiodic parameters for the channel from the fitted
@@ -1124,7 +1123,6 @@ class PYRASADecomposer(SpectralDecomposer):
 
         return params
 
-
     def get_periodic_spectrum(self, original_psds=None):
         """
         Return the periodic component of the spectrum for the channel
@@ -1142,7 +1140,6 @@ class PYRASADecomposer(SpectralDecomposer):
         """
         # print(self.model.periodic.get_data().squeeze().shape)
         return self.model.periodic.get_data().squeeze()[self.ch_num, :]
-
 
     def get_peak_params(self, fmin, fmax):
         """
@@ -1166,9 +1163,9 @@ class PYRASADecomposer(SpectralDecomposer):
         """
         try:
             df = self.model.periodic.get_peaks(
-                cut_spectrum=(fmin-1, fmax+1), 
+                cut_spectrum=(fmin - 1, fmax + 1),
                 peak_threshold=1.5,
-                peak_width_limits=(1, 12.0)
+                peak_width_limits=(1, 12.0),
             )
         except ValueError as e:
             logger.warning(
@@ -1185,7 +1182,6 @@ class PYRASADecomposer(SpectralDecomposer):
         dominant_peak = max(band_peaks, key=lambda x: x[1])
 
         return dominant_peak, band_peaks
-
 
     def get_r_squared(self):
         """
