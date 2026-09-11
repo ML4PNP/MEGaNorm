@@ -306,9 +306,9 @@ def main(args):
 
     path = select_session_path(args.dir, session)
     empty_room_recording_path = select_session_path(args.empty_room_recording_path, -1)
-    event_record = select_session_path(args.event_record, -1)
-    pos_file = select_session_path(args.pos_file, session)
-    trans_file = select_session_path(args.trans_file, -1)
+    event_record = select_session_path(args.event_record, session)
+    pos_file = select_session_path(args.pos_file, -1)
+    trans_file = select_session_path(args.trans_file, session)
     annotation_path = select_session_path(args.annotation_path, session)
 
     event_of_interest = int(args.event_of_interest) if event_record else None
