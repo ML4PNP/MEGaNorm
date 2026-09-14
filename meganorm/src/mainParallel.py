@@ -603,6 +603,25 @@ def main(args):
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 
+    if configs.save_psds:
+        psd_stage_report(
+            raw_data=raw_data_for_psd,
+            filtered_data=filtered_data,
+            rejected_segments=rejected_segments,
+            which_sensor_dict=which_sensor_dict,
+            configs=configs,
+            subject=args.subject,
+            out_dir=save_psds_path,
+            raw_sampling_rate=raw_sampling_rate,
+            filtered_sampling_rate=sampling_rate,
+            sl_segments=sl_segments,
+            spectral_models=spectral_models,
+            parametrization_method=configs.parametrization_method,
+            aperiodic_mode=configs.aperiodic_mode,
+            aperiodic_fit_result=aperiodic_fit_result,
+        )
+
+
     logger.info(
         f"The feature extraction process for the subject {args.subject} is complete."
     )
