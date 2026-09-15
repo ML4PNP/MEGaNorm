@@ -326,7 +326,7 @@ class Config(BaseModel):
     ctf_gradient_comp_level: PositiveInt = 3
     apply_environmental_noise_ssp_with_eroom: bool = False
     apply_environmental_noise_ica_with_ref_meg: bool = True
-    environmental_noise_ica_with_ref_meg_thr: float = 2.5
+    environmental_noise_ica_with_ref_meg_thr: float = 2.0
     ica_if_reject_by_annotation: bool = True
     environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = (
         "separate"
@@ -339,7 +339,7 @@ class Config(BaseModel):
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
     save_segmented_data: bool = False
-    rereference_method: Literal["average", "REST", "None"] = "average"
+    rereference_method: Literal["average", "REST", None] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
     mag_var_threshold: float = 5000e-15
@@ -354,6 +354,8 @@ class Config(BaseModel):
     segments_tmax: NegativeInt = -20
     segments_length: PositiveInt = 10
     segments_overlap: int = 2
+
+    save_preprocessed_data: bool = True
 
     # autoreject
     autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
@@ -379,6 +381,12 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
+    bem_preflood_parameter_space: List[int] = (10, 15, 20, 30, 35)
+    bem_preflood: int = 25
+    bem_gcaatlas: bool = True
+    bem_max_erosion_pct: float = 15.0
+    bem_suspect_erosion_pct: float = 0.2
+    bem_max_fine_segmentation_iteration: int = 100
     bem_plot_orientations: Literal["coronal", "axial", "sagittal", None] = "coronal"
 
     # the spacing to use for source space specificatin
@@ -410,6 +418,7 @@ class Config(BaseModel):
 
     # the pacellation to use
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
+    parcellation_mode: Literal["mean_flip", "mean", "auto", "pca_flip", "max"] = "auto"
 
     # A custom parcellation file
     parcellation_annot_fname: Optional[Path] = None
@@ -435,6 +444,8 @@ class Config(BaseModel):
     save_source_localized_epochs: bool = False
     save_psds: bool = False
 
+    lowest_num_of_epochs: Optional[int] = None
+
     # Feature extraction
     freq_bands: Dict[str, Tuple[int, int]] = {
         "Theta": (3, 8),
@@ -457,10 +468,6 @@ class Config(BaseModel):
         BandRatio(numerator="Delta", denominator="Beta"),
         BandRatio(numerator="Delta", denominator="Alpha"),
         BandRatio(numerator="Delta", denominator="Theta"),
-        BandRatio(numerator="Beta", denominator="Gamma"),
-        BandRatio(numerator="Alpha", denominator="Gamma"),
-        BandRatio(numerator="Theta", denominator="Gamma"),
-        BandRatio(numerator="Delta", denominator="Gamma"),
     ]
 
     min_r_squared: confloat(ge=0, le=1) = 0.9
@@ -601,20 +608,6 @@ class Config(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def env_noise_removal_same(self):
-        if self.same_environmental_noise_removal:
-            if (
-                not self.apply_environmental_noise_ssp_with_eroom
-                or not self.apply_environmental_noise_ica_with_ref_meg
-            ):
-                err_msg = (
-                    "If you intened to apply the same environmental noise removal must choose between using"
-                    " ref_meg or empty room recording. You can not apply gradient compensation or maxwell filter across all scanners."
-                )
-            raise ValueError(err_msg)
-        return self
-
-    @model_validator(mode="after")
     def gedai_params_check(self):
         method = self.gedai_method
         wavelet_level = self.gedai_wavelet_level
@@ -712,6 +705,40 @@ def _add_artemis_headshape(data, path, pos_file, logger):
     return data
 
 
+def select_session_path(pattern, index=0):
+    """
+    Resolve a '*'-separated glob pattern to a single path.
+
+    Returns None when `pattern` is falsy, so callers can pass optional
+    CLI arguments straight through.
+    """
+    if not pattern:
+        return None
+    candidates = [p for p in pattern.split("*") if p]
+    return candidates[index]
+
+
+def infer_device(path, device_type, which_sensor, logger):
+    """Determine the acquisition device from an explicit override or the path."""
+    MEG_DEVICE_BY_EXTENSION = {"ds": "CTF", "fif": "MEGIN", "bin": "ARTEMIS123"}
+    if which_sensor == "eeg":
+        # TODO: was originally path[0]. Check if this correction is correct.
+        return path.split(".")[-1].upper()
+
+    if device_type:
+        return device_type.upper()
+    if "4D" in path:
+        return "BTI"
+
+    extension = path.split(".")[-1]
+    if extension in MEG_DEVICE_BY_EXTENSION:
+        return MEG_DEVICE_BY_EXTENSION[extension]
+
+    err_msg = "The provided MEG recording is not supported yet."
+    logger.error(err_msg)
+    raise ValueError(err_msg)
+
+
 def load_recording(
     device, path, empty_room_recording_path, configs, logger, pos_file=None
 ):
@@ -744,14 +771,20 @@ def load_recording(
                     "no head-shape/dig info was added to the recording."
                 )
 
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and (
+            configs.apply_source_localization
+            or configs.apply_environmental_noise_ssp_with_eroom
+        ):
             empty_room_recording = mne.io.read_raw_ctf(
                 empty_room_recording_path, preload=True
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and (
+            configs.apply_source_localization
+            or configs.apply_environmental_noise_ssp_with_eroom
+        ):
             empty_room_recording = None
-            logger.info("No empty room recording was found")
+            logger.warning("No empty room recording was found")
         else:
             empty_room_recording = None
 
@@ -840,7 +873,7 @@ def load_recording(
 
 
 def merge_fidp_demo(
-    datasets_paths: list,
+    demographic_paths: list,
     features_dir: str,
     dataset_names: list,
     drop_columns: list = ["eyes"],
@@ -878,20 +911,16 @@ def merge_fidp_demo(
             the 'all_features.csv' file is missing in the provided features directory.
     """
 
-    # Initialize empty DataFrame
     demographic_df = pd.DataFrame()
 
-    # Loop through dataset paths
-    for counter, dataset_path in enumerate(datasets_paths):
-        demo_path = os.path.join(dataset_path, "participants_bids.tsv")
-        if not os.path.exists(demo_path):
+    for counter, demo_path in enumerate(demographic_paths):
+        if not demo_path or not os.path.exists(demo_path):
             raise FileNotFoundError(
-                f"The file 'participants_bids.tsv' is missing from the directory: {dataset_path}. "
-                "This file must be created using the 'make_demo_file_bids' function and placed in "
-                "the corresponding dataset directory."
+                f"The demographic file for dataset '{dataset_names[counter]}' was not "
+                f"found at: {demo_path}. Set 'demographic_path' for this dataset, or "
+                "create the file with 'make_demo_file_bids'."
             )
-        demo = pd.read_csv(demo_path, sep="\t", index_col=0)
-        demo.index = demo.index.astype(str)
+        demo = load_demographic_file(demo_path)
 
         if "site" not in demo.columns:
             demo["site"] = dataset_names[counter]
@@ -988,6 +1017,9 @@ def merge_datasets_with_glob(datasets):
         annotation_ending = dataset_info.get("annotation_ending", None)
 
         layout_path = dataset_info.get("layout_path", None)
+        demographic_path = dataset_info.get(
+            "demographic_path", os.path.join(base_dir, "participants_bids.tsv")
+        )
 
         dirs = [
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
@@ -1065,12 +1097,28 @@ def merge_datasets_with_glob(datasets):
                         "trans_path": join_with_star(trans_path),
                         "pos_path": join_with_star(pos_path),
                         "annotation_path": join_with_star(annotation_path),
-                        "layout_path": layout_path
+                        "layout_path": layout_path,
+                        "demographic_path": demographic_path,
                     }
                 }
             )
 
     return subjects
+
+
+def load_demographic_file(path, index_col=0):
+    """Read a participants/demographic table (.tsv, .txt, .csv, .xlsx)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".tsv", ".txt"):
+        df = pd.read_csv(path, sep="\t", index_col=index_col)
+    elif ext == ".csv":
+        df = pd.read_csv(path, index_col=index_col)
+    elif ext in (".xlsx", ".xls"):
+        df = pd.read_excel(path, index_col=index_col)
+    else:
+        raise ValueError(f"Unsupported demographic file type: {path}")
+    df.index = df.index.astype(str)
+    return df
 
 
 def make_demo_file_bids(
@@ -1210,7 +1258,9 @@ def set_path(project_dir):
     saved_outputs_path = os.path.join(features_dir, "Saved_outputs")
     save_epochs_path = os.path.join(saved_outputs_path, "Epochs")
     save_psds_path = os.path.join(saved_outputs_path, "PSDs")
+    save_preprocessed_data = os.path.join(saved_outputs_path, "Preprocessed_data")
     save_coregistration_QC_path = os.path.join(saved_outputs_path, "coregistration_QC")
+    save_auto_reject_plot = os.path.join(saved_outputs_path, "auto_reject_plot")
     save_covariance_figures_path = os.path.join(
         saved_outputs_path, "Covariance_figures"
     )
@@ -1236,6 +1286,8 @@ def set_path(project_dir):
     make_folder(exluded_participants_path)
     make_folder(mri_templates)
     make_folder(save_grouping_effect)
+    make_folder(save_preprocessed_data)
+    make_folder(save_auto_reject_plot)
 
     # Normative models
     nm_dir = os.path.join(project_dir, "Normative_models")
@@ -1387,3 +1439,32 @@ def find_other_meg_session(
         if len(rs_record_paths) > which_session - 1:
             new_paths.update({subject: rs_record_paths[which_session - 1]})
     return new_paths
+
+
+def check_demographic_format(df):
+    """Raise ValueError if a demographic table is not in the standard format."""
+
+    DEMOGRAPHIC_REQUIRED_COLUMNS = ("participant_id", "age", "sex", "eyes")
+    DEMOGRAPHIC_ALLOWED_SEX = ("Male", "Female")
+
+    if "participant_id" in df.columns:
+        ids = df["participant_id"]
+    else:
+        ids = df.index.to_series()
+
+    for col in DEMOGRAPHIC_REQUIRED_COLUMNS:
+        if col != "participant_id" and col not in df.columns:
+            raise ValueError(f"The demographic file is missing the '{col}' column.")
+
+    if not all(isinstance(v, str) for v in ids.dropna()):
+        raise ValueError("All participant IDs must be strings.")
+
+    if not pd.api.types.is_numeric_dtype(df["age"]):
+        raise ValueError("The 'age' column must hold integers or floats.")
+
+    unexpected = set(df["sex"].dropna().unique()) - set(DEMOGRAPHIC_ALLOWED_SEX)
+    if unexpected:
+        raise ValueError(
+            f"The 'sex' column holds {sorted(unexpected)}; "
+            f"only {list(DEMOGRAPHIC_ALLOWED_SEX)} are allowed."
+        )

@@ -20,7 +20,7 @@ from meganorm.src.source_localization import check_tsss
 from meganorm.utils import data_specific_utils
 from gedai.viz import plot_mne_style_overlay_interactive
 from meganorm.src.source_localization import corregistration, forward_solution
-from autoreject import AutoReject, set_matplotlib_defaults
+from autoreject import AutoReject, Ransac, set_matplotlib_defaults
 import autoreject
 
 warnings.filterwarnings("ignore")
@@ -82,6 +82,7 @@ def auto_ica_with_corr(
     IcaMethod="fastica",
     which_sensor={"meg": True, "eeg": True},
     auto_ica_corr_thr=0.9,
+    random_state=42,
 ):
     """
     Performs automated ICA for artifact removal by identifying components that
@@ -132,7 +133,7 @@ def auto_ica_with_corr(
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
-        random_state=42,
+        random_state=random_state,
         verbose=False,
     )
     ica.fit(data, verbose=False, picks=["eeg", "meg", "grad", "mag"])
@@ -180,6 +181,7 @@ def auto_ica_with_mean(
     IcaMethod="fastica",
     which_sensor={"meg": True, "eeg": True},
     auto_ica_corr_thr=0.9,
+    random_state=42,
 ):
     """
     Performs ICA-based artifact rejection using MNE’s built-in ECG correlation method.
@@ -218,7 +220,7 @@ def auto_ica_with_mean(
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
-        random_state=42,
+        random_state=random_state,
         verbose=False,
     )
     ica.fit(data, verbose=False, picks=["eeg", "meg", "mag", "grad"])
@@ -270,14 +272,18 @@ def AutoIca_with_IcaLabel(
     bad_components = []
     for idx, label in enumerate(labels["labels"]):
         probability = labels["y_pred_proba"][idx]
-        if (
-            label == physiological_noise_type
-            and probability > iclabel_thr
-        ):
+        if label == physiological_noise_type and probability > iclabel_thr:
             bad_components.append(idx)
-            logger.info("Component %d identified as %s with probability %.3f", idx, label,probability,)
+            logger.info(
+                "Component %d identified as %s with probability %.3f",
+                idx,
+                label,
+                probability,
+            )
 
-    logger.info(f"Number of bad Components identified by ICALabel: {len(bad_components)}")
+    logger.info(
+        f"Number of bad Components identified by ICALabel: {len(bad_components)}"
+    )
     ica.exclude = bad_components.copy()
     ica.apply(data, verbose=False)
 
@@ -292,6 +298,7 @@ def apply_auto_ica_pipeline(
     ica_max_iter,
     IcaMethod,
     auto_ica_corr_thr,
+    random_state=42,
 ):
     """
     Apply ICA automatically depending on available physiological channels
@@ -352,6 +359,7 @@ def apply_auto_ica_pipeline(
                     which_sensor=which_sensor,
                     physiological_sensor=phys_activity_type,
                     auto_ica_corr_thr=auto_ica_corr_thr,
+                    random_state=random_state,
                 )
 
             elif not if_elec_exist and phys_activity_type == "ecg":
@@ -365,6 +373,7 @@ def apply_auto_ica_pipeline(
                     IcaMethod=IcaMethod,
                     which_sensor=which_sensor,
                     auto_ica_corr_thr=auto_ica_corr_thr,
+                    random_state=random_state,
                 )
 
         # -------- EEG --------
@@ -382,6 +391,7 @@ def apply_auto_ica_pipeline(
                     which_sensor=which_sensor,
                     physiological_sensor=phys_activity_type,
                     auto_ica_corr_thr=auto_ica_corr_thr,
+                    random_state=random_state,
                 )
 
             elif not if_elec_exist and ICA_flag:
@@ -447,12 +457,16 @@ def prepare_eeg_data(data, path):
             )
             data.set_montage(eeg_montage)
 
-            logger.info( "EEG montage set from %s with %d channel positions", montage_files[0], len(ch_positions),)
+            logger.info(
+                "EEG montage set from %s with %d channel positions",
+                montage_files[0],
+                len(ch_positions),
+            )
 
         except Exception as e:
             logger.warning(
                 "Could not set EEG montage: %s"
-                " Continuing without a montage. This may raise issues for ICA labeling.", 
+                " Continuing without a montage. This may raise issues for ICA labeling.",
                 e,
             )
 
@@ -695,7 +709,6 @@ def preprocess(
     gedai_duration=None,
     gedai_overlap=0.5,
     gedai_preliminary_broadband_noise_multiplier=6.0,
-    same_environmental_noise_removal=False,
     gedai_noise_multiplier=3.0,
     gedai_wavelet_type="haar",
     gedai_wavelet_level="auto",
@@ -708,6 +721,7 @@ def preprocess(
     event_of_interest=None,
     segments_length=10,
     overlap=5,
+    random_state=42,
 ):
     """
     Applies a preprocessing pipeline on MEG/EEG data.
@@ -766,6 +780,10 @@ def preprocess(
     mne.io.Raw
         Preprocessed MEG/EEG data.
     """
+    logger.info(
+        f"Duration of the signal before preprocessing was {data.times[-1]:.1f}s"
+    )
+
     # since pick_channels can not seperate mag and grad signals
     # if not (which_sensor["meg"] or which_sensor["eeg"]):
     if which_sensor["grad"] or which_sensor["mag"]:
@@ -773,6 +791,7 @@ def preprocess(
             data, empty_room_recording, which_sensor
         )
 
+    data = fix_physiological_channel_types(data, device=device)
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
@@ -851,7 +870,9 @@ def preprocess(
     # resample -------------------------------------
     sampling_rate = data.info["sfreq"]
     orig_sampling_rate = sampling_rate
+    logger.info(f"Original sampling rate was {orig_sampling_rate}.")
     if resampling_rate and resampling_rate != sampling_rate:
+        logger.info(f"The recording will be resampled to {resampling_rate}")
         data.resample(int(resampling_rate), verbose=False, n_jobs=-1)
         sampling_rate = resampling_rate
         # resampling empty room recording
@@ -871,7 +892,7 @@ def preprocess(
     freqs = np.arange(
         int(power_line_freq), 4 * int(power_line_freq) + 1, int(power_line_freq)
     )
-    freqs = freqs[freqs <= nyquist]  # keep only valid frequencies
+    freqs = freqs[freqs < nyquist - 1]  # keep only valid frequencies
 
     data.notch_filter(freqs=freqs, n_jobs=-1)
 
@@ -893,15 +914,15 @@ def preprocess(
     # digital filter --------------------------------
     if digital_filter:
         data.filter(
-            l_freq=int(cutoffFreqLow),
-            h_freq=int(cutoffFreqHigh),
+            l_freq=cutoffFreqLow,
+            h_freq=cutoffFreqHigh,
             n_jobs=-1,
             verbose=False,
         )
         if empty_room_recording:
             empty_room_recording.filter(
-                l_freq=int(cutoffFreqLow),
-                h_freq=int(cutoffFreqHigh),
+                l_freq=cutoffFreqLow,
+                h_freq=cutoffFreqHigh,
                 n_jobs=-1,
                 verbose=False,
             )
@@ -947,10 +968,7 @@ def preprocess(
     # rereference -----------------------------------
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
-        if empty_room_recording:
-            empty_room_recording = empty_room_recording.set_eeg_reference(
-                rereference_method
-            )
+
 
     # remove environmental noise ---------------------
     if apply_environmental_noise_correction:
@@ -965,7 +983,8 @@ def preprocess(
             ica_if_reject_by_annotation=ica_if_reject_by_annotation,
             environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
             environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
-            same_environmental_noise_removal=same_environmental_noise_removal,
+            ica_method=IcaMethod,
+            random_state=random_state,
         )
 
     # Remove unwanted epochs associated with some events
@@ -1000,6 +1019,7 @@ def preprocess(
             ica_max_iter,
             IcaMethod,
             auto_ica_corr_thr,
+            random_state=random_state,
         )
     else:
         number_of_reduced_ic = 0
@@ -1088,12 +1108,13 @@ def drop_noisy_meg_channels(
         # auto_flat_chs = []
 
     else:
+        data_temp = data.copy()
         if device == "CTF":
-            data.apply_gradient_compensation(0)
+            data_temp.apply_gradient_compensation(0)
 
         if device == "MEGIN":
             auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-                data,
+                data_temp,
                 return_scores=False,
                 verbose=True,
                 coord_frame="head",
@@ -1113,7 +1134,7 @@ def drop_noisy_meg_channels(
 
         else:
             auto_noisy_chs, auto_flat_chs = mne.preprocessing.find_bad_channels_maxwell(
-                data,
+                data_temp,
                 return_scores=False,
                 verbose=True,
                 coord_frame="meg",
@@ -1376,9 +1397,11 @@ def apply_tsss(
 
     else:
         if empty_room_record is not None and not check_tsss(empty_room_record):
-            msg = "While this MEGIN rs-MEG has been corrected for environmental noise using tSSS, it " \
-            "has not been applied to the empty room recrding as well. This can cause problem in the " \
-            "LCMV source localization. Therefore, tSSS will be applied to the eroom. "
+            msg = (
+                "While this MEGIN rs-MEG has been corrected for environmental noise using tSSS, it "
+                "has not been applied to the empty room recrding as well. This can cause problem in the "
+                "LCMV source localization. Therefore, tSSS will be applied to the eroom. "
+            )
             logger.info(msg)
             tsss_info = tsss_params(data.info)
 
@@ -1387,7 +1410,7 @@ def apply_tsss(
             )
             empty_room_record = mne.preprocessing.maxwell_filter(
                 empty_room_record,
-                destination=None,   # prepare_emptyroom already set dev_head_t from raw
+                destination=None,  # prepare_emptyroom already set dev_head_t from raw
                 **tsss_info,
             )
 
@@ -1702,7 +1725,7 @@ def head_motion_correction(
             )
         )
 
-        data.set_annotations(movement_annotation)
+        data.set_annotations(data.annotations + movement_annotation)
         movement_dur = sum(movement_annotation.duration)
         logger.info(
             f"Movement annotation algorithm using cHPI coils detected {movement_dur}"
@@ -1728,11 +1751,12 @@ def remove_environmental_noise(
     ctf_gradient_comp_level=3,
     apply_environmental_noise_ssp_with_eroom=False,
     apply_environmental_noise_ica_with_ref_meg=False,
-    environmental_noise_ica_with_ref_meg_thr=2.5,
+    environmental_noise_ica_with_ref_meg_thr=3,
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
-    same_environmental_noise_removal=False,
+    ica_method="fastica",
+    random_state=42,
 ):
     """
     Suppress environmental (external) noise using a device-appropriate
@@ -1782,17 +1806,18 @@ def remove_environmental_noise(
         applied.
     """
     # gradient compensation for CTF datasets
-    if device == "CTF" and not same_environmental_noise_removal:
+    if device == "CTF":
         data, empty_room_recording = apply_gradient_comp(
             data,
             empty_room_recording=empty_room_recording,
             grade=ctf_gradient_comp_level,
         )
-        msg = "The data was preprocessed for environmental noise using gradient compensation."
-        logger.info(msg)
+        logger.info(
+            "The data was preprocessed for environmental noise using gradient compensation."
+        )
 
     # If MEGIN device, apply tsss
-    elif device == "MEGIN" and not same_environmental_noise_removal:
+    elif device == "MEGIN":
         data, empty_room_recording = apply_tsss(
             data,
             empty_room_record=empty_room_recording,
@@ -1800,49 +1825,63 @@ def remove_environmental_noise(
             st_correlation=0.98,  # TODO: congig
         )
 
-    elif apply_environmental_noise_ssp_with_eroom:
-        if empty_room_recording:
-            empty_room_projs = mne.compute_proj_raw(
-                empty_room_recording, n_grad=3, n_mag=3
-            )
-            data.add_proj(empty_room_projs)
-            data.apply_proj()
-            msg = f"Number of detected SSP projectors on Empty_room_recording for removing environmental noise: {len(data.info['projs'])}"
-        else:
-            msg = (
-                "Empty_room_recording is inavailable to perform SSP for environmental noise suppression."
-                " Please, use another method to remove environmental noise."
-            )
+    if device != "MEGIN":
+        if apply_environmental_noise_ssp_with_eroom:
+            if empty_room_recording:
+                empty_room_projs = mne.compute_proj_raw(
+                    empty_room_recording, n_grad=3, n_mag=3
+                )
+                data.add_proj(empty_room_projs)
+                data.apply_proj()
+
+                empty_room_recording.add_proj(empty_room_projs)
+                empty_room_recording.apply_proj()
+                msg = (
+                    f"Added {len(empty_room_projs)} empty-room SSP projector(s) to "
+                    "the data and empty-room recording."
+                )
+            else:
+                msg = (
+                    "Empty_room_recording is inavailable to perform SSP for environmental noise suppression."
+                    " Please, use another method to remove environmental noise."
+                )
             logger.info(msg)
 
-    elif apply_environmental_noise_ica_with_ref_meg:
+        if apply_environmental_noise_ica_with_ref_meg:
+            has_ref_meg = "ref_meg" in data.get_channel_types()
+            if has_ref_meg:
+                data, bad_ic, _, empty_room_recording = find_ref_meg_artifact(
+                    data,
+                    empty_room_recording=empty_room_recording,
+                    environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
+                    ica_if_reject_by_annotation=ica_if_reject_by_annotation,
+                    environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
+                    environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
+                    ica_method=ica_method,
+                    random_state=random_state,
+                )
 
-        has_ref_meg = "ref_meg" in data.get_channel_types()
-        if has_ref_meg:
-            data, bad_ic, scores = find_ref_meg_artifact(
-                data,
-                environmental_noise_ica_with_ref_meg_thr=environmental_noise_ica_with_ref_meg_thr,
-                ica_if_reject_by_annotation=ica_if_reject_by_annotation,
-                environmental_noise_ica_with_ref_meg_method=environmental_noise_ica_with_ref_meg_method,
-                environmental_noise_ica_with_ref_meg_measure=environmental_noise_ica_with_ref_meg_measure,
-            )
-
-            logger.info(
-                "Number of components removed by ICA for suppressing environmental noise using reference MEG: %d",
-                len(bad_ic),
-            )
+                logger.info(
+                    "Number of components removed by ICA for suppressing environmental noise using reference MEG: %d",
+                    len(bad_ic),
+                )
 
     return data, empty_room_recording
 
 
 def find_ref_meg_artifact(
     data,
-    environmental_noise_ica_with_ref_meg_thr,
+    ica_method="fastica",
+    empty_room_recording=None,
+    environmental_noise_ica_with_ref_meg_thr=3,
     ica_if_reject_by_annotation=True,
     environmental_noise_ica_with_ref_meg_method="together",
     environmental_noise_ica_with_ref_meg_measure="zscore",
+    random_state=42,
 ):
     """
+    This function was taken from MNE tutorials.
+
     Identify and remove environmental-noise ICA components using
     reference MEG channels.
 
@@ -1881,24 +1920,36 @@ def find_ref_meg_artifact(
     data_tog = data.copy()
 
     all_picks = mne.pick_types(data_tog.info, meg=True, ref_meg=True)
+    rank = sum(mne.compute_rank(data_tog.copy().pick(all_picks), rank=None).values())
     tog_ica = mne.preprocessing.ICA(
-        n_components=20, max_iter="auto", allow_ref_meg=True
+        n_components=rank,
+        max_iter="auto",
+        method=ica_method,
+        allow_ref_meg=True,
+        random_state=random_state,
     )
     tog_ica.fit(data_tog, picks=all_picks)
-    bad_comps, scores = tog_ica.find_bads_ref(
-        data_tog,
-        reject_by_annotation=ica_if_reject_by_annotation,
-        method="together",
-        threshold=environmental_noise_ica_with_ref_meg_thr,
-        measure=environmental_noise_ica_with_ref_meg_measure,
-    )
 
-    if environmental_noise_ica_with_ref_meg_method == "separate":
+    if environmental_noise_ica_with_ref_meg_method == "together":
+        bad_comps, scores = tog_ica.find_bads_ref(
+            data_tog,
+            reject_by_annotation=ica_if_reject_by_annotation,
+            method="together",
+            threshold=environmental_noise_ica_with_ref_meg_thr,
+            measure=environmental_noise_ica_with_ref_meg_measure,
+        )
+        data = tog_ica.apply(data_tog, exclude=bad_comps)
+
+    elif environmental_noise_ica_with_ref_meg_method == "separate":
 
         data_sep = data.copy()
         ref_picks = mne.pick_types(data_sep.info, meg=False, ref_meg=True)
         ref_ica = mne.preprocessing.ICA(
-            n_components=2, max_iter="auto", allow_ref_meg=True
+            n_components=None,
+            max_iter="auto",
+            method=ica_method,
+            allow_ref_meg=True,
+            random_state=random_state,
         )
         ref_ica.fit(data_sep, picks=ref_picks)
 
@@ -1910,17 +1961,26 @@ def find_ref_meg_artifact(
 
         bad_comps, scores = ica_sep.find_bads_ref(
             data_sep,
+            threshold=environmental_noise_ica_with_ref_meg_thr,
+            reject_by_annotation=ica_if_reject_by_annotation,
             method="separate",
+            measure=environmental_noise_ica_with_ref_meg_measure,
         )
 
         data = ica_sep.apply(data_sep, exclude=bad_comps)
+        data.drop_channels(ref_comps.ch_names)
 
     else:
-        data = tog_ica.apply(data_tog, exclude=bad_comps)
+        raise ValueError(
+            "Wrong argument for environmental_noise_ica_with_ref_meg_method."
+        )
 
-        # TODO: data_clean.drop_channels(ref_comps.ch_names)
+        # if empty_room_recording is not None:
+        #     empty_room_recording = ica_sep.apply(
+        #         empty_room_recording, exclude=bad_comps
+        #     )
 
-    return data, bad_comps, scores
+    return data, bad_comps, scores, empty_room_recording
 
 
 def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier):
@@ -2380,9 +2440,96 @@ def _annotate_dropped_epochs(
     return raw
 
 
+
+def _detect_bad_channels_ransac(
+    epochs,
+    n_resample=50,
+    min_channels=0.25,
+    min_corr=0.75,
+    unbroken_time=0.4,
+    n_jobs=1,
+    random_state=42,
+    min_good_channels=8,
+):
+    """Run RANSAC once per channel type and return the union of bad channels.
+
+    ``Ransac`` handles a single channel type per fit, so recordings with both
+    magnetometers and gradiometers need one pass each. Channels already in
+    ``epochs.info['bads']`` are excluded from the picks and are not re-tested.
+
+    Parameters
+    ----------
+    epochs : mne.Epochs
+        Preloaded epochs to run detection on.
+    n_resample : int, optional
+        Number of random channel subsets RANSAC draws. Default is 50.
+    min_channels : float, optional
+        Fraction of channels used to predict the rest. Default is 0.25.
+    min_corr : float, optional
+        Correlation below which a channel-epoch counts as bad. Default is 0.75.
+    unbroken_time : float, optional
+        Fraction of epochs a channel must fail before it is called globally
+        bad. Default is 0.4.
+    n_jobs : int, optional
+        Parallel jobs passed to ``Ransac``. Default is 1.
+    random_state : int, optional
+        Random seed. Default is 42.
+    min_good_channels : int, optional
+        Skip a channel type with fewer good channels than this, since
+        interpolation from a handful of sensors is not meaningful. Default is 8.
+
+    Returns
+    -------
+    bads : list of str
+        Channel names flagged bad, pooled across channel types.
+    """
+    present = epochs.get_channel_types(unique=True, only_data_chs=True)
+    bads = []
+    bad_logs = {}
+
+    for ch_type in ("mag", "grad", "eeg"):
+        if ch_type not in present:
+            continue
+
+        if ch_type == "eeg":
+            picks = mne.pick_types(epochs.info, meg=False, eeg=True, exclude="bads")
+        else:
+            picks = mne.pick_types(epochs.info, meg=ch_type, eeg=False, exclude="bads")
+
+        ransac = Ransac(
+            picks=picks,
+            # n_resample=n_resample,
+            # min_channels=min_channels,
+            # min_corr=min_corr,
+            # unbroken_time=unbroken_time,
+            n_jobs=n_jobs,
+            random_state=random_state,
+            verbose=False,
+        )
+        ransac.fit(epochs)
+
+        bad_logs[ch_type] = (
+            np.asarray(ransac.bad_log),
+            [epochs.ch_names[ii] for ii in ransac.picks],
+        )
+
+        logger.info(
+            "RANSAC (%s): %d/%d channels flagged bad.",
+            ch_type,
+            len(ransac.bad_chs_),
+            len(picks),
+        )
+        bads.extend(ransac.bad_chs_)
+
+    return bads, bad_logs
+
+
+
 def auto_reject_segmentation(
     raw,
     sampling_rate: float,
+    subject,
+    project_dir,
     tmin: float = 20,
     tmax: float = -20,
     segments_length: float = 10,
@@ -2532,6 +2679,11 @@ def auto_reject_segmentation(
     epochs.load_data()
 
     ar.fit(epochs)
+    logger.info(
+        "AutoReject selected parameters: consensus = %s, n_interpolate = %s",
+        {k: float(v) for k, v in ar.consensus_.items()},
+        {k: int(v) for k, v in ar.n_interpolate_.items()},
+    )
     epochs_clean, reject_log = ar.transform(epochs, return_log=True)
 
     if annotate_bad_epochs:
@@ -2556,14 +2708,11 @@ def auto_reject_segmentation(
     )
 
     log_msg = (
-        f"Epoch rejection summary:\n"
-        f"  Total epochs   : {total_epochs}\n"
-        f"  Retained       : {retained_epochs} "
-        f"({100 - pct_discarded:.1f}% | {retained_epochs * segments_length:.1f}s)\n"
-        f"  Interpolated   : {interpolated_epochs} "
-        f"({pct_interpolated:.1f}% | {interpolated_epochs * segments_length:.1f}s)\n"
-        f"  Discarded      : {discarded_epochs} "
-        f"({pct_discarded:.1f}% | {discarded_epochs * segments_length:.1f}s)"
+        f"Epoch rejection summary ({total_epochs} epochs):\n"
+        f"  Retained     : {retained_epochs} ({100 - pct_discarded:.1f}%)\n"
+        f"  Discarded    : {discarded_epochs} ({pct_discarded:.1f}%)\n"
+        f"  Interpolated : {interpolated_epochs} ({pct_interpolated:.1f}%) "
+        f"epochs had at least one channel interpolated"
     )
 
     if retained_epochs == 0:
@@ -2574,6 +2723,17 @@ def auto_reject_segmentation(
         )
 
     logger.info(log_msg)
+
+    save_autoreject_plot_p = os.path.join(
+        project_dir,
+        "Saved_outputs",
+        "auto_reject_plot",
+        f"{subject}_autoreject_res_plot.png",
+    )
+    fig = reject_log.plot("horizontal", show=False)
+    fig.savefig(save_autoreject_plot_p, dpi=600, bbox_inches="tight")
+    plt.close(fig)
+
     return epochs_clean, reject_log
 
 
@@ -2675,13 +2835,56 @@ def annotate_nonfinite(
     pad=0.0,
     verbose=True,
 ):
-    """Annotate short contiguous NaN/Inf intervals as BAD and zero-fill them.
+    """
+    Annotate short contiguous NaN/Inf intervals as BAD and zero-fill them.
 
-    A segment shorter than `remove_nonfinite_segment_threshold` seconds is
-    annotated (so ICA/epochs skip it) and its samples are zeroed (so filtering/
-    resampling can't propagate NaN). A segment at or above the threshold is
-    treated as a compromised file and raises ValueError, so the subject is
-    skipped rather than silently carrying NaN into later steps.
+    Scans the selected channels for time points where any channel is
+    non-finite, groups them into contiguous intervals, and adds a BAD
+    annotation over each one so that annotation-aware steps (ICA, epoching,
+    covariance estimation) skip them. The offending samples are then replaced
+    by zeros across *all* channels, because filtering and resampling would
+    otherwise propagate NaN/Inf across the whole recording.
+
+    Intervals lasting at least `remove_nonfinite_segment_threshold` seconds are
+    treated as evidence of a compromised file rather than a transient glitch,
+    and raise `ValueError` so the recording is skipped instead of silently
+    carrying corrupted data into later steps.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Continuous MEG/EEG recording. Modified in place: data are preloaded,
+        annotations are appended, and non-finite samples are zeroed.
+    picks : "data" or list of str or array-like of int, optional
+        Channels to scan for non-finite values. "data" (default) selects MEG
+        and EEG channels, excluding reference MEG. A list of channel names or
+        an array of indices may be given instead. Note that this only controls
+        *detection*; zero-filling is applied to the full data array.
+    description : str, optional
+        Label used for the added annotations. Default is "BAD_nan". Must start
+        with "BAD" for MNE's `reject_by_annotation` machinery to honour it.
+    remove_nonfinite_segment_threshold : float, optional
+        Duration in seconds at or above which a non-finite interval is
+        considered fatal rather than repairable. Default is 5.
+    pad : float, optional
+        Extra padding in seconds added on each side of every annotated
+        interval. Default is 0.0. Padding widens the annotation only; the
+        zero-filling still covers exactly the non-finite samples.
+    verbose : bool, optional
+        If True, log the start time, end time, and sample count of each
+        detected interval. Default is True.
+
+    Returns
+    -------
+    raw : mne.io.Raw
+        The same object, with BAD annotations added and non-finite samples
+        replaced by zeros. Returned unchanged (apart from preloading) when no
+        non-finite samples are present.
+    intervals : list of tuple
+        One ``(start_s, end_s, n_samples)`` tuple per annotated interval, with
+        times in seconds relative to the start of the recording and
+        `n_samples` the number of non-finite samples it spans. Empty if the
+        data are clean.
     """
     raw.load_data()  # zero-fill needs preloaded data
 
@@ -2833,3 +3036,21 @@ def tsss_params(info):
         st_duration=float(r["st_duration"]),
         st_correlation=float(r["st_correlation"]),
     )
+
+
+def fix_physiological_channel_types(data, device="CTF", path=None):
+    """Retype ECG/EOG channels that CTF stores in the EEG section of res4."""
+    if device != "CTF":
+        return data
+    mapping = {}
+    for ch, ch_type in zip(data.ch_names, data.get_channel_types()):
+        if ch_type in ("eeg", "misc"):
+            name = ch.upper()
+            if "EOG" in name:
+                mapping[ch] = "eog"
+            elif "ECG" in name or "EKG" in name:
+                mapping[ch] = "ecg"
+    if mapping:
+        data.set_channel_types(mapping)
+        # logger.info(f"Retyped physiological channels: {mapping}")
+    return data

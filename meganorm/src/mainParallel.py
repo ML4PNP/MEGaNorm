@@ -7,10 +7,11 @@ import mne
 import logging
 import pandas as pd
 from pathlib import Path
+import matplotlib.pyplot as plt
 import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_epoch
-from meganorm.utils.IO import Config, load_recording
+from meganorm.utils.IO import Config, load_recording, select_session_path, infer_device
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
@@ -20,6 +21,7 @@ from meganorm.src.preprocess import (
 )
 from meganorm.src.psdParameterize import parameterize_psds
 from meganorm.src.featureExtraction import feature_extract
+from meganorm.plots.plots import psd_stage_report
 
 
 def main_argparser(args=None):
@@ -158,12 +160,18 @@ def main_argparser(args=None):
         "mark bad segments/events during preprocessing.",
     )
     parser.add_argument(
-        "--layout_path", 
-        type=str, 
-        default=None, 
-        help="Path to a subject's layout file, used to "
-        "summarize features.",
-         
+        "--layout_path",
+        type=str,
+        default=None,
+        help="Path to a subject's layout file, used to " "summarize features.",
+    )
+    parser.add_argument(
+        "--demographic_path",
+        type=str,
+        default=None,
+        help="Path to this dataset's participants/demographic table. The file "
+        "need not be named 'participants_bids.tsv' nor live inside the dataset "
+        "directory. Used for template-MRI age matching.",
     )
     return parser.parse_args(args)
 
@@ -276,7 +284,8 @@ def main(args):
         "pos_file",
         "trans_file",
         "annotation_path",
-        "layout_path"
+        "layout_path",
+        "demographic_path",
     ]:
         if getattr(args, attr) == "None":
             setattr(args, attr, None)
@@ -290,77 +299,28 @@ def main(args):
             logger.error(error_msg)
             raise FileNotFoundError(error_msg)
 
-    paths = args.dir.split("*")
-    paths = list(filter(lambda x: len(x), paths))
-    path = paths[configs.which_meg_session]
-
     current = Path(args.save_dir)
     project_dir = current.parent
 
-    if args.empty_room_recording_path:
-        empty_room_recording_paths = args.empty_room_recording_path.split("*")
-        empty_room_recording_paths = list(
-            filter(lambda x: len(x), empty_room_recording_paths)
-        )
-        empty_room_recording_path = empty_room_recording_paths[0]
-    else:
-        empty_room_recording_path = None
+    session = configs.which_meg_session
 
-    if args.event_record:
-        event_record_paths = args.event_record.split("*")
-        event_record_paths = list(filter(lambda x: len(x), event_record_paths))
-        event_record = event_record_paths[configs.which_meg_session]
-        event_of_interest = int(args.event_of_interest)
-    else:
-        event_record = None
-        event_of_interest = None
+    path = select_session_path(args.dir, session)
+    empty_room_recording_path = select_session_path(args.empty_room_recording_path, -1)
+    event_record = select_session_path(args.event_record, session)
+    pos_file = select_session_path(args.pos_file, -1)
+    trans_file = select_session_path(args.trans_file, session)
+    annotation_path = select_session_path(args.annotation_path, session)
 
-    if args.pos_file:
-        pos_file_paths = args.pos_file.split("*")
-        pos_file_paths = list(filter(lambda x: len(x), pos_file_paths))
-        pos_file = pos_file_paths[configs.which_meg_session]
-    else:
-        pos_file = None
+    event_of_interest = int(args.event_of_interest) if event_record else None
 
-    if args.trans_file:
-        trans_file_paths = args.trans_file.split("*")
-        trans_file_paths = list(filter(lambda x: len(x), trans_file_paths))
-        trans_file = trans_file_paths[configs.which_meg_session]
-    else:
-        trans_file = None
-    if args.annotation_path:
-        annotation_paths = args.annotation_path.split("*")
-        annotation_paths = list(filter(lambda x: len(x), annotation_paths))
-        annotation_path = annotation_paths[configs.which_meg_session]
-    else:
-        annotation_path = None
-
+    paths = args.dir.split("*")
+    paths = list(filter(lambda x: len(x), paths))
     logger.warning(
-        f"{len(paths)} recordings were detected for this subject. The first one"
-        " will be used in this analysis."
+        f"{len(paths)} recordings were detected for this subject. "
+        f"Session {session} will be used in this analysis."
     )
 
-    if not configs.which_sensor == "eeg":
-        if args.device_type:
-            device = args.device_type
-        elif "4D" in path:
-            device = "BTI"
-        elif path.split(".")[-1] == "ds":
-            device = "CTF"
-        elif path.split(".")[-1] == "fif":
-            device = "MEGIN"
-        elif path.split(".")[-1] == "bin":
-            device = "ARTEMIS123"
-        else:
-            err_msg = "The provided MEG recording is not supported yet."
-            logger.error(err_msg)
-            raise ValueError(err_msg)
-    else:
-        device = path.split(".")[
-            -1
-        ]  # TODO: it was originaly path[0]. Check if this correction is correct.
-
-    device = device.upper()
+    device = infer_device(path, args.device_type, configs.which_sensor, logger)
     # ------------------------------------------------------------ load data
     data, empty_room_recording = load_recording(
         device=device,
@@ -370,6 +330,11 @@ def main(args):
         logger=logger,
         pos_file=pos_file,
     )
+
+    # Keep an untouched copy + native sampling rate for the "raw" PSD stage,
+    # since `data` gets mutated in-place by the steps below.
+    raw_data_for_psd = data.copy()
+    raw_sampling_rate = int(round(raw_data_for_psd.info["sfreq"]))
 
     # ------------------------------------------------------------
     power_line_freq = data.info.get("line_freq")
@@ -466,9 +431,18 @@ def main(args):
         event_of_interest=event_of_interest,
         segments_length=configs.segments_length,
         overlap=configs.segments_overlap,
-        same_environmental_noise_removal=configs.same_environmental_noise_removal,
         remove_nonfinite_segment_threshold=configs.remove_nonfinite_segment_threshold,
+        random_state=configs.random_state,
     )
+
+    if configs.save_preprocessed_data:
+        save_prep_path = os.path.join(
+            Path(args.save_dir).parent,
+            "Saved_outputs",
+            "Preprocessed_data",
+            args.subject,
+        )
+        filtered_data.save(f"{save_prep_path}_preproc-raw.fif", overwrite=True)
 
     # Remove UADC001 annotations - temp
     annot = filtered_data.annotations
@@ -498,6 +472,8 @@ def main(args):
     elif configs.bad_segment_removal_method == "autoreject":
         segments, _ = auto_reject_segmentation(
             raw=filtered_data,
+            project_dir=project_dir,
+            subject=args.subject,
             sampling_rate=sampling_rate,
             tmin=configs.segments_tmin,
             tmax=configs.segments_tmax,
@@ -511,6 +487,11 @@ def main(args):
             random_state=configs.random_state,
             segment_events=segment_events,
         )
+
+    # Keep a handle to the post-rejection segments before `segments` gets
+    # reassigned to the source-localized epochs below.
+    rejected_segments = segments
+
     # ------------------------------------------------------------
     if configs.save_segmented_data:
         save_segments_path = os.path.join(
@@ -521,7 +502,19 @@ def main(args):
             f"{save_segments_path}/{args.subject}-segments-epo.fif", overwrite=True
         )
 
+    if configs.lowest_num_of_epochs is not None:
+        rejected_segments = segments.copy()
+        rejected_segments.drop_bad()          # no-op if rejection already ran
+
+        n_kept = len(rejected_segments)
+
+        if n_kept < configs.lowest_num_of_epochs:
+            err_msg = f"The number of extracted epochs is below the specified minimum threshold of {configs.lowest_num_of_epochs}."
+            logger.error(err_msg)
+            raise Exception(err_msg)
+
     # ------------------------------------------------------------
+    sl_segments = None  # populated below if source localization runs
     if configs.apply_source_localization:
         logger.info("Starting the source localization")
         stc, labels = source_localization(
@@ -539,19 +532,23 @@ def main(args):
             figures_path=os.path.join(args.save_dir, "figures"),
             which_sensor_dict=which_sensor_dict,
             precomputed_trans_path=trans_file,
+            demographic_path=args.demographic_path,
             plot_3d=False,
             **configs.model_dump(),
         )
         segments = numpy_to_mne_epoch(stc, labels, "mag", sampling_rate)
         channel_names = segments.info["ch_names"]
+        sl_segments = segments
 
-    if configs.save_source_localized_epochs:
-        save_epoch_path = os.path.join(
-            Path(args.save_dir).parent, "Saved_outputs", "Epochs", args.subject
-        )
-        if not os.path.exists(save_epoch_path):
-            os.mkdir(save_epoch_path)
-        segments.save(f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True)
+        if configs.save_source_localized_epochs:
+            save_epoch_path = os.path.join(
+                Path(args.save_dir).parent, "Saved_outputs", "Epochs", args.subject
+            )
+            if not os.path.exists(save_epoch_path):
+                os.mkdir(save_epoch_path)
+            segments.save(
+                f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True
+            )
 
     # ------------------------------------------------------------
     spectral_models, psds, freqs = parameterize_psds(
@@ -579,13 +576,12 @@ def main(args):
         save_psds_path = os.path.join(
             Path(args.save_dir).parent, "Saved_outputs", "PSDs", args.subject
         )
-        if not os.path.exists(save_psds_path):
-            os.mkdir(save_psds_path)
+        os.makedirs(save_psds_path, exist_ok=True)
         np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
         np.save(f"{save_psds_path}/{args.subject}-freqs.npy", freqs)
 
     # ------------------------------------------------------------
-    features = feature_extract(
+    features, aperiodic_fit_result = feature_extract(
         subject_id=args.subject,
         spectral_models=spectral_models,
         psds=psds,
@@ -600,10 +596,31 @@ def main(args):
         aperiodic_mode=configs.aperiodic_mode,
         min_r_squared=configs.min_r_squared,
         power_band_ratios_list=configs.power_band_ratios_list,
-        layout_path=args.layout_path
+        layout_path=args.layout_path,
+        freq_range_low=configs.fooof_freq_range_low,
+        freq_range_high=configs.fooof_freq_range_high,
     )
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
+
+    if configs.save_psds:
+        psd_stage_report(
+            raw_data=raw_data_for_psd,
+            filtered_data=filtered_data,
+            rejected_segments=rejected_segments,
+            which_sensor_dict=which_sensor_dict,
+            configs=configs,
+            subject=args.subject,
+            out_dir=save_psds_path,
+            raw_sampling_rate=raw_sampling_rate,
+            filtered_sampling_rate=sampling_rate,
+            sl_segments=sl_segments,
+            spectral_models=spectral_models,
+            parametrization_method=configs.parametrization_method,
+            aperiodic_mode=configs.aperiodic_mode,
+            aperiodic_fit_result=aperiodic_fit_result,
+        )
+
 
     logger.info(
         f"The feature extraction process for the subject {args.subject} is complete."

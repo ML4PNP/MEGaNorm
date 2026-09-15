@@ -13,6 +13,7 @@ from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
 from meganorm.src.normative_modeling import anova_group_level_effect
+from meganorm.utils.IO import check_demographic_format, load_demographic_file
 
 
 def progress_bar(current, total, bar_length=20):
@@ -53,7 +54,7 @@ def sbatchfile(
     node=1,
     batch_file_name="batch_job",
     freesurfer_home=None,
-    freesurfer_license=None
+    freesurfer_license=None,
 ):
     """
     Generates a batch script file for submission to a job scheduler (e.g., SLURM) for parallel execution.
@@ -108,7 +109,7 @@ def sbatchfile(
             +
             # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
             "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
-        )        
+        )
 
     if log_path is not None:
         sbatch_log_out = "#SBATCH -o " + log_path + "/%x_%j.out" + "\n"
@@ -128,6 +129,7 @@ def sbatchfile(
     sbatch_input_12 = "trans_file=${12}\n"
     sbatch_input_13 = "annotation_path=${13}\n"
     sbatch_input_14 = "layout_path=${14}\n"
+    sbatch_input_15 = "demographic_path=${15}\n"
 
     # if with_config:
     command = (
@@ -155,6 +157,7 @@ def sbatchfile(
     command += " --trans_file $trans_file"
     command += " --annotation_path $annotation_path"
     command += " --layout_path $layout_path"
+    command += " --demographic_path $demographic_path"
 
     bash_environment = [
         sbatch_init
@@ -184,6 +187,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_12
     bash_environment[0] += sbatch_input_13
     bash_environment[0] += sbatch_input_14
+    bash_environment[0] += sbatch_input_15
 
     bash_environment[0] += command
 
@@ -273,7 +277,7 @@ def submit_jobs(
         batch_file_name=job_configs["batch_file_name"],
         freesurfer_home=freesurfer_home,
         freesurfer_license=freesurfer_license,
-        with_config=config_file is not None,
+        # with_config=config_file is not None,
         # with_source_localization=surfaces_dir is not None,
         # with_empty_room_recording=empty_room_recording is not None
     )
@@ -293,6 +297,7 @@ def submit_jobs(
         pos_path = subjects[subject].get("pos_path")
         annotation_path = subjects[subject].get("annotation_path")
         layout_path = subjects[subject].get("layout_path")
+        demographic_path = subjects[subject].get("demographic_path")
 
         command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
 
@@ -306,6 +311,7 @@ def submit_jobs(
         command = add_command(trans_path, command)
         command = add_command(annotation_path, command)
         command = add_command(layout_path, command)
+        command = add_command(demographic_path, command)
 
         subprocess.check_call(command, shell=True)
 
@@ -721,12 +727,17 @@ def auto_parallel_feature_extraction(
 
     # Merge demographic data and extracted f-IDPS
     if combine_features_and_demographics:
-        data_base_dirs = [values["base_dir"] for values in datasets.values()]
+        demographic_paths = [
+            values.get("demographic_path")
+            or os.path.join(values["base_dir"], "participants_bids.tsv")
+            for values in datasets.values()
+        ]
         dataset_names = list(datasets.keys())
         df = merge_fidp_demo(
-            datasets_paths=data_base_dirs,
+            demographic_paths=demographic_paths,
             features_dir=features_dir,
             dataset_names=dataset_names,
+            drop_columns=None,
         )
         df.to_csv(os.path.join(features_dir, "all_features.csv"))
 
@@ -819,6 +830,21 @@ def sbatch_feature_extraction_runner(
 
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path
+
+    if (
+        config_file or Config()
+    ).apply_mri_template or combine_features_and_demographics:
+        for dataset_name, values in datasets.items():
+            demo_path = values.get("demographic_path") or os.path.join(
+                values["base_dir"], "participants_bids.tsv"
+            )
+            if not os.path.exists(demo_path):
+                raise FileNotFoundError(
+                    f"The demographic file for '{dataset_name}' was not found at "
+                    f"{demo_path}. Set 'demographic_path' for this dataset, or "
+                    "create the file with 'make_demo_file_bids'."
+                )
+            check_demographic_format(load_demographic_file(demo_path))
 
     features_dir = os.path.join(project_dir, "Features")
     config_file_path = os.path.join(
