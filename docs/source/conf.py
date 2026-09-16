@@ -3,13 +3,16 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+from importlib.metadata import version as get_version
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'MEGaNorm'
 copyright = '2025, Seyed Mostafa Kia'
 author = 'Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn'
-release = '0.1.0'
+release = get_version("meganorm")
+version = release
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
