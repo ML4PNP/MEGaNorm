@@ -35,7 +35,12 @@ exclude_patterns = []
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'
+html_theme = 'pydata_sphinx_theme'
+html_theme_options = {
+    "github_url": "https://github.com/ML4PNP/MEGaNorm",
+    "show_toc_level": 2,
+    "navigation_with_keys": True,
+}
 html_static_path = ['_static']
 
 # Logo path (relative to html_static_path)
