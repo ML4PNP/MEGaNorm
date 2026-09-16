@@ -38,6 +38,12 @@ exclude_patterns = []
 html_theme = 'pydata_sphinx_theme'
 html_theme_options = {
     "github_url": "https://github.com/ML4PNP/MEGaNorm",
+    "external_links": [
+        {
+            "name": "ML4PNP Lab",
+            "url": "https://ml4pnp.github.io/",
+        },
+    ],
     "show_toc_level": 2,
     "navigation_with_keys": True,
 }
@@ -50,6 +56,3 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('../../meganorm'))
 
-
-
-html_theme = "sphinx_rtd_theme"

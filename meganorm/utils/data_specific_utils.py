@@ -272,25 +272,28 @@ def _trans_from_hcp(raw, subject, subjects_dir, transform_path, tans_out_path):
     return None
 
 
+def _read_annotation_brainstorm(
+    data, annotation_path, annotation_lable="Bad", logger=None
+):
 
-def _read_annotation_brainstorm(data, annotation_path, annotation_lable="Bad", logger=None):
-    
     mat = io.loadmat(annotation_path, struct_as_record=False, squeeze_me=True)
-    F = mat['F']
+    F = mat["F"]
 
     # 2. Pull out just the head-motion ('BAD') event group
     onsets, durations, descriptions = [], [], []
 
     for ev in np.atleast_1d(F.events):
         label = str(ev.label)
-        if label != 'BAD': 
+        if label != "BAD":
             continue
 
-        times = np.atleast_2d(ev.times)   # shape (2, n_segments): row0=start, row1=end
+        times = np.atleast_2d(ev.times)  # shape (2, n_segments): row0=start, row1=end
         for start, end in zip(times[0, :], times[1, :]):
             onsets.append(float(start))
             durations.append(float(end - start))
-            descriptions.append(annotation_lable)   # keep 'BAD' prefix so MNE excludes it
+            descriptions.append(
+                annotation_lable
+            )  # keep 'BAD' prefix so MNE excludes it
 
     if logger:
         logger.info(f"Found {len(onsets)} {annotation_lable} segments")
@@ -302,9 +305,9 @@ def _read_annotation_brainstorm(data, annotation_path, annotation_lable="Bad", l
 
     annot_dur = sum(annot.duration)
     if logger:
-            logger.info(
-                f"Precomputed annotation detected {annot_dur}"
-                f" seconds of {annotation_lable}."
-            )
+        logger.info(
+            f"Precomputed annotation detected {annot_dur}"
+            f" seconds of {annotation_lable}."
+        )
     data.set_annotations(data.annotations + annot)
     return data, annot_dur
