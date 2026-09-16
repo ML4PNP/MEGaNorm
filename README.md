@@ -1,16 +1,16 @@
 # MEGaNorm
 
-[![Paper DOI](https://img.shields.io/badge/DOI-10.1038%2Fs41598--024--12345--6-blue)](https://doi.org/10.1038/s42003-026-09825-2)
-[![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
-[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
-[![Documentation Status](https://readthedocs.org/projects/meganorm/badge/?version=latest)](https://meganorm.readthedocs.io/en/latest/?badge=latest)
-![Last Commit](https://img.shields.io/github/last-commit/ML4PNP/MEGaNorm.svg)
+[![PyPI](https://img.shields.io/pypi/v/meganorm?logo=pypi&logoColor=white&color=3775A9)](https://pypi.org/project/meganorm/)
+[![Python](https://img.shields.io/pypi/pyversions/meganorm?logo=python&logoColor=white&color=3776AB)](https://pypi.org/project/meganorm/)
+[![Documentation](https://readthedocs.org/projects/meganorm/badge/?version=latest)](https://meganorm.readthedocs.io/en/latest/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/smkia/meganorm?logo=docker&logoColor=white&color=2496ED)](https://hub.docker.com/r/smkia/meganorm)
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
-[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Zenodo DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441320.svg)](https://doi.org/10.5281/zenodo.15441320)
-[![Docker](https://img.shields.io/docker/pulls/smkia/meganorm)](https://img.shields.io/docker/pulls/smkia/meganorm)
-[![Downloads](https://static.pepy.tech/personalized-badge/meganorm?period=month&units=international_system&left_text=PyPI%20downloads/month)](https://pypi.org/project/meganorm/)
+[![License](https://img.shields.io/github/license/ML4PNP/MEGaNorm?color=blue)](https://github.com/ML4PNP/MEGaNorm/blob/main/LICENSE)
+[![Software DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441320.svg)](https://doi.org/10.5281/zenodo.15441320)
+[![Paper DOI](https://img.shields.io/badge/DOI-10.1038%2Fs42003--026--09825--2-B31B1B?logo=doi&logoColor=white)](https://doi.org/10.1038/s42003-026-09825-2)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14128/badge)](https://www.bestpractices.dev/projects/14128)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/meganorm?period=month&units=international_system&left_text=downloads/month&left_color=grey&right_color=brightgreen)](https://pypi.org/project/meganorm/)
+[![Last Commit](https://img.shields.io/github/last-commit/ML4PNP/MEGaNorm?logo=github&color=informational)](https://github.com/ML4PNP/MEGaNorm/commits/main)
 
 <p align="center">
   <img src="docs/images/logo.png" alt="MEGaNorm Logo" width="180"/>
