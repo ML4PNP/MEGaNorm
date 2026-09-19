@@ -1,26 +1,28 @@
 # Contributing to MEGaNorm
 
-Thank you for considering contributing to **MEGaNorm**! We welcome contributions from the community to improve and extend the toolbox. This guide will help you get started.
+Thank you for considering contributing to **MEGaNorm**. We welcome contributions from the community to improve and extend the package.
 
 ---
 
-## 🚀 Ways to Contribute
+## Ways to Contribute
 
-* **Bug reports**: Found a bug? Please [open an issue](https://github.com/ML4PNP/MEGaNorm/issues).
-* **Feature requests**: Have an idea for a new feature? We'd love to hear it.
-* **Code contributions**: Improve the codebase, fix bugs, or add new functionality.
-* **Documentation**: Help improve or expand the documentation and tutorials.
-* **Testing**: Write or improve unit tests.
+Contributions can take many forms, including:
 
----
-
-## ⚖️ Code of Conduct
-
-Please be respectful and constructive. This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
+* **Bug reports:** If you encounter a bug or unexpected behavior, please [open an issue](https://github.com/ML4PNP/MEGaNorm/issues).
+* **Feature requests:** Suggestions for new functionality are welcome and can be proposed through the issue tracker.
+* **Code contributions:** Fix bugs, improve existing functionality, or implement new features.
+* **Documentation:** Improve or expand the documentation, examples, and tutorials.
+* **Testing:** Help develop and improve the automated test suite.
 
 ---
 
-## 🚪 Getting Started
+## Code of Conduct
+
+All contributors are expected to follow the project's [Code of Conduct](CODE_OF_CONDUCT.md).
+
+---
+
+## Getting Started
 
 1. **Fork the repository** and clone your fork:
 
@@ -29,47 +31,52 @@ Please be respectful and constructive. This project follows the [Contributor Cov
    cd MEGaNorm
    ```
 
-2. **Set up your environment**:
+2. **Set up a development environment**:
 
    ```bash
    conda create --name meganorm-dev python=3.12
    conda activate meganorm-dev
-   pip install -e .[dev]
+   pip install -e ".[dev]"
    ```
 
-3. **Create a new branch**:
+3. **Create a new branch** for your contribution:
 
    ```bash
    git checkout -b feature/my-new-feature
    ```
 
-4. **Make your changes**, write tests, and commit:
+4. **Make and commit your changes**:
 
    ```bash
    git add .
    git commit -m "Add feature: my new feature"
    ```
 
-5. **Push to your fork and open a pull request**:
+5. **Push the branch to your fork**:
 
    ```bash
    git push origin feature/my-new-feature
    ```
 
-   Then open a [Pull Request](https://github.com/ML4PNP/MEGaNorm/pulls).
+6. Open a [pull request](https://github.com/ML4PNP/MEGaNorm/pulls) describing the purpose of the changes and any relevant implementation details.
 
 ---
 
-## ✏️ Style Guide
+## Style Guide
 
-* Format code using **Black**:
+When contributing Python code:
+
+* Follow [PEP 8](https://peps.python.org/pep-0008/) conventions.
+
+* Use [NumPy-style docstrings](https://numpydoc.readthedocs.io/en/latest/format.html).
+
+* Format code using **Black** with the configuration defined in pyproject.toml:
 
   ```bash
   black .
   ```
-* Follow [PEP 8](https://peps.python.org/pep-0008/) for Python style
-* Use [NumPy-style docstrings](https://numpydoc.readthedocs.io/en/latest/format.html)
-* Sort imports with **isort**:
+
+* Sort imports using **isort**:
 
   ```bash
   isort .
@@ -77,18 +84,28 @@ Please be respectful and constructive. This project follows the [Contributor Cov
 
 ---
 
-## ✅ Running Tests
+## Testing
 
-Make sure your changes don’t break anything:
+An automated test suite is currently under development. Where applicable, contributors are encouraged to include tests with new functionality and bug fixes.
 
-```bash
-pytest tests/
-```
-
-Use `pytest --cov` to check test coverage.
+Testing instructions will be updated as the automated test infrastructure is introduced.
 
 ---
 
-## 🚀 Thank You!
+## Reporting Issues
 
-Your contribution will help advance open, reproducible neuroimaging research. We appreciate your help making MEGaNorm better!
+When reporting a bug, please include enough information to reproduce the problem where possible, including:
+
+* MEGaNorm version
+* Python version
+* operating system or computing environment
+* a minimal example reproducing the problem
+* the complete error message or traceback
+
+Please use the [GitHub issue tracker](https://github.com/ML4PNP/MEGaNorm/issues) for bug reports and feature requests.
+
+---
+
+## Thank You
+
+Contributions help improve MEGaNorm and support open and reproducible research in electrophysiological neuroimaging.

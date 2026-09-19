@@ -26,6 +26,13 @@ setup(
     packages=find_packages(),
     python_requires=">=3.12",
     install_requires=load_requirements(),
+    extras_require={
+        "dev": [
+            "black",
+            "pytest",
+            "pytest-cov",
+        ],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
