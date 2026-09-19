@@ -6,7 +6,7 @@ Detailed release notes for each version are available on the [GitHub Releases](h
 
 ## [Unreleased]
 
-Changes currently under development.
+Changes currently under development on the `dev` branch.
 
 ## [0.2.1] - 2026-09-16
 
@@ -29,7 +29,7 @@ Initial public release of MEGaNorm, providing workflows for large-scale EEG/MEG 
 
 See the [v0.1.0 release](https://github.com/ML4PNP/MEGaNorm/releases/tag/v0.1.0) for detailed release notes.
 
-[Unreleased]: https://github.com/ML4PNP/MEGaNorm/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ML4PNP/MEGaNorm/compare/v0.2.1...dev
 [0.2.1]: https://github.com/ML4PNP/MEGaNorm/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ML4PNP/MEGaNorm/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ML4PNP/MEGaNorm/releases/tag/v0.1.0
