@@ -1,0 +1,67 @@
+cff-version: 1.2.0
+message: "If you use MEGaNorm in your research, please cite the software using the metadata below."
+title: "MEGaNorm: A Python package for normative modeling of MEG and EEG data"
+type: software
+
+authors:
+
+* family-names: Zamanzadeh
+  given-names: Mohammad
+  orcid: "https://orcid.org/0009-0003-5080-068X"
+  affiliation: "Center of Cognitive Science and Artificial Intelligence, Tilburg University, Tilburg, the Netherlands"
+
+* family-names: Verduyn
+  given-names: Ymke
+  orcid: "https://orcid.org/0009-0004-2643-8649"
+  affiliation: "Center of Cognitive Science and Artificial Intelligence, Tilburg University, Tilburg, the Netherlands"
+
+* family-names: Kia
+  given-names: Seyed Mostafa
+  orcid: "https://orcid.org/0000-0002-7128-814X"
+  affiliation: "Center of Cognitive Science and Artificial Intelligence, Tilburg University, Tilburg, the Netherlands"
+
+version: 0.2.1
+doi: "10.5281/zenodo.21291858"
+repository-code: "https://github.com/ML4PNP/MEGaNorm"
+url: "https://meganorm.readthedocs.io/"
+license: GPL-3.0
+
+keywords:
+
+* normative modeling
+* MEG
+* EEG
+* electrophysiology
+* neuroimaging
+* brain oscillations
+* computational neuroscience
+
+references:
+
+* type: article
+  title: "Normative modeling of MEG brain oscillations across the human lifespan"
+  authors:
+
+  * family-names: Zamanzadeh
+    given-names: Mohammad
+  * family-names: Verduyn
+    given-names: Ymke
+  * family-names: de Boer
+    given-names: Augustijn
+  * family-names: Ros
+    given-names: Tomas
+  * family-names: Wolfers
+    given-names: Thomas
+  * family-names: Dinga
+    given-names: Richard
+  * family-names: Šafář Postma
+    given-names: Marie
+  * family-names: Marquand
+    given-names: Andre F.
+  * family-names: van Wingerden
+    given-names: Marijn
+  * family-names: Kia
+    given-names: Seyed Mostafa
+    journal: "Communications Biology"
+    year: 2026
+    doi: "10.1038/s42003-026-09825-2"

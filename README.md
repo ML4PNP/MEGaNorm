@@ -6,7 +6,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/smkia/meganorm?logo=docker\&logoColor=white\&color=2496ED)](https://hub.docker.com/r/smkia/meganorm)
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
 [![License](https://img.shields.io/github/license/ML4PNP/MEGaNorm?color=blue)](https://github.com/ML4PNP/MEGaNorm/blob/main/LICENSE)
-[![Software DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441320.svg)](https://doi.org/10.5281/zenodo.15441320)
+[![Software DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21291858.svg)](https://doi.org/10.5281/zenodo.21291858)
 [![Paper DOI](https://img.shields.io/badge/DOI-10.1038%2Fs42003--026--09825--2-B31B1B?logo=doi\&logoColor=white)](https://doi.org/10.1038/s42003-026-09825-2)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14128/badge)](https://www.bestpractices.dev/projects/14128)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/meganorm?period=month\&units=international_system\&left_text=downloads/month\&left_color=grey\&right_color=brightgreen)](https://pypi.org/project/meganorm/)
@@ -144,17 +144,23 @@ An automated test suite is currently under development. Until it is available, u
 
 ## Citation
 
-If you use MEGaNorm in your research, please cite the software and the associated scientific publication.
+If you use MEGaNorm in your research, please cite the software. Depending on your use of the package, you may also cite the associated scientific publication describing the MEGaNorm framework and its application to lifespan MEG normative modeling.
 
 ### Software
 
-Zamanzadeh, M., Verduyn, Y., & Kia, S. M. (2025). *MEGaNorm: a Python package for normative modeling on MEG and EEG data* (v0.1.0). Zenodo. https://doi.org/10.5281/zenodo.15441320
+The citation metadata for MEGaNorm is provided in [`CITATION.cff`](CITATION.cff) and is also available through the **Cite this repository** option on GitHub.
 
-Citation formats, including BibTeX, are available from [Zenodo](https://doi.org/10.5281/zenodo.15441320).
+The software is archived on Zenodo:
+
+**Zamanzadeh, M., Verduyn, Y., & Kia, S. M.** *MEGaNorm: A Python package for normative modeling of MEG and EEG data.* Zenodo.
+https://doi.org/10.5281/zenodo.21291858
 
 ### Scientific publication
 
-Zamanzadeh, M., Verduyn, Y., de Boer, A., Ros, T., Wolfers, T., Dinga, R., Šafář Postma, M., Marquand, A. F., van Wingerden, M., & Kia, S. M. (2026). Normative modeling of MEG brain oscillations across the human lifespan. *Communications Biology*. https://doi.org/10.1038/s42003-026-09825-2
+For the scientific framework and its application to normative modeling of brain oscillations across the human lifespan, please cite:
+
+**Zamanzadeh, M., Verduyn, Y., de Boer, A., Ros, T., Wolfers, T., Dinga, R., Šafář Postma, M., Marquand, A. F., van Wingerden, M., & Kia, S. M.** (2026). Normative modeling of MEG brain oscillations across the human lifespan. *Communications Biology*.
+https://doi.org/10.1038/s42003-026-09825-2
 
 ---
 
