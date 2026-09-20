@@ -211,6 +211,8 @@ def prepare_nm_data(
         err_msg = "continous_cov_col should be a single string. Multiple covriates are not supported yet."
         raise ValueError(err_msg)
 
+    df = df.dropna(subset=covariate_list + batch_effect_list)
+
     if which_cohorts:
         df = df[df["diagnosis"].isin(which_cohorts)]
 
