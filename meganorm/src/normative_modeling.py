@@ -745,7 +745,7 @@ def anova_group_level_effect(
 
         if name in ignore_columns or name == batch_effect:
             continue
-            
+
         sub = pd.DataFrame(
             {
                 name: data[name],
@@ -759,7 +759,7 @@ def anova_group_level_effect(
             aov = pg.anova(data=sub, dv=name, between=batch_effect, detailed=False)
             p = float(aov["p_unc"].iloc[0])
             np2 = float(aov["np2"].iloc[0])
-        except :
+        except:
             p = np2 = None
 
         res[name] = {"p_val": p, "np2": np2}

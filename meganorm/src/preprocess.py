@@ -969,7 +969,6 @@ def preprocess(
     if which_sensor["eeg"] and rereference_method:
         data = data.set_eeg_reference(rereference_method)
 
-
     # remove environmental noise ---------------------
     if apply_environmental_noise_correction:
         data, empty_room_recording = remove_environmental_noise(
@@ -2440,7 +2439,6 @@ def _annotate_dropped_epochs(
     return raw
 
 
-
 def _detect_bad_channels_ransac(
     epochs,
     n_resample=50,
@@ -2522,7 +2520,6 @@ def _detect_bad_channels_ransac(
         bads.extend(ransac.bad_chs_)
 
     return bads, bad_logs
-
 
 
 def auto_reject_segmentation(
