@@ -293,13 +293,7 @@ def irasa_epochs(
 
     data_array = data.get_data(copy=True)
 
-    nfft = 2 ** (np.ceil(np.log2(int(data_array.shape[2] * np.max(hset_info)))))
-
-    kwargs_psd = {
-        "nperseg": None,
-        "nfft": nfft,
-        "noverlap": 0,
-    }
+    kwargs_psd = _irasa_welch_kwargs(fs, data_array.shape[2], hset_info)
 
     psd_list_aperiodic, psd_list_periodic, psd_list_original = [], [], []
     for epoch in data_array:
@@ -346,6 +340,49 @@ def irasa_epochs(
 
 
 
+def _irasa_welch_kwargs(fs, n_times, hset_info):
+    """
+    Build the Welch settings shared by `irasa_epochs` and `computePsdIrasa`.
+
+    IRASA resamples each epoch by factors up to max(hset), so the Welch
+    window must fit in the shortest (most downsampled) signal. The window
+    length is 2 s, or ``n_times / max(hset)`` samples if that is shorter;
+    a warning is logged in that case, since frequency resolution drops.
+
+    Parameters
+    ----------
+    fs : float
+        Sampling frequency in Hz.
+    n_times : int
+        Number of samples per epoch.
+    hset_info : tuple of float
+        IRASA resampling factors as ``(start, stop, step)``. Only the
+        maximum value is used here.
+
+    Returns
+    -------
+    dict
+        Keyword arguments for `scipy.signal.welch`:
+
+        - ``nperseg``: ``min(2 * fs, n_times / max(hset))`` samples
+        - ``noverlap``: ``nperseg // 2`` (50% overlap)
+        - ``nfft``: ``nperseg * max(hset)`` rounded up to the next power of two
+    """
+    """Welch settings shared by irasa_epochs and computePsdIrasa."""
+    h_max = np.max(hset_info)
+    nperseg = min(int(2 * fs), int(n_times / h_max))
+
+    if nperseg < int(2 * fs):
+        logger.warning(f"Epochs too short for 2 s windows; using {nperseg / fs:.2f} s "
+                    f"({fs / nperseg:.2f} Hz resolution)")
+    
+    return {
+        "nperseg": nperseg,
+        "noverlap": nperseg // 2,
+        "nfft": int(2 ** np.ceil(np.log2(nperseg * h_max))),
+    }
+
+
 def computePsdIrasa(
     segments,
     hset_info=(1.05, 2.0, 0.05),
@@ -353,59 +390,46 @@ def computePsdIrasa(
     freq_range_high=40,
 ):
     """
-    Compute PSD using the same Welch settings IRASA uses internally, so
-    PSDs computed here are directly comparable to spectra produced by
-    `irasa_epochs` (the raw spectrum, and by extension the aperiodic and
-    periodic fits) -- unlike `computePsd`, which uses independent
-    `psd_n_fft`/`psd_n_overlap`/`psd_n_per_seg` settings and therefore is
-    not on the same footing as IRASA's own spectrum.
+    Compute an epoch-averaged Welch PSD matched to IRASA's settings.
 
-    Mirrors `irasa_epochs`'s `kwargs_psd`: a single window spanning the
-    full epoch length (no averaging over sub-segments, no overlap), with
-    `nfft` computed from the epoch length and the IRASA hset's maximum
-    resampling factor so the frequency grid matches what IRASA itself
-    would produce for the same epochs and hset.
+    Uses the same Welch parameters as `irasa_epochs` (via
+    `_irasa_welch_kwargs`), so the result can be compared directly with
+    IRASA's raw, aperiodic and periodic spectra. Pass the same `hset_info`
+    you give to IRASA.
 
     Parameters
     ----------
     segments : mne.Epochs
-        Segmented data for which PSD will be computed.
-    hset_info : tuple of (float, float, float)
-        (min, max, step) resampling factors, as passed to IRASA. Only the
-        max value is used here, to reproduce IRASA's `nfft` choice.
-    freq_range_low : float
-        Lower frequency bound to keep in the output (Hz).
-    freq_range_high : float
-        Upper frequency bound to keep in the output (Hz).
+        Epoched data. The PSD is computed per epoch and averaged across
+        epochs.
+    hset_info : tuple of float, default (1.05, 2.0, 0.05)
+        IRASA resampling factors as ``(start, stop, step)``. Must match
+        the value used for IRASA.
+    freq_range_low : float, default 3
+        Lower frequency bound in Hz (inclusive).
+    freq_range_high : float, default 40
+        Upper frequency bound in Hz (inclusive).
 
     Returns
     -------
-    psds : np.ndarray
-        Per-channel PSD, averaged across epochs, shape (n_channels, n_freqs).
-    freqs : np.ndarray
-        Frequency values corresponding to the PSD.
+    psds : ndarray, shape (n_channels, n_freqs)
+        Epoch-averaged power spectral density within the frequency range.
+    freqs : ndarray, shape (n_freqs,)
+        Frequencies in Hz matching the columns of `psds`.
 
-    Notes
-    -----
-    Uses `scipy.signal.welch` directly (rather than MNE's `compute_psd`)
-    to exactly reproduce `irasa_epochs`'s literal `kwargs_psd`
-    (`nperseg` tied to the full epoch length, `noverlap=0`, a computed
-    `nfft`). This is a different assumption than MNE's own default
-    resolution of `n_per_seg=None` (which ties it to `n_fft`), so this
-    function should not be treated as interchangeable with `computePsd`.
+    See Also
+    --------
+    _irasa_welch_kwargs : Derivation of the Welch window, overlap and nfft.
     """
     from scipy.signal import welch
 
     data_array = segments.get_data(copy=True)  # (n_epochs, n_channels, n_times)
     fs = segments.info["sfreq"]
-    n_times = data_array.shape[-1]
-    nfft = int(2 ** np.ceil(np.log2(int(n_times * np.max(hset_info)))))
+    kwargs_psd = _irasa_welch_kwargs(fs, data_array.shape[-1], hset_info)
 
     psd_list = []
     for epoch in data_array:
-        freqs, psd = welch(
-            epoch, fs=fs, nperseg=n_times, noverlap=0, nfft=nfft, axis=-1
-        )
+        freqs, psd = welch(epoch, fs=fs, axis=-1, **kwargs_psd)
         psd_list.append(psd)
     psds = np.array(psd_list).mean(axis=0)  # (n_channels, n_freqs)
 
