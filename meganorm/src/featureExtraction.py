@@ -586,7 +586,6 @@ def feature_extract(
                 ch_num=channel_num,
                 aperiodic=ap,
             )
-
         else:
             raise TypeError(f"Unknown spectral model type: {type(spectral_models)}")
 

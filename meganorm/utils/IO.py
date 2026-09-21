@@ -1419,8 +1419,7 @@ def find_other_meg_session(
     str_meg_ending : str
         Filename suffix/pattern used to match MEG files (e.g. "raw.fif").
     task_name : str
-        Task identifier expected to appear in the filename (e.g. "rest").
-    which_session : int
+        Task identifier expected to appear in the filename (e.g. "rest").]
         1-based index of the session to select from each subject's matched
         file list.
 
