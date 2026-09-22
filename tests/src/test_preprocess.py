@@ -5,16 +5,19 @@ from types import SimpleNamespace
 import mne
 import numpy as np
 import pytest
+import meganorm.src.preprocess as preprocess_module
 
 from meganorm.src.preprocess import (
-    _chpi_usable,
     _annotate_dropped_epochs,
+    _chpi_usable,
     _complete,
+    _detect_bad_channels_ransac,
     _find_tsss,
     _is_tsss,
     _validate_gedai_params,
     annotate_noisy_raw,
     annotate_nonfinite,
+    auto_reject_segmentation,
     extract_rs_blocks,
     fix_physiological_channel_types,
     sss_records,
@@ -31,6 +34,345 @@ def make_raw(*, sfreq=10.0, duration=2.0, names=None, types=None):
     return mne.io.RawArray(
         np.ones((len(names), int(sfreq * duration))), info, verbose=False
     )
+
+
+def make_epochs(names, types, *, n_epochs=3, sfreq=10.0):
+    info = mne.create_info(names, sfreq, types)
+    data = np.zeros((n_epochs, len(names), 5))
+    return mne.EpochsArray(data, info, verbose=False)
+
+
+def install_fake_autoreject(monkeypatch, bad_epochs):
+    captured = {}
+
+    class FakeRejectLog:
+        def __init__(self, n_epochs, n_channels):
+            self.bad_epochs = np.asarray(bad_epochs, dtype=bool)
+            self.labels = np.zeros((n_epochs, n_channels))
+            if n_epochs:
+                self.labels[0, 0] = 2
+
+        def plot(self, orientation, show):
+            assert orientation == "horizontal"
+            assert show is False
+            return preprocess_module.plt.figure()
+
+    class FakeAutoReject:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def fit(self, epochs):
+            self.consensus_ = {"eeg": 0.5}
+            self.n_interpolate_ = {"eeg": 1}
+            return self
+
+        def transform(self, epochs, return_log):
+            assert return_log is True
+            mask = np.asarray(bad_epochs, dtype=bool)
+            assert len(mask) == len(epochs)
+            log = FakeRejectLog(len(epochs), len(epochs.ch_names))
+            return epochs[~mask], log
+
+    monkeypatch.setattr(preprocess_module, "AutoReject", FakeAutoReject)
+    return captured
+
+
+def test_detect_bad_channels_ransac_dispatches_by_type_and_forwards_parameters(
+    monkeypatch,
+):
+    names = (
+        [f"MAG{i}" for i in range(3)]
+        + [f"GRAD{i}" for i in range(3)]
+        + [f"EEG{i}" for i in range(3)]
+    )
+    types = ["mag"] * 3 + ["grad"] * 3 + ["eeg"] * 3
+    epochs = make_epochs(names, types)
+    epochs.info["bads"] = ["MAG2"]
+    instances = []
+
+    class FakeRansac:
+        def __init__(self, picks, **kwargs):
+            self.picks = np.asarray(picks)
+            self.kwargs = kwargs
+            instances.append(self)
+
+        def fit(self, fitted_epochs):
+            self.bad_chs_ = [fitted_epochs.ch_names[self.picks[0]]]
+            self.bad_log = np.zeros((len(fitted_epochs), len(self.picks)))
+            return self
+
+    monkeypatch.setattr(preprocess_module, "Ransac", FakeRansac)
+
+    bads, logs = _detect_bad_channels_ransac(
+        epochs,
+        n_resample=17,
+        min_channels=0.4,
+        min_corr=0.8,
+        unbroken_time=0.3,
+        n_jobs=2,
+        random_state=9,
+        min_good_channels=2,
+    )
+
+    assert bads == ["MAG0", "GRAD0", "EEG0"]
+    assert [item.picks.tolist() for item in instances] == [[0, 1], [3, 4, 5], [6, 7, 8]]
+    assert instances[0].kwargs == {
+        "n_resample": 17,
+        "min_channels": 0.4,
+        "min_corr": 0.8,
+        "unbroken_time": 0.3,
+        "n_jobs": 2,
+        "random_state": 9,
+        "verbose": False,
+    }
+    assert logs["mag"][1] == ["MAG0", "MAG1"]
+    assert logs["grad"][1] == ["GRAD0", "GRAD1", "GRAD2"]
+    assert logs["eeg"][1] == ["EEG0", "EEG1", "EEG2"]
+
+
+def test_detect_bad_channels_ransac_skips_types_with_too_few_good_channels(
+    monkeypatch,
+):
+    epochs = make_epochs(["EEG0", "EEG1", "EEG2"], ["eeg"] * 3)
+
+    class UnexpectedRansac:
+        def __init__(self, **kwargs):
+            raise AssertionError("RANSAC must not run with too few channels")
+
+    monkeypatch.setattr(preprocess_module, "Ransac", UnexpectedRansac)
+
+    bads, logs = _detect_bad_channels_ransac(epochs, min_good_channels=4)
+
+    assert bads == []
+    assert logs == {}
+
+
+def test_auto_reject_with_precomputed_events_preserves_raw_and_writes_outputs(
+    monkeypatch, tmp_path, caplog
+):
+    caplog.set_level("INFO", logger=preprocess_module.__name__)
+    raw = make_raw(duration=2.0)
+    events = np.array([[0, 0, 1], [5, 0, 1], [10, 0, 1], [15, 0, 1]])
+    captured = install_fake_autoreject(monkeypatch, [False, True, False, False])
+    original_samples = raw.n_times
+
+    cleaned, reject_log = auto_reject_segmentation(
+        raw,
+        sampling_rate=10.0,
+        subject="sub-01",
+        project_dir=tmp_path,
+        tmax=0,
+        segments_length=0.5,
+        segment_events=events,
+        n_interpolates=np.array([1, 2]),
+        consensus_percs=np.array([0.5, 0.8]),
+        thresh_method="random_search",
+        random_state=7,
+    )
+
+    assert raw.n_times == original_samples
+    assert len(cleaned) == 3
+    assert reject_log.bad_epochs.tolist() == [False, True, False, False]
+    assert captured["cv"] == 4
+    np.testing.assert_array_equal(captured["n_interpolate"], [1, 2])
+    np.testing.assert_array_equal(captured["consensus"], [0.5, 0.8])
+    assert captured["thresh_method"] == "random_search"
+    assert captured["random_state"] == 7
+    assert raw.annotations.description.tolist() == ["BAD_autoreject"]
+    assert raw.annotations.onset[0] == pytest.approx(0.5)
+    assert "Interpolated : 1" in caplog.text
+    assert (
+        tmp_path
+        / "Saved_outputs"
+        / "auto_reject_plot"
+        / "sub-01_autoreject_res_plot.png"
+    ).is_file()
+
+
+def test_auto_reject_maps_log_to_epochs_surviving_existing_annotations(
+    monkeypatch, tmp_path
+):
+    raw = make_raw(duration=2.0)
+    raw.set_annotations(mne.Annotations([0.5], [0.5], ["BAD_existing"]))
+    events = np.array([[0, 0, 1], [5, 0, 1], [10, 0, 1], [15, 0, 1]])
+    install_fake_autoreject(monkeypatch, [False, True, False])
+
+    auto_reject_segmentation(
+        raw,
+        10.0,
+        "sub-01",
+        tmp_path,
+        tmax=0,
+        segments_length=0.5,
+        segment_events=events,
+    )
+
+    assert raw.annotations.description.tolist() == ["BAD_existing", "BAD_autoreject"]
+    assert raw.annotations.onset[1] == pytest.approx(1.0)
+
+
+def test_auto_reject_can_leave_rejected_epochs_unannotated(monkeypatch, tmp_path):
+    raw = make_raw(duration=1.5)
+    events = np.array([[0, 0, 1], [5, 0, 1], [10, 0, 1]])
+    install_fake_autoreject(monkeypatch, [False, True, False])
+
+    auto_reject_segmentation(
+        raw,
+        10.0,
+        "sub-01",
+        tmp_path,
+        tmax=0,
+        segments_length=0.5,
+        segment_events=events,
+        annotate_bad_epochs=False,
+    )
+
+    assert len(raw.annotations) == 0
+
+
+def test_auto_reject_caps_automatic_cv_at_ten(monkeypatch, tmp_path):
+    raw = make_raw(duration=6.0)
+    events = np.array([[i * 5, 0, 1] for i in range(12)])
+    captured = install_fake_autoreject(monkeypatch, [False] * 12)
+
+    auto_reject_segmentation(
+        raw,
+        10.0,
+        "sub-01",
+        tmp_path,
+        tmax=0,
+        segments_length=0.5,
+        segment_events=events,
+    )
+
+    assert captured["cv"] == 10
+
+
+def test_auto_reject_preserves_explicit_cv(monkeypatch, tmp_path):
+    raw = make_raw(duration=2.0)
+    events = np.array([[0, 0, 1], [5, 0, 1], [10, 0, 1]])
+    captured = install_fake_autoreject(monkeypatch, [False] * 3)
+
+    auto_reject_segmentation(
+        raw,
+        10.0,
+        "sub-01",
+        tmp_path,
+        tmax=0,
+        segments_length=0.5,
+        segment_events=events,
+        cv=3,
+    )
+
+    assert captured["cv"] == 3
+
+
+def test_auto_reject_crops_only_when_generating_events(monkeypatch, tmp_path):
+    raw = make_raw(duration=5.0)
+    captured = install_fake_autoreject(monkeypatch, [False] * 8)
+
+    cleaned, _ = auto_reject_segmentation(
+        raw,
+        10.0,
+        "sub-01",
+        tmp_path,
+        tmin=0.5,
+        tmax=-0.5,
+        segments_length=0.5,
+        cv=3,
+    )
+
+    assert raw.first_samp == 5
+    assert raw.n_times == 40
+    assert len(cleaned) == 8
+    assert captured["cv"] == 3
+
+
+@pytest.mark.parametrize(
+    ("sampling_rate", "segments_length", "overlap", "message"),
+    [
+        (0.0, 0.5, 0.0, "sampling_rate"),
+        (np.nan, 0.5, 0.0, "sampling_rate"),
+        (10.0, 0.0, 0.0, "segments_length"),
+        (10.0, np.nan, 0.0, "segments_length"),
+        (10.0, 0.5, 0.5, "overlap"),
+        (10.0, 0.5, np.nan, "overlap"),
+    ],
+)
+def test_auto_reject_validates_segmentation_parameters(
+    tmp_path, sampling_rate, segments_length, overlap, message
+):
+    with pytest.raises(ValueError, match=message):
+        auto_reject_segmentation(
+            make_raw(),
+            sampling_rate,
+            "sub-01",
+            tmp_path,
+            tmin=0,
+            tmax=-0.1,
+            segments_length=segments_length,
+            overlap=overlap,
+        )
+
+
+@pytest.mark.parametrize("n_events", [1, 2])
+def test_auto_reject_requires_at_least_three_epochs(tmp_path, n_events):
+    raw = make_raw(duration=2.0)
+    events = np.array([[i * 5, 0, 1] for i in range(n_events)])
+
+    with pytest.raises(ValueError, match="need at least 3"):
+        auto_reject_segmentation(
+            raw,
+            10.0,
+            "sub-01",
+            tmp_path,
+            tmax=0,
+            segments_length=0.5,
+            segment_events=events,
+        )
+
+
+def test_auto_reject_reports_empty_event_selection_clearly(tmp_path):
+    with pytest.raises(ValueError, match="No epochs"):
+        auto_reject_segmentation(
+            make_raw(),
+            10.0,
+            "sub-01",
+            tmp_path,
+            tmax=0,
+            segments_length=0.5,
+            segment_events=np.empty((0, 3), dtype=int),
+        )
+
+
+def test_auto_reject_rejects_nonnegative_crop_tmax(tmp_path):
+    with pytest.raises(ValueError, match="tmax"):
+        auto_reject_segmentation(
+            make_raw(duration=3.0),
+            10.0,
+            "sub-01",
+            tmp_path,
+            tmin=0,
+            tmax=0,
+            segments_length=0.5,
+        )
+
+
+def test_auto_reject_raises_when_all_epochs_are_rejected(monkeypatch, tmp_path):
+    raw = make_raw(duration=1.5)
+    events = np.array([[0, 0, 1], [5, 0, 1], [10, 0, 1]])
+    install_fake_autoreject(monkeypatch, [True, True, True])
+
+    with pytest.raises(ValueError, match="All epochs"):
+        auto_reject_segmentation(
+            raw,
+            10.0,
+            "sub-01",
+            tmp_path,
+            tmax=0,
+            segments_length=0.5,
+            segment_events=events,
+        )
 
 
 def test_annotate_noisy_raw_returns_empty_annotations_without_thresholds():

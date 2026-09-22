@@ -2487,6 +2487,9 @@ def _detect_bad_channels_ransac(
     -------
     bads : list of str
         Channel names flagged bad, pooled across channel types.
+    bad_logs : dict
+        Mapping from channel type to a tuple containing the RANSAC bad-log
+        array and the channel names corresponding to its columns.
     """
     present = epochs.get_channel_types(unique=True, only_data_chs=True)
     bads = []
@@ -2501,12 +2504,22 @@ def _detect_bad_channels_ransac(
         else:
             picks = mne.pick_types(epochs.info, meg=ch_type, eeg=False, exclude="bads")
 
+        if len(picks) < min_good_channels:
+            logger.info(
+                "RANSAC (%s): skipped because only %d good channels remain "
+                "(minimum %d).",
+                ch_type,
+                len(picks),
+                min_good_channels,
+            )
+            continue
+
         ransac = Ransac(
             picks=picks,
-            # n_resample=n_resample,
-            # min_channels=min_channels,
-            # min_corr=min_corr,
-            # unbroken_time=unbroken_time,
+            n_resample=n_resample,
+            min_channels=min_channels,
+            min_corr=min_corr,
+            unbroken_time=unbroken_time,
             n_jobs=n_jobs,
             random_state=random_state,
             verbose=False,
@@ -2625,13 +2638,18 @@ def auto_reject_segmentation(
     percentage in the log if this matters for covariance estimation.
     """
 
-    if tmax >= 0:
-        raise ValueError("The 'tmax' must be a negative number")
-
-    tmax = int(raw.n_times / sampling_rate + tmax)
+    if not np.isfinite(sampling_rate) or sampling_rate <= 0:
+        raise ValueError("sampling_rate must be a positive finite number")
+    if not np.isfinite(segments_length) or segments_length <= 0:
+        raise ValueError("segments_length must be a positive finite number")
+    if not np.isfinite(overlap) or not 0 <= overlap < segments_length:
+        raise ValueError("overlap must satisfy 0 <= overlap < segments_length")
 
     if segment_events is None:
-        raw.crop(tmin=tmin, tmax=tmax)
+        if not np.isfinite(tmax) or tmax >= 0:
+            raise ValueError("The 'tmax' must be a negative finite number")
+        crop_tmax = raw.times[-1] + tmax
+        raw.crop(tmin=tmin, tmax=crop_tmax)
         events = mne.make_fixed_length_events(
             raw=raw,
             duration=segments_length,
@@ -2639,6 +2657,11 @@ def auto_reject_segmentation(
         )
     else:
         events = segment_events
+
+    if len(events) == 0:
+        raise ValueError(
+            "No epochs were created because no segment events are available."
+        )
 
     epochs = mne.Epochs(
         raw,
@@ -2706,7 +2729,7 @@ def auto_reject_segmentation(
     retained_epochs = len(epochs_clean)
     discarded_epochs = total_epochs - retained_epochs
     pct_discarded = (discarded_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
-    interpolated_epochs = int(np.sum(np.any(reject_log.labels == 1, axis=1)))
+    interpolated_epochs = int(np.sum(np.any(reject_log.labels == 2, axis=1)))
     pct_interpolated = (
         (interpolated_epochs / total_epochs) * 100 if total_epochs > 0 else 0.0
     )
@@ -2734,6 +2757,7 @@ def auto_reject_segmentation(
         "auto_reject_plot",
         f"{subject}_autoreject_res_plot.png",
     )
+    os.makedirs(os.path.dirname(save_autoreject_plot_p), exist_ok=True)
     fig = reject_log.plot("horizontal", show=False)
     fig.savefig(save_autoreject_plot_p, dpi=600, bbox_inches="tight")
     plt.close(fig)
