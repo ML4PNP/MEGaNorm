@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import mne
@@ -7,11 +8,14 @@ import pytest
 
 from meganorm.src.preprocess import (
     _chpi_usable,
+    _annotate_dropped_epochs,
     _complete,
     _find_tsss,
     _is_tsss,
     _validate_gedai_params,
+    annotate_noisy_raw,
     annotate_nonfinite,
+    extract_rs_blocks,
     fix_physiological_channel_types,
     sss_records,
     tsss_params,
@@ -27,6 +31,190 @@ def make_raw(*, sfreq=10.0, duration=2.0, names=None, types=None):
     return mne.io.RawArray(
         np.ones((len(names), int(sfreq * duration))), info, verbose=False
     )
+
+
+def test_annotate_noisy_raw_returns_empty_annotations_without_thresholds():
+    annotations = annotate_noisy_raw(make_raw())
+
+    assert len(annotations) == 0
+
+
+def test_annotate_noisy_raw_detects_peak_and_flat_windows():
+    raw = make_raw(duration=1.0)
+    raw._data[0] = 0.0
+    raw._data[1] = 1.0
+    raw._data[0, 2] = 5.0
+
+    annotations = annotate_noisy_raw(
+        raw,
+        reject={"eeg": 4.0},
+        flat={"eeg": 0.1},
+        window=0.5,
+        step=0.5,
+    )
+
+    assert annotations.description.tolist() == ["BAD_peak", "BAD_flat"]
+    np.testing.assert_allclose(annotations.onset, [0.0, 0.5])
+    np.testing.assert_allclose(annotations.duration, [0.5, 0.5])
+
+
+def test_annotate_noisy_raw_excludes_channels_marked_bad():
+    raw = make_raw(duration=1.0)
+    raw._data[:] = 0.0
+    raw._data[0, 2] = 5.0
+    raw.info["bads"] = ["EEG001"]
+
+    annotations = annotate_noisy_raw(raw, reject={"eeg": 4.0}, window=0.5, step=0.5)
+
+    assert len(annotations) == 0
+
+
+def test_annotate_noisy_raw_supports_non_data_channel_types():
+    raw = make_raw(duration=1.0, names=["EOG001"], types=["eog"])
+    raw._data[:] = 0.0
+    raw._data[0, 2] = 5.0
+
+    annotations = annotate_noisy_raw(raw, reject={"eog": 4.0}, window=0.5, step=0.5)
+
+    assert annotations.description.tolist() == ["BAD_peak"]
+    assert annotations.onset[0] == pytest.approx(0.0)
+
+
+def test_annotate_noisy_raw_offsets_onsets_for_absolute_measurement_time():
+    info = mne.create_info(["EEG001"], 10.0, ["eeg"])
+    raw = mne.io.RawArray(np.zeros((1, 20)), info, first_samp=100, verbose=False)
+    raw.set_meas_date(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    raw._data[0, 2] = 5.0
+
+    annotations = annotate_noisy_raw(raw, reject={"eeg": 4.0}, window=0.5, step=0.5)
+    raw.set_annotations(annotations)
+
+    assert raw.annotations.description.tolist() == ["BAD_peak"]
+    assert raw.annotations.onset[0] == pytest.approx(raw.first_time)
+
+
+def test_annotate_noisy_raw_duration_matches_samples_examined():
+    raw = make_raw(duration=0.5)
+    raw._data[:] = 0.0
+    raw._data[0, 0] = 5.0
+
+    annotations = annotate_noisy_raw(raw, reject={"eeg": 4.0}, window=0.25, step=0.2)
+
+    assert annotations.duration[0] == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize(
+    ("window", "step", "message"),
+    [(0.0, 0.5, "window"), (0.5, 0.0, "step")],
+)
+def test_annotate_noisy_raw_rejects_nonpositive_window_parameters(
+    window, step, message
+):
+    with pytest.raises(ValueError, match=message):
+        annotate_noisy_raw(make_raw(), reject={"eeg": 1.0}, window=window, step=step)
+
+
+def test_annotate_dropped_epochs_appends_annotations_at_absolute_event_samples():
+    info = mne.create_info(["EEG001"], 10.0, ["eeg"])
+    raw = mne.io.RawArray(np.ones((1, 20)), info, first_samp=100, verbose=False)
+    raw.set_annotations(
+        mne.Annotations(
+            onset=[0.2],
+            duration=[0.1],
+            description=["BAD_existing"],
+        )
+    )
+
+    returned = _annotate_dropped_epochs(raw, [105, 110], 0.4)
+
+    assert returned is raw
+    assert raw.annotations.description.tolist() == [
+        "BAD_existing",
+        "BAD_dropped_epoch",
+        "BAD_dropped_epoch",
+    ]
+    np.testing.assert_allclose(raw.annotations.onset, [10.2, 10.5, 11.0])
+    np.testing.assert_allclose(raw.annotations.duration, [0.1, 0.4, 0.4])
+
+
+def test_annotate_dropped_epochs_is_noop_for_empty_selection():
+    raw = make_raw()
+
+    returned = _annotate_dropped_epochs(raw, [], 0.5)
+
+    assert returned is raw
+    assert len(raw.annotations) == 0
+
+
+def test_extract_rs_blocks_uses_next_event_as_exclusive_boundary():
+    raw = make_raw(sfreq=10.0, duration=2.0, names=["EEG001"], types=["eeg"])
+    raw._data[0] = np.arange(raw.n_times)
+    events = np.array([[2, 0, 7], [7, 0, 9]])
+
+    rs_raw, seg_events = extract_rs_blocks(
+        raw,
+        events,
+        rs_id=7,
+        sampling_rate=10.0,
+        segments_length=0.5,
+        overlap=0.0,
+        seg_event_id=42,
+    )
+
+    assert rs_raw.n_times == 5
+    np.testing.assert_array_equal(rs_raw.get_data()[0], np.arange(2, 7))
+    np.testing.assert_array_equal(seg_events, [[2, 0, 42]])
+
+
+def test_extract_rs_blocks_concatenates_retained_blocks_and_builds_overlap_events():
+    raw = make_raw(sfreq=10.0, duration=3.0, names=["EEG001"], types=["eeg"])
+    events = np.array([[0, 0, 7], [10, 0, 9], [15, 0, 7], [25, 0, 9]])
+
+    rs_raw, seg_events = extract_rs_blocks(
+        raw,
+        events,
+        rs_id=7,
+        sampling_rate=10.0,
+        segments_length=0.6,
+        overlap=0.2,
+        seg_event_id=3,
+    )
+
+    assert rs_raw.n_times == 20
+    np.testing.assert_array_equal(
+        seg_events,
+        [[0, 0, 3], [4, 0, 3], [10, 0, 3], [14, 0, 3]],
+    )
+
+
+def test_extract_rs_blocks_rejects_missing_or_too_short_blocks():
+    raw = make_raw()
+    events = np.array([[0, 0, 2], [5, 0, 7], [8, 0, 2]])
+
+    with pytest.raises(ValueError, match="No RS blocks"):
+        extract_rs_blocks(raw, events, 7, 10.0, 0.5, 0.0)
+
+
+def test_extract_rs_blocks_rejects_invalid_overlap_without_looping():
+    raw = make_raw()
+    events = np.array([[0, 0, 7], [10, 0, 2]])
+
+    with pytest.raises(ValueError, match="overlap"):
+        extract_rs_blocks(raw, events, 7, 10.0, 0.5, 0.5)
+
+
+@pytest.mark.parametrize(
+    ("segments_length", "overlap", "message"),
+    [(np.nan, 0.0, "segments_length"), (0.5, np.nan, "overlap")],
+)
+def test_extract_rs_blocks_rejects_nonfinite_timing_parameters(
+    segments_length, overlap, message
+):
+    raw = make_raw()
+    events = np.array([[0, 0, 7], [10, 0, 2]])
+
+    with pytest.raises(ValueError, match=message):
+        extract_rs_blocks(raw, events, 7, 10.0, segments_length, overlap)
 
 
 @pytest.mark.parametrize(

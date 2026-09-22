@@ -2321,6 +2321,10 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
     sfreq = raw.info["sfreq"]
     win_samples = int(window * sfreq)
     step_samples = int(step * sfreq)
+    if win_samples < 1:
+        raise ValueError("window must span at least one sample")
+    if step_samples < 1:
+        raise ValueError("step must span at least one sample")
     n_samples = len(raw.times)  # fixed
 
     ch_types_in_raw = set(raw.get_channel_types())
@@ -2332,10 +2336,13 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
 
     type_data = {}
     for ch_type in types_to_check:
-        if ch_type in ("mag", "grad"):
-            picks = mne.pick_types(raw.info, meg=ch_type, ref_meg=False, exclude="bads")
-        elif ch_type == "eeg":
-            picks = mne.pick_types(raw.info, eeg=True, exclude="bads")
+        picks = [
+            idx
+            for idx, (name, kind) in enumerate(
+                zip(raw.ch_names, raw.get_channel_types())
+            )
+            if kind == ch_type and name not in raw.info["bads"]
+        ]
         if len(picks) == 0:
             continue
         type_data[ch_type] = raw.get_data(picks=picks)
@@ -2348,7 +2355,8 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
 
     i = 0
     while i + win_samples <= n_samples:
-        t_onset = times[i]
+        offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
+        t_onset = times[i] + offset
         is_peak_bad = False
         is_flat_bad = False
 
@@ -2358,12 +2366,10 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
 
             if reject and ch_type in reject:
                 if np.any(ptp > reject[ch_type]):
-                    print(ptp)
                     is_peak_bad = True
 
             if flat and ch_type in flat:
                 if np.any(ptp < flat[ch_type]):
-                    print("no")
                     is_flat_bad = True
 
         if is_peak_bad:
@@ -2375,7 +2381,7 @@ def annotate_noisy_raw(raw, reject=None, flat=None, window=1.0, step=0.5):
 
     # Build annotations
     onsets = bad_peak_onsets + bad_flat_onsets
-    durations = [window] * len(onsets)
+    durations = [win_samples / sfreq] * len(onsets)
     descriptions = ["BAD_peak"] * len(bad_peak_onsets) + ["BAD_flat"] * len(
         bad_flat_onsets
     )
@@ -2421,17 +2427,16 @@ def _annotate_dropped_epochs(
         return raw
 
     sfreq = raw.info["sfreq"]
-    # match the offset convention used by annotate_nonfinite
-    offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
-    onsets = [max((s - raw.first_samp) / sfreq + offset, 0.0) for s in onset_samples]
+    onsets = [
+        max((s - raw.first_samp) / sfreq + raw.first_time, raw.first_time)
+        for s in onset_samples
+    ]
 
-    annot = mne.Annotations(
+    raw.annotations.append(
         onset=onsets,
         duration=[segments_length] * len(onsets),
         description=[description] * len(onsets),
-        orig_time=raw.info["meas_date"],
     )
-    raw.set_annotations(raw.annotations + annot)
 
     logger.info(
         f"Annotated {len(onsets)} dropped epoch(s) as '{description}' "
@@ -2775,19 +2780,25 @@ def extract_rs_blocks(
         MNE-style events array marking fixed-length segment onsets
         within `rs_raw`.
     """
+    if not np.isfinite(segments_length) or segments_length <= 0:
+        raise ValueError("segments_length must be positive")
+    if not np.isfinite(overlap) or not 0 <= overlap < segments_length:
+        raise ValueError("overlap must satisfy 0 <= overlap < segments_length")
+
     first_samp = raw.first_samp
-    max_time = raw.times[-1]
+    recording_end = raw.last_samp + 1
 
     pieces, block_durations = [], []
     for i, (samp, _, eid) in enumerate(events):
         if eid != rs_id:
             continue
-        seg_end = events[i + 1, 0] if i + 1 < len(events) else raw.last_samp
+        seg_end = events[i + 1, 0] if i + 1 < len(events) else recording_end
+        seg_end = min(seg_end, recording_end)
         tmin = (samp - first_samp) / sampling_rate
-        tmax = (seg_end - first_samp) / sampling_rate
-        tmax = min(tmax, max_time)
+        n_block_samples = seg_end - samp
+        tmax = (seg_end - 1 - first_samp) / sampling_rate
 
-        dur = tmax - tmin
+        dur = n_block_samples / sampling_rate
         if dur < segments_length:
             logger.info(
                 f"drop RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)  [too short]"
@@ -2796,7 +2807,7 @@ def extract_rs_blocks(
         logger.info(f"keep RS: {tmin:6.2f}s -> {tmax:6.2f}s  ({dur:5.2f}s)")
         p = raw.copy().crop(tmin=tmin, tmax=tmax)
         pieces.append(p)
-        block_durations.append(p.times[-1] + 1 / sampling_rate)
+        block_durations.append(n_block_samples / sampling_rate)
 
     if not pieces:
         err_msg = f"No RS blocks (id={rs_id}) longer than {segments_length}s found."
