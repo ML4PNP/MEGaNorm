@@ -8,9 +8,7 @@ from pyrasa.irasa_mne.mne_objs import (
     PeriodicEpochsSpectrum,
 )
 import logging
-import warnings
 
-warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
 
@@ -54,17 +52,23 @@ def computePsd(
         Array of frequency values corresponding to the PSD.
     """
 
+    method_kwargs = {}
+    if psd_method == "welch":
+        method_kwargs = {
+            "average": "mean",
+            "n_overlap": psd_n_overlap * sampling_rate,
+            "n_fft": psd_n_fft * sampling_rate,
+            "n_per_seg": n_per_seg * sampling_rate,
+        }
+
     psds, freqs = (
         segments.compute_psd(
             method=psd_method,
             fmin=freq_range_low,
             fmax=freq_range_high,
             n_jobs=-1,
-            average="mean",
-            n_overlap=psd_n_overlap * sampling_rate,
-            n_fft=psd_n_fft * sampling_rate,
-            n_per_seg=n_per_seg * sampling_rate,
             verbose=False,
+            **method_kwargs,
         )
         .average()
         .get_data(return_freqs=True)
@@ -80,7 +84,7 @@ def fooof(
     freq_range_high=40,
     min_peak_height=0,
     peak_threshold=2,
-    peak_width_limits=[1, 12.0],
+    peak_width_limits=(1, 12.0),
     aperiodic_mode="fixed",
 ):
     """
@@ -101,7 +105,7 @@ def fooof(
         Minimum height of peaks to be considered in the FOOOF model.
     peak_threshold : float
         Threshold for peak detection in the FOOOF model.
-    peak_width_limits : list
+    peak_width_limits : tuple of float
         Limits on the width of peaks (in Hz).
     aperiodic_mode : str
         Mode for modeling the aperiodic component. Options are "fixed", "knee", or "none".
@@ -140,7 +144,7 @@ def parameterize_psds(
     psd_n_overlap=1,
     psd_n_fft=2,
     n_per_seg=2,
-    peak_width_limits=[1, 12.0],
+    peak_width_limits=(1, 12.0),
     aperiodic_mode="knee",
     irasa_hset=(1.05, 2.0, 0.05),
 ):
@@ -170,8 +174,8 @@ def parameterize_psds(
         Number of FFT points (in seconds) used in PSD.
     n_per_seg : int
         Length (in seconds) of each segment used in PSD.
-    peak_width_limits : list of float, optional
-        Lower and upper bounds on peak width (Hz). Default is [1, 12.0].
+    peak_width_limits : tuple of float, optional
+        Lower and upper bounds on peak width (Hz). Default is (1, 12.0).
     aperiodic_mode : str
         Mode of aperiodic fit. Options: "fixed" or "knee".
 
@@ -196,6 +200,9 @@ def parameterize_psds(
 
     if aperiodic_mode not in ["fixed", "knee"]:
         raise ValueError("aperiodic_mode must be either 'fixed' or 'knee'")
+
+    if parametrization_method not in ["fooof", "irasa"]:
+        raise ValueError("parametrization_method must be either 'fooof' or 'irasa'")
 
     if parametrization_method == "fooof":
 
@@ -228,14 +235,12 @@ def parameterize_psds(
             hset_info=irasa_hset,
         )
 
-        assert psds.shape[-1] == len(
-            freqs
-        ), f"raw spectrum {psds.shape} vs freqs {freqs.shape}"
+        if psds.shape[-1] != len(freqs):
+            raise ValueError(f"raw spectrum {psds.shape} vs freqs {freqs.shape}")
 
         per = spectral_models.periodic.get_data().squeeze()
-        assert per.shape[-1] == len(
-            freqs
-        ), f"periodic {per.shape} vs freqs {freqs.shape}"
+        if per.shape[-1] != len(freqs):
+            raise ValueError(f"periodic {per.shape} vs freqs {freqs.shape}")
 
     return spectral_models, psds, freqs
 
@@ -283,10 +288,13 @@ def irasa_epochs(
 
     # set parameters & safety checks
     # ensure that input data is in the right format
-    assert isinstance(data, mne.BaseEpochs), "Data should be of type mne.BaseEpochs"
-    assert (
-        data.info["bads"] == []
-    ), "Data should not contain bad channels as this might mess up the creation of the returned data structure"
+    if not isinstance(data, mne.BaseEpochs):
+        raise TypeError("Data should be an instance of mne.BaseEpochs")
+    if data.info["bads"]:
+        raise ValueError(
+            "Data should not contain bad channels because they can invalidate "
+            "the returned spectrum metadata"
+        )
 
     info = data.info.copy()
     fs = data.info["sfreq"]
@@ -339,7 +347,6 @@ def irasa_epochs(
     )
 
 
-
 def _irasa_welch_kwargs(fs, n_times, hset_info):
     """
     Build the Welch settings shared by `irasa_epochs` and `computePsdIrasa`.
@@ -368,14 +375,15 @@ def _irasa_welch_kwargs(fs, n_times, hset_info):
         - ``noverlap``: ``nperseg // 2`` (50% overlap)
         - ``nfft``: ``nperseg * max(hset)`` rounded up to the next power of two
     """
-    """Welch settings shared by irasa_epochs and computePsdIrasa."""
     h_max = np.max(hset_info)
     nperseg = min(int(2 * fs), int(n_times / h_max))
 
     if nperseg < int(2 * fs):
-        logger.warning(f"Epochs too short for 2 s windows; using {nperseg / fs:.2f} s "
-                    f"({fs / nperseg:.2f} Hz resolution)")
-    
+        logger.warning(
+            f"Epochs too short for 2 s windows; using {nperseg / fs:.2f} s "
+            f"({fs / nperseg:.2f} Hz resolution)"
+        )
+
     return {
         "nperseg": nperseg,
         "noverlap": nperseg // 2,
