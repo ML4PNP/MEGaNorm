@@ -27,8 +27,9 @@ def impute_by_subgroup(
     Impute missing values in numeric columns using subgroup- and
     age-window-based neighbor statistics.
 
-    Columns with a missing-value fraction above `subject_removal_nan_thr`
-    are dropped entirely. For each remaining missing value, imputation
+    Columns with a missing-value fraction at or above
+    `subject_removal_nan_thr` are dropped entirely. For each remaining
+    missing value, imputation
     is attempted using rows in the same `group_cols` subgroup that fall
     within an age window around the subject's value of
     `continous_cov_col`; if no such neighbors exist, the function falls
@@ -43,8 +44,8 @@ def impute_by_subgroup(
         Column names defining the subgroup (e.g., batch effects) used
         to find comparable neighbors.
     subject_removal_nan_thr : float, optional
-        Maximum allowed fraction of missing values for a column to be
-        retained. Default is 0.2.
+        Missing-value fraction at or above which a column is dropped.
+        Default is 0.2.
     continous_cov_col : str, optional
         Name of the continuous covariate column (e.g., "age") used to
         define the neighbor window. Only a single column is supported.
@@ -68,11 +69,15 @@ def impute_by_subgroup(
     Raises
     ------
     ValueError
-        If `continous_cov_col` is not a string.
+        If `continous_cov_col` is not a string or `strategy` is not
+        ``"mean"`` or ``"median"``.
     """
     if not isinstance(continous_cov_col, str):
         err_msg = "continous_cov_col should be a string. Multiple covriates are not supported yet."
         raise ValueError(err_msg)
+
+    if strategy not in {"mean", "median"}:
+        raise ValueError("strategy should be either 'mean' or 'median'.")
 
     df = df.loc[:, df.isna().mean(axis=0) < subject_removal_nan_thr]
 
@@ -124,6 +129,7 @@ def prepare_nm_data(
     covariate_list,
     batch_effect_list,
     subject_id_col_name,
+    impute_by_column_name="age",
     which_cohorts=None,
     subject_removal_nan_thr=0.2,
     including_ROIs=None,
@@ -131,140 +137,203 @@ def prepare_nm_data(
     name_data="reference_data",
     missing_value_handling_method=None,
     customized_con_var_imputation_window=None,
-    removing_outliers_thr=None,
+    remove_outliers=False,
+    remove_outliers_approach="iqr",
+    remove_outliers_group_by="site",
+    iqr_factor=3,
     train_split_size=0.5,
     which_subjects=None,
     random_state=42,
 ):
     """
-    Filter, clean, and package a dataframe into PCNtoolkit NormData for
-    normative modeling.
+    Filter, clean, and package a dataframe into PCNtoolkit NormData.
 
-    Optionally filters rows by cohort or subject list, includes/excludes
-    ROI columns by name pattern, replaces infinities with NaN, imputes
-    or drops missing values, removes outliers, and constructs a
-    `NormData` object. If `train_split_size` is given, the data is
-    additionally split into train/test sets.
+    The function supports one or more model covariates. When imputation
+    is requested, `impute_by_column_name` specifies the single continuous
+    variable used to define the imputation neighbourhood.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Input dataset containing covariates, batch effects, and
-        response variables.
+        Input dataset containing covariates, batch effects, response
+        variables, and subject identifiers.
     response_vars : list of str
-        Column names of candidate response variables (e.g., ROI
-        measures).
+        Candidate response-variable columns.
     covariate_list : list of str
-        Column name(s) to use as model covariates. Only a single
-        covariate is currently supported.
+        One or more columns to use as model covariates.
     batch_effect_list : list of str
-        Column names representing batch effects (e.g., site, sex).
+        Columns representing batch effects, such as site or sex.
     subject_id_col_name : str
-        Column name containing subject identifiers.
-    which_cohorts : list or None, optional
-        If provided, restrict `df` to rows whose "diagnosis" column is
-        in this list. Default is None.
+        Column containing subject identifiers.
+    impute_by_column_name : str, optional
+        Continuous column used to define neighbourhoods during
+        imputation. Default is "age".
+    which_cohorts : list of str or None, optional
+        Restrict the data to rows whose "diagnosis" value is included
+        in this list.
     subject_removal_nan_thr : float, optional
-        Missing-value fraction threshold passed to `impute_by_subgroup`
-        when imputation is used. Default is 0.2.
+        Missing-value fraction at or above which a column is dropped
+        during imputation. Default is 0.2.
     including_ROIs : list of str or None, optional
-        ROI name patterns to keep; only matching response variables and
-        columns are retained. Default is None.
+        ROI name patterns to retain.
     excluding_ROIs : list of str or None, optional
-        ROI name patterns to exclude from columns and response
-        variables. Default is None.
+        ROI name patterns to exclude.
     name_data : str, optional
-        Name assigned to the resulting `NormData` object. Default is
-        "reference_data".
+        Name assigned to the resulting NormData object.
     missing_value_handling_method : {"mean", "median", None}, optional
-        If "mean" or "median", missing values are imputed via
-        `impute_by_subgroup` using that strategy; otherwise rows with
-        NaNs are removed by `NormData`. Default is None.
+        Imputation strategy. If None, NormData removes rows containing
+        missing values.
     customized_con_var_imputation_window : dict or None, optional
-        Site-specific imputation window overrides passed to
-        `impute_by_subgroup`. Default is None.
-    removing_outliers_thr : float or None, optional
-        Z-score threshold for outlier removal. If None, outlier removal
-        is skipped. Default is None.
+        Site-specific additions to the default imputation window.
+    remove_outliers : bool, optional
+        Whether NormData should remove response-variable outliers.
+    remove_outliers_approach : str, optional
+        Outlier-removal method forwarded to NormData. Default is "iqr".
+    remove_outliers_group_by : str or None, optional
+        Column used to group observations during outlier removal.
+        Default is "site".
+    iqr_factor : float, optional
+        IQR multiplier used for outlier detection. Default is 3.
     train_split_size : float or None, optional
-        Fraction (or percentage, if >1) of data assigned to the
-        training split. If falsy, no split is performed and the full
-        `NormData` object is returned. Default is 0.5.
+        Training proportion. Values greater than 1 are interpreted as
+        percentages. If None or 0, the full NormData object is returned.
     which_subjects : list or None, optional
-        If provided, restrict `df` to rows whose "participants_id" is
-        in this list. Default is None.
+        Restrict the data to identifiers in `subject_id_col_name`.
     random_state : int, optional
-        Random seed used for the train/test split. Default is 42.
+        Random seed used for the train/test split.
 
     Returns
     -------
     NormData or tuple of NormData
-        If `train_split_size` is set, returns `(train, test)` NormData
-        splits; otherwise returns a single `NormData` object.
+        Full NormData object, or `(train, test)` when splitting is
+        requested.
 
     Raises
     ------
     ValueError
-        If `covariate_list` contains more than one covariate.
+        If no covariate is provided, the imputation method is invalid,
+        the imputation column is invalid, or the split size is outside
+        its valid range.
     """
-    if len(covariate_list) > 1:
-        err_msg = "continous_cov_col should be a single string. Multiple covriates are not supported yet."
-        raise ValueError(err_msg)
+    if not covariate_list:
+        raise ValueError(
+            "covariate_list should contain at least one covariate."
+        )
 
-    df = df.dropna(subset=covariate_list + batch_effect_list)
+    valid_missing_methods = {"mean", "median", None}
+    if missing_value_handling_method not in valid_missing_methods:
+        raise ValueError(
+            "missing_value_handling_method should be 'mean', "
+            "'median', or None."
+        )
+
+    if missing_value_handling_method is not None:
+        if not isinstance(impute_by_column_name, str):
+            raise ValueError("impute_by_column_name should be a string.")
+
+        if impute_by_column_name not in df.columns:
+            raise ValueError(
+                f"Imputation column '{impute_by_column_name}' "
+                "was not found in the dataframe."
+            )
+
+    if train_split_size:
+        if train_split_size > 1:
+            train_split_size /= 100
+
+        if not 0 < train_split_size < 1:
+            raise ValueError(
+                "train_split_size should be between 0 and 1, or "
+                "between 0 and 100 when expressed as a percentage."
+            )
+
+    # Convert infinities before removing rows with invalid required data.
+    df = df.replace([np.inf, -np.inf], np.nan)
+
+    required_columns = list(
+        dict.fromkeys(covariate_list + batch_effect_list)
+    )
+
+    if (
+        missing_value_handling_method is not None
+        and impute_by_column_name not in required_columns
+    ):
+        required_columns.append(impute_by_column_name)
+
+    df = df.dropna(subset=required_columns)
 
     if which_cohorts:
         df = df[df["diagnosis"].isin(which_cohorts)]
 
     if excluding_ROIs:
-        df = df.drop(columns=df.filter(regex="|".join(excluding_ROIs)).columns)
+        excluded_columns = df.filter(
+            regex="|".join(excluding_ROIs)
+        ).columns
+        df = df.drop(columns=excluded_columns)
+
         response_vars = [
-            var
-            for var in response_vars
-            if not any(excl in var for excl in excluding_ROIs)
+            variable
+            for variable in response_vars
+            if not any(
+                excluded_roi in variable
+                for excluded_roi in excluding_ROIs
+            )
         ]
 
     if including_ROIs:
-        stripped_ROIs = [re.sub(r"-(lh|rh)$", "", roi) for roi in including_ROIs]
-        pattern = "|".join(
-            map(
-                re.escape,
-                stripped_ROIs
-                + batch_effect_list
-                + [subject_id_col_name]
-                + covariate_list,
-            )
+        stripped_rois = [
+            re.sub(r"-(lh|rh)$", "", roi)
+            for roi in including_ROIs
+        ]
+
+        required_patterns = (
+            stripped_rois
+            + batch_effect_list
+            + [subject_id_col_name]
+            + covariate_list
         )
+
+        if (
+            missing_value_handling_method is not None
+            and impute_by_column_name not in required_patterns
+        ):
+            required_patterns.append(impute_by_column_name)
+
+        pattern = "|".join(map(re.escape, required_patterns))
         df = df.loc[:, df.columns.str.contains(pattern)]
 
         response_vars = [
-            var for var in response_vars if any(incl in var for incl in stripped_ROIs)
+            variable
+            for variable in response_vars
+            if any(roi in variable for roi in stripped_rois)
         ]
+
     print("Number of response variables: ", len(response_vars))
 
     if which_subjects:
-        df = df[df["participants_id"].isin(which_subjects)]
+        df = df[df[subject_id_col_name].isin(which_subjects)]
 
-    df = df.replace([np.inf, -np.inf], np.nan)
-    if missing_value_handling_method in ["mean", "median"]:
+    if missing_value_handling_method in {"mean", "median"}:
         df = impute_by_subgroup(
             df=df,
             group_cols=batch_effect_list,
             subject_removal_nan_thr=subject_removal_nan_thr,
-            continous_cov_col=covariate_list[0],
+            continous_cov_col=impute_by_column_name,
             imputation_con_var_window=5,
             strategy=missing_value_handling_method,
-            customized_age_window=customized_con_var_imputation_window,
+            customized_age_window=(
+                customized_con_var_imputation_window
+            ),
         )
-        response_vars = [var for var in response_vars if var in df.columns.to_list()]
+
+        response_vars = [
+            variable
+            for variable in response_vars
+            if variable in df.columns
+        ]
         remove_nan = False
     else:
         remove_nan = True
-
-    if removing_outliers_thr:
-        remove_outlier = True
-    else:
-        remove_outlier = False
 
     reference_data = NormData.from_dataframe(
         name=name_data,
@@ -274,14 +343,13 @@ def prepare_nm_data(
         response_vars=response_vars,
         subject_ids=subject_id_col_name,
         remove_Nan=remove_nan,
-        remove_outliers=remove_outlier,
-        z_threshold=removing_outliers_thr,
+        remove_outliers=remove_outliers,
+        remove_outliers_approach=remove_outliers_approach,
+        remove_outliers_group_by=remove_outliers_group_by,
+        iqr_factor=iqr_factor,
     )
 
     if train_split_size:
-        if train_split_size > 1:
-            train_split_size /= 100
-
         train, test = reference_data.train_test_split(
             splits=(train_split_size, 1 - train_split_size),
             split_names=["train", "test"],
@@ -289,8 +357,7 @@ def prepare_nm_data(
         )
         return train, test
 
-    else:
-        return reference_data
+    return reference_data
 
 
 def model_diagnostics(
