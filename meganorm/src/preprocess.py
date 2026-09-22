@@ -2007,6 +2007,8 @@ def _validate_gedai_params(method, wavelet_level, duration, broadband_multiplier
     ValueError
         If the parameter combination is invalid for the chosen method.
     """
+    if method not in {"broadband", "spectral", "both"}:
+        raise ValueError("method must be 'broadband', 'spectral', or 'both'")
     if method == "broadband" and wavelet_level != 0:
         raise ValueError("broadband method requires wavelet_level=0")
     if method == "broadband" and not duration:
@@ -2883,14 +2885,18 @@ def annotate_nonfinite(
         `n_samples` the number of non-finite samples it spans. Empty if the
         data are clean.
     """
+    if not description.upper().startswith("BAD"):
+        raise ValueError("description must start with 'BAD'")
+
     raw.load_data()  # zero-fill needs preloaded data
 
-    if picks == "data":
+    if isinstance(picks, str) and picks == "data":
         picks_idx = mne.pick_types(raw.info, meg=True, eeg=True, ref_meg=False)
     else:
         picks_idx = (
             mne.pick_channels(raw.ch_names, picks)
-            if isinstance(picks, (list, tuple))
+            if isinstance(picks, (list, tuple, np.ndarray))
+            and all(isinstance(pick, str) for pick in picks)
             else picks
         )
 
@@ -2910,23 +2916,31 @@ def annotate_nonfinite(
         ends = np.r_[ends, len(bad) - 1]
 
     offset = raw.first_time if raw.info["meas_date"] is not None else 0.0
+    recording_start = offset
+    recording_end = offset + raw.n_times / sfreq
 
     onsets, durations, descs, intervals = [], [], [], []
     for s, e in zip(starts, ends):
-        onset = raw.times[s] + offset - pad
-        dur = (e - s + 1) / sfreq + 2 * pad
+        onset = max(raw.times[s] + offset - pad, recording_start)
+        nonfinite_duration = (e - s + 1) / sfreq
+        annotation_end = min(
+            raw.times[e] + offset + 1 / sfreq + pad,
+            recording_end,
+        )
+        dur = annotation_end - onset
 
         # only short segments are handled; a long one means a compromised file
-        if dur >= remove_nonfinite_segment_threshold:
+        if nonfinite_duration >= remove_nonfinite_segment_threshold:
             err_msg = (
-                f"Non-finite segment of {dur:.1f}s at {raw.times[s]:.1f}s "
+                f"Non-finite segment of {nonfinite_duration:.1f}s at "
+                f"{raw.times[s]:.1f}s "
                 f"meets/exceeds {remove_nonfinite_segment_threshold}s — "
                 f"file likely compromised; skipping this recording."
             )
             logger.error(err_msg)
             raise ValueError(err_msg)
 
-        onsets.append(max(onset, 0.0))
+        onsets.append(onset)
         durations.append(dur)
         descs.append(description)
         intervals.append((float(raw.times[s]), float(raw.times[e]), int(e - s + 1)))
