@@ -228,12 +228,12 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     pd.DataFrame
         A new DataFrame where columns represent averaged parcels and rows represent samples.
     """
-    df.dropna(axis=0, how="all", inplace=True)
-    summarized_df = pd.DataFrame(index=df.index)
+    clean_df = df.dropna(axis=0, how="all")
+    summarized_df = pd.DataFrame(index=clean_df.index)
 
     # TODO: If both meg and eeg is True, this won't work!
     if which_layout == "all":
-        summarized_df[which_layout] = df.mean(axis=1)
+        summarized_df[which_layout] = clean_df.mean(axis=1)
 
     else:
         modality = [
@@ -268,14 +268,14 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
             )
 
         for parcel_name, channels_list in layout.items():
-            summarized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
+            summarized_df[parcel_name] = clean_df[list(channels_list)].mean(axis=1)
 
     return summarized_df
 
 
 def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     """
-    Calculates the log ratio of power between two frequency bands.
+    Calculates the raw ratio of power between two frequency bands.
 
     Parameters
     ----------
@@ -291,7 +291,7 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     Returns
     -------
     float
-        log10(power_numerator / power_denominator), or np.nan if denominator is zero.
+        power_numerator / power_denominator, or np.nan if denominator is zero.
     """
     idx_num = np.logical_and(freqs >= fmin_num, freqs <= fmax_num)
     idx_den = np.logical_and(freqs >= fmin_den, freqs <= fmax_den)
@@ -1135,10 +1135,16 @@ class PYRASADecomposer(SpectralDecomposer):
         Returns
         -------
         np.ndarray
-            Periodic power spectrum for the channel, shape (n_freqs,).
+            Periodic power spectrum for the channel, averaged across epochs,
+            with shape (n_freqs,).
         """
-        # print(self.model.periodic.get_data().squeeze().shape)
-        return self.model.periodic.get_data().squeeze()[self.ch_num, :]
+        periodic = self.model.periodic.get_data()
+        if periodic.ndim != 3:
+            raise ValueError(
+                "Expected periodic spectrum with shape "
+                "(n_epochs, n_channels, n_freqs)."
+            )
+        return periodic[:, self.ch_num, :].mean(axis=0)
 
     def get_peak_params(self, fmin, fmax):
         """
@@ -1172,7 +1178,10 @@ class PYRASADecomposer(SpectralDecomposer):
             )
             return None, None
 
-        sel = df.loc[df["ch_name"] == self.ch_name, ["cf", "pw", "bw"]].dropna()
+        sel = df.loc[
+            (df["ch_name"] == self.ch_name) & (df["cf"] >= fmin) & (df["cf"] <= fmax),
+            ["cf", "pw", "bw"],
+        ].dropna()
 
         if sel.empty:
             return None, None
