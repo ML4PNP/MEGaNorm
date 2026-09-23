@@ -60,25 +60,54 @@ def run_recon_freesurfer(
     Returns
     -------
     None
+
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If FreeSurfer setup or ``recon-all`` exits with a non-zero status.
     """
     env = os.environ.copy()
     env["FREESURFER_HOME"] = freesurfer_home
     env["SUBJECTS_DIR"] = subjects_dir
     env["FS_LICENSE"] = license_path
+    env["FREESURFER_LICENSE"] = license_path
+    freesurfer_bin = os.path.join(freesurfer_home, "bin")
+    path_entries = [
+        entry
+        for entry in env.get("PATH", "").split(os.pathsep)
+        if entry and entry != freesurfer_bin
+    ]
+    env["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
 
     # Path to FreeSurfer setup script
     setup_script = os.path.join(freesurfer_home, "SetUpFreeSurfer.sh")
 
-    # Construct command
-    full_command = f"bash -c 'source {setup_script} && recon-all -i {mri_path} -s {subject_id} -all'"
+    command = [
+        "bash",
+        "-c",
+        """source "$1" || exit $?
+export FREESURFER_HOME="$4" SUBJECTS_DIR="$5" \
+    FS_LICENSE="$6" FREESURFER_LICENSE="$6"
+IFS=: read -r -a path_entries <<< "$PATH"
+clean_path=""
+for entry in "${path_entries[@]}"; do
+    [[ -z "$entry" || "$entry" == "$7" ]] && continue
+    clean_path="${clean_path:+$clean_path:}$entry"
+done
+export PATH="$7${clean_path:+:$clean_path}"
+exec recon-all -i "$2" -s "$3" -all""",
+        "bash",
+        setup_script,
+        mri_path,
+        subject_id,
+        freesurfer_home,
+        subjects_dir,
+        license_path,
+        freesurfer_bin,
+    ]
 
-    # Run the command
-    process = subprocess.run(full_command, shell=True, env=env)
-
-    if process.returncode == 0:
-        print("recon-all completed successfully.")
-    else:
-        print(f"recon-all failed with exit code {process.returncode}.")
+    subprocess.run(command, env=env, check=True)
+    print("recon-all completed successfully.")
 
 
 def set_freesurfer_paths(

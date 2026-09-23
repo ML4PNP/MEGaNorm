@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
@@ -20,10 +21,128 @@ from meganorm.src.source_localization import (
     prepare_template,
     produce_aparc_a2009s_aseg,
     regularized_cov_condition,
+    run_recon_freesurfer,
     save_bem_figure,
     save_cov_figures,
     set_freesurfer_paths,
 )
+
+
+def make_fake_freesurfer(tmp_path, exit_code=0):
+    freesurfer_home = tmp_path / "FreeSurfer Home"
+    freesurfer_bin = freesurfer_home / "bin"
+    freesurfer_bin.mkdir(parents=True)
+    setup_script = freesurfer_home / "SetUpFreeSurfer.sh"
+    setup_script.write_text(
+        'export SETUP_MARKER="loaded"\n'
+        'export PATH="$FREESURFER_HOME/bin:$PATH"\n'
+        'export FS_LICENSE="/setup/override-license.txt"\n'
+        'export FREESURFER_LICENSE="/setup/override-legacy-license.txt"\n'
+    )
+    recon_all = freesurfer_bin / "recon-all"
+    recon_all.write_text(
+        "#!/bin/sh\n"
+        "{\n"
+        "  printf 'arg=%s\\n' \"$@\"\n"
+        "  printf 'FREESURFER_HOME=%s\\n' \"$FREESURFER_HOME\"\n"
+        "  printf 'SUBJECTS_DIR=%s\\n' \"$SUBJECTS_DIR\"\n"
+        "  printf 'FS_LICENSE=%s\\n' \"$FS_LICENSE\"\n"
+        "  printf 'FREESURFER_LICENSE=%s\\n' \"$FREESURFER_LICENSE\"\n"
+        "  printf 'SETUP_MARKER=%s\\n' \"$SETUP_MARKER\"\n"
+        "  printf 'PATH=%s\\n' \"$PATH\"\n"
+        '} > "$RECON_RECORD"\n'
+        f"exit {exit_code}\n"
+    )
+    recon_all.chmod(0o755)
+    return freesurfer_home
+
+
+@pytest.mark.integration
+def test_run_recon_freesurfer_preserves_paths_and_configures_environment(
+    monkeypatch, tmp_path
+):
+    freesurfer_home = make_fake_freesurfer(tmp_path)
+    subjects_dir = tmp_path / "subjects directory"
+    license_path = freesurfer_home / "license file.txt"
+    license_path.write_text("test license")
+    mri_path = tmp_path / "T1 image.nii.gz"
+    mri_path.write_text("test MRI")
+    record_path = tmp_path / "recon record.txt"
+    original_path = os.environ["PATH"]
+    expected_path_entries = [
+        entry
+        for entry in original_path.split(os.pathsep)
+        if entry and entry != str(freesurfer_home / "bin")
+    ]
+    monkeypatch.setenv("RECON_RECORD", str(record_path))
+    monkeypatch.setenv("PATH", original_path)
+    monkeypatch.setenv("FREESURFER_LICENSE", "/stale/license.txt")
+
+    result = run_recon_freesurfer(
+        freesurfer_home=str(freesurfer_home),
+        subjects_dir=str(subjects_dir),
+        license_path=str(license_path),
+        subject_id="sub 01;echo injected",
+        mri_path=str(mri_path),
+    )
+
+    lines = record_path.read_text().splitlines()
+    assert result is None
+    assert lines[:5] == [
+        "arg=-i",
+        f"arg={mri_path}",
+        "arg=-s",
+        "arg=sub 01;echo injected",
+        "arg=-all",
+    ]
+    recorded_env = dict(line.split("=", 1) for line in lines[5:])
+    assert recorded_env == {
+        "FREESURFER_HOME": str(freesurfer_home),
+        "SUBJECTS_DIR": str(subjects_dir),
+        "FS_LICENSE": str(license_path),
+        "FREESURFER_LICENSE": str(license_path),
+        "SETUP_MARKER": "loaded",
+        "PATH": os.pathsep.join([str(freesurfer_home / "bin"), *expected_path_entries]),
+    }
+
+
+@pytest.mark.integration
+def test_run_recon_freesurfer_propagates_recon_all_failure(monkeypatch, tmp_path):
+    freesurfer_home = make_fake_freesurfer(tmp_path, exit_code=7)
+    record_path = tmp_path / "failed recon.txt"
+    monkeypatch.setenv("RECON_RECORD", str(record_path))
+
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        run_recon_freesurfer(
+            freesurfer_home=str(freesurfer_home),
+            subjects_dir=str(tmp_path / "subjects"),
+            license_path=str(freesurfer_home / "license.txt"),
+            subject_id="sub-01",
+            mri_path=str(tmp_path / "T1.nii.gz"),
+        )
+
+    assert error.value.returncode == 7
+    assert record_path.is_file()
+
+
+@pytest.mark.integration
+def test_run_recon_freesurfer_stops_when_setup_fails(monkeypatch, tmp_path):
+    freesurfer_home = make_fake_freesurfer(tmp_path)
+    (freesurfer_home / "SetUpFreeSurfer.sh").write_text("return 9\n")
+    record_path = tmp_path / "unexpected recon.txt"
+    monkeypatch.setenv("RECON_RECORD", str(record_path))
+
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        run_recon_freesurfer(
+            freesurfer_home=str(freesurfer_home),
+            subjects_dir=str(tmp_path / "subjects"),
+            license_path=str(freesurfer_home / "license.txt"),
+            subject_id="sub-01",
+            mri_path=str(tmp_path / "T1.nii.gz"),
+        )
+
+    assert error.value.returncode == 9
+    assert not record_path.exists()
 
 
 def make_tsss_record():
