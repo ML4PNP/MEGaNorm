@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import arviz as az
@@ -721,3 +722,97 @@ def test_nm_model_train_configures_parallel_fit_predict(
     }
     assert runner.fit_predict_call == (model, train, test, False)
     assert runner.fit_call is None
+
+
+@pytest.mark.integration
+def test_anova_group_level_effect_creates_output_directory_and_saves_json(
+    tmp_path,
+):
+    data = pd.DataFrame(
+        {
+            "site": ["A", "A", "B", "B"],
+            "roi": [1.0, 2.0, 4.0, 5.0],
+        }
+    )
+    output_dir = tmp_path / "nested" / "group_effects"
+
+    result = nm.anova_group_level_effect(
+        data,
+        batch_effect="site",
+        save_tag="raw",
+        save_output_path=output_dir,
+    )
+
+    output_file = output_dir / "site_group_effect_raw.json"
+    assert json.loads(output_file.read_text()) == result
+
+
+@pytest.mark.unit
+def test_anova_group_level_effect_does_not_swallow_user_interrupt(monkeypatch):
+    data = pd.DataFrame(
+        {
+            "site": ["A", "A", "B", "B"],
+            "roi": [1.0, 2.0, 4.0, 5.0],
+        }
+    )
+
+    def interrupt_anova(**kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(nm.pg, "anova", interrupt_anova)
+
+    with pytest.raises(KeyboardInterrupt):
+        nm.anova_group_level_effect(data, batch_effect="site")
+
+
+@pytest.mark.integration
+def test_anova_group_level_effect_filters_each_response_independently():
+    data = pd.DataFrame(
+        {
+            "site": ["A", "A", "A", "B", "B", "B"],
+            "roi": [1.0, 2.0, np.inf, 4.0, 5.0, np.nan],
+            "second_roi": [10.0, -np.inf, 12.0, np.nan, 20.0, 22.0],
+        }
+    )
+
+    result = nm.anova_group_level_effect(data, batch_effect="site")
+
+    assert result["roi"]["p_val"] == pytest.approx(0.0513167019)
+    assert result["roi"]["np2"] == pytest.approx(0.9)
+    assert result["second_roi"]["p_val"] == pytest.approx(0.0194193243)
+    assert result["second_roi"]["np2"] == pytest.approx(0.9615384615)
+
+
+@pytest.mark.integration
+def test_anova_group_level_effect_skips_metadata_columns():
+    data = pd.DataFrame(
+        {
+            "age": [10.0, 11.0, 12.0, 13.0],
+            "sex": ["F", "M", "F", "M"],
+            "site": ["A", "A", "B", "B"],
+            "eyes": ["open", "closed", "open", "closed"],
+            "diagnosis": ["control", "control", "case", "case"],
+            "roi": [1.0, 2.0, 4.0, 5.0],
+        }
+    )
+
+    result = nm.anova_group_level_effect(data, batch_effect="site")
+
+    assert set(result) == {"roi"}
+
+
+@pytest.mark.integration
+def test_anova_group_level_effect_isolates_invalid_response_column():
+    data = pd.DataFrame(
+        {
+            "site": ["A", "A", "B", "B"],
+            "roi": [1.0, 2.0, 4.0, 5.0],
+            "label": ["low", "medium", "high", "very high"],
+        }
+    )
+
+    result = nm.anova_group_level_effect(data, batch_effect="site")
+
+    assert result["roi"]["p_val"] is not None
+    assert result["roi"]["np2"] is not None
+    assert result["label"] == {"p_val": None, "np2": None}

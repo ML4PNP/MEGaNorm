@@ -805,6 +805,36 @@ def anova_group_level_effect(
     save_tag="",
     save_output_path=False,
 ):
+    """Estimate one-way ANOVA group effects for each eligible column.
+
+    Non-finite observations are removed independently for each response
+    variable before running the ANOVA. Columns listed in ``ignore_columns``
+    and the batch-effect column itself are skipped. If an individual response
+    cannot be analysed, its p-value and partial eta-squared are recorded as
+    ``None`` without preventing the remaining responses from being processed.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Table containing the grouping variable and candidate responses.
+    batch_effect : str
+        Column used as the between-subject grouping variable.
+    ignore_columns : collection of str, optional
+        Columns excluded from analysis. By default, common demographic and
+        acquisition metadata are ignored.
+    save_tag : str, optional
+        Suffix included in the JSON output filename.
+    save_output_path : str or os.PathLike or False, optional
+        Output directory for the JSON results. Missing directories are
+        created. If falsy, the results are printed instead.
+
+    Returns
+    -------
+    dict
+        Mapping from response name to ``p_val`` and partial eta-squared
+        (``np2``). Both values are ``None`` when that response cannot be
+        analysed.
+    """
 
     res = {}
 
@@ -826,12 +856,13 @@ def anova_group_level_effect(
             aov = pg.anova(data=sub, dv=name, between=batch_effect, detailed=False)
             p = float(aov["p_unc"].iloc[0])
             np2 = float(aov["np2"].iloc[0])
-        except:
+        except Exception:
             p = np2 = None
 
         res[name] = {"p_val": p, "np2": np2}
 
     if save_output_path:
+        os.makedirs(save_output_path, exist_ok=True)
         save_path = os.path.join(
             save_output_path, f"{batch_effect}_group_effect_{save_tag}.json"
         )
