@@ -2,6 +2,7 @@ import logging
 import os
 from types import SimpleNamespace
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from mne.io.constants import FIFF
@@ -13,11 +14,14 @@ from meganorm.src.source_localization import (
     check_digitization_points,
     check_freesurfer,
     check_tsss,
+    make_bem_model,
     nearest_template_dir,
     numpy_to_mne_epoch,
     prepare_template,
     produce_aparc_a2009s_aseg,
     regularized_cov_condition,
+    save_bem_figure,
+    save_cov_figures,
     set_freesurfer_paths,
 )
 
@@ -30,6 +34,235 @@ def make_tsss_record():
             "max_st": {"buflen": 10.0, "subspcorr": 0.98},
         },
     }
+
+
+@pytest.mark.unit
+def test_make_bem_model_does_not_repeat_explicit_preflood(monkeypatch, tmp_path):
+    attempted_prefloods = []
+
+    def run_watershed(*, preflood, **kwargs):
+        attempted_prefloods.append(preflood)
+        mne_logger = logging.getLogger("mne")
+        if preflood == 10:
+            mne_logger.debug("before Erosion-Dilation 20.0%")
+            mne_logger.debug("Fine Segmentation....20 iterations")
+        else:
+            mne_logger.debug("before Erosion-Dilation 0.1%")
+            mne_logger.debug("Fine Segmentation....20 iterations")
+
+    monkeypatch.setattr(sl.mne.bem, "make_watershed_bem", run_watershed)
+
+    result = make_bem_model(
+        subject="sub-01",
+        subjects_dir=tmp_path / "subjects",
+        bem_log_path=tmp_path / "logs" / "bem.log",
+        preflood=10,
+        preflood_parameter_space=(10, 15),
+    )
+
+    assert attempted_prefloods == [10, 15]
+    assert result == {"preflood": 15, "erosion_pct": 0.1, "iterations": 20}
+
+
+@pytest.mark.unit
+def test_make_bem_model_returns_metrics_from_first_valid_attempt(monkeypatch, tmp_path):
+    calls = []
+
+    def run_watershed(**kwargs):
+        calls.append(kwargs)
+        mne_logger = logging.getLogger("mne")
+        mne_logger.debug("before Erosion-Dilation 0.1%")
+        mne_logger.debug("Fine Segmentation....42 iterations")
+
+    monkeypatch.setattr(sl.mne.bem, "make_watershed_bem", run_watershed)
+
+    result = make_bem_model(
+        subject="sub-01",
+        subjects_dir=tmp_path / "subjects",
+        bem_log_path=tmp_path / "logs" / "bem.log",
+        preflood=20,
+        gcaatlas=False,
+        volume="T2",
+    )
+
+    assert result == {"preflood": 20, "erosion_pct": 0.1, "iterations": 42}
+    assert calls == [
+        {
+            "subject": "sub-01",
+            "subjects_dir": tmp_path / "subjects",
+            "overwrite": True,
+            "gcaatlas": False,
+            "volume": "T2",
+            "preflood": 20,
+            "verbose": "debug",
+        }
+    ]
+
+
+@pytest.mark.unit
+def test_make_bem_model_retries_suspect_erosion_with_excessive_iterations(
+    monkeypatch, tmp_path
+):
+    attempted_prefloods = []
+
+    def run_watershed(*, preflood, **kwargs):
+        attempted_prefloods.append(preflood)
+        mne_logger = logging.getLogger("mne")
+        if preflood is None:
+            mne_logger.debug("before Erosion-Dilation 0.5%")
+            mne_logger.debug("Fine Segmentation....101 iterations")
+        else:
+            mne_logger.debug("before Erosion-Dilation 0.1%")
+            mne_logger.debug("Fine Segmentation....101 iterations")
+
+    monkeypatch.setattr(sl.mne.bem, "make_watershed_bem", run_watershed)
+
+    result = make_bem_model(
+        subject="sub-01",
+        subjects_dir=tmp_path / "subjects",
+        bem_log_path=tmp_path / "bem.log",
+        preflood_parameter_space=(10, 15),
+    )
+
+    assert attempted_prefloods == [None, 10]
+    assert result == {"preflood": 10, "erosion_pct": 0.1, "iterations": 101}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("erosion_pct", "iterations"),
+    [(15.0, 100), (0.2, 101), (0.3, 100)],
+)
+def test_make_bem_model_accepts_values_at_quality_thresholds(
+    monkeypatch, tmp_path, erosion_pct, iterations
+):
+    def run_watershed(**kwargs):
+        mne_logger = logging.getLogger("mne")
+        mne_logger.debug(f"before Erosion-Dilation {erosion_pct}%")
+        mne_logger.debug(f"Fine Segmentation....{iterations} iterations")
+
+    monkeypatch.setattr(sl.mne.bem, "make_watershed_bem", run_watershed)
+
+    result = make_bem_model(
+        subject="sub-01",
+        subjects_dir=tmp_path / "subjects",
+        bem_log_path=tmp_path / "bem.log",
+        preflood=20,
+    )
+
+    assert result == {
+        "preflood": 20,
+        "erosion_pct": erosion_pct,
+        "iterations": iterations,
+    }
+
+
+@pytest.mark.unit
+def test_make_bem_model_raises_after_every_preflood_fails(monkeypatch, tmp_path):
+    attempted_prefloods = []
+
+    def run_watershed(*, preflood, **kwargs):
+        attempted_prefloods.append(preflood)
+        logging.getLogger("mne").debug("before Erosion-Dilation 16.0%")
+
+    monkeypatch.setattr(sl.mne.bem, "make_watershed_bem", run_watershed)
+
+    with pytest.raises(RuntimeError, match="all faulty"):
+        make_bem_model(
+            subject="sub-01",
+            subjects_dir=tmp_path / "subjects",
+            bem_log_path=tmp_path / "bem.log",
+            preflood=None,
+            preflood_parameter_space=(10, 15),
+        )
+
+    assert attempted_prefloods == [None, 10, 15]
+
+
+@pytest.mark.unit
+def test_make_bem_model_rejects_log_without_erosion_metric(monkeypatch, tmp_path):
+    def run_watershed(**kwargs):
+        logging.getLogger("mne").debug("Fine Segmentation....42 iterations")
+
+    monkeypatch.setattr(sl.mne.bem, "make_watershed_bem", run_watershed)
+    log_path = tmp_path / "bem.log"
+
+    with pytest.raises(RuntimeError, match="Could not find erosion percentage"):
+        make_bem_model(
+            subject="sub-01",
+            subjects_dir=tmp_path / "subjects",
+            bem_log_path=log_path,
+        )
+
+    assert "Fine Segmentation" in log_path.read_text()
+
+
+@pytest.mark.integration
+def test_save_cov_figures_writes_both_outputs_and_closes_figures(tmp_path, caplog):
+    figures = [plt.figure(), plt.figure()]
+    plot_calls = []
+
+    def plot_covariance(info, *, show):
+        plot_calls.append((info, show))
+        return figures
+
+    info = {"description": "test info"}
+    output_dir = tmp_path / "covariance"
+    test_logger = logging.getLogger("test.save-cov")
+
+    with caplog.at_level(logging.INFO, logger="test.save-cov"):
+        save_cov_figures(
+            SimpleNamespace(plot=plot_covariance),
+            info,
+            output_dir,
+            subject="sub-01",
+            tag="data",
+            logger=test_logger,
+        )
+
+    assert plot_calls == [(info, False)]
+    for kind, figure in zip(("matrix", "svd"), figures):
+        output = output_dir / f"sub-01_data_{kind}.png"
+        assert output.is_file()
+        assert output.stat().st_size > 0
+        assert figure.number not in plt.get_fignums()
+    assert "Saved data covariance figures" in caplog.text
+
+
+@pytest.mark.integration
+def test_save_bem_figure_forwards_plot_options_and_closes_figure(monkeypatch, tmp_path):
+    figure = plt.figure()
+    plot_calls = []
+
+    def plot_bem(**kwargs):
+        plot_calls.append(kwargs)
+        return figure
+
+    monkeypatch.setattr(sl.mne.viz, "plot_bem", plot_bem)
+    output_dir = tmp_path / "bem"
+
+    save_bem_figure(
+        subject="sub-01",
+        subjects_dir=tmp_path / "subjects",
+        out_dir=output_dir,
+        orientation="sagittal",
+        slices=[10, 20],
+    )
+
+    assert plot_calls == [
+        {
+            "subject": "sub-01",
+            "subjects_dir": tmp_path / "subjects",
+            "brain_surfaces": "white",
+            "orientation": "sagittal",
+            "slices": [10, 20],
+            "show": False,
+        }
+    ]
+    output = output_dir / "sub-01_bem_sagittal.png"
+    assert output.is_file()
+    assert output.stat().st_size > 0
+    assert figure.number not in plt.get_fignums()
 
 
 @pytest.mark.unit

@@ -1702,6 +1702,7 @@ def make_bem_model(
         Preflood height to try first. `None` lets FreeSurfer use its default.
     preflood_parameter_space : tuple of int, default=(10, 15, 20, 30, 35)
         Fallback preflood heights, tried in order after `preflood` fails.
+        Duplicate values are tried only once.
 
     Returns
     -------
@@ -1746,7 +1747,7 @@ def make_bem_model(
         logger.info(f"Watershed BEM log saved to {bem_log_path}")
         return _parse_log()
 
-    attempts = [preflood, *preflood_parameter_space]
+    attempts = list(dict.fromkeys([preflood, *preflood_parameter_space]))
 
     for idx, pf in enumerate(attempts):
         ero, iters = _run(pf)
