@@ -16,10 +16,14 @@ from meganorm.src.source_localization import (
     check_digitization_points,
     check_freesurfer,
     check_tsss,
+    corregistration,
     forward_solution,
+    inverse_solution,
     make_bem_model,
+    morph_stc,
     nearest_template_dir,
     numpy_to_mne_epoch,
+    parcellate,
     prepare_template,
     produce_aparc_a2009s_aseg,
     regularized_cov_condition,
@@ -57,6 +61,612 @@ def make_fake_freesurfer(tmp_path, exit_code=0):
     )
     recon_all.chmod(0o755)
     return freesurfer_home
+
+
+class FakeCoregistration:
+    def __init__(self, info, subject, subjects_dir, fiducials):
+        self.init_args = {
+            "info": info,
+            "subject": subject,
+            "subjects_dir": subjects_dir,
+            "fiducials": fiducials,
+        }
+        self.scale = np.array([1.1, 1.1, 1.1])
+        self.trans = "head-to-mri"
+        self.calls = []
+
+    def set_scale_mode(self, mode):
+        self.calls.append(("set_scale_mode", mode))
+
+    def fit_fiducials(self):
+        self.calls.append(("fit_fiducials",))
+
+    def fit_icp(self, **kwargs):
+        self.calls.append(("fit_icp", kwargs))
+
+    def omit_head_shape_points(self, distance):
+        self.calls.append(("omit_head_shape_points", distance))
+
+    def compute_dig_mri_distances(self):
+        self.calls.append(("compute_dig_mri_distances",))
+        return np.array([0.001, 0.003])
+
+
+@pytest.mark.unit
+def test_corregistration_runs_two_stage_icp_when_head_shape_points_exist(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(mne.coreg, "Coregistration", FakeCoregistration)
+    monkeypatch.setattr(
+        sl, "check_digitization_points", lambda data, logger: (3, 0, 0, 0)
+    )
+    data = SimpleNamespace(info="measurement-info")
+
+    coreg, fit_subject, returned_subjects_dir = corregistration(
+        data=data,
+        subject="fsaverage",
+        subjects_dir=tmp_path,
+        participant_id="sub-01",
+        coregisteration_initial_n_iterations=4,
+        coregisteration_initial_nasion_weight=1.5,
+        coregisteration_distance_thr=0.004,
+        coregisteration_final_n_iterations=12,
+        coregisteration_final_nasion_weight=8.0,
+    )
+
+    assert fit_subject == "fsaverage"
+    assert returned_subjects_dir == tmp_path
+    assert coreg.init_args == {
+        "info": "measurement-info",
+        "subject": "fsaverage",
+        "subjects_dir": tmp_path,
+        "fiducials": "estimated",
+    }
+    assert coreg.calls == [
+        ("fit_fiducials",),
+        ("fit_icp", {"n_iterations": 4, "nasion_weight": 1.5, "verbose": True}),
+        ("omit_head_shape_points", 0.004),
+        ("fit_icp", {"n_iterations": 12, "nasion_weight": 8.0, "verbose": True}),
+        ("compute_dig_mri_distances",),
+    ]
+
+
+@pytest.mark.unit
+def test_corregistration_scales_template_for_participant(monkeypatch, tmp_path):
+    scale_calls = []
+    monkeypatch.setattr(mne.coreg, "Coregistration", FakeCoregistration)
+    monkeypatch.setattr(
+        sl, "check_digitization_points", lambda data, logger: (0, 0, 0, 0)
+    )
+    monkeypatch.setattr(mne, "scale_mri", lambda **kwargs: scale_calls.append(kwargs))
+
+    coreg, fit_subject, returned_subjects_dir = corregistration(
+        data=SimpleNamespace(info="measurement-info"),
+        subject="template-18",
+        subjects_dir=tmp_path,
+        participant_id="sub-02",
+        apply_mri_template=True,
+        coregisteration_scale_mode="uniform",
+    )
+
+    assert fit_subject == "sub-02_scaled"
+    assert returned_subjects_dir == tmp_path
+    assert coreg.calls == [("set_scale_mode", "uniform"), ("fit_fiducials",)]
+    assert len(scale_calls) == 1
+    assert scale_calls[0] == {
+        "subject_from": "template-18",
+        "subject_to": "sub-02_scaled",
+        "scale": coreg.scale,
+        "subjects_dir": tmp_path,
+        "overwrite": True,
+        "labels": True,
+        "annot": True,
+        "skip_fiducials": True,
+    }
+
+
+@pytest.mark.unit
+def test_morph_stc_builds_surface_target_and_applies_morph(monkeypatch, tmp_path):
+    calls = {}
+
+    class FakeMorph:
+        def apply(self, stc):
+            calls["applied_to"] = stc
+            return "morphed-stc"
+
+    monkeypatch.setattr(
+        mne,
+        "setup_source_space",
+        lambda **kwargs: calls.setdefault("target_source_args", kwargs)
+        and "target-source",
+    )
+
+    def fake_compute_source_morph(src_from, **kwargs):
+        calls["morph"] = {"src_from": src_from, **kwargs}
+        return FakeMorph()
+
+    monkeypatch.setattr(mne, "compute_source_morph", fake_compute_source_morph)
+
+    result, target_source = morph_stc(
+        subject="sub-01",
+        subject_to="fsaverage",
+        subjects_dir=tmp_path,
+        stc="subject-stc",
+        src_from="subject-source",
+        source_space="surface",
+        source_space_spacing="oct5",
+        source_space_add_dist=False,
+        source_space_spacing_number=5,
+        n_jobs=2,
+    )
+
+    assert result == "morphed-stc"
+    assert target_source == "target-source"
+    assert calls["target_source_args"] == {
+        "subject": "fsaverage",
+        "subjects_dir": tmp_path,
+        "spacing": "oct5",
+        "add_dist": False,
+        "n_jobs": 2,
+    }
+    assert calls["morph"] == {
+        "src_from": "subject-source",
+        "subject_from": "sub-01",
+        "src_to": "target-source",
+        "subject_to": "fsaverage",
+        "subjects_dir": tmp_path,
+        "spacing": 5,
+    }
+    assert calls["applied_to"] == "subject-stc"
+
+
+@pytest.mark.unit
+def test_morph_stc_applies_morph_to_each_epoch(monkeypatch, tmp_path):
+    applied = []
+
+    class FakeMorph:
+        def apply(self, stc):
+            if isinstance(stc, list):
+                raise TypeError("SourceMorph.apply accepts one source estimate")
+            applied.append(stc)
+            return f"morphed-{stc}"
+
+    monkeypatch.setattr(mne, "setup_source_space", lambda **kwargs: "target-source")
+    monkeypatch.setattr(
+        mne, "compute_source_morph", lambda *args, **kwargs: FakeMorph()
+    )
+
+    result, target_source = morph_stc(
+        subject="sub-01",
+        subject_to="fsaverage",
+        subjects_dir=tmp_path,
+        stc=["epoch-1", "epoch-2"],
+        src_from="subject-source",
+        source_space="surface",
+    )
+
+    assert result == ["morphed-epoch-1", "morphed-epoch-2"]
+    assert target_source == "target-source"
+    assert applied == ["epoch-1", "epoch-2"]
+
+
+@pytest.mark.unit
+def test_morph_stc_requires_single_estimate_for_3d_plot(monkeypatch, tmp_path):
+    class FakeMorph:
+        def apply(self, stc):
+            return object()
+
+    monkeypatch.setattr(mne, "setup_source_space", lambda **kwargs: "target-source")
+    monkeypatch.setattr(
+        mne, "compute_source_morph", lambda *args, **kwargs: FakeMorph()
+    )
+
+    with pytest.raises(ValueError, match="plot_3d.*single source estimate"):
+        morph_stc(
+            subject="sub-01",
+            subject_to="fsaverage",
+            subjects_dir=tmp_path,
+            stc=["epoch-1", "epoch-2"],
+            src_from="subject-source",
+            source_space="surface",
+            plot_3d=True,
+        )
+
+
+@pytest.mark.unit
+def test_morph_stc_builds_missing_volumetric_target(monkeypatch, tmp_path):
+    calls = {}
+    inner_skull = tmp_path / "fsaverage" / "bem" / "inner_skull.surf"
+
+    class FakeMorph:
+        def apply(self, stc):
+            return "morphed-volume-stc"
+
+    monkeypatch.setattr(
+        mne.bem,
+        "make_watershed_bem",
+        lambda **kwargs: calls.setdefault("watershed", kwargs),
+    )
+    monkeypatch.setattr(
+        mne,
+        "setup_volume_source_space",
+        lambda **kwargs: calls.setdefault("target_source", kwargs)
+        and "target-volume-source",
+    )
+    monkeypatch.setattr(
+        mne, "compute_source_morph", lambda *args, **kwargs: FakeMorph()
+    )
+
+    result, target_source = morph_stc(
+        subject="sub-01",
+        subject_to="fsaverage",
+        subjects_dir=tmp_path,
+        stc="subject-stc",
+        src_from="subject-source",
+        source_space="volumetric",
+        preflood=25,
+    )
+
+    assert result == "morphed-volume-stc"
+    assert target_source == "target-volume-source"
+    assert calls["watershed"] == {
+        "subject": "fsaverage",
+        "subjects_dir": tmp_path,
+        "overwrite": True,
+        "gcaatlas": True,
+        "volume": "T1",
+        "preflood": 25,
+    }
+    assert calls["target_source"]["surface"] == inner_skull
+
+
+@pytest.mark.unit
+def test_morph_stc_rejects_unsupported_source_space(tmp_path):
+    with pytest.raises(ValueError, match="surface.*volumetric"):
+        morph_stc(
+            subject="sub-01",
+            subject_to="fsaverage",
+            subjects_dir=tmp_path,
+            stc="subject-stc",
+            src_from="subject-source",
+            source_space="invalid",
+        )
+
+
+@pytest.mark.unit
+def test_parcellate_extracts_surface_label_time_courses(monkeypatch, tmp_path):
+    labels = [SimpleNamespace(name="left-region"), SimpleNamespace(name="right-region")]
+    parcelled = np.array([[[1.0, 2.0], [3.0, 4.0]]])
+    calls = {}
+    monkeypatch.setattr(mne, "read_labels_from_annot", lambda **kwargs: labels)
+
+    def fake_extract_label_time_course(**kwargs):
+        calls.update(kwargs)
+        return parcelled
+
+    monkeypatch.setattr(
+        mne, "extract_label_time_course", fake_extract_label_time_course
+    )
+
+    result, names = parcellate(
+        subject="fsaverage",
+        subjects_dir=tmp_path,
+        stc="morphed-stc",
+        src="target-source",
+        source_space="surface",
+        parcellation_mode="mean_flip",
+    )
+
+    assert result is parcelled
+    assert names == ["left-region", "right-region"]
+    assert calls == {
+        "stcs": "morphed-stc",
+        "labels": labels,
+        "src": "target-source",
+        "mode": "mean_flip",
+        "return_generator": False,
+    }
+
+
+@pytest.mark.unit
+def test_parcellate_uses_volumetric_segmentation_labels(monkeypatch, tmp_path):
+    calls = {}
+    parcelled = np.array([[[1.0, 2.0]]])
+
+    def fake_get_volume_labels(mgz_fname, return_colors):
+        calls["labels"] = (mgz_fname, return_colors)
+        return ["Left-Caudate"]
+
+    def fake_extract_label_time_course(**kwargs):
+        calls["extract"] = kwargs
+        return parcelled
+
+    monkeypatch.setattr(mne, "get_volume_labels_from_aseg", fake_get_volume_labels)
+    monkeypatch.setattr(
+        mne, "extract_label_time_course", fake_extract_label_time_course
+    )
+
+    result, names = parcellate(
+        subject="fsaverage",
+        subjects_dir=tmp_path,
+        stc="morphed-stc",
+        src="target-volume-source",
+        source_space="volumetric",
+        parcellation_parc="aparc.custom",
+    )
+
+    segmentation = str(tmp_path / "fsaverage" / "mri" / "aparc.custom+aseg.mgz")
+    assert result is parcelled
+    assert names == ["Left-Caudate"]
+    assert calls["labels"] == (segmentation, False)
+    assert calls["extract"]["labels"] == segmentation
+
+
+@pytest.mark.unit
+def test_parcellate_rejects_unsupported_source_space(tmp_path):
+    with pytest.raises(ValueError, match="surface.*volumetric"):
+        parcellate(
+            subject="fsaverage",
+            subjects_dir=tmp_path,
+            stc="morphed-stc",
+            src="target-source",
+            source_space="invalid",
+        )
+
+
+@pytest.mark.unit
+def test_inverse_solution_uses_info_rank_and_ad_hoc_noise_covariance(
+    monkeypatch, tmp_path
+):
+    data = SimpleNamespace(info="data-info")
+    segments = SimpleNamespace(info="segments-info")
+    noise_cov = object()
+    data_cov = object()
+    filters = object()
+    calls = {}
+
+    monkeypatch.setattr(sl, "check_tsss", lambda meg_data: True)
+
+    def fake_compute_rank(instance, rank=None):
+        calls["rank"] = (instance, rank)
+        return {"mag": 4}
+
+    monkeypatch.setattr(mne, "compute_rank", fake_compute_rank)
+    monkeypatch.setattr(
+        mne,
+        "make_ad_hoc_cov",
+        lambda info, std: calls.setdefault("ad_hoc", (info, std)) and noise_cov,
+    )
+    monkeypatch.setattr(
+        mne,
+        "compute_raw_covariance",
+        lambda instance, **kwargs: calls.setdefault("data_cov", (instance, kwargs))
+        and data_cov,
+    )
+    monkeypatch.setattr(sl, "save_cov_figures", lambda *args, **kwargs: None)
+
+    def fake_make_lcmv(info, **kwargs):
+        calls["lcmv"] = {"info": info, **kwargs}
+        return filters
+
+    monkeypatch.setattr(mne.beamformer, "make_lcmv", fake_make_lcmv)
+    monkeypatch.setattr(
+        mne.beamformer,
+        "apply_lcmv_epochs",
+        lambda epochs, filters: ("source-estimate", epochs, filters),
+    )
+
+    result = inverse_solution(
+        subject="sub-01",
+        data=data,
+        segments=segments,
+        fwd="forward-model",
+        inverse_operator="lcmv",
+        project_dir=tmp_path,
+        which_sensor_dict={"mag": True},
+        source_space="surface",
+        ad_hoc_cov_std={"mag": 1e-14},
+        inverse_regularization_value=0.1,
+        beamformer_pick_ori="normal",
+        beamformer_weight_norm="nai",
+        n_jobs=2,
+    )
+
+    assert result == ("source-estimate", segments, filters)
+    assert calls["rank"] == (data, "info")
+    assert calls["ad_hoc"] == ("data-info", {"mag": 1e-14})
+    assert calls["lcmv"] == {
+        "info": "segments-info",
+        "forward": "forward-model",
+        "data_cov": data_cov,
+        "noise_cov": noise_cov,
+        "reg": 0.1,
+        "pick_ori": "normal",
+        "weight_norm": "nai",
+        "rank": {"mag": 4},
+        "depth": None,
+    }
+
+
+@pytest.mark.unit
+def test_inverse_solution_limits_empty_room_rank_to_data_rank(monkeypatch, tmp_path):
+    data = SimpleNamespace(info="data-info")
+    empty_room = SimpleNamespace(info="empty-room-info")
+    segments = SimpleNamespace(info="segments-info")
+    noise_cov = object()
+    data_cov = object()
+    calls = {"covariance": [], "figures": []}
+
+    monkeypatch.setattr(sl, "check_tsss", lambda meg_data: False)
+
+    def fake_compute_rank(instance, rank=None):
+        if instance is data:
+            calls["data_rank_argument"] = rank
+            return {"mag": 3, "grad": 2}
+        assert instance is empty_room
+        return {"mag": 5, "grad": 1}
+
+    def fake_compute_raw_covariance(instance, **kwargs):
+        calls["covariance"].append((instance, kwargs))
+        return noise_cov if instance is empty_room else data_cov
+
+    monkeypatch.setattr(mne, "compute_rank", fake_compute_rank)
+    monkeypatch.setattr(mne, "compute_raw_covariance", fake_compute_raw_covariance)
+    monkeypatch.setattr(
+        sl,
+        "save_cov_figures",
+        lambda cov, info, **kwargs: calls["figures"].append((cov, info, kwargs["tag"])),
+    )
+    monkeypatch.setattr(
+        mne.beamformer,
+        "make_lcmv",
+        lambda info, **kwargs: calls.setdefault("lcmv", {"info": info, **kwargs}),
+    )
+    monkeypatch.setattr(
+        mne.beamformer,
+        "apply_lcmv_epochs",
+        lambda epochs, filters: "source-estimates",
+    )
+
+    result = inverse_solution(
+        subject="sub-02",
+        data=data,
+        segments=segments,
+        fwd="forward-model",
+        inverse_operator="lcmv",
+        project_dir=tmp_path,
+        which_sensor_dict={"mag": True, "grad": True},
+        source_space="surface",
+        empty_room_recording=empty_room,
+    )
+
+    assert result == "source-estimates"
+    assert calls["data_rank_argument"] is None
+    assert calls["lcmv"]["rank"] == {"mag": 3, "grad": 1}
+    assert calls["lcmv"]["noise_cov"] is noise_cov
+    assert calls["figures"] == [
+        (noise_cov, "empty-room-info", "noiseCovariance"),
+        (data_cov, "data-info", "dataCovariance"),
+    ]
+
+
+@pytest.mark.unit
+def test_inverse_solution_requires_depth_for_volumetric_source(monkeypatch, tmp_path):
+    data = SimpleNamespace(info="data-info")
+    monkeypatch.setattr(
+        sl,
+        "check_tsss",
+        lambda meg_data: pytest.fail("rank estimation must not start"),
+    )
+
+    with pytest.raises(ValueError, match="beamforme_depth"):
+        inverse_solution(
+            subject="sub-03",
+            data=data,
+            segments=SimpleNamespace(info="segments-info"),
+            fwd="forward-model",
+            inverse_operator="lcmv",
+            project_dir=tmp_path,
+            which_sensor_dict={"mag": True},
+            source_space="volumetric",
+        )
+
+
+@pytest.mark.unit
+def test_inverse_solution_rejects_unsupported_method_before_covariance(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        sl,
+        "check_tsss",
+        lambda meg_data: pytest.fail("rank estimation must not start"),
+    )
+
+    with pytest.raises(ValueError, match="only.*lcmv"):
+        inverse_solution(
+            subject="sub-04",
+            data=SimpleNamespace(info="data-info"),
+            segments=SimpleNamespace(info="segments-info"),
+            fwd="forward-model",
+            inverse_operator="dspm",
+            project_dir=tmp_path,
+            which_sensor_dict={"eeg": True},
+            source_space="surface",
+        )
+
+
+@pytest.mark.unit
+def test_source_localization_propagates_scaled_subject_through_morphing(
+    monkeypatch, tmp_path
+):
+    subjects_dir = tmp_path / "subjects"
+    scaled_subjects_dir = tmp_path / "scaled-subjects"
+    inner_skull = subjects_dir / "sub-01" / "bem" / "inner_skull.surf"
+    inner_skull.parent.mkdir(parents=True)
+    inner_skull.touch()
+    calls = {}
+    parcelled = np.array([[[1.0, 2.0]]])
+
+    def fake_corregistration(**kwargs):
+        calls["coregistration"] = kwargs
+        return (
+            SimpleNamespace(trans="scaled-transform"),
+            "sub-01_scaled",
+            scaled_subjects_dir,
+        )
+
+    def fake_forward_solution(**kwargs):
+        calls["forward"] = kwargs
+        return "forward-model", "filtered-source"
+
+    def fake_inverse_solution(**kwargs):
+        calls["inverse"] = kwargs
+        return ["epoch-1-stc", "epoch-2-stc"]
+
+    def fake_morph_stc(**kwargs):
+        calls["morph"] = kwargs
+        return ["morphed-epoch-1", "morphed-epoch-2"], "target-source"
+
+    def fake_parcellate(**kwargs):
+        calls["parcellate"] = kwargs
+        return parcelled, ["Left-Caudate"]
+
+    monkeypatch.setattr(sl, "corregistration", fake_corregistration)
+    monkeypatch.setattr(sl, "forward_solution", fake_forward_solution)
+    monkeypatch.setattr(sl, "inverse_solution", fake_inverse_solution)
+    monkeypatch.setattr(sl, "morph_stc", fake_morph_stc)
+    monkeypatch.setattr(sl, "parcellate", fake_parcellate)
+
+    result, labels = sl.source_localization(
+        recording_path=tmp_path / "recording.fif",
+        project_dir=tmp_path / "project",
+        subject="sub-01",
+        subjects_dir=subjects_dir,
+        subject_to="fsaverage",
+        data=SimpleNamespace(info={"dig": []}),
+        segments="segments",
+        figures_path=tmp_path / "figures",
+        which_sensor_dict={"mag": True},
+        source_space="surface",
+        conductivity=(0.3,),
+        apply_morphing=True,
+        apply_mri_template=False,
+        which_sensor="eeg",
+        bem_plot_orientations=None,
+    )
+
+    assert result is parcelled
+    assert labels == ["Left-Caudate"]
+    assert calls["forward"]["subject"] == "sub-01_scaled"
+    assert calls["forward"]["subjects_dir"] == scaled_subjects_dir
+    assert calls["forward"]["transformation_matrix"] == "scaled-transform"
+    assert calls["inverse"]["fwd"] == "forward-model"
+    assert calls["morph"]["subject"] == "sub-01_scaled"
+    assert calls["morph"]["src_from"] == "filtered-source"
+    assert calls["morph"]["stc"] == ["epoch-1-stc", "epoch-2-stc"]
+    assert calls["parcellate"]["subject"] == "fsaverage"
+    assert calls["parcellate"]["src"] == "target-source"
+    assert calls["parcellate"]["stc"] == ["morphed-epoch-1", "morphed-epoch-2"]
 
 
 @pytest.mark.unit

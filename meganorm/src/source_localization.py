@@ -719,8 +719,14 @@ def inverse_solution(
 
     Returns
     -------
-    stc : mne.SourceEstimate
-        The source time course estimate resulting from the inverse solution.
+    stc : list of mne.SourceEstimate
+        Epoch-wise source estimates returned by ``apply_lcmv_epochs``.
+
+    Raises
+    ------
+    ValueError
+        If an inverse method other than ``"lcmv"`` is requested, or if a
+        volumetric source space is used without ``beamforme_depth``.
 
     Notes
     -----
@@ -728,6 +734,21 @@ def inverse_solution(
     - It assumes the forward model is already computed and passed as `fwd`.
     - Noise covariance can be estimated from an empty-room recording if provided.
     """
+    if inverse_operator != "lcmv":
+        raise ValueError(
+            "inverse_solution currently only supports inverse_operator='lcmv', "
+            f"got {inverse_operator!r}."
+        )
+
+    if source_space == "volumetric" and not kwargs.get("beamforme_depth"):
+        error_msg = (
+            "If you want to use volumetric source space (interested in deeper sources),"
+            " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address"
+            " the center of head bias."
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
     # if tSSS has already been applied, return the rank in info
     if check_tsss(meg_data=data):
         data_rank = mne.compute_rank(data, rank="info")
@@ -813,15 +834,6 @@ def inverse_solution(
             logger=logger,
         )
 
-        if not kwargs.get("beamforme_depth") and source_space == "volumetric":
-            error_msg = (
-                "If you want to use volumetric source space (interested in deeper sources),"
-                " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address"
-                " the center of head bias."
-            )
-            logger.error(error_msg)
-            raise Exception(error_msg)
-
         # rank_based_quality_control(
         #     data_cov=data_cov,
         #     info=data.info,
@@ -880,8 +892,9 @@ def morph_stc(
         Name of the subject to which the source estimate should be morphed.
     subjects_dir : str
         Path to the FreeSurfer subjects directory.
-    stc : mne.SourceEstimate
-        The source estimate to be morphed, computed for `subject`.
+    stc : mne.SourceEstimate or list of mne.SourceEstimate
+        The source estimate to be morphed, computed for `subject`. A list is
+        accepted for epoch-wise estimates returned by ``apply_lcmv_epochs``.
     src_from : instance of mne.SourceSpaces
         The source space in which `stc` was computed.
     source_space : str
@@ -903,11 +916,19 @@ def morph_stc(
 
     Returns
     -------
-    stc_fsaverage : mne.SourceEstimate
-        The morphed source estimate in the space of `subject_to`.
+    stc_fsaverage : mne.SourceEstimate or list of mne.SourceEstimate
+        The morphed source estimate in the space of `subject_to`. A list is
+        returned when ``stc`` is a list.
     src_morph_to : instance of mne.SourceSpaces
         The source space constructed for `subject_to`, used as the
         morph target.
+
+    Raises
+    ------
+    ValueError
+        If ``source_space`` is neither ``"surface"`` nor ``"volumetric"``.
+        Also raised when ``plot_3d=True`` is requested for a list of epoch-wise
+        source estimates; select or aggregate one estimate before plotting.
 
     Notes
     -----
@@ -917,6 +938,17 @@ def morph_stc(
       `subject_to` is generated via `mne.bem.make_watershed_bem` if
       not already present.
     """
+    if source_space not in {"surface", "volumetric"}:
+        raise ValueError(
+            "source_space must be either 'surface' or 'volumetric', "
+            f"got {source_space!r}."
+        )
+    if plot_3d and isinstance(stc, list):
+        raise ValueError(
+            "plot_3d=True requires a single source estimate; select or aggregate "
+            "the epoch-wise estimates before plotting."
+        )
+
     logger.info("Morphing the estimated source data onto a common space")
 
     if source_space == "surface":
@@ -963,7 +995,10 @@ def morph_stc(
 
             logger.info("Starting the morphing process")
             start_time = time.time()
-            stc_fsaverage = morph.apply(stc)
+            if isinstance(stc, list):
+                stc_fsaverage = [morph.apply(epoch_stc) for epoch_stc in stc]
+            else:
+                stc_fsaverage = morph.apply(stc)
 
     if plot_3d:
         brain = stc_fsaverage.plot(
