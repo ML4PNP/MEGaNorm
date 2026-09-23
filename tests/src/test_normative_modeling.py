@@ -401,6 +401,107 @@ def test_prepare_nm_data_supports_multiple_covariates(recording_norm_data):
 
 
 @pytest.mark.unit
+def test_prepare_nm_data_removes_rows_missing_any_model_covariate(
+    recording_norm_data,
+):
+    data = pd.DataFrame(
+        {
+            "subject": ["s1", "s2", "s3"],
+            "age": [10.0, 11.0, 12.0],
+            "motion": [0.1, np.nan, 0.3],
+            "site": ["A", "A", "B"],
+            "roi": [1.0, 2.0, 3.0],
+        }
+    )
+
+    result = nm.prepare_nm_data(
+        data,
+        response_vars=["roi"],
+        covariate_list=["age", "motion"],
+        batch_effect_list=["site"],
+        subject_id_col_name="subject",
+        train_split_size=None,
+    )
+
+    passed = result.from_dataframe_kwargs["dataframe"]
+    assert passed["subject"].tolist() == ["s1", "s3"]
+
+
+@pytest.mark.unit
+def test_prepare_nm_data_uses_selected_imputation_covariate(recording_norm_data):
+    data = pd.DataFrame(
+        {
+            "subject": ["s0", "s1", "s2"],
+            "age": [10.0, 11.0, 50.0],
+            "motion": [100.0, 0.0, 101.0],
+            "site": ["A", "A", "A"],
+            "roi": [np.nan, 2.0, 8.0],
+        }
+    )
+
+    result = nm.prepare_nm_data(
+        data,
+        response_vars=["roi"],
+        covariate_list=["age", "motion"],
+        batch_effect_list=["site"],
+        subject_id_col_name="subject",
+        impute_by_column_name="motion",
+        subject_removal_nan_thr=0.5,
+        missing_value_handling_method="mean",
+        train_split_size=None,
+    )
+
+    passed = result.from_dataframe_kwargs["dataframe"]
+    assert passed.loc[0, "roi"] == pytest.approx(8.0)
+
+
+@pytest.mark.unit
+def test_prepare_nm_data_forwards_outlier_configuration(recording_norm_data):
+    data = pd.DataFrame(
+        {
+            "subject": ["s1", "s2"],
+            "age": [10.0, 11.0],
+            "site": ["A", "B"],
+            "roi": [1.0, 2.0],
+        }
+    )
+
+    result = nm.prepare_nm_data(
+        data,
+        response_vars=["roi"],
+        covariate_list=["age"],
+        batch_effect_list=["site"],
+        subject_id_col_name="subject",
+        remove_outliers=True,
+        remove_outliers_approach="iqr",
+        remove_outliers_group_by="site",
+        iqr_factor=2.5,
+        train_split_size=None,
+    )
+
+    boundary = result.from_dataframe_kwargs
+    assert boundary["remove_outliers"] is True
+    assert boundary["remove_outliers_approach"] == "iqr"
+    assert boundary["remove_outliers_group_by"] == "site"
+    assert boundary["iqr_factor"] == pytest.approx(2.5)
+
+
+@pytest.mark.unit
+def test_prepare_nm_data_rejects_empty_covariate_list():
+    data = pd.DataFrame({"subject": ["s1"], "site": ["A"], "roi": [1.0]})
+
+    with pytest.raises(ValueError, match="at least one covariate"):
+        nm.prepare_nm_data(
+            data,
+            response_vars=["roi"],
+            covariate_list=[],
+            batch_effect_list=["site"],
+            subject_id_col_name="subject",
+            train_split_size=None,
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("split", [-0.1, 1.0, 100, 150])
 def test_prepare_nm_data_rejects_split_outside_open_unit_interval(
     split, recording_norm_data
