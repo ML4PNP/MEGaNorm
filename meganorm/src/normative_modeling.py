@@ -527,7 +527,7 @@ def nm_model_train(
     )
 
     if not if_parallel:
-        if test:
+        if test is not None:
             model.fit_predict(train, test)
         else:
             model.fit(train)
@@ -552,7 +552,7 @@ def nm_model_train(
             max_retries=job_configs["max_retries"],
         )
 
-        if test:
+        if test is not None:
             runner.fit_predict(model, train, test, observe=False)
         else:
             runner.fit(model, train, observe=False)

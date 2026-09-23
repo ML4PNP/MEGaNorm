@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
@@ -524,3 +527,197 @@ def test_prepare_nm_data_rejects_split_outside_open_unit_interval(
             subject_id_col_name="subject",
             train_split_size=split,
         )
+
+
+@pytest.mark.integration
+def test_model_diagnostics_collects_and_saves_real_arviz_summaries(tmp_path):
+    models_path = tmp_path / "models"
+    models_path.mkdir()
+    posterior = np.vstack(
+        [
+            np.linspace(-1.0, 1.0, 100),
+            np.linspace(-0.9, 1.1, 100),
+        ]
+    )
+    for model_name in ["roi_alpha", "roi_beta"]:
+        model_path = models_path / model_name
+        model_path.mkdir()
+        az.from_dict(posterior={"theta": posterior}).to_netcdf(model_path / "idata.nc")
+    (models_path / "normative_model.json").write_text("{}")
+    save_path = tmp_path / "diagnostics"
+
+    result = nm.model_diagnostics(models_path, save_path)
+
+    assert set(result["model"]) == {"roi_alpha", "roi_beta"}
+    assert set(result["parameter"]) == {"theta"}
+    assert result[["r_hat", "ess_bulk", "ess_tail", "mcse_sd"]].notna().all().all()
+    saved = pd.read_csv(save_path / "models_diagnosis.csv", index_col=0)
+    pd.testing.assert_frame_equal(saved, result, check_dtype=False)
+
+
+class RecordingNormativeModel:
+    instances = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.fit_call = None
+        self.fit_predict_call = None
+        type(self).instances.append(self)
+
+    def fit(self, train):
+        self.fit_call = train
+
+    def fit_predict(self, train, test):
+        self.fit_predict_call = (train, test)
+
+
+class RecordingRunner:
+    instances = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.fit_call = None
+        self.fit_predict_call = None
+        type(self).instances.append(self)
+
+    def fit(self, model, train, *, observe):
+        self.fit_call = (model, train, observe)
+
+    def fit_predict(self, model, train, test, *, observe):
+        self.fit_predict_call = (model, train, test, observe)
+
+
+@pytest.fixture
+def recording_training_boundaries(monkeypatch):
+    RecordingNormativeModel.instances.clear()
+    RecordingRunner.instances.clear()
+    monkeypatch.setattr(nm, "NormativeModel", RecordingNormativeModel)
+    monkeypatch.setattr(nm, "Runner", RecordingRunner)
+    return RecordingNormativeModel, RecordingRunner
+
+
+class AmbiguousNormData:
+    def __init__(self, response_vars):
+        self.response_vars = response_vars
+
+    def __bool__(self):
+        raise ValueError("NormData truth value is ambiguous")
+
+
+@pytest.mark.unit
+def test_nm_model_train_fits_training_data_without_test_set(
+    tmp_path, recording_training_boundaries
+):
+    train = SimpleNamespace(response_vars=["roi"])
+
+    nm.nm_model_train(
+        train=train,
+        test=None,
+        project_dir=tmp_path,
+        experiment_name="experiment",
+        template_regression_model="template",
+        model_name="model",
+    )
+
+    model = RecordingNormativeModel.instances[-1]
+    assert model.fit_call is train
+    assert model.fit_predict_call is None
+    assert model.kwargs == {
+        "template_regression_model": "template",
+        "savemodel": True,
+        "evaluate_model": True,
+        "saveresults": True,
+        "saveplots": True,
+        "save_dir": str(tmp_path / "Normative_models"),
+        "inscaler": "standardize",
+        "outscaler": "standardize",
+        "name": "model",
+    }
+
+
+@pytest.mark.unit
+def test_nm_model_train_accepts_xarray_like_test_data_without_truth_check(
+    tmp_path, recording_training_boundaries
+):
+    train = SimpleNamespace(response_vars=["roi"])
+    test = AmbiguousNormData(response_vars=["roi"])
+
+    nm.nm_model_train(
+        train=train,
+        test=test,
+        project_dir=tmp_path,
+        experiment_name="experiment",
+        template_regression_model="template",
+        model_name="model",
+    )
+
+    model = RecordingNormativeModel.instances[-1]
+    assert model.fit_predict_call == (train, test)
+    assert model.fit_call is None
+
+
+@pytest.mark.unit
+def test_nm_model_train_parallel_requires_job_configuration(
+    tmp_path, recording_training_boundaries
+):
+    train = SimpleNamespace(response_vars=["roi"])
+
+    with pytest.raises(ValueError, match="configuration"):
+        nm.nm_model_train(
+            train=train,
+            test=None,
+            project_dir=tmp_path,
+            experiment_name="experiment",
+            template_regression_model="template",
+            model_name="model",
+            if_parallel=True,
+            job_configs=None,
+        )
+
+
+@pytest.mark.unit
+def test_nm_model_train_configures_parallel_fit_predict(
+    tmp_path, recording_training_boundaries
+):
+    train = SimpleNamespace(response_vars=["roi_a", "roi_b"])
+    test = AmbiguousNormData(response_vars=["roi_a", "roi_b"])
+    jobs = {
+        "env_path": "/envs/meganorm",
+        "job_type": "slurm",
+        "time_limit": "01:00:00",
+        "memory": "8G",
+        "n_cores": 4,
+        "preamble": ["module load python"],
+        "max_retries": 2,
+    }
+
+    nm.nm_model_train(
+        train=train,
+        test=test,
+        project_dir=tmp_path,
+        experiment_name="experiment",
+        template_regression_model="template",
+        model_name="model",
+        if_cross_validate=True,
+        if_parallel=True,
+        job_configs=jobs,
+    )
+
+    model = RecordingNormativeModel.instances[-1]
+    runner = RecordingRunner.instances[-1]
+    assert runner.kwargs == {
+        "cross_validate": True,
+        "parallelize": True,
+        "n_batches": 2,
+        "environment": "/envs/meganorm",
+        "job_type": "slurm",
+        "time_limit": "01:00:00",
+        "memory": "8G",
+        "n_cores": 4,
+        "preamble": ["module load python"],
+        "log_dir": str(tmp_path / "Normative_models" / "nm_parallel_logs"),
+        "temp_dir": str(tmp_path / "Normative_models" / "nm_temp"),
+        "max_retries": 2,
+    }
+    assert runner.fit_predict_call == (model, train, test, False)
+    assert runner.fit_call is None
