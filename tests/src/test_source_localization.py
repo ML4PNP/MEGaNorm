@@ -4,6 +4,7 @@ import subprocess
 from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
+import mne
 import numpy as np
 import pytest
 from mne.io.constants import FIFF
@@ -15,6 +16,7 @@ from meganorm.src.source_localization import (
     check_digitization_points,
     check_freesurfer,
     check_tsss,
+    forward_solution,
     make_bem_model,
     nearest_template_dir,
     numpy_to_mne_epoch,
@@ -55,6 +57,151 @@ def make_fake_freesurfer(tmp_path, exit_code=0):
     )
     recon_all.chmod(0o755)
     return freesurfer_home
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("meg_key", ["meg", "grad", "mag"])
+def test_forward_solution_configures_surface_model_and_returns_filtered_source(
+    monkeypatch, tmp_path, meg_key
+):
+    calls = {}
+    data = SimpleNamespace(info=object())
+    forward = {"src": "filtered-source", "sol": "lead-field"}
+
+    def fake_setup_source_space(**kwargs):
+        calls["source"] = kwargs
+        return "surface-source"
+
+    def fake_make_bem_model(**kwargs):
+        calls["bem_model"] = kwargs
+        return "bem-model"
+
+    def fake_make_bem_solution(model):
+        calls["bem_solution"] = model
+        return "bem-solution"
+
+    def fake_make_forward_solution(info, **kwargs):
+        calls["forward"] = {"info": info, **kwargs}
+        return forward
+
+    monkeypatch.setattr(mne, "setup_source_space", fake_setup_source_space)
+    monkeypatch.setattr(mne, "make_bem_model", fake_make_bem_model)
+    monkeypatch.setattr(mne, "make_bem_solution", fake_make_bem_solution)
+    monkeypatch.setattr(mne, "make_forward_solution", fake_make_forward_solution)
+
+    result, result_src = forward_solution(
+        subject="sub-01",
+        subjects_dir=tmp_path,
+        data=data,
+        transformation_matrix="head-to-mri",
+        conductivity=(0.3,),
+        source_space="surface",
+        which_sensor_dict={meg_key: True, "eeg": False},
+        source_space_spacing="oct5",
+        source_space_add_dist=False,
+        source_space_spacing_number=4,
+        forward_mindist=3.0,
+        source_localization_ignore_ref=False,
+        n_jobs=2,
+    )
+
+    assert result is forward
+    assert result_src == "filtered-source"
+    assert calls == {
+        "source": {
+            "subject": "sub-01",
+            "subjects_dir": tmp_path,
+            "spacing": "oct5",
+            "add_dist": False,
+            "n_jobs": 2,
+        },
+        "bem_model": {
+            "subject": "sub-01",
+            "ico": 4,
+            "conductivity": (0.3,),
+            "subjects_dir": tmp_path,
+        },
+        "bem_solution": "bem-model",
+        "forward": {
+            "info": data.info,
+            "trans": "head-to-mri",
+            "src": "surface-source",
+            "bem": "bem-solution",
+            "meg": True,
+            "eeg": False,
+            "mindist": 3.0,
+            "n_jobs": 2,
+            "verbose": True,
+            "ignore_ref": False,
+        },
+    }
+
+
+@pytest.mark.unit
+def test_forward_solution_configures_volumetric_model_and_eeg_only(
+    monkeypatch, tmp_path
+):
+    calls = {}
+    data = SimpleNamespace(info=object())
+    forward = {"src": "filtered-volume-source"}
+
+    def fake_setup_volume_source_space(**kwargs):
+        calls["source"] = kwargs
+        return "volume-source"
+
+    monkeypatch.setattr(
+        mne, "setup_volume_source_space", fake_setup_volume_source_space
+    )
+    monkeypatch.setattr(mne, "make_bem_model", lambda **kwargs: "bem-model")
+    monkeypatch.setattr(mne, "make_bem_solution", lambda model: "bem-solution")
+
+    def fake_make_forward_solution(info, **kwargs):
+        calls["forward"] = {"info": info, **kwargs}
+        return forward
+
+    monkeypatch.setattr(mne, "make_forward_solution", fake_make_forward_solution)
+
+    result, result_src = forward_solution(
+        subject="sub-02",
+        subjects_dir=tmp_path,
+        data=data,
+        transformation_matrix="head-to-mri",
+        conductivity=(0.3, 0.006, 0.3),
+        source_space="volumetric",
+        which_sensor_dict={"eeg": True},
+    )
+
+    assert result is forward
+    assert result_src == "filtered-volume-source"
+    assert calls["source"] == {
+        "subject": "sub-02",
+        "subjects_dir": tmp_path,
+        "surface": tmp_path / "sub-02" / "bem" / "inner_skull.surf",
+        "add_interpolator": True,
+        "n_jobs": 1,
+    }
+    assert calls["forward"]["src"] == "volume-source"
+    assert calls["forward"]["meg"] is False
+    assert calls["forward"]["eeg"] is True
+
+
+@pytest.mark.unit
+def test_forward_solution_rejects_unsupported_source_space(monkeypatch, tmp_path):
+    def unexpected_bem_call(**kwargs):
+        pytest.fail("BEM construction must not start for an invalid source space")
+
+    monkeypatch.setattr(mne, "make_bem_model", unexpected_bem_call)
+
+    with pytest.raises(ValueError, match="surface.*volumetric"):
+        forward_solution(
+            subject="sub-03",
+            subjects_dir=tmp_path,
+            data=SimpleNamespace(info=object()),
+            transformation_matrix="head-to-mri",
+            conductivity=(0.3,),
+            source_space="invalid",
+            which_sensor_dict={"meg": True},
+        )
 
 
 @pytest.mark.integration

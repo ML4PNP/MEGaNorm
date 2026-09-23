@@ -591,6 +591,14 @@ def forward_solution(
     -------
     lead_field_matrix : mne.Forward
         The computed forward solution object, containing the lead field matrix.
+    src : mne.SourceSpaces
+        The source space retained by the completed forward model after excluding
+        points that are too close to the inner-skull surface.
+
+    Raises
+    ------
+    ValueError
+        If ``source_space`` is neither ``"surface"`` nor ``"volumetric"``.
 
     Notes
     -----
@@ -598,6 +606,12 @@ def forward_solution(
     - For volumetric source spaces, the inner skull surface must be present at:
       subjects_dir/subject/bem/inner_skull.surf
     """
+
+    if source_space not in {"surface", "volumetric"}:
+        raise ValueError(
+            "source_space must be either 'surface' or 'volumetric', "
+            f"got {source_space!r}."
+        )
 
     logger.info(f"Setting up a {source_space} source space")
     # source space
