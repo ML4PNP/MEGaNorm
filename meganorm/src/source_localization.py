@@ -1231,18 +1231,20 @@ def source_localization(
 
 def numpy_to_mne_epoch(stc, labels, ch_name, sampling_rate):
     """
-    Convert a parcellated source estimate into an MNE Epoch object.
+    Convert parcellated source time courses into an MNE Epochs object.
 
-    This function wraps a 2D NumPy array representing parcellated source time series
-    into an `mne.io.RawArray` using anatomical labels and sampling frequency information.
+    This function wraps a 3D NumPy array representing epoched, parcellated
+    source time series into an ``mne.EpochsArray`` using anatomical-region
+    names and sampling-frequency information.
 
     Parameters
     ----------
-    stc : ndarray, shape (n_labels, n_times)
-        The source time courses for each label (typically from `extract_label_time_course`).
-        Each row corresponds to one anatomical region, and each column to a time point.
-    labels : list of mne.Label or mne.VolumeLabel
-        The list of anatomical labels used to extract the time courses. Must match the number of rows in `stc`.
+    stc : ndarray, shape (n_epochs, n_labels, n_times)
+        Source time courses, typically returned by
+        ``extract_label_time_course`` for a list of source estimates.
+    labels : list of str
+        Anatomical-region names. Its length must match the second dimension
+        of ``stc``.
     ch_name : str
         The MNE channel type to assign to all channels (e.g., 'misc', 'eeg', 'ecog').
         Must be one of the types supported by `mne.create_info`.
@@ -1251,19 +1253,21 @@ def numpy_to_mne_epoch(stc, labels, ch_name, sampling_rate):
 
     Returns
     -------
-    raw_parc : mne.io.RawArray
-        The MNE Raw object containing the parcellated source estimate as virtual channels.
+    epochs : mne.EpochsArray
+        Epoched parcellated source activity represented as virtual channels.
 
     Notes
     -----
-    - This is commonly used to wrap parcellated source activity into a Raw object
-      so it can be saved, plotted, or processed using MNE’s standard pipeline.
+    - This is commonly used to wrap parcellated source activity so it can be
+      saved, plotted, or processed using MNE's standard epoch pipeline.
     - Ensure that `ch_name` is a valid MNE channel type, such as `'misc'` or `'eeg'`.
 
     Examples
     --------
-    >>> raw = numpy_to_mne_Epoch(parcelled_stc, labels, ch_name='misc', sampling_rate=1000)
-    >>> raw.plot()
+    >>> epochs = numpy_to_mne_epoch(
+    ...     parcelled_stc, labels, ch_name="misc", sampling_rate=1000
+    ... )
+    >>> epochs.plot()
     """
     ch_types = [ch_name] * len(labels)
     info = mne.create_info(ch_names=labels, sfreq=sampling_rate, ch_types=ch_types)
@@ -1322,7 +1326,9 @@ def check_tsss(meg_data):
     """
     Check if Maxwell filtering (tSSS) was applied to raw/epochs data.
 
-    This inspects the processing history for presence of maxfilter info.
+    This inspects the complete processing history for an SSS record with a
+    positive temporal buffer length and an available subspace-correlation
+    value. Ordinary spatial SSS records are not classified as tSSS.
 
     Parameters
     ----------
@@ -1335,11 +1341,16 @@ def check_tsss(meg_data):
         True if tSSS has been applied, False otherwise.
     """
     proc_history = meg_data.info.get("proc_history", [])
-    if not proc_history:
-        return False
-    max_info = proc_history[0].get("max_info", {})
-    sss_cal = max_info.get("sss_info", [])
-    return len(sss_cal) > 0
+    for record in proc_history:
+        max_info = record.get("max_info") or {}
+        max_st = max_info.get("max_st") or {}
+        if (
+            max_info.get("sss_info")
+            and max_st.get("buflen", 0) > 0
+            and max_st.get("subspcorr") is not None
+        ):
+            return True
+    return False
 
 
 def check_digitization_points(raw, logger):
@@ -1426,6 +1437,8 @@ def build_template_index(subjects_dir):
     """
     index = {}
     for path in glob.glob(os.path.join(subjects_dir, "ANTS*")):
+        if not os.path.isdir(path):
+            continue
         name = os.path.basename(path)
         m = re.match(r"ANTS(\d+)-(\d+)(Month|Year)s?3T", name)
         if not m:
@@ -1590,7 +1603,9 @@ def save_bem_figure(
 @contextlib.contextmanager
 def capture_mne_log(log_path, level=logging.DEBUG, mode="w"):
     """Temporarily tee MNE's logger output into `log_path`."""
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    parent_dir = os.path.dirname(log_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
 
     mne_logger = logging.getLogger("mne")
     handler = logging.FileHandler(log_path, mode=mode)
