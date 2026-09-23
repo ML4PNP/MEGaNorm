@@ -105,9 +105,16 @@ def set_freesurfer_paths(
     """
 
     os.environ["FREESURFER_HOME"] = freesurfer_home
-    os.environ["PATH"] = os.environ["FREESURFER_HOME"] + "/bin:" + os.environ["PATH"]
+    freesurfer_bin = os.path.join(freesurfer_home, "bin")
+    path_entries = [
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and entry != freesurfer_bin
+    ]
+    os.environ["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
     os.environ["SUBJECTS_DIR"] = subjects_dir
     os.environ["FS_LICENSE"] = license_path
+    os.environ["FREESURFER_LICENSE"] = license_path
 
 
 def check_freesurfer():
@@ -118,9 +125,9 @@ def check_freesurfer():
     FreeSurfer by first locating the `recon-all` executable in the system PATH.
     If that fails, it checks a set of common installation directories.
 
-    If found, it verifies that a valid license file (`license.txt`) exists
-    in the expected directory and sets the necessary environment variables:
-    `FREESURFER_HOME` and `FREESURFER_LICENSE`.
+    If found, it verifies that a license file (`license.txt`) exists in the
+    expected directory and sets `FREESURFER_HOME`, `FS_LICENSE`, and the
+    backwards-compatible `FREESURFER_LICENSE` alias.
 
     Raises
     ------
@@ -136,20 +143,14 @@ def check_freesurfer():
 
     Examples
     --------
-    >>> fs_home = find_freesurfer()
+    >>> fs_home = check_freesurfer()
     >>> print(f"FreeSurfer found at: {fs_home}")
     """
-    ...
-    # Try to locate recon-all
-    env = os.environ.copy()
-    result = subprocess.run(
-        ["which", "recon-all"], capture_output=True, text=True, env=env
-    )
-    recon_path = result.stdout.strip()
+    recon_path = shutil.which("recon-all")
 
     if recon_path:
         freesurfer_home = os.path.abspath(
-            os.path.join(os.path.dirname(recon_path), "..")
+            os.path.join(os.path.dirname(os.path.realpath(recon_path)), "..")
         )
     else:
         # Try common install paths
@@ -182,9 +183,18 @@ def check_freesurfer():
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
+    os.environ["FREESURFER_HOME"] = freesurfer_home
+    os.environ["FS_LICENSE"] = license_path
     os.environ["FREESURFER_LICENSE"] = license_path
+    freesurfer_bin = os.path.join(freesurfer_home, "bin")
+    path_entries = [
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and entry != freesurfer_bin
+    ]
+    os.environ["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
 
-    return None
+    return freesurfer_home
 
 
 def max_consecutive_ratio(nums):
@@ -1399,7 +1409,10 @@ def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
     None
     """
     for subject in os.listdir(save_path):
-        out_path = os.path.join(save_path, subject, "mri", "aparc.a2009s+aseg.mgz")
+        subject_path = os.path.join(save_path, subject)
+        if not os.path.isdir(subject_path):
+            continue
+        out_path = os.path.join(subject_path, "mri", "aparc.a2009s+aseg.mgz")
         if os.path.exists(out_path):
             print(f"Skipping {subject}: aparc.a2009s+aseg.mgz already exists.")
             continue
@@ -1407,7 +1420,14 @@ def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
         env["FREESURFER_HOME"] = freesurfer_home
         env["SUBJECTS_DIR"] = save_path  # <-- this is the fix
         env["FS_LICENSE"] = freesurfer_license
-        env["PATH"] = freesurfer_home + "/bin:" + env["PATH"]
+        env["FREESURFER_LICENSE"] = freesurfer_license
+        freesurfer_bin = os.path.join(freesurfer_home, "bin")
+        path_entries = [
+            entry
+            for entry in env.get("PATH", "").split(os.pathsep)
+            if entry and entry != freesurfer_bin
+        ]
+        env["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
         subprocess.run(
             ["mri_aparc2aseg", "--s", subject, "--a2009s"],
             env=env,
@@ -1500,9 +1520,9 @@ def prepare_template(subject, demographic_file_p, **kwargs):
     subject : str
         Subject identifier, used to look up dataset and demographic
         information.
-    project_dir : str
-        Path to the project directory containing the
-        `Configurations/runner_params.json` file.
+    demographic_file_p : str or path-like
+        Path to a demographic table containing an ``age`` column and
+        subject identifiers in its index.
     **kwargs : dict, optional
         Additional configuration options, including:
 
@@ -1527,16 +1547,6 @@ def prepare_template(subject, demographic_file_p, **kwargs):
         Path to the templates directory.
     """
 
-    if (
-        kwargs.get("SL_source_space") == "volumetric"
-        and kwargs.get("parcellation_parc") == "aparc.a2009s"
-    ):
-        produce_aparc_a2009s_aseg(
-            save_path=kwargs.get("freesurfer_template_path"),
-            freesurfer_home=kwargs.get("freesurfer_home"),
-            freesurfer_license=kwargs.get("freesurfer_license"),
-        )
-
     if not os.path.exists(demographic_file_p):
         err_msg = (
             f"Demographic file not found at {demographic_file_p}; it is required to "
@@ -1549,6 +1559,16 @@ def prepare_template(subject, demographic_file_p, **kwargs):
 
     demographic_file = load_demographic_file(demographic_file_p)
     age = demographic_file.loc[subject]["age"]
+
+    if (
+        kwargs.get("SL_source_space") == "volumetric"
+        and kwargs.get("parcellation_parc") == "aparc.a2009s"
+    ):
+        produce_aparc_a2009s_aseg(
+            save_path=kwargs.get("freesurfer_template_path"),
+            freesurfer_home=kwargs.get("freesurfer_home"),
+            freesurfer_license=kwargs.get("freesurfer_license"),
+        )
 
     age_months = age * 12
     surface_name, surface_path = nearest_template_dir(

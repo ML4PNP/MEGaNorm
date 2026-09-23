@@ -1,18 +1,24 @@
 import logging
+import os
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from mne.io.constants import FIFF
+from meganorm.src import source_localization as sl
 
 from meganorm.src.source_localization import (
     build_template_index,
     capture_mne_log,
     check_digitization_points,
+    check_freesurfer,
     check_tsss,
     nearest_template_dir,
     numpy_to_mne_epoch,
+    prepare_template,
+    produce_aparc_a2009s_aseg,
     regularized_cov_condition,
+    set_freesurfer_paths,
 )
 
 
@@ -24,6 +30,242 @@ def make_tsss_record():
             "max_st": {"buflen": 10.0, "subspcorr": 0.98},
         },
     }
+
+
+@pytest.mark.unit
+def test_set_freesurfer_paths_is_idempotent(monkeypatch, tmp_path):
+    freesurfer_home = tmp_path / "freesurfer"
+    subjects_dir = tmp_path / "subjects"
+    license_path = freesurfer_home / "license.txt"
+    original_path = os.pathsep.join(["/usr/local/bin", "/usr/bin"])
+    monkeypatch.setenv("PATH", original_path)
+    monkeypatch.delenv("FREESURFER_LICENSE", raising=False)
+
+    for _ in range(2):
+        set_freesurfer_paths(str(freesurfer_home), str(subjects_dir), str(license_path))
+
+    expected_bin = str(freesurfer_home / "bin")
+    assert os.environ["FREESURFER_HOME"] == str(freesurfer_home)
+    assert os.environ["SUBJECTS_DIR"] == str(subjects_dir)
+    assert os.environ["FS_LICENSE"] == str(license_path)
+    assert os.environ["FREESURFER_LICENSE"] == str(license_path)
+    assert os.environ["PATH"].split(os.pathsep) == [
+        expected_bin,
+        "/usr/local/bin",
+        "/usr/bin",
+    ]
+
+
+@pytest.mark.integration
+def test_check_freesurfer_discovers_executable_and_configures_environment(
+    monkeypatch, tmp_path
+):
+    freesurfer_home = tmp_path / "freesurfer"
+    freesurfer_bin = freesurfer_home / "bin"
+    freesurfer_bin.mkdir(parents=True)
+    recon_all = freesurfer_bin / "recon-all"
+    recon_all.write_text("#!/bin/sh\nexit 0\n")
+    recon_all.chmod(0o755)
+    license_path = freesurfer_home / "license.txt"
+    license_path.write_text("test license")
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(freesurfer_bin), "/usr/local/bin", "/usr/bin"])
+    )
+    monkeypatch.delenv("FREESURFER_HOME", raising=False)
+    monkeypatch.delenv("FS_LICENSE", raising=False)
+    monkeypatch.delenv("FREESURFER_LICENSE", raising=False)
+
+    discovered_home = check_freesurfer()
+
+    assert discovered_home == str(freesurfer_home.resolve())
+    assert os.environ["FREESURFER_HOME"] == str(freesurfer_home.resolve())
+    assert os.environ["FS_LICENSE"] == str(license_path)
+    assert os.environ["FREESURFER_LICENSE"] == str(license_path)
+    assert os.environ["PATH"].split(os.pathsep).count(str(freesurfer_bin)) == 1
+
+
+@pytest.mark.integration
+def test_check_freesurfer_resolves_symlinked_executable(monkeypatch, tmp_path):
+    freesurfer_home = tmp_path / "freesurfer"
+    freesurfer_bin = freesurfer_home / "bin"
+    freesurfer_bin.mkdir(parents=True)
+    recon_all = freesurfer_bin / "recon-all"
+    recon_all.write_text("#!/bin/sh\nexit 0\n")
+    recon_all.chmod(0o755)
+    (freesurfer_home / "license.txt").write_text("test license")
+    shim_bin = tmp_path / "shims"
+    shim_bin.mkdir()
+    (shim_bin / "recon-all").symlink_to(recon_all)
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(shim_bin), "/usr/local/bin", "/usr/bin"])
+    )
+
+    discovered_home = check_freesurfer()
+
+    assert discovered_home == str(freesurfer_home.resolve())
+
+
+@pytest.mark.integration
+def test_check_freesurfer_rejects_installation_without_license(monkeypatch, tmp_path):
+    freesurfer_bin = tmp_path / "freesurfer" / "bin"
+    freesurfer_bin.mkdir(parents=True)
+    recon_all = freesurfer_bin / "recon-all"
+    recon_all.write_text("#!/bin/sh\nexit 0\n")
+    recon_all.chmod(0o755)
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(freesurfer_bin), "/usr/local/bin", "/usr/bin"])
+    )
+
+    with pytest.raises(RuntimeError, match="license not found"):
+        check_freesurfer()
+
+
+@pytest.mark.unit
+def test_produce_aparc_processes_only_unfinished_subject_directories(
+    monkeypatch, tmp_path
+):
+    subjects_dir = tmp_path / "subjects"
+    completed_output = subjects_dir / "sub-complete" / "mri" / "aparc.a2009s+aseg.mgz"
+    completed_output.parent.mkdir(parents=True)
+    completed_output.write_text("already complete")
+    (subjects_dir / "sub-pending").mkdir()
+    (subjects_dir / "README.txt").write_text("not a subject")
+    freesurfer_home = tmp_path / "freesurfer"
+    license_path = freesurfer_home / "license.txt"
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([str(freesurfer_home / "bin"), "/usr/local/bin", "/usr/bin"]),
+    )
+    monkeypatch.setenv("FREESURFER_LICENSE", "/stale/license.txt")
+    calls = []
+
+    def record_run(command, *, env, check):
+        calls.append((command, env, check))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(sl.subprocess, "run", record_run)
+
+    produce_aparc_a2009s_aseg(
+        str(subjects_dir), str(freesurfer_home), str(license_path)
+    )
+
+    assert len(calls) == 1
+    command, env, check = calls[0]
+    assert command == ["mri_aparc2aseg", "--s", "sub-pending", "--a2009s"]
+    assert check is True
+    assert env["FREESURFER_HOME"] == str(freesurfer_home)
+    assert env["SUBJECTS_DIR"] == str(subjects_dir)
+    assert env["FS_LICENSE"] == str(license_path)
+    assert env["FREESURFER_LICENSE"] == str(license_path)
+    assert env["PATH"].split(os.pathsep) == [
+        str(freesurfer_home / "bin"),
+        "/usr/local/bin",
+        "/usr/bin",
+    ]
+
+
+@pytest.mark.unit
+def test_prepare_template_validates_demographics_before_segmentation(
+    monkeypatch, tmp_path
+):
+    def unexpected_segmentation(**kwargs):
+        raise AssertionError("segmentation must not run without demographics")
+
+    monkeypatch.setattr(sl, "produce_aparc_a2009s_aseg", unexpected_segmentation)
+    missing_demographics = tmp_path / "missing.csv"
+
+    with pytest.raises(FileNotFoundError, match="Demographic file not found"):
+        prepare_template(
+            "sub-01",
+            str(missing_demographics),
+            SL_source_space="volumetric",
+            parcellation_parc="aparc.a2009s",
+            freesurfer_template_path=str(tmp_path / "templates"),
+            freesurfer_home=str(tmp_path / "freesurfer"),
+            freesurfer_license=str(tmp_path / "license.txt"),
+        )
+
+
+@pytest.mark.unit
+def test_prepare_template_validates_subject_row_before_segmentation(
+    monkeypatch, tmp_path
+):
+    demographics = tmp_path / "participants.csv"
+    demographics.write_text("participant_id,age\nsub-02,1.0\n")
+    calls = []
+    monkeypatch.setattr(
+        sl, "produce_aparc_a2009s_aseg", lambda **kwargs: calls.append(kwargs)
+    )
+
+    with pytest.raises(KeyError):
+        prepare_template(
+            "sub-01",
+            demographics,
+            SL_source_space="volumetric",
+            parcellation_parc="aparc.a2009s",
+            freesurfer_template_path=str(tmp_path / "templates"),
+            freesurfer_home=str(tmp_path / "freesurfer"),
+            freesurfer_license=str(tmp_path / "license.txt"),
+        )
+
+    assert calls == []
+
+
+@pytest.mark.integration
+def test_prepare_template_converts_age_in_years_and_selects_nearest_template(
+    tmp_path,
+):
+    demographics = tmp_path / "participants.csv"
+    demographics.write_text("participant_id,age\nsub-01,1.5\n")
+    templates = tmp_path / "templates"
+    (templates / "ANTS12-0Months3T").mkdir(parents=True)
+    (templates / "ANTS18-0Months3T").mkdir()
+
+    template_name, subjects_dir = prepare_template(
+        "sub-01",
+        demographics,
+        SL_source_space="surface",
+        freesurfer_template_path=str(templates),
+    )
+
+    assert template_name == "ANTS18-0Months3T"
+    assert subjects_dir == str(templates)
+
+
+@pytest.mark.unit
+def test_prepare_template_requests_destrieux_segmentation_for_volumetric_source(
+    monkeypatch, tmp_path
+):
+    demographics = tmp_path / "participants.csv"
+    demographics.write_text("participant_id,age\nsub-01,1.0\n")
+    templates = tmp_path / "templates"
+    (templates / "ANTS12-0Months3T").mkdir(parents=True)
+    freesurfer_home = tmp_path / "freesurfer"
+    license_path = freesurfer_home / "license.txt"
+    calls = []
+
+    def record_segmentation(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(sl, "produce_aparc_a2009s_aseg", record_segmentation)
+
+    prepare_template(
+        "sub-01",
+        demographics,
+        SL_source_space="volumetric",
+        parcellation_parc="aparc.a2009s",
+        freesurfer_template_path=str(templates),
+        freesurfer_home=str(freesurfer_home),
+        freesurfer_license=str(license_path),
+    )
+
+    assert calls == [
+        {
+            "save_path": str(templates),
+            "freesurfer_home": str(freesurfer_home),
+            "freesurfer_license": str(license_path),
+        }
+    ]
 
 
 @pytest.mark.unit
