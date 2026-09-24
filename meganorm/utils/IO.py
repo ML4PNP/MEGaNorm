@@ -381,7 +381,7 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
-    bem_preflood_parameter_space: List[int] = (10, 15, 20, 30, 35)
+    bem_preflood_parameter_space: List[int] = [10, 15, 20, 30, 35]
     bem_preflood: int = 25
     bem_gcaatlas: bool = True
     bem_max_erosion_pct: float = 15.0
@@ -730,7 +730,7 @@ def infer_device(path, device_type, which_sensor, logger):
     if "4D" in path:
         return "BTI"
 
-    extension = path.split(".")[-1]
+    extension = path.split(".")[-1].lower()
     if extension in MEG_DEVICE_BY_EXTENSION:
         return MEG_DEVICE_BY_EXTENSION[extension]
 
@@ -1109,10 +1109,15 @@ def merge_datasets_with_glob(datasets):
 def load_demographic_file(path, index_col=0):
     """Read a participants/demographic table (.tsv, .txt, .csv, .xlsx)."""
     ext = os.path.splitext(path)[1].lower()
+    index_dtype = (
+        {index_col: str}
+        if index_col is not None and index_col is not False
+        else None
+    )
     if ext in (".tsv", ".txt"):
-        df = pd.read_csv(path, sep="\t", index_col=index_col)
+        df = pd.read_csv(path, sep="\t", index_col=index_col, dtype=index_dtype)
     elif ext == ".csv":
-        df = pd.read_csv(path, index_col=index_col)
+        df = pd.read_csv(path, index_col=index_col, dtype=index_dtype)
     elif ext in (".xlsx", ".xls"):
         df = pd.read_excel(path, index_col=index_col)
     else:
