@@ -86,9 +86,18 @@ When contributing Python code:
 
 ## Testing
 
-An automated test suite is currently under development. Where applicable, contributors are encouraged to include tests with new functionality and bug fixes.
+Install MEGaNorm with its development dependencies and run the full test suite
+before submitting a pull request:
 
-Testing instructions will be updated as the automated test infrastructure is introduced.
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q
+```
+
+Tests are organized by package area under `tests/`, with separate markers for
+fast unit tests, integration tests, and slow tests. New functionality and bug
+fixes should include focused tests where applicable. The same full suite runs
+automatically through GitHub Actions on pushes and pull requests.
 
 ---
 
