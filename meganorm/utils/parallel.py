@@ -46,7 +46,6 @@ def sbatchfile(
     modules=None,
     conda_env="meganorm",
     log_path=None,
-    module="mne",
     time="1:00:00",
     memory="20GB",
     partition="normal",
@@ -96,48 +95,53 @@ def sbatchfile(
     sbatch_time = "#SBATCH --time=" + time + "\n"
     sbatch_memory = "#SBATCH --mem=" + memory + "\n"
 
-    if modules is not None:
-        for module in modules:
-            sbatch_module = "module load " + module + "\n"
-
-    sbatch_module = "source activate " + conda_env + "\n"
+    environment_setup = []
+    environment_setup.extend(
+        f"module load {shlex.quote(module_name)}\n" for module_name in (modules or [])
+    )
+    environment_setup.append(f"source activate {shlex.quote(conda_env)}\n")
 
     if freesurfer_home:
-        sbatch_module = (
-            f"export FREESURFER_HOME={freesurfer_home}\n"
-            + f"export FREESURFER_LICENSE={freesurfer_license}\n"
-            +
-            # "chmod +x $FREESURFER_HOME/SetUpFreeSurfer.sh\n" +
-            "source $FREESURFER_HOME/SetUpFreeSurfer.sh\n"
+        environment_setup.append(
+            f"export FREESURFER_HOME={shlex.quote(freesurfer_home)}\n"
         )
+        if freesurfer_license:
+            environment_setup.append(
+                f"export FREESURFER_LICENSE={shlex.quote(freesurfer_license)}\n"
+            )
+        environment_setup.append('source "$FREESURFER_HOME/SetUpFreeSurfer.sh"\n')
+
+    sbatch_module = "".join(environment_setup)
 
     if log_path is not None:
-        sbatch_log_out = "#SBATCH -o " + log_path + "/%x_%j.out" + "\n"
-        sbatch_log_error = "#SBATCH -e " + log_path + "/%x_%j.err" + "\n"
+        output_log = shlex.quote(os.path.join(log_path, "%x_%j.out"))
+        error_log = shlex.quote(os.path.join(log_path, "%x_%j.err"))
+        sbatch_log_out = f"#SBATCH -o {output_log}\n"
+        sbatch_log_error = f"#SBATCH -e {error_log}\n"
 
-    sbatch_input_1 = "source=$1\n"
-    sbatch_input_2 = "target=$2\n"
-    sbatch_input_3 = "subject=$3\n"
-    sbatch_input_4 = "config=$4\n"
-    sbatch_input_5 = "line_freq=$5\n"
-    sbatch_input_6 = "surfaces_dir=$6\n"
-    sbatch_input_7 = "empty_room_recording_path=$7\n"
-    sbatch_input_8 = "event_record=$8\n"
-    sbatch_input_9 = "event_of_interest=$9\n"
-    sbatch_input_10 = "device_type=${10}\n"
-    sbatch_input_11 = "pos_file=${11}\n"
-    sbatch_input_12 = "trans_file=${12}\n"
-    sbatch_input_13 = "annotation_path=${13}\n"
-    sbatch_input_14 = "layout_path=${14}\n"
-    sbatch_input_15 = "demographic_path=${15}\n"
+    sbatch_input_1 = 'source="$1"\n'
+    sbatch_input_2 = 'target="$2"\n'
+    sbatch_input_3 = 'subject="$3"\n'
+    sbatch_input_4 = 'config="$4"\n'
+    sbatch_input_5 = 'line_freq="$5"\n'
+    sbatch_input_6 = 'surfaces_dir="$6"\n'
+    sbatch_input_7 = 'empty_room_recording_path="$7"\n'
+    sbatch_input_8 = 'event_record="$8"\n'
+    sbatch_input_9 = 'event_of_interest="$9"\n'
+    sbatch_input_10 = 'device_type="${10}"\n'
+    sbatch_input_11 = 'pos_file="${11}"\n'
+    sbatch_input_12 = 'trans_file="${12}"\n'
+    sbatch_input_13 = 'annotation_path="${13}"\n'
+    sbatch_input_14 = 'layout_path="${14}"\n'
+    sbatch_input_15 = 'demographic_path="${15}"\n'
 
     # if with_config:
     command = (
         "srun --cpus-per-task="
         + str(core)
         + " python "
-        + mainParallel_path
-        + " $source $target $subject $config"
+        + shlex.quote(mainParallel_path)
+        + ' "$source" "$target" "$subject" "$config"'
     )
     # command = (
     #     "srun --cpus-per-task="
@@ -147,17 +151,17 @@ def sbatchfile(
     #     + " $source $target $subject $config"
     # )
 
-    command += f" --line_freq $line_freq"
-    command += f" --surfaces_dir $surfaces_dir"
-    command += " --empty_room_recording_path $empty_room_recording_path"
-    command += " --event_record $event_record"
-    command += " --event_of_interest $event_of_interest"
-    command += " --device_type $device_type"
-    command += " --pos_file $pos_file"
-    command += " --trans_file $trans_file"
-    command += " --annotation_path $annotation_path"
-    command += " --layout_path $layout_path"
-    command += " --demographic_path $demographic_path"
+    command += ' --line_freq "$line_freq"'
+    command += ' --surfaces_dir "$surfaces_dir"'
+    command += ' --empty_room_recording_path "$empty_room_recording_path"'
+    command += ' --event_record "$event_record"'
+    command += ' --event_of_interest "$event_of_interest"'
+    command += ' --device_type "$device_type"'
+    command += ' --pos_file "$pos_file"'
+    command += ' --trans_file "$trans_file"'
+    command += ' --annotation_path "$annotation_path"'
+    command += ' --layout_path "$layout_path"'
+    command += ' --demographic_path "$demographic_path"'
 
     bash_environment = [
         sbatch_init
@@ -242,12 +246,8 @@ def submit_jobs(
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
     """
 
-    def add_command(new_arg, command):
-        if new_arg:
-            command += f" {shlex.quote(str(new_arg))}"
-        else:
-            command += " None"
-        return command
+    def add_argument(command, value):
+        command.append("None" if value is None else str(value))
 
     if not os.path.isdir(temp_path):
         os.makedirs(temp_path)
@@ -255,7 +255,8 @@ def submit_jobs(
     if job_configs is None:
         job_configs = {
             "log_path": None,
-            "module": "mne",
+            "conda_env": "meganorm",
+            "modules": None,
             "time": "1:00:00",
             "memory": "20GB",
             "partition": "normal",
@@ -267,8 +268,9 @@ def submit_jobs(
     batch_file = sbatchfile(
         mainParallel_path,
         bash_file_path,
-        log_path=job_configs["log_path"],
-        module=job_configs["module"],
+        log_path=job_configs.get("log_path"),
+        conda_env=job_configs.get("conda_env", "meganorm"),
+        modules=job_configs.get("modules"),
         time=job_configs["time"],
         memory=job_configs["memory"],
         partition=job_configs["partition"],
@@ -299,24 +301,35 @@ def submit_jobs(
         layout_path = subjects[subject].get("layout_path")
         demographic_path = subjects[subject].get("demographic_path")
 
-        command = f"sbatch --job-name={shlex.quote(subject)} {batch_file} {shlex.quote(rs_fname)} {temp_path} {subject} {shlex.quote(str(config_file))}"
+        command = [
+            "sbatch",
+            f"--job-name={subject}",
+            batch_file,
+            str(rs_fname),
+            str(temp_path),
+            str(subject),
+            str(config_file),
+        ]
 
-        command = add_command(line_freq, command)
-        command = add_command(mri_surface, command)
-        command = add_command(er_fname, command)
-        command = add_command(event_record, command)
-        command = add_command(event_of_interest, command)
-        command = add_command(device, command)
-        command = add_command(pos_path, command)
-        command = add_command(trans_path, command)
-        command = add_command(annotation_path, command)
-        command = add_command(layout_path, command)
-        command = add_command(demographic_path, command)
+        for value in (
+            line_freq,
+            mri_surface,
+            er_fname,
+            event_record,
+            event_of_interest,
+            device,
+            pos_path,
+            trans_path,
+            annotation_path,
+            layout_path,
+            demographic_path,
+        ):
+            add_argument(command, value)
 
-        subprocess.check_call(command, shell=True)
+        subprocess.check_call(command)
 
         if progress:
-            progress_bar(s, len(subjects))
+            progress_bar(s + 1, len(subjects))
 
     return start_time
 
@@ -356,9 +369,7 @@ def check_jobs_status(username, start_time, delay=20):
         if failed_job_names:
             print("Failed Jobs:", ", ".join(failed_job_names))
 
-        n = (
-            job_counts["PENDING"] + job_counts["RUNNING"] - 1
-        )  # TODO: this "-1" should be removed: solution use job-id instead of time
+        n = job_counts["PENDING"] + job_counts["RUNNING"]
 
         if n <= 0:
             break
@@ -414,7 +425,7 @@ def check_user_jobs(username, start_time):
             end_time,
             "-u",
             username,
-            "--format=JobName,State",
+            "--format=JobIDRaw,JobName,State",
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -425,15 +436,18 @@ def check_user_jobs(username, start_time):
 
         status_counts = empty_counts.copy()
         failed_jobs = []
+        current_job_id = os.environ.get("SLURM_JOB_ID")
 
         lines = result.stdout.strip().split("\n")
         for line in lines:
             if not line:
                 continue
             parts = line.split("|")
-            if len(parts) < 2:
+            if len(parts) < 3:
                 continue
-            job_name, state = parts[0], parts[1]
+            job_id, job_name, state = parts[0], parts[1], parts[2]
+            if current_job_id and job_id == current_job_id:
+                continue
             # State can carry a suffix, e.g. "CANCELLED by 12345"
             state = state.split()[0]
             if state in status_counts:
@@ -790,8 +804,8 @@ def sbatch_feature_extraction_runner(
         anatomical data.
     job_configs : dict
         SLURM job configuration, including keys such as "partition",
-        "module", and "slurm_username". Updated in place with the
-        computed "log_path".
+        "conda_env", "modules", and "slurm_username". Updated in place
+        with the computed "log_path".
     config_file : Config or None, optional
         A `meganorm.utils.IO.Config` instance specifying pipeline
         settings. If None, a default `Config` is created and saved.
@@ -877,6 +891,12 @@ def sbatch_feature_extraction_runner(
     with open(save_path, "w") as f:
         json.dump(params, f, indent=4)
 
+    module_setup = "".join(
+        f"module load {shlex.quote(module_name)}\n"
+        for module_name in job_configs.get("modules") or []
+    )
+    conda_env = shlex.quote(job_configs.get("conda_env", "meganorm"))
+
     sbatch_text = f"""#!/bin/bash
 #SBATCH --job-name=feature_extraction_runner
 #SBATCH --output=Features/feature_extraction_runner.out
@@ -887,7 +907,7 @@ def sbatch_feature_extraction_runner(
 #SBATCH --partition={job_configs["partition"]}
 
 # Activate your environment
-source activate {job_configs["module"]}
+{module_setup}source activate {conda_env}
 
 python {os.path.abspath(meganorm.utils.parallel.__file__)}
 """
