@@ -862,7 +862,13 @@ def box_plot_auc(
     sns.set_theme(style="ticks")
     plt.figure(figsize=(6, 5))
     ax = sns.boxplot(
-        x="variable", y="value", data=data_long, palette=palette, showfliers=False
+        x="variable",
+        y="value",
+        hue="variable",
+        data=data_long,
+        palette=palette,
+        showfliers=False,
+        legend=False,
     )
 
     # Apply alpha to each PathPatch (box area)
