@@ -552,9 +552,13 @@ def classify_subject_status(
         "error_hints": [],
     }
 
-    # No log at all
+    # A lock can be created before recon-all.log. Respect it so a newly
+    # submitted job is not misclassified as missing and submitted twice.
     if not log_path.exists():
-        status = "missing"
+        if isrunning_files:
+            status = "stalled" if now - newest_ir > stalled_s else "running"
+        else:
+            status = "missing"
         info["status"] = status
         return status, info
 
@@ -805,7 +809,7 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
 
     1. MAD-based robust z-score (default, recommended)
        Computes a robust z-score using the median and median absolute deviation
-       (MAD). Subjects with |z| > threshold are flagged as QC failures.
+       (MAD). Subjects with z < -threshold are flagged as QC failures.
        This approach is robust and recommended for large multi-site datasets.
 
     2. Absolute deviation from median
@@ -874,6 +878,10 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
     ... )
     """
 
+    method_u = str(method).upper()
+    if method_u not in {"MAD", "ABS"}:
+        raise ValueError("method must be 'MAD' or 'ABS'")
+
     euler_numbers, missing_samples = retrieve_freesurfer_eulernum(
         results_directory, verbose=verbose
     )
@@ -894,8 +902,6 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
     # Worst hemisphere per subject (most negative Euler)
     e = df[["lh_en", "rh_en"]].to_numpy(float)
     per_subj = np.min(e, axis=1)
-
-    method_u = method.upper()
 
     if method_u == "MAD":
         med = np.median(per_subj)
