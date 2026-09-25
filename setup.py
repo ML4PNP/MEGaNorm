@@ -24,7 +24,7 @@ setup(
     license="GNU GPLv3",
     url="https://github.com/ML4PNP/MEGaNorm",
     packages=find_packages(),
-    python_requires=">=3.12",
+    python_requires=">=3.12,<3.13",
     install_requires=load_requirements(),
     extras_require={
         "dev": [
@@ -35,6 +35,7 @@ setup(
     },
     classifiers=[
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.12",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
         "Intended Audience :: Science/Research",

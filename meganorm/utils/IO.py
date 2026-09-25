@@ -12,6 +12,7 @@ from typing import Optional
 import warnings
 from typing import Union
 from typing import ClassVar
+from mne.io.artemis123.utils import _read_pos
 from pydantic import (
     BaseModel,
     Field,
@@ -381,7 +382,7 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
-    bem_preflood_parameter_space: List[int] = (10, 15, 20, 30, 35)
+    bem_preflood_parameter_space: List[int] = [10, 15, 20, 30, 35]
     bem_preflood: int = 25
     bem_gcaatlas: bool = True
     bem_max_erosion_pct: float = 15.0
@@ -685,7 +686,7 @@ def _add_artemis_headshape(data, path, pos_file, logger):
     ext = str(resolved).split(".")[-1].lower()
 
     if ext == "pos":
-        digs = mne.io.artemis123.utils._read_pos(fname=resolved)
+        digs = _read_pos(fname=resolved)
         with data.info._unlock():
             data.info["dig"] = existing + digs
             data.info["dig"] = mne._fiff._digitization._format_dig_points(
@@ -730,7 +731,7 @@ def infer_device(path, device_type, which_sensor, logger):
     if "4D" in path:
         return "BTI"
 
-    extension = path.split(".")[-1]
+    extension = path.split(".")[-1].lower()
     if extension in MEG_DEVICE_BY_EXTENSION:
         return MEG_DEVICE_BY_EXTENSION[extension]
 
@@ -744,15 +745,20 @@ def load_recording(
 ):
     """Load data"""
 
+    use_empty_room = configs.apply_empty_room_recording and (
+        configs.apply_source_localization
+        or configs.apply_environmental_noise_ssp_with_eroom
+    )
+
     if device == "CTF":
         data = mne.io.read_raw_ctf(path, preload=True)
 
         if pos_file:
-            ext = pos_file.split(".")[-1]
+            ext = pos_file.split(".")[-1].lower()
             if ext == "pos":
-                digs = mne.io.artemis123.utils._read_pos(fname=pos_file)
+                digs = _read_pos(fname=pos_file)
                 with data.info._unlock():
-                    data.info["dig"] += digs
+                    data.info["dig"] = (data.info["dig"] or []) + digs
                     data.info["dig"] = mne._fiff._digitization._format_dig_points(
                         data.info["dig"]
                     )
@@ -771,18 +777,12 @@ def load_recording(
                     "no head-shape/dig info was added to the recording."
                 )
 
-        if empty_room_recording_path and (
-            configs.apply_source_localization
-            or configs.apply_environmental_noise_ssp_with_eroom
-        ):
+        if empty_room_recording_path and use_empty_room:
             empty_room_recording = mne.io.read_raw_ctf(
                 empty_room_recording_path, preload=True
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and (
-            configs.apply_source_localization
-            or configs.apply_environmental_noise_ssp_with_eroom
-        ):
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.warning("No empty room recording was found")
         else:
@@ -802,7 +802,7 @@ def load_recording(
             preload=True,
             convert=convert,
         )
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and use_empty_room:
             empty_room_recording = mne.io.read_raw_bti(
                 pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
                 config_fname=os.path.join(empty_room_recording_path, "config"),
@@ -811,7 +811,7 @@ def load_recording(
                 preload=True,
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.info("No empty room recording was found")
         else:
@@ -839,7 +839,7 @@ def load_recording(
                     preload=True,
                 )
 
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and use_empty_room:
             if str(empty_room_recording_path).lower().endswith(".fif"):
                 empty_room_recording = mne.io.read_raw_fif(
                     empty_room_recording_path, preload=True
@@ -850,7 +850,7 @@ def load_recording(
                     preload=True,
                 )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.info("No empty room recording was found")
         else:
@@ -858,12 +858,12 @@ def load_recording(
 
     else:
         data = mne.io.read_raw(path, preload=True)
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and use_empty_room:
             empty_room_recording = mne.io.read_raw(
                 empty_room_recording_path, preload=True
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.info("No empty room recording was found")
         else:
@@ -937,7 +937,7 @@ def merge_fidp_demo(
         raise FileNotFoundError(
             f"The file 'all_features.csv' is missing in the directory: {features_dir}."
         )
-    features_df = pd.read_csv(feature_path, index_col=0)
+    features_df = pd.read_csv(feature_path, index_col=0, dtype={0: str})
     features_df.index = features_df.index.astype(str)
 
     # Merge demographic and features
@@ -1021,22 +1021,28 @@ def merge_datasets_with_glob(datasets):
             "demographic_path", os.path.join(base_dir, "participants_bids.tsv")
         )
 
-        dirs = [
+        dirs = sorted(
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
-        ]
+        )
 
         for subj in dirs:
 
             # resting state data
-            rs_record_paths = glob.glob(
-                f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True
+            rs_record_paths = sorted(
+                glob.glob(
+                    f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True
+                )
             )
+            if not rs_record_paths:
+                continue
 
             # empty room record
             if empty_room_task:
-                er_record_paths = glob.glob(
-                    f"{empty_room_path}/{subj}/**/*{empty_room_task}*{empty_room_ending}",
-                    recursive=True,
+                er_record_paths = sorted(
+                    glob.glob(
+                        f"{empty_room_path}/{subj}/**/*{empty_room_task}*{empty_room_ending}",
+                        recursive=True,
+                    )
                 )
             else:
                 er_record_paths = None
@@ -1052,33 +1058,41 @@ def merge_datasets_with_glob(datasets):
 
             # event file
             if event_file_task and event_file_path:
-                event_record_paths = glob.glob(
-                    f"{event_file_path}/{subj}/**/*{event_file_task}*{event_file_ending}",
-                    recursive=True,
+                event_record_paths = sorted(
+                    glob.glob(
+                        f"{event_file_path}/{subj}/**/*{event_file_task}*{event_file_ending}",
+                        recursive=True,
+                    )
                 )
             else:
                 event_record_paths = None
 
             # trans file
             if trans_file_p:
-                trans_path = glob.glob(
-                    f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True
+                trans_path = sorted(
+                    glob.glob(
+                        f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True
+                    )
                 )
             else:
                 trans_path = None
 
             # pos file
             if pos_file_p and pos_file_ending:
-                pos_path = glob.glob(
-                    f"{pos_file_p}/{subj}/**/*{pos_file_ending}", recursive=True
+                pos_path = sorted(
+                    glob.glob(
+                        f"{pos_file_p}/{subj}/**/*{pos_file_ending}", recursive=True
+                    )
                 )
             else:
                 pos_path = None
 
             if annotation_p:
-                annotation_path = glob.glob(
-                    f"{annotation_p}/*{subj}*/**/*{annotaion_task_name}*{annotation_ending}",
-                    recursive=True,
+                annotation_path = sorted(
+                    glob.glob(
+                        f"{annotation_p}/*{subj}*/**/*{annotaion_task_name}*{annotation_ending}",
+                        recursive=True,
+                    )
                 )
             else:
                 annotation_path = None
@@ -1109,10 +1123,15 @@ def merge_datasets_with_glob(datasets):
 def load_demographic_file(path, index_col=0):
     """Read a participants/demographic table (.tsv, .txt, .csv, .xlsx)."""
     ext = os.path.splitext(path)[1].lower()
+    index_dtype = (
+        {index_col: str}
+        if index_col is not None and index_col is not False
+        else None
+    )
     if ext in (".tsv", ".txt"):
-        df = pd.read_csv(path, sep="\t", index_col=index_col)
+        df = pd.read_csv(path, sep="\t", index_col=index_col, dtype=index_dtype)
     elif ext == ".csv":
-        df = pd.read_csv(path, index_col=index_col)
+        df = pd.read_csv(path, index_col=index_col, dtype=index_dtype)
     elif ext in (".xlsx", ".xls"):
         df = pd.read_excel(path, index_col=index_col)
     else:
@@ -1157,18 +1176,19 @@ def make_demo_file_bids(
     None
     """
     for col in columns:
-        if col.get("single_value") and col.get("mapping"):
+        if col.get("single_value") is not None and col.get("mapping") is not None:
             raise ValueError(
                 "'single_value' and 'mapping' can not be both defined. One of them must be None; see the documentation!"
             )
 
     # Load input file based on extension
-    if file_dir.endswith(".xlsx"):
+    extension = os.path.splitext(file_dir)[1].lower()
+    if extension == ".xlsx":
         df = pd.read_excel(file_dir)
-    elif file_dir.endswith(".csv"):
-        df = pd.read_csv(file_dir)
-    elif file_dir.endswith(".tsv"):
-        df = pd.read_csv(file_dir, sep="\t")
+    elif extension == ".csv":
+        df = pd.read_csv(file_dir, dtype={id_col: str})
+    elif extension == ".tsv":
+        df = pd.read_csv(file_dir, sep="\t", dtype={id_col: str})
     else:
         raise ValueError(f"Unsupported file type for: {file_dir}")
 
@@ -1357,8 +1377,10 @@ def find_other_mri_session(
 
     new_paths = {}
     for subject in missing_mri_subjects:
-        mri_paths = glob.glob(
-            f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True
+        mri_paths = sorted(
+            glob.glob(
+                f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True
+            )
         )
 
         if len(mri_paths) > which_session - 1:
@@ -1387,12 +1409,16 @@ def find_failed_meg_subjects(log_path):
     """
 
     missing_meg_subjects = []
-    paths = os.scandir(log_path)
-    paths = list(filter(lambda x: "err" in x.name, paths))
+    with os.scandir(log_path) as entries:
+        paths = [
+            entry
+            for entry in entries
+            if entry.is_file() and "err" in entry.name.lower()
+        ]
     for path in paths:
         with open(path, "r") as f:
             content = f.read()
-            if "error" in content:
+            if "error" in content.lower():
                 subject = os.path.basename(path).split(".")[0].split("_")[0]
                 missing_meg_subjects.append(subject)
 
@@ -1431,9 +1457,11 @@ def find_other_meg_session(
     """
     new_paths = {}
     for subject in missing_meg_subjects:
-        rs_record_paths = glob.glob(
-            f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
-            recursive=True,
+        rs_record_paths = sorted(
+            glob.glob(
+                f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
+                recursive=True,
+            )
         )
         if len(rs_record_paths) > which_session - 1:
             new_paths.update({subject: rs_record_paths[which_session - 1]})

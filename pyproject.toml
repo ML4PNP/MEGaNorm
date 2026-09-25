@@ -23,3 +23,8 @@ exclude = '''
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "unit: fast tests of isolated MEGaNorm behavior",
+    "integration: tests of MEGaNorm interactions with scientific dependencies",
+    "slow: tests excluded from the fast pull-request suite",
+]

@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/meganorm?logo=pypi\&logoColor=white\&color=3775A9)](https://pypi.org/project/meganorm/)
 [![Python](https://img.shields.io/pypi/pyversions/meganorm?logo=python\&logoColor=white\&color=3776AB)](https://pypi.org/project/meganorm/)
+[![Tests](https://github.com/ML4PNP/MEGaNorm/actions/workflows/tests.yml/badge.svg)](https://github.com/ML4PNP/MEGaNorm/actions/workflows/tests.yml)
 [![Documentation](https://readthedocs.org/projects/meganorm/badge/?version=latest)](https://meganorm.readthedocs.io/en/latest/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/smkia/meganorm?logo=docker\&logoColor=white\&color=2496ED)](https://hub.docker.com/r/smkia/meganorm)
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
@@ -42,6 +43,8 @@ MEGaNorm supports processing on high-performance computing (HPC) infrastructure 
 ---
 
 ## Installation
+
+MEGaNorm currently supports Python 3.12.
 
 ### From PyPI (recommended)
 
@@ -138,7 +141,21 @@ Example workflows are also available in the [`notebooks/`](notebooks/) directory
 
 ## Testing
 
-An automated test suite is currently under development. Until it is available, users are encouraged to report unexpected behavior or reproducibility issues through the [GitHub issue tracker](https://github.com/ML4PNP/MEGaNorm/issues).
+MEGaNorm includes an automated test suite covering its core processing,
+feature-extraction, normative-modeling, source-localization, IO, layout,
+plotting, and utility functionality. The full suite runs automatically through
+[GitHub Actions](https://github.com/ML4PNP/MEGaNorm/actions/workflows/tests.yml)
+on pushes and pull requests.
+
+To run the tests locally from a development checkout:
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q
+```
+
+Please report unexpected behavior or reproducibility issues through the
+[GitHub issue tracker](https://github.com/ML4PNP/MEGaNorm/issues).
 
 ---
 

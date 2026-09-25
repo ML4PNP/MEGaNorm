@@ -241,7 +241,7 @@ def create_layouts(modality, output_format):
                 ],
             },
             "FIF_MEG_LOBE": {
-                "MAG_frontal_left": [
+                "MAG_frontal_lh_": [
                     "MEG0121",
                     "MEG0341",
                     "MEG0311",
@@ -256,7 +256,7 @@ def create_layouts(modality, output_format):
                     "MEG0621",
                     "MEG0821",
                 ],
-                "MAG_frontal_right": [
+                "MAG_frontal_rh_": [
                     "MEG1411",
                     "MEG1221",
                     "MEG1211",
@@ -271,7 +271,7 @@ def create_layouts(modality, output_format):
                     "MEG0811",
                     "MEG1011",
                 ],
-                "MAG_temporal_left": [
+                "MAG_temporal_lh_": [
                     "MEG0111",
                     "MEG0131",
                     "MEG0211",
@@ -286,7 +286,7 @@ def create_layouts(modality, output_format):
                     "MEG1621",
                     "MEG1531",
                 ],
-                "MAG_temporal_right": [
+                "MAG_temporal_rh_": [
                     "MEG1421",
                     "MEG1311",
                     "MEG1321",
@@ -301,7 +301,7 @@ def create_layouts(modality, output_format):
                     "MEG2621",
                     "MEG2631",
                 ],
-                "MAG_parietal_left": [
+                "MAG_parietal_lh_": [
                     "MEG0411",
                     "MEG0421",
                     "MEG0631",
@@ -316,7 +316,7 @@ def create_layouts(modality, output_format):
                     "MEG1831",
                     "MEG2011",
                 ],
-                "MAG_parietal_right": [
+                "MAG_parietal_rh_": [
                     "MEG1041",
                     "MEG1111",
                     "MEG1121",
@@ -331,7 +331,7 @@ def create_layouts(modality, output_format):
                     "MEG2441",
                     "MEG2021",
                 ],
-                "MAG_occipital_left": [
+                "MAG_occipital_lh_": [
                     "MEG1641",
                     "MEG1721",
                     "MEG1711",
@@ -345,7 +345,7 @@ def create_layouts(modality, output_format):
                     "MEG2111",
                     "MEG2141",
                 ],
-                "MAG_occipital_right": [
+                "MAG_occipital_rh_": [
                     "MEG2431",
                     "MEG2521",
                     "MEG2531",
@@ -359,7 +359,7 @@ def create_layouts(modality, output_format):
                     "MEG2121",
                     "MEG2131",
                 ],
-                "GRAD1_frontal_left": [
+                "GRAD1_frontal_lh_": [
                     "MEG0122",
                     "MEG0342",
                     "MEG0312",
@@ -374,7 +374,7 @@ def create_layouts(modality, output_format):
                     "MEG0622",
                     "MEG0822",
                 ],
-                "GRAD1_frontal_right": [
+                "GRAD1_frontal_rh_": [
                     "MEG1412",
                     "MEG1222",
                     "MEG1212",
@@ -389,7 +389,7 @@ def create_layouts(modality, output_format):
                     "MEG0812",
                     "MEG1012",
                 ],
-                "GRAD1_temporal_left": [
+                "GRAD1_temporal_lh_": [
                     "MEG0112",
                     "MEG0132",
                     "MEG0212",
@@ -404,7 +404,7 @@ def create_layouts(modality, output_format):
                     "MEG1622",
                     "MEG1532",
                 ],
-                "GRAD1_temporal_right": [
+                "GRAD1_temporal_rh_": [
                     "MEG1422",
                     "MEG1312",
                     "MEG1322",
@@ -419,7 +419,7 @@ def create_layouts(modality, output_format):
                     "MEG2622",
                     "MEG2632",
                 ],
-                "GRAD1_parietal_left": [
+                "GRAD1_parietal_lh_": [
                     "MEG0412",
                     "MEG0422",
                     "MEG0632",
@@ -434,7 +434,7 @@ def create_layouts(modality, output_format):
                     "MEG1832",
                     "MEG2012",
                 ],
-                "GRAD1_parietal_right": [
+                "GRAD1_parietal_rh_": [
                     "MEG1042",
                     "MEG1112",
                     "MEG1122",
@@ -449,7 +449,7 @@ def create_layouts(modality, output_format):
                     "MEG2442",
                     "MEG2022",
                 ],
-                "GRAD1_occipital_left": [
+                "GRAD1_occipital_lh_": [
                     "MEG1642",
                     "MEG1722",
                     "MEG1712",
@@ -463,7 +463,7 @@ def create_layouts(modality, output_format):
                     "MEG2112",
                     "MEG2142",
                 ],
-                "GRAD1_occipital_right": [
+                "GRAD1_occipital_rh_": [
                     "MEG2432",
                     "MEG2522",
                     "MEG2532",
@@ -477,7 +477,7 @@ def create_layouts(modality, output_format):
                     "MEG2122",
                     "MEG2132",
                 ],
-                "GRAD2_frontal_left": [
+                "GRAD2_frontal_lh_": [
                     "MEG0123",
                     "MEG0343",
                     "MEG0313",
@@ -492,7 +492,7 @@ def create_layouts(modality, output_format):
                     "MEG0623",
                     "MEG0823",
                 ],
-                "GRAD2_frontal_right": [
+                "GRAD2_frontal_rh_": [
                     "MEG1413",
                     "MEG1223",
                     "MEG1213",
@@ -507,7 +507,7 @@ def create_layouts(modality, output_format):
                     "MEG0813",
                     "MEG1013",
                 ],
-                "GRAD2_temporal_left": [
+                "GRAD2_temporal_lh_": [
                     "MEG0113",
                     "MEG0133",
                     "MEG0213",
@@ -522,7 +522,7 @@ def create_layouts(modality, output_format):
                     "MEG1623",
                     "MEG1533",
                 ],
-                "GRAD2_temporal_right": [
+                "GRAD2_temporal_rh_": [
                     "MEG1423",
                     "MEG1313",
                     "MEG1323",
@@ -537,7 +537,7 @@ def create_layouts(modality, output_format):
                     "MEG2623",
                     "MEG2633",
                 ],
-                "GRAD2_parietal_left": [
+                "GRAD2_parietal_lh_": [
                     "MEG0413",
                     "MEG0423",
                     "MEG0633",
@@ -552,7 +552,7 @@ def create_layouts(modality, output_format):
                     "MEG1833",
                     "MEG2013",
                 ],
-                "GRAD2_parietal_right": [
+                "GRAD2_parietal_rh_": [
                     "MEG1043",
                     "MEG1113",
                     "MEG1123",
@@ -567,7 +567,7 @@ def create_layouts(modality, output_format):
                     "MEG2443",
                     "MEG2023",
                 ],
-                "GRAD2_occipital_left": [
+                "GRAD2_occipital_lh_": [
                     "MEG1643",
                     "MEG1723",
                     "MEG1713",
@@ -581,7 +581,7 @@ def create_layouts(modality, output_format):
                     "MEG2113",
                     "MEG2143",
                 ],
-                "GRAD2_occipital_right": [
+                "GRAD2_occipital_rh_": [
                     "MEG2433",
                     "MEG2523",
                     "MEG2533",
@@ -1227,7 +1227,7 @@ def create_layouts(modality, output_format):
             },
             # The devision in layout is based on Rayson et al. (2019), Zora et al. (2016)
             "SET_EEG_LOBE": {
-                "frontal_left": [
+                "frontal_lh_": [
                     "E20",
                     "E12",
                     "E28",
@@ -1240,7 +1240,7 @@ def create_layouts(modality, output_format):
                     "E26",
                     "E33",
                 ],
-                "frontal_right": [
+                "frontal_rh_": [
                     "E5",
                     "E118",
                     "E4",
@@ -1253,9 +1253,10 @@ def create_layouts(modality, output_format):
                     "E2",
                     "E122",
                 ],
-                "central_left": [
+                "central_lh_": [
                     "E7",
-                    "E31" "E54",
+                    "E31",
+                    "E54",
                     "E37",
                     "E30",
                     "E13",
@@ -1265,7 +1266,7 @@ def create_layouts(modality, output_format):
                     "E42",
                     "E53",
                 ],
-                "central_right": [
+                "central_rh_": [
                     "E106",
                     "E80",
                     "E112",
@@ -1278,25 +1279,21 @@ def create_layouts(modality, output_format):
                     "E93",
                     "E86",
                 ],
-                "temporal_left": [
+                "temporal_lh_": [
                     "E45",
                     "E50",
                     "E58",
                     "E39",
                     "E44",
-                    "E49",
-                    "E56",
                 ],
-                "temporal_right": [
+                "temporal_rh_": [
                     "E115",
                     "E108",
                     "E101",
                     "E96",
                     "E114",
-                    "E113",
-                    "E107",
                 ],
-                "parietal_left": [
+                "parietal_lh_": [
                     "E67",
                     "E66",
                     "E71",
@@ -1306,7 +1303,7 @@ def create_layouts(modality, output_format):
                     "E51",
                     "E59",
                 ],
-                "parietal_right": [
+                "parietal_rh_": [
                     "E77",
                     "E76",
                     "E84",
@@ -1316,17 +1313,15 @@ def create_layouts(modality, output_format):
                     "E91",
                     "E97",
                 ],
-                "occipital_left": [
+                "occipital_lh_": [
                     "E70",
                     "E69",
                     "E74",
-                    "E73",
                 ],
-                "occipital_right": [
+                "occipital_rh_": [
                     "E83",
                     "E82",
                     "E89",
-                    "E88",
                 ],
             },
         }
@@ -1375,44 +1370,44 @@ def create_layouts(modality, output_format):
                 ]
             },
             "VHDR_EEG_LOBE": {
-                "frontal_left": [
+                "frontal_lh_": [
                     "Fp1",
                     "F7",
                     "F3",
+                    "FC3",
                 ],
-                "frontal_right": [
+                "frontal_rh_": [
                     "Fp2",
                     "F4",
                     "F8",
-                ],
-                "central_left": [
-                    "FC3",
-                    "C3",
-                    "CP3",
-                ],
-                "central_right": [
                     "FC4",
-                    "C4",
-                    "CP4",
                 ],
-                "temporal_left": [
+                "central_lh_": [
+                    "C3",
+                ],
+                "central_rh_": [
+                    "C4",
+                ],
+                "temporal_lh_": [
                     "T7",
                 ],
-                "temporal_right": [
+                "temporal_rh_": [
                     "T8",
                 ],
-                "parietal_left": [
+                "parietal_lh_": [
+                    "CP3",
                     "P7",
                     "P3",
                 ],
-                "parietal_right": [
+                "parietal_rh_": [
+                    "CP4",
                     "P4",
                     "P8",
                 ],
-                "occipital_left": [
+                "occipital_lh_": [
                     "O1",
                 ],
-                "occipital_right": [
+                "occipital_rh_": [
                     "O2",
                 ],
             },
