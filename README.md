@@ -44,6 +44,8 @@ MEGaNorm supports processing on high-performance computing (HPC) infrastructure 
 
 ## Installation
 
+MEGaNorm currently supports Python 3.12.
+
 ### From PyPI (recommended)
 
 For most users, installation from PyPI is the recommended option.
