@@ -12,40 +12,40 @@ set -euo pipefail
 #   pcntkdev/
 #     PCNtoolkit/
 #
-# MEGaNorm uses the branch supplied as the first argument. If no branch is
-# supplied, "dev" is used.
+# Usage:
+#   ./setup-dev.sh ENV_NAME MEGANORM_BRANCH [--editable|--shared]
 #
 # PCNtoolkit always uses the "integration" branch.
-#
-# The script:
-#   - fetches and switches to the required Git branches,
-#   - updates those branches with fast-forward-only pulls,
-#   - creates or refreshes the meganorm-dev Conda environment,
-#   - installs MEGaNorm and PCNtoolkit in editable mode,
-#   - verifies that the local development checkouts are being imported.
-#
-# To protect local work, the script stops if tracked uncommitted changes are
-# present before a branch switch or update.
 
-ENV_NAME="meganorm-dev"
 PYTHON_VERSION="3.12"
-
-MEGANORM_BRANCH="${1:-dev}"
 
 PCNTOOLKIT_BRANCH="integration"
 PCNTOOLKIT_DEV_ROOT="pcntkdev"
 PCNTOOLKIT_REPO_NAME="PCNtoolkit"
 
-if [[ "${MEGANORM_BRANCH}" == "-h" || "${MEGANORM_BRANCH}" == "--help" ]]; then
+INSTALL_MODE="editable"
+
+show_help() {
     cat <<'EOF'
 Usage:
-  ./setup-dev.sh [MEGANORM_BRANCH]
+  ./setup-dev.sh ENV_NAME MEGANORM_BRANCH [--editable|--shared]
 
 Set up or refresh the MEGaNorm Development Environment.
 
-Arguments:
-  MEGANORM_BRANCH   MEGaNorm branch to use for development.
-                    Optional. Defaults to "dev".
+Required arguments:
+  ENV_NAME           Name of the Conda environment to create or refresh.
+  MEGANORM_BRANCH    MEGaNorm branch to use for development.
+
+Options:
+  --editable         Install MEGaNorm and PCNtoolkit in editable mode.
+                     This is the default and is recommended for individual
+                     developers.
+
+  --shared           Install MEGaNorm and PCNtoolkit normally into the Conda
+                     environment. Use this when the environment is shared by
+                     users who do not have access to the source checkouts.
+
+  -h, --help         Show this help message.
 
 Expected directory layout:
 
@@ -56,27 +56,68 @@ Expected directory layout:
       PCNtoolkit/
 
 Examples:
-  ./setup-dev.sh
-  ./setup-dev.sh dev
-  ./setup-dev.sh dev_meg
-  ./setup-dev.sh feature/new-workflow
-
-Behavior:
-  - MEGaNorm is switched to the requested branch.
-  - PCNtoolkit is switched to "integration".
-  - Remote branches are fetched and updated using fast-forward-only pulls.
-  - Existing tracked uncommitted changes cause the script to stop.
-  - The "meganorm-dev" Conda environment is created if missing.
-  - If it already exists, it is refreshed rather than recreated.
+  ./setup-dev.sh meganorm-dev-meg dev_meg
+  ./setup-dev.sh meganorm-dev-meg dev_meg --editable
+  ./setup-dev.sh meganorm-shared dev --shared
 EOF
+}
+
+if [[ "$#" -eq 0 ]]; then
+    show_help
+    exit 2
+fi
+
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    show_help
     exit 0
 fi
 
-if [[ "$#" -gt 1 ]]; then
-    echo "ERROR: Too many arguments."
-    echo "Run './setup-dev.sh --help' for usage."
+if [[ "$#" -lt 2 ]]; then
+    echo "ERROR: ENV_NAME and MEGANORM_BRANCH are required."
+    echo
+    show_help
     exit 2
 fi
+
+ENV_NAME="$1"
+MEGANORM_BRANCH="$2"
+shift 2
+
+if [[ "${ENV_NAME}" == -* ]]; then
+    echo "ERROR: ENV_NAME must be the first argument."
+    echo
+    show_help
+    exit 2
+fi
+
+if [[ "${MEGANORM_BRANCH}" == -* ]]; then
+    echo "ERROR: MEGANORM_BRANCH must be the second argument."
+    echo
+    show_help
+    exit 2
+fi
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --editable)
+            INSTALL_MODE="editable"
+            ;;
+        --shared)
+            INSTALL_MODE="shared"
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option '$1'."
+            echo
+            show_help
+            exit 2
+            ;;
+    esac
+    shift
+done
 
 MEGANORM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -89,9 +130,10 @@ echo
 echo "MEGaNorm Development Environment setup"
 echo "======================================="
 echo
+echo "Conda environment: ${ENV_NAME}"
 echo "MEGaNorm branch:   ${MEGANORM_BRANCH}"
 echo "PCNtoolkit branch: ${PCNTOOLKIT_BRANCH}"
-echo "Conda environment: ${ENV_NAME}"
+echo "Installation mode: ${INSTALL_MODE}"
 echo
 
 command -v git >/dev/null 2>&1 || {
@@ -192,7 +234,7 @@ prepare_branch "${PCNTOOLKIT_DIR}" "${PCNTOOLKIT_BRANCH}" "PCNtoolkit" "true"
 if conda env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
     echo
     echo "Conda environment '${ENV_NAME}' already exists."
-    echo "Refreshing the existing development environment..."
+    echo "Refreshing the existing environment..."
 
     CURRENT_PYTHON="$(
         conda run -n "${ENV_NAME}" \
@@ -231,27 +273,46 @@ echo "Updating pip..."
 conda run -n "${ENV_NAME}" \
     python -m pip install --upgrade pip
 
-echo
-echo "Installing or refreshing MEGaNorm development dependencies..."
+if [[ "${INSTALL_MODE}" == "editable" ]]; then
+    echo
+    echo "Installing MEGaNorm in editable mode..."
 
-conda run -n "${ENV_NAME}" \
-    python -m pip install -e "${MEGANORM_DIR}[dev]"
+    conda run -n "${ENV_NAME}" \
+        python -m pip install -e "${MEGANORM_DIR}[dev]"
 
-echo
-echo "Installing or refreshing PCNtoolkit from the local integration branch..."
+    echo
+    echo "Installing PCNtoolkit in editable mode..."
 
-# Install PCNtoolkit last so the final environment always points to the local
-# integration checkout rather than a released PCNtoolkit dependency.
-conda run -n "${ENV_NAME}" \
-    python -m pip install -e "${PCNTOOLKIT_DIR}"
+    conda run -n "${ENV_NAME}" \
+        python -m pip install -e "${PCNTOOLKIT_DIR}"
+else
+    echo
+    echo "Installing MEGaNorm in shared mode..."
+
+    conda run -n "${ENV_NAME}" \
+        python -m pip install --force-reinstall "${MEGANORM_DIR}[dev]"
+
+    echo
+    echo "Installing PCNtoolkit in shared mode..."
+
+    conda run -n "${ENV_NAME}" \
+        python -m pip install --force-reinstall "${PCNTOOLKIT_DIR}"
+fi
 
 echo
 echo "Verifying development environment..."
 
-conda run -n "${ENV_NAME}" env \
-    MEGANORM_EXPECTED="${MEGANORM_DIR}" \
-    PCNTOOLKIT_EXPECTED="${PCNTOOLKIT_DIR}" \
-    python - <<'PY'
+VERIFY_DIR="$(mktemp -d)"
+trap 'rm -rf "${VERIFY_DIR}"' EXIT
+
+(
+    cd "${VERIFY_DIR}"
+
+    conda run -n "${ENV_NAME}" env \
+        INSTALL_MODE="${INSTALL_MODE}" \
+        MEGANORM_EXPECTED="${MEGANORM_DIR}" \
+        PCNTOOLKIT_EXPECTED="${PCNTOOLKIT_DIR}" \
+        python - <<'PY'
 import os
 import sys
 from pathlib import Path
@@ -259,30 +320,53 @@ from pathlib import Path
 import meganorm
 import pcntoolkit
 
+install_mode = os.environ["INSTALL_MODE"]
+
 meganorm_path = Path(meganorm.__file__).resolve()
 pcntoolkit_path = Path(pcntoolkit.__file__).resolve()
 
 meganorm_expected = Path(os.environ["MEGANORM_EXPECTED"]).resolve()
 pcntoolkit_expected = Path(os.environ["PCNTOOLKIT_EXPECTED"]).resolve()
+environment_prefix = Path(sys.prefix).resolve()
 
-print(f"Python:     {sys.version.split()[0]}")
-print(f"MEGaNorm:   {meganorm_path}")
-print(f"PCNtoolkit: {pcntoolkit_path}")
+print(f"Python:            {sys.version.split()[0]}")
+print(f"Installation mode: {install_mode}")
+print(f"MEGaNorm:          {meganorm_path}")
+print(f"PCNtoolkit:        {pcntoolkit_path}")
 
-if meganorm_expected not in meganorm_path.parents:
-    raise RuntimeError(
-        "MEGaNorm is not being imported from the local development checkout."
-    )
+if install_mode == "editable":
+    if meganorm_expected not in meganorm_path.parents:
+        raise RuntimeError(
+            "MEGaNorm is not being imported from the local editable checkout."
+        )
 
-if pcntoolkit_expected not in pcntoolkit_path.parents:
-    raise RuntimeError(
-        "PCNtoolkit is not being imported from the local development checkout."
-    )
+    if pcntoolkit_expected not in pcntoolkit_path.parents:
+        raise RuntimeError(
+            "PCNtoolkit is not being imported from the local editable checkout."
+        )
+else:
+    if environment_prefix not in meganorm_path.parents:
+        raise RuntimeError(
+            "MEGaNorm is not being imported from the Conda environment."
+        )
+
+    if environment_prefix not in pcntoolkit_path.parents:
+        raise RuntimeError(
+            "PCNtoolkit is not being imported from the Conda environment."
+        )
 PY
+)
 
 echo
 echo "======================================="
 echo "MEGaNorm Development Environment is ready."
+
+if [[ "${INSTALL_MODE}" == "shared" ]]; then
+    echo
+    echo "Shared mode is active."
+    echo "Rerun this script after source updates to deploy the new code."
+fi
+
 echo
 echo "Activate the environment with:"
 echo
