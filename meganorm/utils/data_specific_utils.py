@@ -339,7 +339,7 @@ def _make_richards_mri_template_bem(template, root, overwrite=False, fig_dir=Non
 
     # Which tissues each surface wraps around, and how many triangles it gets
     SURFACES = {
-        'inner_skull': ([BRAIN, CSF], 5120),
+        'inner_skull': ([BRAIN, CSF], 5120), # compatible with ico 4
         'outer_skull': ([BRAIN, CSF, SKULL], 5120),
         'outer_skin': ([BRAIN, CSF, SKULL, SCALP], 10240),
     }
@@ -368,10 +368,8 @@ def _make_richards_mri_template_bem(template, root, overwrite=False, fig_dir=Non
     os.makedirs(bem_dir, exist_ok=True)
     built = {}
     for name, (labels, n_triangles) in SURFACES.items():
-        points, triangles = _mask_to_surface(np.isin(tissue, labels), voxel_to_mm, n_triangles)
-        n_defects = _count_defects(points, triangles)
-        if n_defects:
-            print(f'{template} {name}: {n_defects} defective points')
+        points, triangles = _mask_to_surface(np.isin(tissue, labels), voxel_to_mm,
+                                             n_triangles, name=f'{template} {name}')
         _save_surface(os.path.join(bem_dir, f'{name}.surf'), points, triangles)
         built[name] = (points, triangles)
 
@@ -395,16 +393,29 @@ def _make_richards_mri_template_bem(template, root, overwrite=False, fig_dir=Non
     print(f'{template}: BEM written to {bem_dir}')
     return None
 
-def _mask_to_surface(mask, voxel_to_mm, n_triangles):
-    """Turn a solid 3D region into a closed triangle surface in FreeSurfer mm."""
+def _mask_to_surface(mask, voxel_to_mm, n_triangles, name='surface',
+                     sigmas=(1.0, 1.25, 1.5, 2.0)):
+    """Turn a solid 3D region into a closed surface with a fixed number of triangles.
+
+    Starts with light smoothing; if simplifying the mesh leaves defects, it
+    smooths slightly more and tries again. The triangle count never changes.
+    """
     mask = _keep_largest_piece(mask)
     mask = ndimage.binary_fill_holes(mask)
     padded = np.pad(mask, 1).astype(float)            # closes the surface at the neck
-    smooth = ndimage.gaussian_filter(padded, sigma=1)
-    points, triangles, *_ = measure.marching_cubes(smooth, level=0.5)
-    points = nib.affines.apply_affine(voxel_to_mm, points - 1)   # -1 undoes the padding
-    points, triangles = mne.decimate_surface(points, triangles, n_triangles)
-    return _remove_unused_points(points, triangles)
+
+    for sigma in sigmas:
+        smooth = ndimage.gaussian_filter(padded, sigma=sigma)
+        points, triangles, *_ = measure.marching_cubes(smooth, level=0.5)
+        points = nib.affines.apply_affine(voxel_to_mm, points - 1)   # -1 undoes the padding
+        points, triangles = mne.decimate_surface(points, triangles, n_triangles)
+        points, triangles = _remove_unused_points(points, triangles)
+        if _count_defects(points, triangles) == 0:
+            if sigma != sigmas[0]:
+                print(f'{name} needed smoothing sigma={sigma} for a clean surface')
+            return points, triangles
+
+    raise RuntimeError(f'{name}: still defective after smoothing up to sigma={sigmas[-1]}')
 
 
 def _keep_largest_piece(mask):
@@ -424,8 +435,15 @@ def _remove_unused_points(points, triangles):
 
 
 def _count_defects(points, triangles):
-    """Count points that belong to fewer than 3 triangles (0 on a closed surface)."""
-    triangles_per_point = np.bincount(triangles.ravel(), minlength=len(points))
+    """Count points that belong to fewer than 3 distinct triangles (0 on a closed surface).
+
+    Degenerate triangles (using the same point twice) and duplicate triangles
+    are ignored, so the count matches MNE's own check.
+    """
+    a, b, c = triangles.T
+    proper = triangles[(a != b) & (b != c) & (a != c)]
+    distinct = np.unique(np.sort(proper, axis=1), axis=0)
+    triangles_per_point = np.bincount(distinct.ravel(), minlength=len(points))
     return int((triangles_per_point < 3).sum())
 
 
