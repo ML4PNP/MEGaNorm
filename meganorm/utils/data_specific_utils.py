@@ -4,12 +4,14 @@ import json
 import os
 import glob
 from pathlib import Path
-import numpy as np
-import nibabel as nib
-import mne
 import re
 import scipy.io as io
 from mne.io.constants import FIFF
+from skimage import measure
+from nibabel.processing import resample_from_to
+from scipy import ndimage
+import nibabel as nib
+import matplotlib.pyplot as plt
 
 
 def _ast_get_rs_events(raw, start_channel="STI001", end_channel="STI002"):
@@ -76,7 +78,7 @@ def _trans_from_nimh(raw, coordsystem_json, subject, subjects_dir):
     return coreg, fids
 
 
-def separate_eyes_open_close_eeglab(
+def _separate_eyes_open_close_eeglab(
     input_base_path,
     output_base_path,
     annotation_description_open,
@@ -311,3 +313,124 @@ def _read_annotation_brainstorm(
         )
     data.set_annotations(data.annotations + annot)
     return data, annot_dur
+
+
+def _make_richards_mri_template_bem(template, root, overwrite=False, fig_dir=None):
+    """Create inner skull, outer skull and scalp surfaces for one template.
+
+    Parameters
+    ----------
+    template : str
+        Template name, e.g. 'ANTS3-0Years3T'.
+    root : str
+        Folder of the Richards download (containing 'Head' and 'Sources').
+    overwrite : bool
+        If False, skip templates whose BEM surfaces already exist.
+    fig_dir : str | None
+        If given, save a check picture of the surfaces there.
+
+    Returns
+    -------
+    bem_dir : None
+    """
+
+    # Tissue labels in the Richards BEM4 segmentation
+    BRAIN, CSF, SKULL, SCALP = 1, 2, 3, 4
+
+    # Which tissues each surface wraps around, and how many triangles it gets
+    SURFACES = {
+        'inner_skull': ([BRAIN, CSF], 5120),
+        'outer_skull': ([BRAIN, CSF, SKULL], 5120),
+        'outer_skin': ([BRAIN, CSF, SKULL, SCALP], 10240),
+    }
+
+
+    subjects_dir = os.path.join(root, 'Head', 'Freesurfer')
+    bem_dir = os.path.join(subjects_dir, template, 'bem')
+    seg_file = os.path.join(root, 'Sources', 'BEM',
+                            f'{template.replace("ANTS", "AVG")}_segmented_BEM4.nii.gz')
+    head_file = os.path.join(bem_dir, f'{template}-head.fif')
+
+    if not os.path.exists(seg_file):
+        raise FileNotFoundError(f'No BEM4 segmentation for {template}: {seg_file}')
+
+    outputs = [os.path.join(bem_dir, f'{name}.surf') for name in SURFACES] + [head_file]
+    if not overwrite and all(os.path.exists(f) for f in outputs):
+        
+        return None
+
+    # Put the tissue map on the FreeSurfer grid
+    t1 = nib.load(os.path.join(subjects_dir, template, 'mri', 'T1.mgz'))
+    voxel_to_mm = t1.header.get_vox2ras_tkr()
+    tissue = resample_from_to(nib.load(seg_file), t1, order=0).get_fdata()
+
+    # Build and save the three surfaces
+    os.makedirs(bem_dir, exist_ok=True)
+    built = {}
+    for name, (labels, n_triangles) in SURFACES.items():
+        points, triangles = _mask_to_surface(np.isin(tissue, labels), voxel_to_mm, n_triangles)
+        n_defects = _count_defects(points, triangles)
+        if n_defects:
+            print(f'{template} {name}: {n_defects} defective points')
+        _save_surface(os.path.join(bem_dir, f'{name}.surf'), points, triangles)
+        built[name] = (points, triangles)
+
+    # Scalp for MEG-MRI coregistration (in metres)
+    scalp_points, scalp_triangles = built['outer_skin']
+    mne.write_head_bem(head_file, scalp_points / 1000, scalp_triangles,
+                       on_defects='warn', overwrite=True)
+
+    # Check the single-layer model and the nesting of all three surfaces
+    mne.make_bem_model(template, ico=None, conductivity=(0.3,), subjects_dir=subjects_dir)
+    mne.make_bem_model(template, ico=None, conductivity=(0.3, 0.006, 0.3),
+                       subjects_dir=subjects_dir)
+
+    if fig_dir is not None:
+        os.makedirs(fig_dir, exist_ok=True)
+        fig = mne.viz.plot_bem(subject=template, subjects_dir=subjects_dir,
+                               orientation='coronal', show=False)
+        fig.savefig(os.path.join(fig_dir, f'{template}_richards_bem.png'))
+        plt.close(fig)
+
+    print(f'{template}: BEM written to {bem_dir}')
+    return None
+
+def _mask_to_surface(mask, voxel_to_mm, n_triangles):
+    """Turn a solid 3D region into a closed triangle surface in FreeSurfer mm."""
+    mask = _keep_largest_piece(mask)
+    mask = ndimage.binary_fill_holes(mask)
+    padded = np.pad(mask, 1).astype(float)            # closes the surface at the neck
+    smooth = ndimage.gaussian_filter(padded, sigma=1)
+    points, triangles, *_ = measure.marching_cubes(smooth, level=0.5)
+    points = nib.affines.apply_affine(voxel_to_mm, points - 1)   # -1 undoes the padding
+    points, triangles = mne.decimate_surface(points, triangles, n_triangles)
+    return _remove_unused_points(points, triangles)
+
+
+def _keep_largest_piece(mask):
+    """Keep only the biggest connected blob; drop stray specks."""
+    pieces, _ = ndimage.label(mask)
+    sizes = np.bincount(pieces.ravel())
+    sizes[0] = 0                       # ignore the background
+    return pieces == np.argmax(sizes)
+
+
+def _remove_unused_points(points, triangles):
+    """Delete points no triangle uses, and renumber the rest."""
+    used = np.unique(triangles)
+    new_index = np.full(len(points), -1)
+    new_index[used] = np.arange(len(used))
+    return points[used], new_index[triangles]
+
+
+def _count_defects(points, triangles):
+    """Count points that belong to fewer than 3 triangles (0 on a closed surface)."""
+    triangles_per_point = np.bincount(triangles.ravel(), minlength=len(points))
+    return int((triangles_per_point < 3).sum())
+
+
+def _save_surface(fname, points, triangles):
+    """Save a surface, first removing any old file or link in its place."""
+    if os.path.lexists(fname):
+        os.remove(fname)
+    mne.write_surface(fname, points, triangles)
