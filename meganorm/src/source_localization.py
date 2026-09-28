@@ -1577,8 +1577,9 @@ def nearest_template_dir(age_months, subjects_dir):
     if not index:
         raise FileNotFoundError(f"No ANTS templates found in {subjects_dir}")
     name = min(index, key=lambda k: abs(index[k] - age_months))
-    print(
-        f"Nearest template: {name} ({index[name]:.1f} months, requested {age_months:.1f} months)"
+        logger.info(
+        f"Nearest template: {name} ({index[name]:.1f} months, "
+        f"requested {age_months:.1f} months)"
     )
     return name, os.path.join(subjects_dir)
 
