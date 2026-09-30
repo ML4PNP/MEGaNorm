@@ -633,13 +633,24 @@ def forward_solution(
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
+    bem_ico = kwargs.get("source_space_spacing_number", 6)
     # forward model
     bem_model = mne.make_bem_model(
         subject=subject,
-        ico=kwargs.get("source_space_spacing_number", 6),
+        ico=bem_ico,
         conductivity=conductivity,
         subjects_dir=subjects_dir,
     )
+
+    # Surfaces read from FreeSurfer .surf files keep big-endian byte order when
+    # ico=None; numba in make_forward_solution only accepts native byte order.
+    if kwargs.get("apply_mri_template", False) and bem_ico is None:
+        for surf in bem_model:
+            if not isinstance(surf, dict):
+                continue
+            for key, value in surf.items():
+                if isinstance(value, np.ndarray) and not value.dtype.isnative:
+                    surf[key] = value.astype(value.dtype.newbyteorder("="))
 
     bem = mne.make_bem_solution(bem_model)
     logger.info(
@@ -1577,7 +1588,7 @@ def nearest_template_dir(age_months, subjects_dir):
     if not index:
         raise FileNotFoundError(f"No ANTS templates found in {subjects_dir}")
     name = min(index, key=lambda k: abs(index[k] - age_months))
-        logger.info(
+    logger.info(
         f"Nearest template: {name} ({index[name]:.1f} months, "
         f"requested {age_months:.1f} months)"
     )

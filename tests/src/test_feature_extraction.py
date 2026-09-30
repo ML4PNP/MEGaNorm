@@ -23,8 +23,9 @@ pytestmark = pytest.mark.unit
 
 
 def test_abs_canonical_power_integrates_only_inclusive_band(simple_psd, freqs):
-    # Integral of y=x from 2 through 4 Hz is (4**2 - 2**2) / 2 = 6.
-    assert abs_canonical_power(simple_psd, freqs, 2.0, 4.0) == pytest.approx(6.0)
+    # Integral of y=x from 2 through 4 Hz is 6; returned on natural-log scale.
+    assert abs_canonical_power(simple_psd, freqs, 2.0, 4.0) == pytest.approx(np.log(6.0))
+
 
 
 def test_rel_canonical_power_is_band_fraction(simple_psd, freqs):
@@ -36,14 +37,32 @@ def test_rel_canonical_power_returns_nan_for_zero_total(zero_psd, freqs):
     assert np.isnan(rel_canonical_power(zero_psd, freqs, 8.0, 12.0))
 
 
-def test_band_power_ratio_returns_raw_ratio(freqs):
+def test_band_power_ratio_returns_log_ratio(freqs):
     psd = np.where(freqs <= 4.0, 2.0, 4.0)
 
-    # 0--4 Hz has area 8; 5--9 Hz has area 16. The raw ratio is 0.5.
+    # 0--4 Hz has area 8; 5--9 Hz has area 16. ln(8/16) = ln(0.5).
     result = band_power_ratio(psd, freqs, 0.0, 4.0, 5.0, 9.0)
 
-    assert result == pytest.approx(0.5)
+    assert result == pytest.approx(np.log(0.5))
 
+
+def test_abs_canonical_power_returns_nan_for_zero_power(zero_psd, freqs):
+    assert np.isnan(abs_canonical_power(zero_psd, freqs, 8.0, 12.0))
+
+
+def test_abs_individual_power_returns_nan_for_zero_power(
+    zero_psd, freqs, individualized_band_ranges
+):
+    peaks = [(10.0, 7.0, 1.5)]
+    assert np.isnan(
+        abs_individual_power(zero_psd, freqs, peaks, individualized_band_ranges, "Alpha")
+    )
+
+
+def test_band_power_ratio_returns_nan_for_zero_numerator(freqs):
+    psd = np.where(freqs <= 4.0, 0.0, 4.0)
+    assert np.isnan(band_power_ratio(psd, freqs, 0.0, 4.0, 5.0, 9.0))
+    
 
 def test_band_power_ratio_returns_nan_for_zero_denominator(freqs):
     psd = np.where(freqs <= 4.0, 2.0, 0.0)
@@ -57,15 +76,11 @@ def test_abs_individual_power_uses_highest_power_peak(
     peaks = [(8.0, 2.0, 1.0), (10.0, 7.0, 1.5)]
 
     result = abs_individual_power(
-        synthetic_alpha_psd,
-        freqs,
-        peaks,
-        individualized_band_ranges,
-        "Alpha",
+        synthetic_alpha_psd, freqs, peaks, individualized_band_ranges, "Alpha"
     )
 
-    # Dominant 10-Hz peak selects 8--12 Hz: trapz([3, 1, 8, 1, 1]) = 12.
-    assert result == pytest.approx(12.0)
+    # Dominant 10-Hz peak selects 8--12 Hz: trapz([3, 1, 8, 1, 1]) = 12 -> ln(12).
+    assert result == pytest.approx(np.log(12.0))
 
 
 def test_individual_power_respects_asymmetric_offsets(freqs):
@@ -73,7 +88,7 @@ def test_individual_power_respects_asymmetric_offsets(freqs):
     ranges = {"Alpha": (-1.0, 3.0)}
     peaks = [(10.0, 5.0, 1.0)]
 
-    assert abs_individual_power(psd, freqs, peaks, ranges, "Alpha") == 4.0
+    assert abs_individual_power(psd, freqs, peaks, ranges, "Alpha") == pytest.approx(np.log(4.0))
 
 
 @pytest.mark.parametrize(
