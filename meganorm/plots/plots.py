@@ -39,7 +39,7 @@ from meganorm.src.psdParameterize import parameterize_psds, computePsd, computeP
 from nilearn.plotting import plot_surf_roi, plot_surf_contours
 
 _trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
-from fooof.sim.gen import gen_aperiodic, gen_periodic
+from specparam.sim.gen import gen_aperiodic, gen_periodic
 
 
 # ***
@@ -2690,7 +2690,7 @@ def psd_stage_report(
     different absolute scale are comparable by shape. The aperiodic curve
     plotted is the actual estimated aperiodic component -- for IRASA,
     `spectral_models.aperiodic.get_data()` (the empirical resampled/
-    median-combined curve from the IRASA algorithm itself); for FOOOF,
+    median-combined curve from the IRASA algorithm itself); for specparam,
     `gen_aperiodic` evaluated at the model's own fitted parameters. Unlike
     the PSD stages (each normalized by its own area), the aperiodic curve
     is normalized using the SAME per-channel area as the PSD stage it was
@@ -2732,7 +2732,7 @@ def psd_stage_report(
     `configs.irasa_hset`) -- NOT the config's `psd_n_fft`/`psd_n_overlap`/
     `psd_n_per_seg`. This keeps every curve on the same frequency-grid and
     windowing basis as the aperiodic/periodic fits. For `parametrization_
-    method == "fooof"`, stages are computed via `computePsd` using the
+    method == "specparam"`, stages are computed via `computePsd` using the
     config's Welch settings instead.
 
     Knee frequency: this function does NOT fit its own knee model. For
@@ -2748,9 +2748,9 @@ def psd_stage_report(
     pipeline actually fit, rather than always fitting a knee model
     independently of the configured mode. The median of the finite,
     positive knee frequencies across channels is marked with a vertical
-    line. For `parametrization_method == "fooof"` with `aperiodic_mode ==
-    "knee"`, the knee is instead read directly from FOOOF's own fitted
-    `aperiodic_params` (FOOOF always fits its own knee parameter in that
+    line. For `parametrization_method == "specparam"` with `aperiodic_mode ==
+    "knee"`, the knee is instead read directly from specparam's own fitted
+    `aperiodic_params` (specparam always fits its own knee parameter in that
     mode, so there is nothing to reuse from elsewhere).
 
     Parameters
@@ -2781,24 +2781,24 @@ def psd_stage_report(
         `sl_segments` (post-preprocessing, e.g. post-resampling).
     sl_segments : mne.Epochs or None
         Source-localized epochs, if source localization was applied.
-    spectral_models : FOOOFGroup | pyrasa.irasa_mne.mne_objs.IrasaEpoched | None
+    spectral_models : specparam.SpectralGroupModel | pyrasa.irasa_mne.mne_objs.IrasaEpoched | None
         Fitted spectral model from `parameterize_psds`, used to extract and
         overlay the aperiodic and periodic components. If None, those
         curves and the knee-frequency marker are skipped.
     parametrization_method : str or None
-        Either "fooof" or "irasa"; must match how `spectral_models` was
+        Either "specparam" or "irasa"; must match how `spectral_models` was
         produced, and determines how each PSD stage and the knee frequency
         are computed (see above). Required if `spectral_models` is given.
     aperiodic_mode : str or None
         The aperiodic mode used to fit `spectral_models` (e.g. "fixed" or
-        "knee"). For FOOOF this selects how the aperiodic curve is
+        "knee"). For specparam this selects how the aperiodic curve is
         reconstructed and whether the knee is read from its params. For
         IRASA it only affects whether `aperiodic_fit_result` has a knee
         column (see above); it is not used to fit anything in this
         function directly.
     aperiodic_fit_result : pyrasa aperiodic fit result or None
         The object returned as the second element of `feature_extract`'s
-        return tuple for IRASA `spectral_models` (None for FOOOF). Reused
+        return tuple for IRASA `spectral_models` (None for specparam). Reused
         here to read the knee frequency without re-fitting. If None for an
         IRASA run, no knee marker is drawn.
     normalize : bool
@@ -2823,7 +2823,7 @@ def psd_stage_report(
     event-locked epochs, treat the raw stage as an approximate,
     fixed-length-segmented reference rather than an exact match.
 
-    For FOOOF, the periodic component is reconstructed per channel as
+    For specparam, the periodic component is reconstructed per channel as
     `10**(aperiodic_fit + peak_fit) - 10**aperiodic_fit` (i.e. full model
     minus aperiodic, in linear power units) rather than the raw log-space
     peak fit, so it sits on the same additive scale as the PSD curves.
@@ -2861,13 +2861,13 @@ def psd_stage_report(
             return computePsdIrasa(
                 segments=segments,
                 hset_info=configs.irasa_hset,
-                freq_range_low=configs.fooof_freq_range_low,
-                freq_range_high=configs.fooof_freq_range_high,
+                freq_range_low=configs.specparam_freq_range_low,
+                freq_range_high=configs.specparam_freq_range_high,
             )
         return computePsd(
             segments=segments,
-            freq_range_low=configs.fooof_freq_range_low,
-            freq_range_high=configs.fooof_freq_range_high,
+            freq_range_low=configs.specparam_freq_range_low,
+            freq_range_high=configs.specparam_freq_range_high,
             sampling_rate=int(round(segments.info["sfreq"])),
             psd_method=configs.psd_method,
             psd_n_overlap=configs.psd_n_overlap,
@@ -2915,17 +2915,17 @@ def psd_stage_report(
         This is the actual estimated curve, not a synthetic/generated one:
         for IRASA it is `spectral_models.aperiodic.get_data()`, the
         empirical resampled/median-combined curve from the IRASA algorithm
-        itself; for FOOOF it is `gen_aperiodic` evaluated at the model's
-        own fitted parameters, which reconstructs the fitted curve FOOOF
-        already estimated (FOOOF does not store the aperiodic curve as a
+        itself; for specparam it is `gen_aperiodic` evaluated at the model's
+        own fitted parameters, which reconstructs the fitted curve specparam
+        already estimated (specparam does not store the aperiodic curve as a
         standalone array the way IRASA does, only its fitted parameters).
         """
-        if parametrization_method == "fooof":
-            ap_params = spectral_models.get_params("aperiodic_params")
-            ap_freqs = spectral_models.freqs
+        if parametrization_method == "specparam":
+            ap_params = spectral_models.get_params("aperiodic")
+            ap_freqs = spectral_models.data.freqs
             ap_psds = np.array(
                 [
-                    10 ** gen_aperiodic(ap_freqs, params, aperiodic_mode)
+                    10 ** gen_aperiodic(ap_freqs, spectral_models.modes.aperiodic, params)
                     for params in ap_params
                 ]
             )
@@ -2942,16 +2942,17 @@ def psd_stage_report(
 
     def _periodic_curve():
         """Extract per-channel periodic (oscillatory) PSD and its frequency axis."""
-        if parametrization_method == "fooof":
-            per_freqs = spectral_models.freqs
+        if parametrization_method == "specparam":
+            per_freqs = spectral_models.data.freqs
             periodic_psds = []
-            for result in spectral_models.group_results:
+            for result in spectral_models.results.group_results:
                 ap_fit_log = gen_aperiodic(
-                    per_freqs, result.aperiodic_params, aperiodic_mode
+                    per_freqs, spectral_models.modes.aperiodic, result.aperiodic_fit
                 )
-                if result.peak_params.size:
+                if result.peak_fit.size:
                     full_fit_log = ap_fit_log + gen_periodic(
-                        per_freqs, result.peak_params.flatten()
+                        per_freqs, spectral_models.modes.periodic,
+                        result.peak_fit.flatten()
                     )
                 else:
                     full_fit_log = ap_fit_log.copy()
@@ -2996,10 +2997,10 @@ def psd_stage_report(
         """Knee frequency (Hz), or (None, 0) if not applicable / not available."""
         if parametrization_method == "irasa":
             return _knee_freq_from_ap(aperiodic_fit_result)
-        elif parametrization_method == "fooof" and aperiodic_mode == "knee":
+        elif parametrization_method == "specparam" and aperiodic_mode == "knee":
             knee_freqs = []
-            for result in spectral_models.group_results:
-                offset, knee, exponent = result.aperiodic_params
+            for result in spectral_models.results.group_results:
+                offset, knee, exponent = result.aperiodic_fit
                 if exponent > 0 and knee > 0:
                     knee_freqs.append(knee ** (1.0 / exponent))
             if not knee_freqs:
