@@ -1,18 +1,18 @@
 import numpy as np
 import pytest
-from fooof import FOOOFGroup
+from specparam import SpectralGroupModel
 
 from meganorm.src.featureExtraction import feature_extract
 
 pytestmark = pytest.mark.integration
 
 
-def test_feature_extract_consumes_fitted_fooof_group_and_recovers_alpha_peak():
+def test_feature_extract_consumes_fitted_specparam_group_and_recovers_alpha_peak():
     freqs = np.arange(2.0, 25.5, 0.5)
     background = 1.0 / freqs
     alpha_peak = 0.8 * np.exp(-0.5 * ((freqs - 10.0) / 0.8) ** 2)
     psds = (background + alpha_peak)[None, :]
-    models = FOOOFGroup(
+    models = SpectralGroupModel(
         aperiodic_mode="fixed",
         max_n_peaks=3,
         peak_width_limits=(1.0, 6.0),
