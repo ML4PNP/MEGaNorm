@@ -227,7 +227,7 @@ def test_parameterize_psds_specparam_path_returns_consistent_shapes():
         psd_n_overlap=1,
         psd_n_fft=2,
         n_per_seg=2,
-        aperiodic_mode="fixed",
+        aperiodic_mode="fixed", 
     )
 
     assert len(models.results.group_results) == len(epochs.ch_names)
