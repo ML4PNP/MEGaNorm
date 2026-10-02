@@ -2949,10 +2949,10 @@ def psd_stage_report(
                 ap_fit_log = gen_aperiodic(
                     per_freqs, spectral_models.modes.aperiodic, result.aperiodic_fit
                 )
-                if result.peak_fit.size:
+                if result.peak_converted.size:
                     full_fit_log = ap_fit_log + gen_periodic(
                         per_freqs, spectral_models.modes.periodic,
-                        result.peak_fit.flatten()
+                        result.peak_converted.flatten()
                     )
                 else:
                     full_fit_log = ap_fit_log.copy()
