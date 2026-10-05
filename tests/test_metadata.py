@@ -15,7 +15,10 @@ def checkout(tmp_path):
     for name in ("pyproject.toml", "README.md", "CITATION.cff"):
         shutil.copy(ROOT / name, tmp_path / name)
     (tmp_path / "meganorm").mkdir()
-    shutil.copy(ROOT / "meganorm/_version.py", tmp_path / "meganorm/_version.py")
+    (tmp_path / "meganorm/_version.py").write_text(
+        '__version__ = "0.2.2"\n',
+        encoding="utf-8",
+    )    
     return tmp_path
 
 
