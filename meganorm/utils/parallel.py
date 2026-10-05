@@ -392,15 +392,12 @@ def check_user_jobs(username, start_time):
 
     Returns
     -------
-    tuple
-        A 3-tuple ``(status_counts, failed_jobs, ok)``:
-        - status_counts : dict
-            Counts of jobs per state (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
-        - failed_jobs : list
-            Job names that have failed.
-        - ok : bool
-            True if the sacct query succeeded, False otherwise. When False the
-            counts are all zero and failed_jobs is empty.
+    status_counts : dict
+        Number of jobs in each SLURM state.
+    failed_jobs : list of str
+        Names of jobs that failed.
+    ok : bool
+        Whether the ``sacct`` query completed successfully.
     """
     empty_counts = {
         "PENDING": 0,

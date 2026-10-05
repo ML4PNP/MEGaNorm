@@ -1,6 +1,6 @@
 import json
 from types import SimpleNamespace
-
+import inspect
 import arviz as az
 import numpy as np
 import pandas as pd
@@ -534,21 +534,30 @@ def test_prepare_nm_data_rejects_split_outside_open_unit_interval(
 def test_model_diagnostics_collects_and_saves_real_arviz_summaries(tmp_path):
     models_path = tmp_path / "models"
     models_path.mkdir()
+
     posterior = np.vstack(
         [
             np.linspace(-1.0, 1.0, 100),
             np.linspace(-0.9, 1.1, 100),
         ]
     )
+
+    uses_legacy_api = "posterior" in inspect.signature(az.from_dict).parameters
+
     for model_name in ["roi_alpha", "roi_beta"]:
         model_path = models_path / model_name
         model_path.mkdir()
-        try:
+
+        if uses_legacy_api:
+            # ArviZ 0.x: groups are keyword arguments.
             idata = az.from_dict(posterior={"theta": posterior})
-        except TypeError:
+        else:
+            # ArviZ 1.x: groups are keys in a nested dictionary.
             idata = az.from_dict({"posterior": {"theta": posterior}})
-        idata.to_netcdf(model_path/'idata.nc')
-    (models_path / "normative_model.json").write_text("{}")
+
+        idata.to_netcdf(model_path / "idata.nc")
+
+    (models_path / "normative_model.json").write_text("{}", encoding="utf-8")
     save_path = tmp_path / "diagnostics"
 
     result = nm.model_diagnostics(models_path, save_path)
@@ -556,9 +565,9 @@ def test_model_diagnostics_collects_and_saves_real_arviz_summaries(tmp_path):
     assert set(result["model"]) == {"roi_alpha", "roi_beta"}
     assert set(result["parameter"]) == {"theta"}
     assert result[["r_hat", "ess_bulk", "ess_tail", "mcse_sd"]].notna().all().all()
+
     saved = pd.read_csv(save_path / "models_diagnosis.csv", index_col=0)
     pd.testing.assert_frame_equal(saved, result, check_dtype=False)
-
 
 class RecordingNormativeModel:
     instances = []

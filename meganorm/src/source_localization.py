@@ -729,7 +729,12 @@ def inverse_solution(
     empty_room_recording : mne.io.Raw
         Empty-room MEG recording used to estimate noise covariance.
         If None, no noise covariance will be used.
-
+    kwargs : dict, optional
+        Additional keyword arguments controlling covariance estimation
+        and the LCMV beamformer. Supported options include
+        ``covariance_method``, ``inverse_regularization_value``,
+        ``beamformer_pick_ori``, ``beamformer_weight_norm``,
+        ``beamforme_depth``, and ``n_jobs``.
 
     **kwargs : dict, optional
         Optional parameters to control the inverse solution:
@@ -758,7 +763,7 @@ def inverse_solution(
     Notes
     -----
     - This function currently only supports LCMV beamformer inverse methods.
-    - It assumes the forward model is already computed and passed as `fwd`.
+    - It assumes the forward model is already computed and passed as ``fwd``.
     - Noise covariance can be estimated from an empty-room recording if provided.
     """
     if inverse_operator != "lcmv":
@@ -930,16 +935,10 @@ def morph_stc(
     plot_3d : bool, optional
         Whether to display the morphed source estimate using MNE's interactive 3D plotter.
         Default is False.
-    **kwargs : dict
-        Additional keyword arguments passed to `mne.compute_source_morph()`, allowing
-        customization of the morphing process. For example:
-            spacing : str | int
-                The spacing to use for morphing (default is 5 in this function).
-            smooth : int
-                Number of smoothing steps.
-            warn : bool
-                Whether to emit warnings during morphing.
-            etc.
+    kwargs : dict, optional
+        Additional parameters controlling source-space construction and
+        morphing, including source-space spacing, smoothing, warning behavior,
+        and the number of parallel jobs.
 
     Returns
     -------
@@ -1178,6 +1177,12 @@ def source_localization(
         Method to compute the inverse solution. Options: 'lcmv', 'dspm', 'mne', etc.
     empty_room_recording: mne.io.Raw
         empty_room_recording
+    kwargs : dict, optional
+        Additional parameters controlling covariance estimation and the LCMV
+        beamformer. Supported options include ``covariance_method``,
+        ``inverse_regularization_value``, ``beamformer_pick_ori``,
+        ``beamformer_weight_norm``, ``beamforme_depth``, and ``n_jobs``.
+
     Returns
     -------
     stc : ndarray, shape (n_labels, n_times)

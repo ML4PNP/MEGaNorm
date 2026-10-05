@@ -189,20 +189,24 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     on the recording device (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional
     (lobe-level) parcellation.
 
-    Example layout for regional parcellation:
-        "FIF_MEG_LOBE": {
-            "MAG_frontal_left": ["MEG0121", "MEG0341", "MEG0311", "MEG0321", ...],
-            "MAG_frontal_right": ["MEG1411", "MEG1221", "MEG1211", "MEG1231", ...]
+    Example layouts::
+
+        {
+            "FIF_MEG_LOBE": {
+                "MAG_frontal_left": ["MEG0121", "MEG0341"],
+                "MAG_frontal_right": ["MEG1411", "MEG1221"]
+            }
         }
 
-    Example layout for whole-brain averaging:
-        "FIF_MAG_ALL": {
-            "MAG_ALL": ["MEG0121", "MEG0341", "MEG0311", ...]
+        {
+            "FIF_MAG_ALL": {
+                "MAG_ALL": ["MEG0121", "MEG0341", "MEG0311"]
+            }
         }
 
     Layout files must be stored in a dedicated layout directory and named based on the recording
     device (e.g., 'FIF.json'). The appropriate key in the JSON (e.g., 'FIF_MEG_LOBE') is constructed
-    using `device`, `which_layout`, and `which_sensor`.
+    using ``device``, ``which_layout``, and ``which_sensor``.
 
     Parameters
     ----------
@@ -433,7 +437,7 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
     feature_arr : np.ndarray
         Array containing the feature value(s) to add.
     feature_name : str
-        Name of the feature (e.g., 'RelativePower_').
+        Name of the feature (e.g., ``RelativePower_``).
     channel_name : str
         Name of the channel (e.g., 'MEG0121') to which the feature value should be assigned.
     band_name : str

@@ -4,8 +4,6 @@ meganorm.plots package
 Submodules
 ----------
 
-
-
 meganorm.plots.plots module
 ---------------------------
 

@@ -894,9 +894,8 @@ def merge_fidp_demo(
 
     Parameters
     ----------
-    datasets_paths : list
-        List of paths to the dataset directories containing demographic files
-        ('participants_bids.tsv').
+    demographic_paths : list of str
+        Paths to demographic files for the datasets.
     features_dir : str
         Path to the directory containing the extracted features ('all_features.csv').
     dataset_names : list of str
@@ -912,10 +911,10 @@ def merge_fidp_demo(
         with participants indexed as strings.
 
     Raises
-        ------
-        FileNotFoundError
-            If the 'participants_bids.tsv' file is missing in any of the dataset paths or
-            the 'all_features.csv' file is missing in the provided features directory.
+    ------
+    FileNotFoundError
+        If the 'participants_bids.tsv' file is missing in any of the dataset paths or
+        the 'all_features.csv' file is missing in the provided features directory.
     """
 
     demographic_df = pd.DataFrame()
@@ -965,12 +964,11 @@ def merge_datasets_with_glob(datasets):
 
     Parameters
     ----------
-    datasets : dict
-        Dictionary where each key is a dataset name, and each value is a dictionary
-        with the following keys:
-            - "base_dir" (str): Base directory containing subject subdirectories.
-            - "task" (str): Task keyword to search for in filenames.
-            - "ending" (str): File ending (e.g., '.nii.gz') to filter relevant files.
+    ddatasets : dict
+        Dataset configuration dictionary. Each dataset must define
+        ``base_dir``, ``task``, and ``ending``. Additional optional entries
+        configure recording device, line frequency, empty-room recordings,
+        source-localization inputs, and event files.
 
     Returns
     -------
@@ -1158,19 +1156,9 @@ def make_demo_file_bids(
         Column index containing the participant ID.
     age_col : int
         Column index containing participant age.
-    *extra_columns : dict
-        Additional column definitions. While age and participants id were defined
-        using positional arguments, extra coulmn modification (e.g., sex and eyes
-        condition) can be revised and converted to a single format across dataset
-        using this function. Each dict can contain:
-            - 'col_name': str, required name for the output column. This does not
-                necessarly match the column name before being passed to this function.
-            - 'col_id': int, index of the column that the revision should be applied to.
-            - 'single_value': value to assign to all rows if no col_id and mapping are given.
-                This can be helpful when all subjects in a dataset have the same properties
-                e.g., eyes open condition.
-            - 'mapping': dict, if single value is not defined, value mapping can be passed
-                to map the initial values to the target values.
+    *columns : dict
+        Additional column specifications. Each dictionary may define
+        ``col_name``, ``col_id``, ``single_value``, and ``mapping``.
 
     Returns
     -------

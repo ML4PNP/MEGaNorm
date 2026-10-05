@@ -11,6 +11,7 @@ nilearn==0.13.1
 mne_bids==0.18.0
 mne_icalabel==0.7.0
 specparam==2.0.0rc7 
+arviz>=0.21,<2.0
 pcntoolkit>=1.3.0
 pyrasa==1.1.1
 pydantic==2.13.4

@@ -1,5 +1,6 @@
 # MEGaNorm
 
+<!-- BEGIN MEGANORM METADATA: badges -->
 [![PyPI](https://img.shields.io/pypi/v/meganorm?logo=pypi\&logoColor=white\&color=3775A9)](https://pypi.org/project/meganorm/)
 [![Python](https://img.shields.io/pypi/pyversions/meganorm?logo=python\&logoColor=white\&color=3776AB)](https://pypi.org/project/meganorm/)
 [![Tests](https://github.com/ML4PNP/MEGaNorm/actions/workflows/tests.yml/badge.svg)](https://github.com/ML4PNP/MEGaNorm/actions/workflows/tests.yml)
@@ -7,11 +8,12 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/smkia/meganorm?logo=docker\&logoColor=white\&color=2496ED)](https://hub.docker.com/r/smkia/meganorm)
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ML4PNP/MEGaNorm/main?filepath=notebooks%2F)
 [![License](https://img.shields.io/github/license/ML4PNP/MEGaNorm?color=blue)](https://github.com/ML4PNP/MEGaNorm/blob/main/LICENSE)
-[![Software DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21291858.svg)](https://doi.org/10.5281/zenodo.21291858)
+[![Software DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15441319.svg)](https://doi.org/10.5281/zenodo.15441319)
 [![Paper DOI](https://img.shields.io/badge/DOI-10.1038%2Fs42003--026--09825--2-B31B1B?logo=doi\&logoColor=white)](https://doi.org/10.1038/s42003-026-09825-2)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14128/badge)](https://www.bestpractices.dev/projects/14128)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/meganorm?period=month\&units=international_system\&left_text=downloads/month\&left_color=grey\&right_color=brightgreen)](https://pypi.org/project/meganorm/)
 [![Last Commit](https://img.shields.io/github/last-commit/ML4PNP/MEGaNorm?logo=github\&color=informational)](https://github.com/ML4PNP/MEGaNorm/commits/main)
+<!-- END MEGANORM METADATA: badges -->
 
 <p align="center">
   <img src="docs/images/logo.png" alt="MEGaNorm logo" width="180"/>
@@ -60,6 +62,7 @@ pip install meganorm
 
 To install the latest development version:
 
+<!-- BEGIN MEGANORM METADATA: source-install -->
 ```bash
 # Create and activate the environment
 conda create --channel=conda-forge --strict-channel-priority --name meganorm python=3.12
@@ -70,6 +73,7 @@ git clone https://github.com/ML4PNP/MEGaNorm.git
 cd MEGaNorm
 pip install .
 ```
+<!-- END MEGANORM METADATA: source-install -->
 
 ### Using Docker
 
@@ -127,7 +131,9 @@ See the [FreeSurfer `recon-all` documentation](https://surfer.nmr.mgh.harvard.ed
 
 ## Getting started
 
+<!-- BEGIN MEGANORM METADATA: documentation -->
 The full MEGaNorm documentation, including usage instructions and examples, is available at [meganorm.readthedocs.io](https://meganorm.readthedocs.io/).
+<!-- END MEGANORM METADATA: documentation -->
 
 After installation, verify that MEGaNorm can be imported:
 
@@ -144,7 +150,9 @@ Example workflows are also available in the [`notebooks/`](notebooks/) directory
 MEGaNorm includes an automated test suite covering its core processing,
 feature-extraction, normative-modeling, source-localization, IO, layout,
 plotting, and utility functionality. The full suite runs automatically through
+<!-- BEGIN MEGANORM METADATA: ci-link -->
 [GitHub Actions](https://github.com/ML4PNP/MEGaNorm/actions/workflows/tests.yml)
+<!-- END MEGANORM METADATA: ci-link -->
 on pushes and pull requests.
 
 To run the tests locally from a development checkout:
@@ -155,7 +163,9 @@ python -m pytest -q
 ```
 
 Please report unexpected behavior or reproducibility issues through the
+<!-- BEGIN MEGANORM METADATA: issues -->
 [GitHub issue tracker](https://github.com/ML4PNP/MEGaNorm/issues).
+<!-- END MEGANORM METADATA: issues -->
 
 ---
 
@@ -170,14 +180,18 @@ The citation metadata for MEGaNorm is provided in [`CITATION.cff`](CITATION.cff)
 The software is archived on Zenodo:
 
 **Zamanzadeh, M., Verduyn, Y., & Kia, S. M.** *MEGaNorm: A Python package for normative modeling of MEG and EEG data.* Zenodo.
-https://doi.org/10.5281/zenodo.21291858
+<!-- BEGIN MEGANORM METADATA: software-doi -->
+https://doi.org/10.5281/zenodo.15441319
+<!-- END MEGANORM METADATA: software-doi -->
 
 ### Scientific publication
 
 For the scientific framework and its application to normative modeling of brain oscillations across the human lifespan, please cite:
 
 **Zamanzadeh, M., Verduyn, Y., de Boer, A., Ros, T., Wolfers, T., Dinga, R., Šafář Postma, M., Marquand, A. F., van Wingerden, M., & Kia, S. M.** (2026). Normative modeling of MEG brain oscillations across the human lifespan. *Communications Biology*.
+<!-- BEGIN MEGANORM METADATA: paper-doi -->
 https://doi.org/10.1038/s42003-026-09825-2
+<!-- END MEGANORM METADATA: paper-doi -->
 
 ---
 

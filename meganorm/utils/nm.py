@@ -75,24 +75,24 @@ def haddbr_data_split(
     Notes
     -----
     The function performs the following steps:
-        - Drops any rows with missing values if `drop_nans=True`.
-        - Creates a new column "combination" based on the specified stratification columns.
-        - Splits the data into training, validation (optional), and test sets while preserving the stratification.
-        - Saves the resulting splits (`x_train`, `y_train`, `b_train`, etc.) as pickled files in the specified `save_path`.
-        - Saves the random seed used for splitting into a separate pickled file.
-        - Returns the names of the biomarkers (columns in `y_train`).
+    - Drops any rows with missing values if `drop_nans=True`.
+    - Creates a new column "combination" based on the specified stratification columns.
+    - Splits the data into training, validation (optional), and test sets while preserving the stratification.
+    - Saves the resulting splits (`x_train`, `y_train`, `b_train`, etc.) as pickled files in the specified `save_path`.
+    - Saves the random seed used for splitting into a separate pickled file.
+    - Returns the names of the biomarkers (columns in `y_train`).
 
-    Example
-    -------
-    biomarker_names = hbr_data_split(
-        data=df,
-        save_path="./data_split/",
-        covariates=["age", "sex"],
-        batch_effects=["site"],
-        train_split=0.7,
-        validation_split=0.2,
-        random_seed=42
-    )
+        Examples
+    --------
+    >>> biomarker_names = haddbr_data_split(
+    ...     data=df,
+    ...     save_path="./data_split/",
+    ...     covariates=["age", "sex"],
+    ...     batch_effects=["site"],
+    ...     train_split=0.7,
+    ...     validation_split=0.2,
+    ...     random_seed=42,
+    ... )
     """
     os.makedirs(save_path, exist_ok=True)
 

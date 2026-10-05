@@ -36,11 +36,14 @@ jobs:
         uses: actions/checkout@v4
 
       # Build using the minimum Python version supported by MEGaNorm.
-      # Package compatibility itself is defined in pyproject.toml.
+      # Package compatibility itself is defined in setup.py.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Validate release metadata and tag
+        run: python tools/sync_metadata.py --check --release-tag "${{ github.ref_name }}"
 
       - name: Install build tools
         run: |
@@ -100,7 +103,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=MEGaNorm
             org.opencontainers.image.description=Normative modeling of MEG brain dynamics
-            org.opencontainers.image.source=https://github.com/ML4PNP/MEGaNorm
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       # Build one multi-platform image manifest containing both
       # AMD64 and ARM64 variants.

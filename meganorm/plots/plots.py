@@ -148,43 +148,29 @@ def plot_age_hist(
 # ***
 def plot_PNOCs(data: dict, age_slices: list, save_path: str | None) -> None:
     """
-    Generate and save population-level NeuroOscilloCharts (PNOCs) showing age-related changes
-    in frequency band contributions to overall neural power for males and females.
+    Plot population-level NeuroOscilloCharts across age groups.
 
-    This function creates stacked bar plots for each gender, visualizing the relative
-    contributions (as percentages) of four frequency bands across defined age bins.
-    Mean values and 95% confidence intervals (approximated as 1.96 * std) are displayed.
-    The resulting figure is saved in SVG and PNG formats if a `save_path` is provided.
+    The function creates stacked bar plots for males and females showing
+    the relative contributions of frequency bands to total neural power.
+    Mean values and approximate 95% confidence intervals are displayed.
 
     Parameters
     ----------
     data : dict
-        A nested dictionary of the form:
-        {
-            'Male': {
-                'delta': list of [mean, std],
-                'theta': list of [mean, std],
-                ...
-            },
-            'Female': {
-                ...
-            }
-        }
-        Each list should have one [mean, std] pair per age slice. This can be calculated using
-        meganorm.nm.calculate_PNOCs function.
-
+        Nested dictionary containing frequency-band means and standard
+        deviations for each sex. Each frequency band should contain one
+        ``[mean, std]`` pair per age group.
     age_slices : list of int
-        List of starting ages for each 5-year bin used as x-axis labels (e.g., [5, 10, 15, ..., 75]).
-
+        Starting ages of the age bins used for the x-axis labels.
     save_path : str or None
-        Directory path to save the generated figure. If None, the plot is not saved to disk.
+        Directory in which to save the generated figures. If ``None``,
+        figures are displayed but not saved.
 
     Returns
     -------
     None
-        Displays the plot and, if `save_path` is not None, saves the following files:
-        - 'Chrono-NeuroOscilloChart.svg'
-        - 'Chrono-NeuroOscilloChart.png'
+        The function displays the NeuroOscilloChart and optionally saves
+        it in SVG and PNG formats.
     """
 
     # Age ranges
@@ -1367,7 +1353,7 @@ def plot_extreme_deviation(
     y_lower_lim: float = 0,
 ):
     """
-    Computes and plots extreme deviation statistics (|Z|>2) across biomarkers.
+    Computes and plots extreme deviation statistics (``|Z| > 2``) across biomarkers.
     This is done by averaging statistics across multiple runs and comparing
     patient and healthy groups. Two separate plots are generated: one for
     positive deviations and one for negative deviations.
@@ -1401,11 +1387,11 @@ def plot_extreme_deviation(
     Returns
     -------
     df_c_pos : pandas.DataFrame
-        DataFrame of mean positive extreme deviation proportions (|Z| > 2) for healthy participants across runs.
+        DataFrame of mean positive extreme deviation proportions (``Z > 2``) for healthy participants across runs.
     df_p_pos : pandas.DataFrame
         DataFrame of mean positive extreme deviation proportions for patient participants across runs.
     df_c_neg : pandas.DataFrame
-        DataFrame of mean negative extreme deviation proportions (Z < -2) for healthy participants across runs.
+        DataFrame of mean negative extreme deviation proportions (``Z < -2``) for healthy participants across runs.
     df_p_neg : pandas.DataFrame
         DataFrame of mean negative extreme deviation proportions for patient participants across runs.
     """
