@@ -211,15 +211,21 @@ We gratefully acknowledge the starter grant for the **MEGaNorm** project, funded
 
 <p align="center">
   <a href="https://www.tilburguniversity.edu/">
-    <img src="docs/images/tilburg-university-logo.png" alt="Tilburg University" height="65">
+    <img src="docs/source/_static/tilburg-university-logo.png"
+         alt="Tilburg University"
+         height="65">
   </a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://www.nwo.nl/en">
-    <img src="docs/images/nwo-logo.jpg" alt="Dutch Research Council (NWO)" height="65">
+  <a href="https://www.nwo.nl/projecten/vqlab92202">
+    <img src="docs/source/_static/nwo-logo.jpg"
+         alt="Dutch Research Council (NWO)"
+         height="65">
   </a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://www.surf.nl/en">
-    <img src="docs/images/surf-logo.png" alt="SURF" height="65">
+    <img src="docs/source/_static/surf-logo.png"
+         alt="SURF"
+         height="65">
   </a>
 </p>
 
