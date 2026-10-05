@@ -1315,8 +1315,9 @@ def apply_tsss(
     Apply temporal Signal Space Separation (tSSS) to MEG data with optional
     head position correction and empty-room noise processing.
 
-    This function uses MNE-Python's Maxwell filtering implementation to
-    suppress environmental noise and remove cross-talk between sensors.
+    This function uses MNE-Python's Maxwell filtering implementation [2]_ to
+    suppress environmental noise and remove cross-talk between sensors using
+    spatiotemporal signal space separation [1]_.
     If a head position file is provided, movement compensation will be
     applied. Optionally, an empty-room recording can be processed with
     the same parameters for noise estimation.

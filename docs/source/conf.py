@@ -30,10 +30,15 @@ version = release
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
-    "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "numpydoc",
 ]
+
+# Use numpydoc alone to parse NumPy-style docstrings. Autodoc documents
+# members inline; summaries should not require separate generated stub pages.
+numpydoc_class_members_toctree = False
+# Keep third-party inherited APIs (such as Pydantic BaseModel) out of summaries.
+numpydoc_show_inherited_class_members = False
 
 autodoc_typehints = "description"
 autodoc_typehints_format = "short"
