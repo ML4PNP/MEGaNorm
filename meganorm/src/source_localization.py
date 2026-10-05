@@ -633,17 +633,44 @@ def forward_solution(
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
-    # forward model
-    bem_model = mne.make_bem_model(
-        subject=subject,
-        ico=kwargs.get("source_space_spacing_number", 6),
-        conductivity=conductivity,
-        subjects_dir=subjects_dir,
-    )
+    bem_ico = kwargs.get("source_space_spacing_number", 6)
+
+    try:
+        bem_model = mne.make_bem_model(
+            subject=subject,
+            ico=bem_ico,
+            conductivity=conductivity,
+            subjects_dir=subjects_dir,
+        )
+    except RuntimeError as err:
+        if bem_ico is None or "ordering is wrong" not in str(err):
+            raise  # a different problem: don't hide it
+        logger.warning(
+            f"{subject}: BEM surfaces are not in canonical ico order ({err}). "
+            "Falling back to ico=None (full-resolution surfaces)."
+        )
+        bem_ico = None
+        bem_model = mne.make_bem_model(
+            subject=subject,
+            ico=None,
+            conductivity=conductivity,
+            subjects_dir=subjects_dir,
+        )
+
+    # Surfaces read from FreeSurfer .surf files keep big-endian byte order when
+    # ico=None; numba in make_forward_solution only accepts native byte order.
+    if bem_ico is None:
+        for surf in bem_model:
+            if not isinstance(surf, dict):
+                continue
+            for key, value in surf.items():
+                if isinstance(value, np.ndarray) and not value.dtype.isnative:
+                    surf[key] = value.astype(value.dtype.newbyteorder("="))
 
     bem = mne.make_bem_solution(bem_model)
     logger.info(
-        f"{source_space} BEM model with {len(conductivity)} layer/s was constructed."
+        f"{source_space} BEM model with {len(conductivity)} layer/s was constructed "
+        f"(ico={bem_ico})."
     )
 
     lead_field_matrix = mne.make_forward_solution(
@@ -1582,8 +1609,9 @@ def nearest_template_dir(age_months, subjects_dir):
     if not index:
         raise FileNotFoundError(f"No ANTS templates found in {subjects_dir}")
     name = min(index, key=lambda k: abs(index[k] - age_months))
-    print(
-        f"Nearest template: {name} ({index[name]:.1f} months, requested {age_months:.1f} months)"
+    logger.info(
+        f"Nearest template: {name} ({index[name]:.1f} months, "
+        f"requested {age_months:.1f} months)"
     )
     return name, os.path.join(subjects_dir)
 

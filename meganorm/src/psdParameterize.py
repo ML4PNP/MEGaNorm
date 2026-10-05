@@ -1,6 +1,6 @@
 import mne
 import numpy as np
-import fooof as f
+import specparam as sp
 from pyrasa.irasa import irasa
 from pyrasa.irasa_mne.mne_objs import (
     AperiodicEpochsSpectrum,
@@ -77,7 +77,7 @@ def computePsd(
     return psds, freqs
 
 
-def fooof(
+def fit_specparam(
     psds,
     freqs,
     freq_range_low=3,
@@ -88,7 +88,7 @@ def fooof(
     aperiodic_mode="fixed",
 ):
     """
-    Fit a FOOOF model to power spectral density (PSD) data to separate
+    Fit a specparam model to power spectral density (PSD) data to separate
     periodic (oscillatory) and aperiodic (background) components.
 
     Parameters
@@ -98,22 +98,22 @@ def fooof(
     freqs : np.ndarray
         Frequency values corresponding to the PSD.
     freq_range_low : int
-        Lower frequency bound for the FOOOF model (Hz).
+        Lower frequency bound for the specparam model (Hz).
     freq_range_high : int
-        Upper frequency bound for the FOOOF model (Hz).
+        Upper frequency bound for the specparam model (Hz).
     min_peak_height : float
-        Minimum height of peaks to be considered in the FOOOF model.
+        Minimum height of peaks to be considered in the specparam model.
     peak_threshold : float
-        Threshold for peak detection in the FOOOF model.
+        Threshold for peak detection in the specparam model.
     peak_width_limits : tuple of float
         Limits on the width of peaks (in Hz).
     aperiodic_mode : str
-        Mode for modeling the aperiodic component. Options are "fixed", "knee", or "none".
+        Mode for modeling the aperiodic component. Options are "fixed" or "knee"
 
     Returns
     -------
-    fooofModels : FOOOFGroup
-        Fitted FOOOF group model containing periodic and aperiodic components.
+    spectral_models : specparam.SpectralGroupModel
+        Fitted SpectralGroupModel containing one spectral model per channel.
     psds : np.ndarray
         Original power spectral density values.
     freqs : np.ndarray
@@ -121,15 +121,15 @@ def fooof(
     """
 
     # Fit separate models for each channel
-    fooofModels = f.FOOOFGroup(
+    spectral_models = sp.SpectralGroupModel(
         peak_width_limits=peak_width_limits,
         min_peak_height=min_peak_height,
         peak_threshold=peak_threshold,
         aperiodic_mode=aperiodic_mode,
     )
-    fooofModels.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=-1)
+    spectral_models.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=-1)
 
-    return fooofModels, psds, freqs
+    return spectral_models, psds, freqs
 
 
 def parameterize_psds(
@@ -149,19 +149,18 @@ def parameterize_psds(
     irasa_hset=(1.05, 2.0, 0.05),
 ):
     """
-    Runs the complete pipeline for spectral parameterization using FOOOF.
-    This includes computing the PSD and fitting FOOOF models for each channel.
+    Runs the complete pipeline for spectral parameterization using specparam or IRASA.
 
     Parameters
     ----------
     segments : mne.Epochs
         Epoched MNE object containing segmented data.
     freq_range_low : float
-        Lower bound of frequency range for PSD and FOOOF (Hz).
+        Lower bound of frequency range for PSD and specparam (Hz).
     freq_range_high : float
-        Upper bound of frequency range for PSD and FOOOF (Hz).
+        Upper bound of frequency range for PSD and specparam (Hz).
     min_peak_height : float
-        Minimum height of peaks to be detected by FOOOF.
+        Minimum height of peaks to be detected by specparam.
     peak_threshold : float
         Threshold for peak detection relative to the aperiodic fit.
     sampling_rate : int
@@ -181,10 +180,11 @@ def parameterize_psds(
 
     Returns
     -------
-    spectral_models : FOOOFGroup | pyrasa.irasa_mne.mne_objs.IrasaEpoched
-        Fitted spectral models for each channel.
-    psds : np.ndarray
-        Power spectral densities.
+    spectral_models : specparam.SpectralGroupModel | IrasaEpoched
+        Fitted models. For IRASA, periodic/aperiodic spectra are per epoch
+        (n_epochs, n_channels, n_freqs).
+    psds : np.ndarray, shape (n_channels, n_freqs)
+        Epoch-averaged power spectral density.
     freqs : np.ndarray
         Corresponding frequency values.
 
@@ -201,10 +201,10 @@ def parameterize_psds(
     if aperiodic_mode not in ["fixed", "knee"]:
         raise ValueError("aperiodic_mode must be either 'fixed' or 'knee'")
 
-    if parametrization_method not in ["fooof", "irasa"]:
-        raise ValueError("parametrization_method must be either 'fooof' or 'irasa'")
+    if parametrization_method not in ["specparam", "irasa"]:
+        raise ValueError("parametrization_method must be either 'specparam' or 'irasa'")
 
-    if parametrization_method == "fooof":
+    if parametrization_method == "specparam":
 
         psds, freqs = computePsd(
             segments=segments,
@@ -217,7 +217,7 @@ def parameterize_psds(
             n_per_seg=n_per_seg,
         )
 
-        spectral_models, psds, freqs = fooof(
+        spectral_models, psds, freqs = fit_specparam(
             psds=psds,
             freqs=freqs,
             freq_range_low=freq_range_low,
@@ -229,18 +229,22 @@ def parameterize_psds(
         )
 
     elif parametrization_method == "irasa":
-        psds, freqs, spectral_models = irasa_epochs(
+        psds_epochs, freqs, spectral_models = irasa_epochs(
             segments,
             band=(freq_range_low, freq_range_high),
             hset_info=irasa_hset,
         )
 
-        if psds.shape[-1] != len(freqs):
-            raise ValueError(f"raw spectrum {psds.shape} vs freqs {freqs.shape}")
+        if psds_epochs.ndim != 3 or psds_epochs.shape[-1] != len(freqs):
+            raise ValueError(f"raw spectrum {psds_epochs.shape} vs freqs {freqs.shape}")
 
-        per = spectral_models.periodic.get_data().squeeze()
-        if per.shape[-1] != len(freqs):
-            raise ValueError(f"periodic {per.shape} vs freqs {freqs.shape}")
+        per = spectral_models.periodic.get_data()
+        if per.shape != psds_epochs.shape:
+            raise ValueError(f"periodic {per.shape} vs raw spectrum {psds_epochs.shape}")
+
+        # Epoch-averaged spectrum for downstream features (same shape as specparam);
+        # per-epoch spectra remain available in spectral_models.
+        psds = psds_epochs.mean(axis=0)
 
     return spectral_models, psds, freqs
 
@@ -318,30 +322,24 @@ def irasa_epochs(
         psd_list_periodic.append(irasa_spectrum.periodic.copy())
         psd_list_original.append(irasa_spectrum.raw_spectrum.copy())
 
-    psds_aperiodic = np.array(psd_list_aperiodic).mean(axis=0)
-    psds_periodic = np.array(psd_list_periodic).mean(axis=0)
-    psd_list_original = np.array(psd_list_original).mean(axis=0)
+    psds_aperiodic = np.array(psd_list_aperiodic)  # (n_epochs, n_channels, n_freqs)
+    psds_periodic = np.array(psd_list_periodic)
+    psds_original = np.array(psd_list_original)
 
-    psds_periodic = psds_periodic[np.newaxis, :, :]
-    psds_aperiodic = psds_aperiodic[np.newaxis, :, :]
+    events = data.events.copy()
+    event_id = data.event_id
 
     return (
-        psd_list_original,
+        psds_original,
         irasa_spectrum.freqs,
         IrasaEpoched(
             periodic=PeriodicEpochsSpectrum(
-                psds_periodic,
-                info,
-                freqs=irasa_spectrum.freqs,
-                events=np.array([[0, 0, 1]] * 1),
-                event_id={"1": 1},
+                psds_periodic, info, freqs=irasa_spectrum.freqs,
+                events=events, event_id=event_id,
             ),
             aperiodic=AperiodicEpochsSpectrum(
-                psds_aperiodic,
-                info,
-                freqs=irasa_spectrum.freqs,
-                events=np.array([[0, 0, 1]] * 1),
-                event_id={"1": 1},
+                psds_aperiodic, info, freqs=irasa_spectrum.freqs,
+                events=events, event_id=event_id,
             ),
         ),
     )

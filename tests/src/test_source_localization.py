@@ -414,6 +414,74 @@ def test_parcellate_rejects_unsupported_source_space(tmp_path):
         )
 
 
+def run_forward_solution_with_surface(monkeypatch, tmp_path, surface, **kwargs):
+    """Run forward_solution with mocked MNE calls; return the BEM model it built."""
+    captured = {}
+
+    monkeypatch.setattr(mne, "setup_source_space", lambda **kw: "surface-source")
+    monkeypatch.setattr(mne, "make_bem_model", lambda **kw: [surface])
+
+    def fake_make_bem_solution(model):
+        captured["model"] = model
+        return "bem-solution"
+
+    monkeypatch.setattr(mne, "make_bem_solution", fake_make_bem_solution)
+    monkeypatch.setattr(
+        mne, "make_forward_solution", lambda info, **kw: {"src": "filtered"}
+    )
+
+    forward_solution(
+        subject="ANTS12-0Months3T",
+        subjects_dir=tmp_path,
+        data=SimpleNamespace(info=object()),
+        transformation_matrix="head-to-mri",
+        conductivity=(0.3,),
+        source_space="surface",
+        which_sensor_dict={"meg": True},
+        **kwargs,
+    )
+    return captured["model"]
+
+
+@pytest.mark.unit
+def test_forward_solution_converts_richards_bem_to_native_byte_order(
+    monkeypatch, tmp_path
+):
+    surface = {"rr": np.array([[1.0, 2.0, 3.0]], dtype=">f8"), "id": 4}
+
+    model = run_forward_solution_with_surface(
+        monkeypatch,
+        tmp_path,
+        surface,
+        apply_mri_template=True,
+        source_space_spacing_number=None,
+    )
+
+    rr = model[0]["rr"]
+    assert rr.dtype.isnative
+    np.testing.assert_array_equal(rr, [[1.0, 2.0, 3.0]])
+    assert model[0]["id"] == 4
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("spacing_kwargs", [{}, {"source_space_spacing_number": 6}])
+def test_forward_solution_leaves_christian_bem_untouched(
+    monkeypatch, tmp_path, spacing_kwargs
+):
+    surface = {"rr": np.array([[1.0, 2.0, 3.0]], dtype=">f8")}
+
+    model = run_forward_solution_with_surface(
+        monkeypatch,
+        tmp_path,
+        surface,
+        apply_mri_template=True,
+        **spacing_kwargs,
+    )
+
+    assert model[0]["rr"].dtype == np.dtype(">f8")
+
+    
+
 @pytest.mark.unit
 def test_inverse_solution_uses_info_rank_and_ad_hoc_noise_covariance(
     monkeypatch, tmp_path

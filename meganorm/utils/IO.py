@@ -217,22 +217,22 @@ class Config(BaseModel):
         PSD estimation method.
     psd_n_overlap, psd_n_fft, psd_n_per_seg : PositiveInt, default=1, 2, 2
         Welch/multitaper PSD parameters.
-    parametrization_method : {"fooof", "irasa"}, default="irasa"
+    parametrization_method : {"specparam", "irasa"}, default="irasa"
         Method for separating aperiodic and periodic spectral components.
     irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
         Resampling factor range/step for IRASA.
-    fooof_freq_range_low, fooof_freq_range_high : PositiveInt, default=3, 40
-        Frequency range for FOOOF fitting (Hz).
+    specparam_freq_range_low, specparam_freq_range_high : PositiveInt, default=3, 40
+        Frequency range for specparam fitting (Hz).
     aperiodic_mode : {"knee", "fixed"}, default="knee"
         Aperiodic component model.
-    fooof_peak_width_limits : list[float], default=[1.0, 12.0]
+    specparam_peak_width_limits : list[float], default=[1.0, 12.0]
         Allowed peak width range (Hz).
-    fooof_min_peak_height : int, default=0
+    specparam_min_peak_height : int, default=0
         Minimum peak height for detection.
-    fooof_peak_threshold : PositiveInt, default=2
+    specparam_peak_threshold : PositiveInt, default=2
         Peak detection threshold (in SD of the flattened spectrum).
-    fooof_res_save_path : str or None
-        Path to save FOOOF results.
+    specparam_res_save_path : str or None
+        Path to save specparam results.
     save_source_localized_epochs, save_psds : bool, default=False
         Persist intermediate source-localized epochs / PSDs to disk.
 
@@ -272,6 +272,13 @@ class Config(BaseModel):
     parameters must be consistent with the chosen `gedai_method`; and MRI
     template use is mutually exclusive with MRI QC.
     """
+
+    # Recording-level metadata added as columns to each subject's features CSV.
+    # Demographic columns (age, sex, site, diagnosis, eyes) are joined later
+    # in merge_fidp_demo, so they are not listed here.
+    extra_metadata_columns: list[
+        Literal["if_eroom", "scanner", "number_of_epochs"]
+    ] = []
 
     model_config = {"extra": "forbid"}
 
@@ -430,17 +437,17 @@ class Config(BaseModel):
     psd_n_fft: PositiveInt = 2
     psd_n_per_seg: PositiveInt = 2
 
-    parametrization_method: Literal["fooof", "irasa"] = "irasa"
+    parametrization_method: Literal["specparam", "irasa"] = "irasa"
     # PYRASA
     irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
 
-    # FOOOF analysis
-    fooof_freq_range_low: PositiveInt = 3
-    fooof_freq_range_high: PositiveInt = 40
+    # specparam analysis
+    specparam_freq_range_low: PositiveInt = 3
+    specparam_freq_range_high: PositiveInt = 40
     aperiodic_mode: Literal["knee", "fixed"] = "knee"
-    fooof_peak_width_limits: List[float] = [1.0, 12.0]
-    fooof_min_peak_height: int = 0
-    fooof_peak_threshold: PositiveInt = 2
+    specparam_peak_width_limits: List[float] = [1.0, 12.0]
+    specparam_min_peak_height: int = 0
+    specparam_peak_threshold: PositiveInt = 2
 
     save_source_localized_epochs: bool = False
     save_psds: bool = False
@@ -493,7 +500,7 @@ class Config(BaseModel):
         "Knee_Frequency": False,
     }
 
-    fooof_res_save_path: Optional[str] = None
+    specparam_res_save_path: Optional[str] = None
     random_state: int = 42
 
     @field_validator("muscle_activity_thr")
@@ -1027,9 +1034,7 @@ def merge_datasets_with_glob(datasets):
 
             # resting state data
             rs_record_paths = sorted(
-                glob.glob(
-                    f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True
-                )
+                glob.glob(f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True)
             )
             if not rs_record_paths:
                 continue
@@ -1068,9 +1073,7 @@ def merge_datasets_with_glob(datasets):
             # trans file
             if trans_file_p:
                 trans_path = sorted(
-                    glob.glob(
-                        f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True
-                    )
+                    glob.glob(f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True)
                 )
             else:
                 trans_path = None
@@ -1122,9 +1125,7 @@ def load_demographic_file(path, index_col=0):
     """Read a participants/demographic table (.tsv, .txt, .csv, .xlsx)."""
     ext = os.path.splitext(path)[1].lower()
     index_dtype = (
-        {index_col: str}
-        if index_col is not None and index_col is not False
-        else None
+        {index_col: str} if index_col is not None and index_col is not False else None
     )
     if ext in (".tsv", ".txt"):
         df = pd.read_csv(path, sep="\t", index_col=index_col, dtype=index_dtype)
@@ -1366,9 +1367,7 @@ def find_other_mri_session(
     new_paths = {}
     for subject in missing_mri_subjects:
         mri_paths = sorted(
-            glob.glob(
-                f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True
-            )
+            glob.glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
         )
 
         if len(mri_paths) > which_session - 1:

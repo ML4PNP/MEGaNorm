@@ -8,7 +8,7 @@ from meganorm.src.psdParameterize import (
     _irasa_welch_kwargs,
     computePsd,
     computePsdIrasa,
-    fooof,
+    fit_specparam,
     irasa_epochs,
     parameterize_psds,
 )
@@ -51,13 +51,13 @@ def test_irasa_welch_kwargs_shortens_window_for_short_epochs(caplog):
 @pytest.mark.parametrize("method", ["periodogram", "invalid"])
 def test_parameterize_psds_rejects_unknown_psd_method(method):
     with pytest.raises(ValueError, match="psd_method"):
-        parameterize_psds(None, "fooof", psd_method=method)
+        parameterize_psds(None, "specparam", psd_method=method)
 
 
 @pytest.mark.unit
 def test_parameterize_psds_rejects_unknown_aperiodic_mode():
     with pytest.raises(ValueError, match="aperiodic_mode"):
-        parameterize_psds(None, "fooof", aperiodic_mode="none")
+        parameterize_psds(None, "specparam", aperiodic_mode="none")
 
 
 @pytest.mark.unit
@@ -147,21 +147,21 @@ def test_psd_helpers_average_power_across_nonidentical_epochs(calculator):
 
 
 @pytest.mark.integration
-def test_fooof_fits_each_channel_and_recovers_alpha_peak():
+def test_specparam_fits_each_channel_and_recovers_alpha_peak():
     freqs = np.arange(2.0, 25.5, 0.5)
     background = 1.0 / freqs
     alpha = 0.8 * np.exp(-0.5 * ((freqs - 10.0) / 0.8) ** 2)
     psds = np.vstack([background + alpha, 2 * (background + alpha)])
 
-    models, returned_psds, returned_freqs = fooof(
+    models, returned_psds, returned_freqs = fit_specparam(
         psds, freqs, freq_range_low=2, freq_range_high=25
     )
 
-    assert len(models) == 2
+    assert len(models.results.group_results) == 2
     np.testing.assert_array_equal(returned_psds, psds)
     np.testing.assert_array_equal(returned_freqs, freqs)
     for channel in range(2):
-        alpha_peaks = models.get_fooof(channel).get_params("peak_params")
+        alpha_peaks = models.get_model(channel).get_params("periodic")
         assert np.any(np.abs(alpha_peaks[:, 0] - 10.0) <= 0.5)
 
 
@@ -175,20 +175,24 @@ def test_compute_psd_irasa_matches_real_irasa_frequency_grid_and_decomposition()
         epochs, hset_info=hset, freq_range_low=5, freq_range_high=15
     )
     raw, irasa_freqs, result = irasa_epochs(epochs, band=(5, 15), hset_info=hset)
+    raw_avg = raw.mean(axis=0)  # irasa_epochs returns per-epoch spectra
 
     np.testing.assert_array_equal(comparison_freqs, irasa_freqs)
     # Small edge/padding differences are expected between SciPy's direct Welch
     # call and PYRASA's internal calculation; agreement is assessed relative
     # to the maximum spectral power rather than near-zero bins.
-    np.testing.assert_allclose(comparison_psd, raw, rtol=0.01, atol=0.01 * np.max(raw))
-    reconstructed = result.aperiodic.get_data().squeeze(
-        axis=0
-    ) + result.periodic.get_data().squeeze(axis=0)
+    np.testing.assert_allclose(
+        comparison_psd, raw_avg, rtol=0.01, atol=0.01 * np.max(raw_avg)
+    )
+    # raw = aperiodic + periodic must hold for every epoch
+    reconstructed = result.aperiodic.get_data() + result.periodic.get_data()
     np.testing.assert_allclose(raw, reconstructed, rtol=1e-10, atol=1e-12)
 
 
 @pytest.mark.unit
-def test_irasa_epochs_averages_epochs_and_preserves_channel_metadata(monkeypatch):
+def test_irasa_epochs_returns_per_epoch_spectra_and_preserves_channel_metadata(
+    monkeypatch,
+):
     epochs = make_epochs(n_epochs=2)
     call = {"epoch": 0}
 
@@ -207,35 +211,72 @@ def test_irasa_epochs_averages_epochs_and_preserves_channel_metadata(monkeypatch
 
     raw, freqs, result = irasa_epochs(epochs, band=(1.0, 4.0))
 
-    np.testing.assert_allclose(raw, 15.0)
-    np.testing.assert_allclose(result.aperiodic.get_data(), 4.5)
-    np.testing.assert_allclose(result.periodic.get_data(), 10.5)
+    n_channels = len(epochs.ch_names)
+    assert raw.shape == (2, n_channels, 4)
+
+    # Each epoch keeps its own values (no averaging)
+    np.testing.assert_allclose(raw[:, 0, 0], [10.0, 20.0])
+    np.testing.assert_allclose(result.aperiodic.get_data()[:, 0, 0], [3.0, 6.0])
+    np.testing.assert_allclose(result.periodic.get_data()[:, 0, 0], [7.0, 14.0])
+
+    assert len(result.periodic) == 2
     assert result.periodic.ch_names == epochs.ch_names
     np.testing.assert_array_equal(freqs, [1.0, 2.0, 3.0, 4.0])
 
 
 @pytest.mark.integration
-def test_parameterize_psds_fooof_path_returns_consistent_shapes():
+def test_parameterize_psds_specparam_path_returns_consistent_shapes():
     epochs = make_epochs()
 
     models, psds, freqs = parameterize_psds(
         epochs,
-        "fooof",
+        "specparam",
         freq_range_low=3,
         freq_range_high=20,
         sampling_rate=100,
         psd_n_overlap=1,
         psd_n_fft=2,
         n_per_seg=2,
-        aperiodic_mode="fixed",
+        aperiodic_mode="fixed", 
     )
 
-    assert len(models) == len(epochs.ch_names)
+    assert len(models.results.group_results) == len(epochs.ch_names)
     assert psds.shape == (len(epochs.ch_names), len(freqs))
 
 
 @pytest.mark.unit
-def test_parameterize_psds_fooof_forwards_nondefault_configuration(monkeypatch):
+def test_parameterize_psds_irasa_path_averages_raw_spectrum_over_epochs(monkeypatch):
+    # (n_epochs=2, n_channels=2, n_freqs=3): epoch 1 = 1, epoch 2 = 3
+    raw_per_epoch = np.stack([np.ones((2, 3)), 3 * np.ones((2, 3))])
+    expected_models = SimpleNamespace(
+        periodic=SimpleNamespace(get_data=lambda: np.ones((2, 2, 3)))
+    )
+    expected_freqs = np.array([1.0, 2.0, 3.0])
+
+    def fake_irasa_epochs(segments, band, hset_info):
+        assert segments is None
+        assert band == (6, 22)
+        assert hset_info == (1.1, 1.8, 0.1)
+        return raw_per_epoch, expected_freqs, expected_models
+
+    monkeypatch.setattr("meganorm.src.psdParameterize.irasa_epochs", fake_irasa_epochs)
+
+    models, psds, freqs = parameterize_psds(
+        None,
+        "irasa",
+        freq_range_low=6,
+        freq_range_high=22,
+        irasa_hset=(1.1, 1.8, 0.1),
+    )
+
+    assert models is expected_models
+    assert psds.shape == (2, 3)
+    np.testing.assert_allclose(psds, 2.0)  # mean of 1 and 3
+    assert freqs is expected_freqs
+
+
+@pytest.mark.unit
+def test_parameterize_psds_specparam_forwards_nondefault_configuration(monkeypatch):
     expected_psds = np.ones((2, 3))
     expected_freqs = np.array([4.0, 5.0, 6.0])
     expected_models = object()
@@ -253,7 +294,7 @@ def test_parameterize_psds_fooof_forwards_nondefault_configuration(monkeypatch):
         }
         return expected_psds, expected_freqs
 
-    def fake_fooof(**kwargs):
+    def fake_fit_specparam(**kwargs):
         assert kwargs == {
             "psds": expected_psds,
             "freqs": expected_freqs,
@@ -267,11 +308,11 @@ def test_parameterize_psds_fooof_forwards_nondefault_configuration(monkeypatch):
         return expected_models, expected_psds, expected_freqs
 
     monkeypatch.setattr("meganorm.src.psdParameterize.computePsd", fake_compute_psd)
-    monkeypatch.setattr("meganorm.src.psdParameterize.fooof", fake_fooof)
+    monkeypatch.setattr("meganorm.src.psdParameterize.fit_specparam", fake_fit_specparam)
 
     result = parameterize_psds(
         "epochs",
-        "fooof",
+        "specparam",
         freq_range_low=4,
         freq_range_high=31,
         min_peak_height=0.2,
@@ -289,57 +330,31 @@ def test_parameterize_psds_fooof_forwards_nondefault_configuration(monkeypatch):
 
 
 @pytest.mark.unit
-def test_parameterize_psds_irasa_path_preserves_return_order(monkeypatch):
-    expected_models = SimpleNamespace(
-        periodic=SimpleNamespace(get_data=lambda: np.ones((1, 2, 3)))
-    )
-    expected_psds = np.ones((2, 3))
-    expected_freqs = np.array([1.0, 2.0, 3.0])
-
-    def fake_irasa_epochs(segments, band, hset_info):
-        assert segments is None
-        assert band == (6, 22)
-        assert hset_info == (1.1, 1.8, 0.1)
-        return expected_psds, expected_freqs, expected_models
-
-    monkeypatch.setattr("meganorm.src.psdParameterize.irasa_epochs", fake_irasa_epochs)
-
-    models, psds, freqs = parameterize_psds(
-        None,
-        "irasa",
-        freq_range_low=6,
-        freq_range_high=22,
-        irasa_hset=(1.1, 1.8, 0.1),
-    )
-
-    assert models is expected_models
-    assert psds is expected_psds
-    assert freqs is expected_freqs
-
-
-@pytest.mark.unit
 def test_parameterize_psds_rejects_irasa_raw_frequency_mismatch(monkeypatch):
     models = SimpleNamespace(
         periodic=SimpleNamespace(get_data=lambda: np.ones((1, 2, 3)))
     )
     monkeypatch.setattr(
         "meganorm.src.psdParameterize.irasa_epochs",
-        lambda *args, **kwargs: (np.ones((2, 4)), np.arange(3.0), models),
+        lambda *args, **kwargs: (np.ones((1, 2, 4)), np.arange(3.0), models),
     )
 
     with pytest.raises(ValueError, match="raw spectrum"):
         parameterize_psds(None, "irasa")
 
 
-@pytest.mark.unit
-def test_parameterize_psds_rejects_irasa_periodic_frequency_mismatch(monkeypatch):
+@pytest.mark.unit   
+def test_parameterize_psds_rejects_irasa_periodic_shape_mismatch(monkeypatch):
     models = SimpleNamespace(
         periodic=SimpleNamespace(get_data=lambda: np.ones((1, 2, 4)))
     )
     monkeypatch.setattr(
         "meganorm.src.psdParameterize.irasa_epochs",
-        lambda *args, **kwargs: (np.ones((2, 3)), np.arange(3.0), models),
+        lambda *args, **kwargs: (np.ones((1, 2, 3)), np.arange(3.0), models),
     )
 
     with pytest.raises(ValueError, match="periodic"):
         parameterize_psds(None, "irasa")
+
+
+

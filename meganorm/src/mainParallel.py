@@ -246,7 +246,7 @@ def main(args):
     cleanup, filtering, ICA/GEDAI and environmental noise correction,
     head-movement correction, segmentation with optional Autoreject
     bad-segment removal, optional source localization, PSD computation
-    with FOOOF/IRASA spectral parametrization, and band-power feature
+    with specparam/IRASA spectral parametrization, and band-power feature
     extraction. Extracted features are saved to a per-subject CSV.
 
     Parameters
@@ -488,9 +488,6 @@ def main(args):
             segment_events=segment_events,
         )
 
-    # Keep a handle to the post-rejection segments before `segments` gets
-    # reassigned to the source-localized epochs below.
-    rejected_segments = segments
 
     # ------------------------------------------------------------
     if configs.save_segmented_data:
@@ -502,16 +499,20 @@ def main(args):
             f"{save_segments_path}/{args.subject}-segments-epo.fif", overwrite=True
         )
 
-    if configs.lowest_num_of_epochs is not None:
-        rejected_segments = segments.copy()
-        rejected_segments.drop_bad()  # no-op if rejection already ran
+    rejected_segments = segments.copy()
+    rejected_segments.drop_bad()  # no-op if rejection already ran
+    n_kept = len(rejected_segments)
 
-        n_kept = len(rejected_segments)
-
-        if n_kept < configs.lowest_num_of_epochs:
-            err_msg = f"The number of extracted epochs is below the specified minimum threshold of {configs.lowest_num_of_epochs}."
-            logger.error(err_msg)
-            raise Exception(err_msg)
+    if (
+        configs.lowest_num_of_epochs is not None
+        and n_kept < configs.lowest_num_of_epochs
+    ):
+        err_msg = (
+            f"The number of extracted epochs {n_kept} is below the specified "
+            f"minimum threshold of {configs.lowest_num_of_epochs}."
+        )
+        logger.error(err_msg)
+        raise Exception(err_msg)
 
     # ------------------------------------------------------------
     sl_segments = None  # populated below if source localization runs
@@ -562,12 +563,12 @@ def main(args):
         # parametrization method
         parametrization_method=configs.parametrization_method,
         aperiodic_mode=configs.aperiodic_mode,
-        freq_range_low=configs.fooof_freq_range_low,
-        freq_range_high=configs.fooof_freq_range_high,
-        # fooof parameters
-        min_peak_height=configs.fooof_min_peak_height,
-        peak_threshold=configs.fooof_peak_threshold,
-        peak_width_limits=configs.fooof_peak_width_limits,
+        freq_range_low=configs.specparam_freq_range_low,
+        freq_range_high=configs.specparam_freq_range_high,
+        # specparam parameters
+        min_peak_height=configs.specparam_min_peak_height,
+        peak_threshold=configs.specparam_peak_threshold,
+        peak_width_limits=configs.specparam_peak_width_limits,
         # pyrasa parameters
         irasa_hset=configs.irasa_hset,
     )
@@ -597,9 +598,17 @@ def main(args):
         min_r_squared=configs.min_r_squared,
         power_band_ratios_list=configs.power_band_ratios_list,
         layout_path=args.layout_path,
-        freq_range_low=configs.fooof_freq_range_low,
-        freq_range_high=configs.fooof_freq_range_high,
+        freq_range_low=configs.specparam_freq_range_low,
+        freq_range_high=configs.specparam_freq_range_high,
     )
+
+    for column in configs.extra_metadata_columns:
+        if column == "if_eroom":
+            features["if_eroom"] = empty_room_recording is not None
+        elif column == "scanner":
+            features["scanner"] = device
+        elif column == "number_of_epochs":
+            features["number_of_epochs"] = n_kept
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 
