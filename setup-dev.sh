@@ -300,6 +300,19 @@ else
 fi
 
 echo
+echo "Installing documentation dependencies..."
+
+DOCS_REQUIREMENTS="${MEGANORM_DIR}/docs/requirements.txt"
+
+if [[ -f "${DOCS_REQUIREMENTS}" ]]; then
+    conda run -n "${ENV_NAME}" \
+        python -m pip install -r "${DOCS_REQUIREMENTS}"
+else
+    echo "WARNING: Documentation requirements file was not found at:"
+    echo "  ${DOCS_REQUIREMENTS}"
+fi
+
+echo
 echo "Verifying development environment..."
 
 VERIFY_DIR="$(mktemp -d)"
