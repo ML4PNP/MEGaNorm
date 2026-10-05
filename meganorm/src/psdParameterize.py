@@ -82,9 +82,9 @@ def fit_specparam(
     freqs,
     freq_range_low=3,
     freq_range_high=40,
-    min_peak_height=0,
-    peak_threshold=2,
-    peak_width_limits=(1, 12.0),
+    min_peak_height=0.0,
+    peak_threshold=2.0,
+    peak_width_limits=(1.0, 12.0),
     aperiodic_mode="fixed",
 ):
     """
@@ -137,46 +137,51 @@ def parameterize_psds(
     parametrization_method,
     freq_range_low=3,
     freq_range_high=40,
-    min_peak_height=0,
-    peak_threshold=2,
+    min_peak_height=0.0,
+    peak_threshold=2.0,
     sampling_rate=1000,
     psd_method="welch",
     psd_n_overlap=1,
     psd_n_fft=2,
     n_per_seg=2,
-    peak_width_limits=(1, 12.0),
+    peak_width_limits=(1.0, 12.0),
     aperiodic_mode="knee",
     irasa_hset=(1.05, 2.0, 0.05),
 ):
     """
-    Runs the complete pipeline for spectral parameterization using specparam or IRASA.
+    Run spectral parameterization using specparam or IRASA.
 
     Parameters
     ----------
     segments : mne.Epochs
         Epoched MNE object containing segmented data.
+    parametrization_method : {"specparam", "irasa"}
+        Method used to separate aperiodic and periodic components.
     freq_range_low : float
-        Lower bound of frequency range for PSD and specparam (Hz).
+        Lower bound of the frequency range (Hz). Used by both methods.
     freq_range_high : float
-        Upper bound of frequency range for PSD and specparam (Hz).
+        Upper bound of the frequency range (Hz). Used by both methods.
     min_peak_height : float
-        Minimum height of peaks to be detected by specparam.
+        Minimum peak height (specparam only; IRASA peaks are detected later
+        in `feature_extract`).
     peak_threshold : float
-        Threshold for peak detection relative to the aperiodic fit.
+        Peak detection threshold (specparam only; see `min_peak_height`).
     sampling_rate : int
         Sampling frequency of the signal (Hz).
     psd_method : str
-        Method used to compute PSD. Options: "welch", "multitaper".
+        Method used to compute PSD (specparam only). Options: "welch", "multitaper".
     psd_n_overlap : int
-        Overlap (in seconds) between segments in PSD computation.
+        Overlap (in seconds) between segments in PSD computation (specparam only).
     psd_n_fft : int
-        Number of FFT points (in seconds) used in PSD.
+        Number of FFT points (in seconds) used in PSD (specparam only).
     n_per_seg : int
-        Length (in seconds) of each segment used in PSD.
+        Length (in seconds) of each segment used in PSD (specparam only).
     peak_width_limits : tuple of float, optional
-        Lower and upper bounds on peak width (Hz). Default is (1, 12.0).
+        Lower and upper bounds on peak width (Hz) (specparam only).
     aperiodic_mode : str
         Mode of aperiodic fit. Options: "fixed" or "knee".
+    irasa_hset : tuple of float, optional
+        IRASA resampling factors as ``(start, stop, step)`` (IRASA only).
 
     Returns
     -------
@@ -194,6 +199,8 @@ def parameterize_psds(
         If `psd_method` is not 'welch' or 'multitaper'.
     ValueError
         If `aperiodic_mode` is not 'fixed' or 'knee'.
+    ValueError
+        If `parametrization_method` is not 'specparam' or 'irasa'.
     """
     if psd_method not in ["multitaper", "welch"]:
         raise ValueError("psd_method must be either 'welch' or 'multitaper'")
@@ -253,40 +260,46 @@ def irasa_epochs(
     data: mne.Epochs,
     band: tuple[float, float] = (1.0, 100.0),
     hset_info: tuple[float, float, float] = (1.05, 2.0, 0.05),
-) -> IrasaEpoched:
+) -> tuple[np.ndarray, np.ndarray, IrasaEpoched]:
     """
-    Separate aperiodic from periodic power spectra using the IRASA algorithm for Epochs data.
+    Separate aperiodic from periodic power spectra using IRASA, per epoch.
 
-    This function applies the Irregular Resampling Auto-Spectral Analysis (IRASA) algorithm
-    as described by Wen & Liu (2016) to decompose the power spectrum of neurophysiological
-    signals into aperiodic (fractal) and periodic (oscillatory) components. It is specifically
-    designed for time-series data in `mne.Epochs` format, making it suitable for event-related
-    EEG/MEG analyses.
+    This function applies the Irregular Resampling Auto-Spectral Analysis (IRASA)
+    algorithm (Wen & Liu, 2016) to each epoch of an `mne.Epochs` object, decomposing
+    its power spectrum into aperiodic (fractal) and periodic (oscillatory) components.
+    Spectra are NOT averaged across epochs here; callers average where needed.
 
     Parameters
     ----------
     data : mne.Epochs
         The time-series data used to extract aperiodic and periodic power spectra.
-        This should be an instance of `mne.Epochs`.
     band : tuple of (float, float), optional, default: (1.0, 100.0)
-        A tuple specifying the lower and upper bounds of the frequency range (in Hz) used
-        for extracting the aperiodic and periodic spectra.
+        Lower and upper bounds of the frequency range (Hz) used for extracting
+        the aperiodic and periodic spectra.
     hset_info : tuple of (float, float, float), optional, default: (1.05, 2.0, 0.05)
-        Contains the range of up/downsampling factors used in the IRASA algorithm.
-        This should be a tuple specifying the (min, max, step) values for the resampling.
+        Range of up/downsampling factors used in IRASA as ``(min, max, step)``.
 
     Returns
     -------
-    psd_list_original: np.array
-        Original power spectrum.
-    aperiodic : AperiodicEpochsSpectrum
-        The aperiodic component of the data as an `AperiodicEpochsSpectrum` object.
-    periodic : PeriodicEpochsSpectrum
-        The periodic component of the data as a `PeriodicEpochsSpectrum` object.
+    psds_original : np.ndarray, shape (n_epochs, n_channels, n_freqs)
+        Original (raw) power spectrum of each epoch.
+    freqs : np.ndarray, shape (n_freqs,)
+        Frequencies in Hz.
+    irasa_result : IrasaEpoched
+        Per-epoch periodic (`.periodic`, a `PeriodicEpochsSpectrum`) and
+        aperiodic (`.aperiodic`, an `AperiodicEpochsSpectrum`) components,
+        carrying the epochs' events and event IDs.
 
-    Note
-    ---------
-    This code is driven and modified from PYRASA:
+    Raises
+    ------
+    TypeError
+        If `data` is not an `mne.BaseEpochs` instance.
+    ValueError
+        If `data` contains bad channels.
+
+    Notes
+    -----
+    Adapted from PYRASA:
     https://github.com/schmidtfa/pyrasa/blob/afb003444131f97d3221abb6d338384d92c12e29/pyrasa/irasa_mne/irasa_mne.py
     """
 
@@ -334,12 +347,18 @@ def irasa_epochs(
         irasa_spectrum.freqs,
         IrasaEpoched(
             periodic=PeriodicEpochsSpectrum(
-                psds_periodic, info, freqs=irasa_spectrum.freqs,
-                events=events, event_id=event_id,
+                psds_periodic,
+                info,
+                freqs=irasa_spectrum.freqs,
+                events=events,
+                event_id=event_id,
             ),
             aperiodic=AperiodicEpochsSpectrum(
-                psds_aperiodic, info, freqs=irasa_spectrum.freqs,
-                events=events, event_id=event_id,
+                psds_aperiodic,
+                info,
+                freqs=irasa_spectrum.freqs,
+                events=events,
+                event_id=event_id,
             ),
         ),
     )

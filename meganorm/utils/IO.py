@@ -17,6 +17,7 @@ from pydantic import (
     BaseModel,
     Field,
     PositiveInt,
+    PositiveFloat,
     confloat,
     conint,
     conlist,
@@ -217,22 +218,22 @@ class Config(BaseModel):
         PSD estimation method.
     psd_n_overlap, psd_n_fft, psd_n_per_seg : PositiveInt, default=1, 2, 2
         Welch/multitaper PSD parameters.
-    parametrization_method : {"specparam", "irasa"}, default="irasa"
+    psd_parametrization_method : {"specparam", "irasa"}, default="irasa"
         Method for separating aperiodic and periodic spectral components.
-    irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
-        Resampling factor range/step for IRASA.
-    specparam_freq_range_low, specparam_freq_range_high : PositiveInt, default=3, 40
-        Frequency range for specparam fitting (Hz).
+    psd_parametrization_freq_range_low, psd_parametrization_freq_range_high : PositiveInt, default=3, 40
+        Frequency range for spectral parametrization (Hz). Used by both methods.
+    psd_parametrization_peak_threshold : PositiveFloat, default=2.0
+        Peak detection threshold. Used by both methods.
+    psd_parametrization_peak_width_limits : tuple[float, float], default=(1.0, 12.0)
+        Allowed peak width range (Hz). Used by both methods.
+    psd_parametrization_min_peak_height : float, default=0.0
+        Minimum peak height for detection. Used by both methods.
     aperiodic_mode : {"knee", "fixed"}, default="knee"
         Aperiodic component model.
-    specparam_peak_width_limits : list[float], default=[1.0, 12.0]
-        Allowed peak width range (Hz).
-    specparam_min_peak_height : int, default=0
-        Minimum peak height for detection.
-    specparam_peak_threshold : PositiveInt, default=2
-        Peak detection threshold (in SD of the flattened spectrum).
+    irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
+        Resampling factor range/step for IRASA.
     specparam_res_save_path : str or None
-        Path to save specparam results.
+        Path to save specparam results (specparam only).
     save_source_localized_epochs, save_psds : bool, default=False
         Persist intermediate source-localized epochs / PSDs to disk.
 
@@ -437,17 +438,17 @@ class Config(BaseModel):
     psd_n_fft: PositiveInt = 2
     psd_n_per_seg: PositiveInt = 2
 
-    parametrization_method: Literal["specparam", "irasa"] = "irasa"
-    # PYRASA
-    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
-
-    # specparam analysis
-    specparam_freq_range_low: PositiveInt = 3
-    specparam_freq_range_high: PositiveInt = 40
+    psd_parametrization_method: Literal["specparam", "irasa"] = "irasa"
+    # Shared by specparam and IRASA
+    psd_parametrization_freq_range_low: PositiveInt = 3
+    psd_parametrization_freq_range_high: PositiveInt = 40
+    psd_parametrization_peak_threshold: PositiveFloat = 2.0
+    psd_parametrization_peak_width_limits: Tuple[float, float] = (1.0, 12.0)
+    psd_parametrization_min_peak_height: confloat(ge=0) = 0.0
     aperiodic_mode: Literal["knee", "fixed"] = "knee"
-    specparam_peak_width_limits: List[float] = [1.0, 12.0]
-    specparam_min_peak_height: int = 0
-    specparam_peak_threshold: PositiveInt = 2
+
+    # IRASA only
+    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
 
     save_source_localized_epochs: bool = False
     save_psds: bool = False

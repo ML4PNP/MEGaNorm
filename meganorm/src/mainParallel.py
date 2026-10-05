@@ -560,16 +560,15 @@ def main(args):
         psd_n_overlap=configs.psd_n_overlap,
         psd_n_fft=configs.psd_n_fft,
         n_per_seg=configs.psd_n_per_seg,
-        # parametrization method
-        parametrization_method=configs.parametrization_method,
+        # parametrization (shared by specparam and IRASA)
+        parametrization_method=configs.psd_parametrization_method,
         aperiodic_mode=configs.aperiodic_mode,
-        freq_range_low=configs.specparam_freq_range_low,
-        freq_range_high=configs.specparam_freq_range_high,
-        # specparam parameters
-        min_peak_height=configs.specparam_min_peak_height,
-        peak_threshold=configs.specparam_peak_threshold,
-        peak_width_limits=configs.specparam_peak_width_limits,
-        # pyrasa parameters
+        freq_range_low=configs.psd_parametrization_freq_range_low,
+        freq_range_high=configs.psd_parametrization_freq_range_high,
+        min_peak_height=configs.psd_parametrization_min_peak_height,
+        peak_threshold=configs.psd_parametrization_peak_threshold,
+        peak_width_limits=configs.psd_parametrization_peak_width_limits,
+        # IRASA only
         irasa_hset=configs.irasa_hset,
     )
 
@@ -598,8 +597,11 @@ def main(args):
         min_r_squared=configs.min_r_squared,
         power_band_ratios_list=configs.power_band_ratios_list,
         layout_path=args.layout_path,
-        freq_range_low=configs.specparam_freq_range_low,
-        freq_range_high=configs.specparam_freq_range_high,
+        freq_range_low=configs.psd_parametrization_freq_range_low,
+        freq_range_high=configs.psd_parametrization_freq_range_high,
+        peak_threshold=configs.psd_parametrization_peak_threshold,
+        peak_width_limits=configs.psd_parametrization_peak_width_limits,
+        min_peak_height=configs.psd_parametrization_min_peak_height,
     )
 
     for column in configs.extra_metadata_columns:
@@ -625,7 +627,7 @@ def main(args):
             filtered_sampling_rate=sampling_rate,
             sl_segments=sl_segments,
             spectral_models=spectral_models,
-            parametrization_method=configs.parametrization_method,
+            parametrization_method=configs.psd_parametrization_method,
             aperiodic_mode=configs.aperiodic_mode,
             aperiodic_fit_result=aperiodic_fit_result,
         )
