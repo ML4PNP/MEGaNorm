@@ -4,18 +4,18 @@ meganorm.utils package
 Submodules
 ----------
 
-meganorm.utils.EEGlab module
-----------------------------
-
-.. automodule:: meganorm.utils.EEGlab
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 meganorm.utils.IO module
 ------------------------
 
 .. automodule:: meganorm.utils.IO
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+meganorm.utils.data_specific_utils module
+-----------------------------------------
+
+.. automodule:: meganorm.utils.data_specific_utils
    :members:
    :show-inheritance:
    :undoc-members:
@@ -51,3 +51,4 @@ Module contents
    :members:
    :show-inheritance:
    :undoc-members:
+   

@@ -4,7 +4,12 @@ meganorm.plots package
 Submodules
 ----------
 
+meganorm.plots.plot_erp module
+----------------------------
 
+.. automodule:: meganorm.plots.plot_erp
+   :members:
+   :show-inheritance:
 
 meganorm.plots.plots module
 ---------------------------
