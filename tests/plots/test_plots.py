@@ -112,6 +112,8 @@ def test_box_plot_auc_saves_png_and_svg(tmp_path):
     )
 
     with warnings.catch_warnings():
+        warnings.simplefilter("error", matplotlib.MatplotlibDeprecationWarning)
+        warnings.simplefilter("error", PendingDeprecationWarning)
         warnings.filterwarnings(
             "error",
             message="(?s).*Passing `palette` without assigning `hue`.*",

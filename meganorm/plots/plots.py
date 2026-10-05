@@ -847,19 +847,23 @@ def box_plot_auc(
 
     sns.set_theme(style="ticks")
     plt.figure(figsize=(6, 5))
-    ax = sns.boxplot(
-        x="variable",
-        y="value",
-        hue="variable",
-        data=data_long,
-        palette=palette,
+    ax = plt.gca()
+    # Use Matplotlib directly: Seaborn 0.13 passes the deprecated `vert` argument.
+    boxes = ax.boxplot(
+        [df.iloc[:, i].dropna().to_numpy() for i in range(len(df.columns))],
+        positions=np.arange(len(df.columns)),
+        widths=0.8,
+        orientation="vertical",
+        patch_artist=True,
         showfliers=False,
-        legend=False,
+        manage_ticks=False,
+        medianprops={"color": "0.25", "linewidth": 1.5},
+        whiskerprops={"color": "0.25", "linewidth": 1.5},
+        capprops={"color": "0.25", "linewidth": 1.5},
     )
 
-    # Apply alpha to each PathPatch (box area)
-    num_boxes = len(df.columns)
-    for i, patch in enumerate(ax.patches[:num_boxes]):
+    # Apply the supplied colors and transparency to each box.
+    for i, patch in enumerate(boxes["boxes"]):
         patch.set_facecolor(palette[i])
         patch.set_alpha(alpha)
         patch.set_edgecolor("black")
@@ -874,6 +878,7 @@ def box_plot_auc(
         size=6,
         alpha=0.6,
         jitter=True,
+        ax=ax,
     )
 
     sns.despine(offset=0, trim=True)

@@ -815,7 +815,15 @@ def test_fix_physiological_channel_types_retypes_only_ctf_auxiliary_channels():
         types=["eeg", "eeg", "eeg", "misc", "misc"],
     )
 
-    returned = fix_physiological_channel_types(raw, device="CTF")
+    before = raw.get_data().copy()
+    # Retyping the unitless misc channel as ECG intentionally updates its unit.
+    with pytest.warns(
+        RuntimeWarning,
+        match=r"The unit for channel\(s\) EKG_aux has changed from NA to V",
+    ):
+        returned = fix_physiological_channel_types(raw, device="CTF")
+
+    np.testing.assert_array_equal(raw.get_data(), before)
 
     assert returned is raw
     assert raw.get_channel_types() == ["eeg", "eog", "ecg", "ecg", "misc"]
