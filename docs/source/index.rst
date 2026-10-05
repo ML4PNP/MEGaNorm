@@ -113,6 +113,7 @@ Documentation
    :caption: User Guide
 
    getting_started
+   meganorm.API
 
 .. toctree::
    :maxdepth: 2

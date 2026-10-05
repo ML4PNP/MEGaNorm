@@ -99,6 +99,12 @@ fast unit tests, integration tests, and slow tests. New functionality and bug
 fixes should include focused tests where applicable. The same full suite runs
 automatically through GitHub Actions on pushes and pull requests.
 
+Run tests from the repository checkout. On native Windows, tests that create
+filenames forbidden by Windows or exercise POSIX FreeSurfer shell/executable
+fixtures are skipped. Portable path-validation and source-localization unit
+tests still run. Use Linux, macOS, or Python inside WSL for the FreeSurfer
+shell integration tests.
+
 ---
 
 ## Reporting Issues

@@ -1,4 +1,5 @@
 import inspect
+import ntpath
 import os
 import subprocess
 from datetime import datetime
@@ -515,3 +516,43 @@ def test_sbatch_feature_extraction_runner_uses_modules_and_conda_env(tmp_path):
     assert "module load python/3.12" in script
     assert "module load cuda/12" in script
     assert "source activate meganorm-dev" in script
+
+
+@pytest.mark.unit
+def test_sbatchfile_keeps_linux_log_paths_on_windows_host(monkeypatch, tmp_path):
+    # Simulate the host join only at the script-generation boundary; the output
+    # script is still a real file on this test runner's filesystem.
+    host_join = os.path.join
+
+    def windows_join(first, *parts):
+        if first == "/project/log files":
+            return ntpath.join(first, *parts)
+        return host_join(first, *parts)
+
+    monkeypatch.setattr(
+        parallel,
+        "os",
+        SimpleNamespace(path=SimpleNamespace(join=windows_join), chmod=os.chmod),
+    )
+    script = Path(
+        parallel.sbatchfile(
+            "/project/mainParallel.py", str(tmp_path), log_path="/project/log files"
+        )
+    )
+    content = script.read_text()
+    assert "#SBATCH -o '/project/log files/%x_%j.out'" in content
+    assert "#SBATCH -e '/project/log files/%x_%j.err'" in content
+
+
+@pytest.mark.unit
+def test_sbatchfile_writes_linux_line_endings_on_windows_host(monkeypatch, tmp_path):
+    host_open = open
+
+    def windows_open(path, mode, **kwargs):
+        kwargs.setdefault("newline", "\r\n")
+        return host_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(parallel, "open", windows_open, raising=False)
+    script = Path(parallel.sbatchfile("/project/mainParallel.py", str(tmp_path)))
+    assert b"\r\n" not in script.read_bytes()
+    assert script.read_bytes().startswith(b"#!/bin/bash\n")

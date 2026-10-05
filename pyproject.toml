@@ -23,6 +23,7 @@ exclude = '''
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
     "unit: fast tests of isolated MEGaNorm behavior",
     "integration: tests of MEGaNorm interactions with scientific dependencies",
