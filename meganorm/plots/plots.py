@@ -2931,7 +2931,8 @@ def psd_stage_report(
             )
             return ap_psds, ap_freqs
         elif parametrization_method == "irasa":
-            ap_psds = np.squeeze(spectral_models.aperiodic.get_data(), axis=0)
+            # average across epochs -> (n_channels, n_freqs)
+            ap_psds = spectral_models.aperiodic.get_data().mean(axis=0)
             ap_freqs = spectral_models.aperiodic.freqs
             return ap_psds, ap_freqs
         else:
@@ -2964,7 +2965,8 @@ def psd_stage_report(
                 periodic_psds.append(periodic_linear)
             return np.array(periodic_psds), per_freqs
         elif parametrization_method == "irasa":
-            per_psds = np.squeeze(spectral_models.periodic.get_data(), axis=0)
+            # average across epochs -> (n_channels, n_freqs)
+            per_psds = spectral_models.periodic.get_data().mean(axis=0)
             per_freqs = spectral_models.periodic.freqs
             return per_psds, per_freqs
         else:

@@ -180,10 +180,11 @@ def parameterize_psds(
 
     Returns
     -------
-    spectral_models : specparam.SpectralGroupModel | pyrasa.irasa_mne.mne_objs.IrasaEpoched
-        Fitted spectral models for each channel.
-    psds : np.ndarray
-        Power spectral densities.
+    spectral_models : specparam.SpectralGroupModel | IrasaEpoched
+        Fitted models. For IRASA, periodic/aperiodic spectra are per epoch
+        (n_epochs, n_channels, n_freqs).
+    psds : np.ndarray, shape (n_channels, n_freqs)
+        Epoch-averaged power spectral density.
     freqs : np.ndarray
         Corresponding frequency values.
 
@@ -228,18 +229,22 @@ def parameterize_psds(
         )
 
     elif parametrization_method == "irasa":
-        psds, freqs, spectral_models = irasa_epochs(
+        psds_epochs, freqs, spectral_models = irasa_epochs(
             segments,
             band=(freq_range_low, freq_range_high),
             hset_info=irasa_hset,
         )
 
-        if psds.shape[-1] != len(freqs):
-            raise ValueError(f"raw spectrum {psds.shape} vs freqs {freqs.shape}")
+        if psds_epochs.ndim != 3 or psds_epochs.shape[-1] != len(freqs):
+            raise ValueError(f"raw spectrum {psds_epochs.shape} vs freqs {freqs.shape}")
 
-        per = spectral_models.periodic.get_data().squeeze()
-        if per.shape[-1] != len(freqs):
-            raise ValueError(f"periodic {per.shape} vs freqs {freqs.shape}")
+        per = spectral_models.periodic.get_data()
+        if per.shape != psds_epochs.shape:
+            raise ValueError(f"periodic {per.shape} vs raw spectrum {psds_epochs.shape}")
+
+        # Epoch-averaged spectrum for downstream features (same shape as specparam);
+        # per-epoch spectra remain available in spectral_models.
+        psds = psds_epochs.mean(axis=0)
 
     return spectral_models, psds, freqs
 
@@ -317,30 +322,24 @@ def irasa_epochs(
         psd_list_periodic.append(irasa_spectrum.periodic.copy())
         psd_list_original.append(irasa_spectrum.raw_spectrum.copy())
 
-    psds_aperiodic = np.array(psd_list_aperiodic).mean(axis=0)
-    psds_periodic = np.array(psd_list_periodic).mean(axis=0)
-    psd_list_original = np.array(psd_list_original).mean(axis=0)
+    psds_aperiodic = np.array(psd_list_aperiodic)  # (n_epochs, n_channels, n_freqs)
+    psds_periodic = np.array(psd_list_periodic)
+    psds_original = np.array(psd_list_original)
 
-    psds_periodic = psds_periodic[np.newaxis, :, :]
-    psds_aperiodic = psds_aperiodic[np.newaxis, :, :]
+    events = data.events.copy()
+    event_id = data.event_id
 
     return (
-        psd_list_original,
+        psds_original,
         irasa_spectrum.freqs,
         IrasaEpoched(
             periodic=PeriodicEpochsSpectrum(
-                psds_periodic,
-                info,
-                freqs=irasa_spectrum.freqs,
-                events=np.array([[0, 0, 1]] * 1),
-                event_id={"1": 1},
+                psds_periodic, info, freqs=irasa_spectrum.freqs,
+                events=events, event_id=event_id,
             ),
             aperiodic=AperiodicEpochsSpectrum(
-                psds_aperiodic,
-                info,
-                freqs=irasa_spectrum.freqs,
-                events=np.array([[0, 0, 1]] * 1),
-                event_id={"1": 1},
+                psds_aperiodic, info, freqs=irasa_spectrum.freqs,
+                events=events, event_id=event_id,
             ),
         ),
     )

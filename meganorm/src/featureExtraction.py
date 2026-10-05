@@ -1,10 +1,5 @@
 import numpy as np
-import os
-import sys
-import tqdm
 import json
-import pickle
-import argparse
 import logging
 import pyrasa
 import specparam as sp
@@ -12,8 +7,7 @@ import pandas as pd
 from typing import Union
 from typing import Dict, List
 from abc import ABC, abstractmethod
-from pyrasa.irasa_mne import irasa_epochs
-
+from pyrasa.irasa_mne.mne_objs import AperiodicEpochsSpectrum
 # from layouts import load_specific_layout
 from meganorm.layouts.layouts import load_specific_layout
 
@@ -555,20 +549,26 @@ def feature_extract(
     )
 
     ap = None
+    band_peaks_avg = {}
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
+        # Aperiodic fit on the epoch-averaged spectrum
+        aperiodic_avg = _average_aperiodic(spectral_models.aperiodic)
+        fit_kwargs = dict(
+            fit_func=aperiodic_mode,
+            fit_bounds=[freq_range_low + 1, freq_range_high - 1],
+        )
         try:
-            ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode,
-                scale=False,
-                fit_bounds=[freq_range_low + 1, freq_range_high - 1],
-            )
+            ap = aperiodic_avg.fit_aperiodic_model(scale=False, **fit_kwargs)
         except Exception as e:
-            ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode,
-                scale=True,
-                fit_bounds=[freq_range_low + 1, freq_range_high - 1],
+            logger.info(f"Aperiodic fit failed unscaled ({e}); retrying with scale=True.")
+            ap = aperiodic_avg.fit_aperiodic_model(scale=True, **fit_kwargs)
+
+        # Peaks detected per epoch, then averaged
+        for band_name, (fmin, fmax) in freq_bands.items():
+            band_peaks_avg[band_name] = average_peaks_across_epochs(
+                spectral_models.periodic, fmin, fmax
             )
-            logger.info(f"Data was rescaled in PYRASA due to numerical instability!")
+
 
     for channel_num, channel_name in enumerate(channel_names):
 
@@ -584,6 +584,7 @@ def feature_extract(
                 ch_name=channel_name,
                 ch_num=channel_num,
                 aperiodic=ap,
+                band_peaks_avg=band_peaks_avg,
             )
         else:
             raise TypeError(f"Unknown spectral model type: {type(spectral_models)}")
@@ -679,7 +680,7 @@ def feature_extract(
 
             # Peak Features ==================================
             peak_params, band_peaks = spectral_model.get_peak_params(
-                fmin=fmin, fmax=fmax
+                fmin=fmin, fmax=fmax, band_name=band_name
             )
             if peak_params is not None:
                 if feature_categories["Peak_Center"] and peak_params[0] is not None:
@@ -895,7 +896,7 @@ class SpectralDecomposer(ABC):
         pass
 
     @abstractmethod
-    def get_peak_params(self, fmin, fmax):
+    def get_peak_params(self, fmin, fmax, band_name=None):
         """
         Return peak parameters within a given frequency range.
 
@@ -993,7 +994,7 @@ class SpecParamDecomposer(SpectralDecomposer):
         """
         return self.model.data.get_data("peak", "linear")
 
-    def get_peak_params(self, fmin, fmax):
+    def get_peak_params(self, fmin, fmax, band_name=None):
         """
         Extract the dominant peak and all peaks within a frequency band
         from the specparam model's peak parameters.
@@ -1053,7 +1054,7 @@ class PYRASADecomposer(SpectralDecomposer):
     channel.
     """
 
-    def __init__(self, model, mode, ch_name, ch_num, aperiodic):
+    def __init__(self, model, mode, ch_name, ch_num, aperiodic, band_peaks_avg):
         """
         Parameters
         ----------
@@ -1075,6 +1076,8 @@ class PYRASADecomposer(SpectralDecomposer):
         self.aperiodic = aperiodic
         self.ch_name = ch_name
         self.ch_num = ch_num
+        self.band_peaks_avg = band_peaks_avg  # {band_name: DataFrame indexed by ch_name}
+
 
     def get_aperiodic_params(self):
         """
@@ -1127,50 +1130,14 @@ class PYRASADecomposer(SpectralDecomposer):
             )
         return periodic[:, self.ch_num, :].mean(axis=0)
 
-    def get_peak_params(self, fmin, fmax):
-        """
-        Extract peak parameters within a given frequency range.
-
-        Parameters
-        ----------
-        fmin : float
-            Lower bound of the frequency range.
-        fmax : float
-            Upper bound of the frequency range.
-
-        Returns
-        -------
-        dominant_peak : tuple or None
-            (center frequency, power, width) of the strongest peak in the
-            range, or None if no peak is found.
-        band_peaks : list of tuple or None
-            All peaks found within the frequency range, or None if none
-            are found.
-        """
-        try:
-            df = self.model.periodic.get_peaks(
-                cut_spectrum=(fmin - 1, fmax + 1),
-                peak_threshold=1.5,
-                peak_width_limits=(1, 12.0),
-            )
-        except ValueError as e:
-            logger.warning(
-                f"Peak detection failed for {self.ch_name} in [{fmin}, {fmax}] Hz: {e}"
-            )
+    def get_peak_params(self, fmin, fmax, band_name=None):
+        """Return the epoch-averaged peak (cf, pw, bw) of this channel in the band."""
+        avg_peaks = self.band_peaks_avg.get(band_name)
+        if avg_peaks is None or self.ch_name not in avg_peaks.index:
             return None, None
 
-        sel = df.loc[
-            (df["ch_name"] == self.ch_name) & (df["cf"] >= fmin) & (df["cf"] <= fmax),
-            ["cf", "pw", "bw"],
-        ].dropna()
-
-        if sel.empty:
-            return None, None
-
-        band_peaks = [tuple(row) for row in sel.to_numpy(dtype=float)]
-        dominant_peak = max(band_peaks, key=lambda x: x[1])
-
-        return dominant_peak, band_peaks
+        avg_peak = tuple(avg_peaks.loc[self.ch_name, ["cf", "pw", "bw"]].astype(float))
+        return avg_peak, [avg_peak]
 
     def get_r_squared(self):
         """
@@ -1183,3 +1150,57 @@ class PYRASADecomposer(SpectralDecomposer):
         """
         gof = self.aperiodic.gof
         return gof[gof["ch_name"] == self.ch_name]["R2"].item()
+
+
+
+def _average_aperiodic(aperiodic):
+    """Collapse a per-epoch AperiodicEpochsSpectrum into a single-epoch one."""
+    data = aperiodic.get_data().mean(axis=0, keepdims=True)  # (1, n_channels, n_freqs)
+    return AperiodicEpochsSpectrum(
+        data,
+        aperiodic.info,
+        freqs=aperiodic.freqs,
+        events=np.array([[0, 0, 1]]),
+        event_id={"1": 1},
+    )
+
+
+
+def average_peaks_across_epochs(periodic, fmin, fmax):
+    """
+    Detect peaks in each epoch, keep the strongest peak per channel per epoch,
+    and average those peaks across epochs.
+
+    Returns
+    -------
+    pd.DataFrame or None
+        One row per channel (index: ch_name) with averaged cf, pw, bw.
+        Channels without any peak in the band are absent.
+        None if peak detection failed in every epoch.
+    """
+    all_peaks = []
+    for epoch_idx in range(len(periodic)):
+        try:
+            peaks = periodic[epoch_idx].get_peaks(
+                cut_spectrum=(fmin - 1, fmax + 1),
+                peak_threshold=1.5,
+                peak_width_limits=(1, 12.0),
+            )
+        except ValueError as e:
+            logger.warning(f"Peak detection failed (epoch {epoch_idx}, [{fmin}, {fmax}] Hz): {e}")
+            continue
+        peaks["epoch"] = epoch_idx
+        all_peaks.append(peaks)
+
+    if not all_peaks:
+        return None
+    peaks = pd.concat(all_peaks, ignore_index=True)
+
+    # Peaks inside the band only
+    peaks = peaks[peaks["cf"].between(fmin, fmax)].dropna(subset=["cf", "pw", "bw"])
+
+    # 1. One peak per channel per epoch: the strongest
+    strongest = peaks.sort_values("pw").groupby(["ch_name", "epoch"]).tail(1)
+
+    # 2. Average across epochs, per channel
+    return strongest.groupby("ch_name")[["cf", "pw", "bw"]].mean()

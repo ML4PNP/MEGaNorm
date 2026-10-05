@@ -1,16 +1,20 @@
 import json
 from types import SimpleNamespace
 
+import mne
 import numpy as np
 import pandas as pd
 import pytest
+from pyrasa.irasa_mne.mne_objs import AperiodicEpochsSpectrum
 
 from meganorm.src.featureExtraction import (
     SpecParamDecomposer,
     PYRASADecomposer,
+    _average_aperiodic,
     add_feature,
     abs_canonical_power,
     abs_individual_power,
+    average_peaks_across_epochs,
     band_power_ratio,
     compute_hemispheric_asymmetry,
     create_feature_container,
@@ -21,11 +25,9 @@ from meganorm.src.featureExtraction import (
 
 pytestmark = pytest.mark.unit
 
-
 def test_abs_canonical_power_integrates_only_inclusive_band(simple_psd, freqs):
     # Integral of y=x from 2 through 4 Hz is 6; returned on natural-log scale.
     assert abs_canonical_power(simple_psd, freqs, 2.0, 4.0) == pytest.approx(np.log(6.0))
-
 
 
 def test_rel_canonical_power_is_band_fraction(simple_psd, freqs):
@@ -62,7 +64,7 @@ def test_abs_individual_power_returns_nan_for_zero_power(
 def test_band_power_ratio_returns_nan_for_zero_numerator(freqs):
     psd = np.where(freqs <= 4.0, 0.0, 4.0)
     assert np.isnan(band_power_ratio(psd, freqs, 0.0, 4.0, 5.0, 9.0))
-    
+
 
 def test_band_power_ratio_returns_nan_for_zero_denominator(freqs):
     psd = np.where(freqs <= 4.0, 2.0, 0.0)
@@ -260,22 +262,21 @@ def test_compute_hemispheric_asymmetry_honors_selected_base_features():
 
 class FakeSpecParamData:
     def get_data(self, component, space):
-        assert component == 'peak'
-        assert space == 'linear'
+        assert component == "peak"
+        assert space == "linear"
         return np.array([10.0, 92.0, 903.0])
-    
+
+
 class FakeSpecParamFit:
-    def __init__(self,):
+    def __init__(self):
         self.data = FakeSpecParamData()
 
         periodic_params = self.get_params("periodic")
         n_peaks = np.sum(~np.isnan(periodic_params).any(axis=1))
 
-        self.results=SimpleNamespace(
-            n_peaks = n_peaks, 
-            metrics = SimpleNamespace(
-                results={"gof_rsquared": 0.91}
-            )
+        self.results = SimpleNamespace(
+            n_peaks=n_peaks,
+            metrics=SimpleNamespace(results={"gof_rsquared": 0.91}),
         )
 
     def get_params(self, name):
@@ -343,30 +344,22 @@ def test_specparam_decomposer_returns_no_peak_when_band_is_empty():
 
 
 class FakePeriodic:
-    def __init__(self, peaks=None, error=None):
-        self._peaks = peaks
-        self._error = error
+    """Stand-in for the per-epoch periodic spectrum: (n_epochs=1, n_channels=2, n_freqs=3)."""
 
     def get_data(self):
         return np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]])
 
-    def get_peaks(self, **kwargs):
-        if self._error:
-            raise self._error
-        return self._peaks.copy()
 
-
-def make_pyrasa_decomposer(mode="fixed", peaks=None, periodic_error=None):
-    if peaks is None:
-        peaks = pd.DataFrame(
-            {
-                "ch_name": ["MEG001", "MEG002", "MEG002", "MEG002"],
-                "cf": [9.0, 7.5, 8.0, 10.0],
-                "pw": [10.0, 20.0, 2.0, 7.0],
-                "bw": [1.0, 1.0, 1.5, 2.0],
-            }
-        )
-    model = SimpleNamespace(periodic=FakePeriodic(peaks, periodic_error))
+def make_pyrasa_decomposer(mode="fixed", band_peaks_avg=None):
+    if band_peaks_avg is None:
+        # Epoch-averaged peaks per band, as produced by average_peaks_across_epochs
+        band_peaks_avg = {
+            "Alpha": pd.DataFrame(
+                {"cf": [9.0, 10.0], "pw": [10.0, 7.0], "bw": [1.0, 2.0]},
+                index=pd.Index(["MEG001", "MEG002"], name="ch_name"),
+            )
+        }
+    model = SimpleNamespace(periodic=FakePeriodic())
     aperiodic = SimpleNamespace(
         aperiodic_params=pd.DataFrame(
             {
@@ -380,7 +373,7 @@ def make_pyrasa_decomposer(mode="fixed", peaks=None, periodic_error=None):
         ),
         gof=pd.DataFrame({"ch_name": ["MEG001", "MEG002"], "R2": [0.8, 0.95]}),
     )
-    return PYRASADecomposer(model, mode, "MEG002", 1, aperiodic)
+    return PYRASADecomposer(model, mode, "MEG002", 1, aperiodic, band_peaks_avg)
 
 
 @pytest.mark.parametrize(
@@ -407,28 +400,173 @@ def test_pyrasa_decomposer_preserves_frequency_axis_for_single_channel():
         ch_name="MEG001",
         ch_num=0,
         aperiodic=None,
+        band_peaks_avg={},
     )
 
     np.testing.assert_allclose(decomposer.get_periodic_spectrum(), [1.0, 2.0, 3.0])
 
 
-def test_pyrasa_decomposer_selects_strongest_peak_for_channel():
-    dominant, peaks = make_pyrasa_decomposer().get_peak_params(8.0, 12.0)
+def test_pyrasa_decomposer_averages_periodic_spectrum_over_epochs():
+    # Two epochs, one channel: mean of [1, 2, 3] and [3, 4, 5]
+    model = SimpleNamespace(
+        periodic=SimpleNamespace(
+            get_data=lambda: np.array([[[1.0, 2.0, 3.0]], [[3.0, 4.0, 5.0]]])
+        )
+    )
+    decomposer = PYRASADecomposer(model, "fixed", "MEG001", 0, None, {})
+
+    np.testing.assert_allclose(decomposer.get_periodic_spectrum(), [2.0, 3.0, 4.0])
+
+
+def test_pyrasa_decomposer_returns_epoch_averaged_peak_for_its_channel():
+    dominant, peaks = make_pyrasa_decomposer().get_peak_params(
+        8.0, 12.0, band_name="Alpha"
+    )
 
     assert dominant == (10.0, 7.0, 2.0)
-    assert peaks == [(8.0, 2.0, 1.5), (10.0, 7.0, 2.0)]
+    assert peaks == [(10.0, 7.0, 2.0)]
 
 
-def test_pyrasa_decomposer_returns_no_peak_for_empty_channel_selection():
-    peaks = pd.DataFrame({"ch_name": ["MEG001"], "cf": [9.0], "pw": [2.0], "bw": [1.0]})
+def test_pyrasa_decomposer_returns_no_peak_when_channel_has_none():
+    band_peaks_avg = {
+        "Alpha": pd.DataFrame(
+            {"cf": [9.0], "pw": [2.0], "bw": [1.0]},
+            index=pd.Index(["MEG001"], name="ch_name"),
+        )
+    }
+    decomposer = make_pyrasa_decomposer(band_peaks_avg=band_peaks_avg)
 
-    assert make_pyrasa_decomposer(peaks=peaks).get_peak_params(7.0, 12.0) == (
-        None,
-        None,
+    assert decomposer.get_peak_params(8.0, 12.0, band_name="Alpha") == (None, None)
+
+
+@pytest.mark.parametrize("band_peaks_avg", [{}, {"Alpha": None}])
+def test_pyrasa_decomposer_returns_no_peak_when_band_unavailable(band_peaks_avg):
+    # {} = band never computed; None = peak detection failed in every epoch
+    decomposer = make_pyrasa_decomposer(band_peaks_avg=band_peaks_avg)
+
+    assert decomposer.get_peak_params(8.0, 12.0, band_name="Alpha") == (None, None)
+
+class FakeEpoch:
+    """One epoch of a PeriodicEpochsSpectrum; only get_peaks is needed."""
+
+    def __init__(self, peaks=None, error=None):
+        self._peaks = peaks
+        self._error = error
+        self.get_peaks_kwargs = None
+
+    def get_peaks(self, **kwargs):
+        self.get_peaks_kwargs = kwargs
+        if self._error:
+            raise self._error
+        return self._peaks.copy()
+
+
+class FakeEpochsPeriodic:
+    """Indexable stand-in for PeriodicEpochsSpectrum: periodic[i] -> one epoch."""
+
+    def __init__(self, epochs):
+        self._epochs = epochs
+
+    def __len__(self):
+        return len(self._epochs)
+
+    def __getitem__(self, idx):
+        return self._epochs[idx]
+
+
+def peaks_table(rows):
+    """Build a get_peaks()-style DataFrame from (ch_name, cf, bw, pw) rows."""
+    return pd.DataFrame(rows, columns=["ch_name", "cf", "bw", "pw"])
+
+
+def test_average_peaks_keeps_strongest_per_epoch_then_averages_across_epochs():
+    epoch_0 = peaks_table(
+        [
+            ("MEG001", 9.0, 1.0, 2.0),   # weaker peak, ignored
+            ("MEG001", 11.0, 2.0, 6.0),  # strongest in epoch 0
+            ("MEG002", 10.0, 1.0, 4.0),
+        ]
+    )
+    epoch_1 = peaks_table(
+        [
+            ("MEG001", 10.0, 1.0, 8.0),  # strongest in epoch 1
+        ]
+    )
+    periodic = FakeEpochsPeriodic([FakeEpoch(epoch_0), FakeEpoch(epoch_1)])
+
+    result = average_peaks_across_epochs(periodic, 8.0, 12.0)
+
+    # MEG001: mean of (11, 6, 2) and (10, 8, 1)
+    assert result.loc["MEG001"].to_dict() == pytest.approx(
+        {"cf": 10.5, "pw": 7.0, "bw": 1.5}
+    )
+    # MEG002: only epoch 0 has a peak
+    assert result.loc["MEG002"].to_dict() == pytest.approx(
+        {"cf": 10.0, "pw": 4.0, "bw": 1.0}
     )
 
 
-def test_pyrasa_decomposer_handles_peak_detection_failure():
-    decomposer = make_pyrasa_decomposer(periodic_error=ValueError("no stable fit"))
+def test_average_peaks_ignores_out_of_band_and_nan_peaks():
+    epoch_0 = peaks_table(
+        [
+            ("MEG001", 10.0, 1.0, 3.0),
+            ("MEG001", 20.0, 1.0, 100.0),        # outside band, must not win
+            ("MEG002", np.nan, np.nan, np.nan),  # no peak for this channel
+        ]
+    )
+    periodic = FakeEpochsPeriodic([FakeEpoch(epoch_0)])
 
-    assert decomposer.get_peak_params(7.0, 12.0) == (None, None)
+    result = average_peaks_across_epochs(periodic, 8.0, 12.0)
+
+    assert result.index.tolist() == ["MEG001"]
+    assert result.loc["MEG001"].to_dict() == pytest.approx(
+        {"cf": 10.0, "pw": 3.0, "bw": 1.0}
+    )
+
+
+def test_average_peaks_passes_padded_band_to_get_peaks():
+    epoch = FakeEpoch(peaks_table([("MEG001", 10.0, 1.0, 3.0)]))
+
+    average_peaks_across_epochs(FakeEpochsPeriodic([epoch]), 8.0, 12.0)
+
+    assert epoch.get_peaks_kwargs["cut_spectrum"] == (7.0, 13.0)
+
+
+def test_average_peaks_skips_failed_epochs():
+    good = FakeEpoch(peaks_table([("MEG001", 10.0, 1.0, 3.0)]))
+    bad = FakeEpoch(error=ValueError("no stable fit"))
+    periodic = FakeEpochsPeriodic([bad, good])
+
+    result = average_peaks_across_epochs(periodic, 8.0, 12.0)
+
+    assert result.loc["MEG001"].to_dict() == pytest.approx(
+        {"cf": 10.0, "pw": 3.0, "bw": 1.0}
+    )
+
+
+def test_average_peaks_returns_none_when_every_epoch_fails():
+    periodic = FakeEpochsPeriodic(
+        [FakeEpoch(error=ValueError("no stable fit")) for _ in range(2)]
+    )
+
+    assert average_peaks_across_epochs(periodic, 8.0, 12.0) is None
+
+def test_average_aperiodic_collapses_epochs_into_single_epoch():
+    info = mne.create_info(["MEG001", "MEG002"], 100.0, "mag")
+    # Two epochs, 2 channels, 4 freqs: epoch 1 = 1, epoch 2 = 3
+    data = np.stack([np.ones((2, 4)), 3 * np.ones((2, 4))])
+    aperiodic = AperiodicEpochsSpectrum(
+        data,
+        info,
+        freqs=np.array([1.0, 2.0, 3.0, 4.0]),
+        events=np.array([[0, 0, 1], [1, 0, 1]]),
+        event_id={"1": 1},
+    )
+
+    result = _average_aperiodic(aperiodic)
+
+    assert isinstance(result, AperiodicEpochsSpectrum)
+    assert result.get_data().shape == (1, 2, 4)
+    np.testing.assert_allclose(result.get_data(), 2.0)
+    assert result.ch_names == ["MEG001", "MEG002"]
+    np.testing.assert_array_equal(result.freqs, [1.0, 2.0, 3.0, 4.0])
