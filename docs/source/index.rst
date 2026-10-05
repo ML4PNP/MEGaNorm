@@ -161,6 +161,31 @@ cite the associated publication in *Communications Biology*:
 
 |paper_doi_link|
 
+Acknowledgements
+----------------
+
+We gratefully acknowledge the starter grant for the **MEGaNorm** project, 
+funded by the Dutch Ministry of Education, Culture and Science under the 
+National Sector Plan. We further acknowledge support from the 
+**NWA Innovative Projects within the Routes** grant (NWA.1418.24.006) from 
+the Dutch Research Council (NWO). This work also used the Dutch national 
+e-infrastructure with the support of the **SURF Cooperative** 
+(EINF-8659, EINF-13793, and EINF-18102).
+
+.. raw:: html
+
+   <div style="text-align: center; margin-top: 1em; margin-bottom: 1em;">
+     <a href="https://www.tilburguniversity.edu/" target="_blank">
+       <img src="_static/tilburg-university-logo.png" alt="Tilburg University" height="55" style="margin: 0 18px;" />
+     </a>
+     <a href="https://www.nwo.nl/projecten/vqlab92202" target="_blank">
+       <img src="_static/nwo-logo.png" alt="NWO" height="55" style="margin: 0 18px;" />
+     </a>
+     <a href="https://www.surf.nl/en" target="_blank">
+       <img src="_static/surf-logo.png" alt="SURF" height="55" style="margin: 0 18px;" />
+     </a>
+   </div>
+
 
 Developed by ML4PNP
 -------------------

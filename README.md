@@ -204,3 +204,43 @@ Contributions, bug reports, and feature requests are welcome. See [`CONTRIBUTING
 ## License
 
 MEGaNorm is distributed under the **GNU General Public License v3.0**. See [`LICENSE`](LICENSE) for details.
+
+## Acknowledgements
+
+We gratefully acknowledge the starter grant for the **MEGaNorm** project, funded by the Dutch Ministry of Education, Culture and Science under the National Sector Plan. We further acknowledge support from the **NWA Innovative Projects within the Routes** grant (NWA.1418.24.006) and the **Small Compute Applications** grant (EINF-8659, EINF-13793, and EINF-18102) from the Dutch Research Council (NWO).
+
+We also acknowledge the computational resources and services provided by **SURF**, the collaborative organization for IT in Dutch education and research.
+
+<p align="center">
+  <a href="https://www.tilburguniversity.edu/">
+    <img src="docs/images/tilburg-university-logo.png" alt="Tilburg University" height="65">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.nwo.nl/en">
+    <img src="docs/images/nwo-logo.png" alt="Dutch Research Council (NWO)" height="65">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.surf.nl/en">
+    <img src="docs/images/surf-logo.png" alt="SURF" height="65">
+  </a>
+</p>
+
+## Acknowledgements
+
+We gratefully acknowledge the starter grant for the **MEGaNorm** project, funded by the Dutch Ministry of Education, Culture and Science under the National Sector Plan. We further acknowledge support from the **NWA Innovative Projects within the Routes** grant (NWA.1418.24.006) from the Dutch Research Council (NWO). This work also used the Dutch national e-infrastructure with the support of the **SURF Cooperative** (EINF-8659, EINF-13793, and EINF-18102).
+
+<p align="center">
+  <a href="https://www.tilburguniversity.edu/">
+    <img src="docs/images/tilburg-university-logo.png" alt="Tilburg University" height="65">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.nwo.nl/en">
+    <img src="docs/images/nwo-logo.jpg" alt="Dutch Research Council (NWO)" height="65">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.surf.nl/en">
+    <img src="docs/images/surf-logo.png" alt="SURF" height="65">
+  </a>
+</p>
+
+---
