@@ -634,17 +634,32 @@ def forward_solution(
         )
 
     bem_ico = kwargs.get("source_space_spacing_number", 6)
-    # forward model
-    bem_model = mne.make_bem_model(
-        subject=subject,
-        ico=bem_ico,
-        conductivity=conductivity,
-        subjects_dir=subjects_dir,
-    )
+
+    try:
+        bem_model = mne.make_bem_model(
+            subject=subject,
+            ico=bem_ico,
+            conductivity=conductivity,
+            subjects_dir=subjects_dir,
+        )
+    except RuntimeError as err:
+        if bem_ico is None or "ordering is wrong" not in str(err):
+            raise  # a different problem: don't hide it
+        logger.warning(
+            f"{subject}: BEM surfaces are not in canonical ico order ({err}). "
+            "Falling back to ico=None (full-resolution surfaces)."
+        )
+        bem_ico = None
+        bem_model = mne.make_bem_model(
+            subject=subject,
+            ico=None,
+            conductivity=conductivity,
+            subjects_dir=subjects_dir,
+        )
 
     # Surfaces read from FreeSurfer .surf files keep big-endian byte order when
     # ico=None; numba in make_forward_solution only accepts native byte order.
-    if kwargs.get("apply_mri_template", False) and bem_ico is None:
+    if bem_ico is None:
         for surf in bem_model:
             if not isinstance(surf, dict):
                 continue
@@ -654,7 +669,8 @@ def forward_solution(
 
     bem = mne.make_bem_solution(bem_model)
     logger.info(
-        f"{source_space} BEM model with {len(conductivity)} layer/s was constructed."
+        f"{source_space} BEM model with {len(conductivity)} layer/s was constructed "
+        f"(ico={bem_ico})."
     )
 
     lead_field_matrix = mne.make_forward_solution(
