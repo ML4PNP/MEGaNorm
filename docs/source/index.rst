@@ -96,17 +96,23 @@ For available releases and package metadata, see the
 Getting Started
 ---------------
 
-After installation, explore the documentation below for the available
-modules, functions, and processing components.
+For a minimal example running MEGaNorm on a single recording and a local
+computer, see the :doc:`Getting Started guide <getting_started>`.
 
-The MEGaNorm repository also provides example notebooks demonstrating
-the main analysis workflow.
+For large datasets, advanced configuration, and SLURM-based processing,
+see the full example notebooks:
 
 |notebooks_link|
 
 
 Documentation
 -------------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: User Guide
+
+   getting_started
 
 .. toctree::
    :maxdepth: 2
