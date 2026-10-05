@@ -488,9 +488,6 @@ def main(args):
             segment_events=segment_events,
         )
 
-    # Keep a handle to the post-rejection segments before `segments` gets
-    # reassigned to the source-localized epochs below.
-    rejected_segments = segments
 
     # ------------------------------------------------------------
     if configs.save_segmented_data:
@@ -502,16 +499,20 @@ def main(args):
             f"{save_segments_path}/{args.subject}-segments-epo.fif", overwrite=True
         )
 
-    if configs.lowest_num_of_epochs is not None:
-        rejected_segments = segments.copy()
-        rejected_segments.drop_bad()  # no-op if rejection already ran
+    rejected_segments = segments.copy()
+    rejected_segments.drop_bad()  # no-op if rejection already ran
+    n_kept = len(rejected_segments)
 
-        n_kept = len(rejected_segments)
-
-        if n_kept < configs.lowest_num_of_epochs:
-            err_msg = f"The number of extracted epochs is below the specified minimum threshold of {configs.lowest_num_of_epochs}."
-            logger.error(err_msg)
-            raise Exception(err_msg)
+    if (
+        configs.lowest_num_of_epochs is not None
+        and n_kept < configs.lowest_num_of_epochs
+    ):
+        err_msg = (
+            f"The number of extracted epochs {n_kept} is below the specified "
+            f"minimum threshold of {configs.lowest_num_of_epochs}."
+        )
+        logger.error(err_msg)
+        raise Exception(err_msg)
 
     # ------------------------------------------------------------
     sl_segments = None  # populated below if source localization runs
@@ -600,6 +601,14 @@ def main(args):
         freq_range_low=configs.specparam_freq_range_low,
         freq_range_high=configs.specparam_freq_range_high,
     )
+
+    for column in configs.extra_metadata_columns:
+        if column == "if_eroom":
+            features["if_eroom"] = empty_room_recording is not None
+        elif column == "scanner":
+            features["scanner"] = device
+        elif column == "number_of_epochs":
+            features["number_of_epochs"] = n_kept
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 

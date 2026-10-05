@@ -273,6 +273,13 @@ class Config(BaseModel):
     template use is mutually exclusive with MRI QC.
     """
 
+    # Recording-level metadata added as columns to each subject's features CSV.
+    # Demographic columns (age, sex, site, diagnosis, eyes) are joined later
+    # in merge_fidp_demo, so they are not listed here.
+    extra_metadata_columns: list[
+        Literal["if_eroom", "scanner", "number_of_epochs"]
+    ] = []
+
     model_config = {"extra": "forbid"}
 
     which_meg_session: int = 0  # the first session
@@ -1029,9 +1036,7 @@ def merge_datasets_with_glob(datasets):
 
             # resting state data
             rs_record_paths = sorted(
-                glob.glob(
-                    f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True
-                )
+                glob.glob(f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True)
             )
             if not rs_record_paths:
                 continue
@@ -1070,9 +1075,7 @@ def merge_datasets_with_glob(datasets):
             # trans file
             if trans_file_p:
                 trans_path = sorted(
-                    glob.glob(
-                        f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True
-                    )
+                    glob.glob(f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True)
                 )
             else:
                 trans_path = None
@@ -1124,9 +1127,7 @@ def load_demographic_file(path, index_col=0):
     """Read a participants/demographic table (.tsv, .txt, .csv, .xlsx)."""
     ext = os.path.splitext(path)[1].lower()
     index_dtype = (
-        {index_col: str}
-        if index_col is not None and index_col is not False
-        else None
+        {index_col: str} if index_col is not None and index_col is not False else None
     )
     if ext in (".tsv", ".txt"):
         df = pd.read_csv(path, sep="\t", index_col=index_col, dtype=index_dtype)
@@ -1378,9 +1379,7 @@ def find_other_mri_session(
     new_paths = {}
     for subject in missing_mri_subjects:
         mri_paths = sorted(
-            glob.glob(
-                f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True
-            )
+            glob.glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
         )
 
         if len(mri_paths) > which_session - 1:
