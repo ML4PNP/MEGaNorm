@@ -246,7 +246,7 @@ def main(args):
     cleanup, filtering, ICA/GEDAI and environmental noise correction,
     head-movement correction, segmentation with optional Autoreject
     bad-segment removal, optional source localization, PSD computation
-    with FOOOF/IRASA spectral parametrization, and band-power feature
+    with specparam/IRASA spectral parametrization, and band-power feature
     extraction. Extracted features are saved to a per-subject CSV.
 
     Parameters
@@ -562,12 +562,12 @@ def main(args):
         # parametrization method
         parametrization_method=configs.parametrization_method,
         aperiodic_mode=configs.aperiodic_mode,
-        freq_range_low=configs.fooof_freq_range_low,
-        freq_range_high=configs.fooof_freq_range_high,
-        # fooof parameters
-        min_peak_height=configs.fooof_min_peak_height,
-        peak_threshold=configs.fooof_peak_threshold,
-        peak_width_limits=configs.fooof_peak_width_limits,
+        freq_range_low=configs.specparam_freq_range_low,
+        freq_range_high=configs.specparam_freq_range_high,
+        # specparam parameters
+        min_peak_height=configs.specparam_min_peak_height,
+        peak_threshold=configs.specparam_peak_threshold,
+        peak_width_limits=configs.specparam_peak_width_limits,
         # pyrasa parameters
         irasa_hset=configs.irasa_hset,
     )
@@ -597,8 +597,8 @@ def main(args):
         min_r_squared=configs.min_r_squared,
         power_band_ratios_list=configs.power_band_ratios_list,
         layout_path=args.layout_path,
-        freq_range_low=configs.fooof_freq_range_low,
-        freq_range_high=configs.fooof_freq_range_high,
+        freq_range_low=configs.specparam_freq_range_low,
+        freq_range_high=configs.specparam_freq_range_high,
     )
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))

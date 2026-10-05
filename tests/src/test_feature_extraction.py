@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from meganorm.src.featureExtraction import (
-    FOOOFDecomposer,
+    SpecParamDecomposer,
     PYRASADecomposer,
     add_feature,
     abs_canonical_power,
@@ -258,16 +258,30 @@ def test_compute_hemispheric_asymmetry_honors_selected_base_features():
     ]
     assert result[asymmetry_columns[0]].item() == 6.0
 
+class FakeSpecParamData:
+    def get_data(self, component, space):
+        assert component == 'peak'
+        assert space == 'linear'
+        return np.array([10.0, 92.0, 903.0])
+    
+class FakeSpecParamFit:
+    def __init__(self,):
+        self.data = FakeSpecParamData()
 
-class FakeFooofFit:
-    def __init__(self):
-        self._ap_fit = np.array([0.0, 1.0, 2.0])
-        self.r_squared_ = 0.91
+        periodic_params = self.get_params("periodic")
+        n_peaks = np.sum(~np.isnan(periodic_params).any(axis=1))
+
+        self.results=SimpleNamespace(
+            n_peaks = n_peaks, 
+            metrics = SimpleNamespace(
+                results={"gof_rsquared": 0.91}
+            )
+        )
 
     def get_params(self, name):
-        if name == "aperiodic_params":
+        if name == "aperiodic":
             return np.array([2.0, 4.0, 6.0])
-        if name == "peak_params":
+        if name == "periodic":
             return np.array(
                 [
                     [8.0, 1.0, 2.0],
@@ -279,11 +293,11 @@ class FakeFooofFit:
         raise KeyError(name)
 
 
-class FakeFooofGroup:
+class FakeSpecParamGroup:
     def __init__(self):
-        self.fit = FakeFooofFit()
+        self.fit = FakeSpecParamFit()
 
-    def get_fooof(self, ind):
+    def get_model(self, ind):
         assert ind == 0
         return self.fit
 
@@ -291,30 +305,30 @@ class FakeFooofGroup:
 @pytest.mark.parametrize(
     "mode, expected", [("fixed", [2.0, 4.0]), ("knee", [2.0, 6.0])]
 )
-def test_fooof_decomposer_reorders_aperiodic_parameters(mode, expected):
-    decomposer = FOOOFDecomposer(FakeFooofGroup(), mode=mode, ch_num=0)
+def test_specparam_decomposer_reorders_aperiodic_parameters(mode, expected):
+    decomposer = SpecParamDecomposer(FakeSpecParamGroup(), mode=mode, ch_num=0)
 
     assert decomposer.get_aperiodic_params() == expected
 
 
-def test_fooof_decomposer_rejects_unknown_mode():
-    decomposer = FOOOFDecomposer(FakeFooofGroup(), mode="invalid", ch_num=0)
+def test_specparam_decomposer_rejects_unknown_mode():
+    decomposer = SpecParamDecomposer(FakeSpecParamGroup(), mode="invalid", ch_num=0)
 
     with pytest.raises(ValueError, match="Unknown aperiodic_mode"):
         decomposer.get_aperiodic_params()
 
 
-def test_fooof_decomposer_returns_periodic_spectrum_and_fit_quality():
-    decomposer = FOOOFDecomposer(FakeFooofGroup(), mode="fixed", ch_num=0)
+def test_specparam_decomposer_returns_periodic_spectrum_and_fit_quality():
+    decomposer = SpecParamDecomposer(FakeSpecParamGroup(), mode="fixed", ch_num=0)
 
-    periodic = decomposer.get_periodic_spectrum(np.array([[11.0, 102.0, 1003.0]]))
+    periodic = decomposer.get_periodic_spectrum()
 
     np.testing.assert_allclose(periodic, [10.0, 92.0, 903.0])
     assert decomposer.get_r_squared() == 0.91
 
 
-def test_fooof_decomposer_filters_band_and_selects_strongest_valid_peak():
-    decomposer = FOOOFDecomposer(FakeFooofGroup(), mode="fixed", ch_num=0)
+def test_specparam_decomposer_filters_band_and_selects_strongest_valid_peak():
+    decomposer = SpecParamDecomposer(FakeSpecParamGroup(), mode="fixed", ch_num=0)
 
     dominant, peaks = decomposer.get_peak_params(7.0, 12.0)
 
@@ -322,8 +336,8 @@ def test_fooof_decomposer_filters_band_and_selects_strongest_valid_peak():
     assert len(peaks) == 2
 
 
-def test_fooof_decomposer_returns_no_peak_when_band_is_empty():
-    decomposer = FOOOFDecomposer(FakeFooofGroup(), mode="fixed", ch_num=0)
+def test_specparam_decomposer_returns_no_peak_when_band_is_empty():
+    decomposer = SpecParamDecomposer(FakeSpecParamGroup(), mode="fixed", ch_num=0)
 
     assert decomposer.get_peak_params(30.0, 40.0) == (None, None)
 

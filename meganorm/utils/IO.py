@@ -217,22 +217,22 @@ class Config(BaseModel):
         PSD estimation method.
     psd_n_overlap, psd_n_fft, psd_n_per_seg : PositiveInt, default=1, 2, 2
         Welch/multitaper PSD parameters.
-    parametrization_method : {"fooof", "irasa"}, default="irasa"
+    parametrization_method : {"specparam", "irasa"}, default="irasa"
         Method for separating aperiodic and periodic spectral components.
     irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
         Resampling factor range/step for IRASA.
-    fooof_freq_range_low, fooof_freq_range_high : PositiveInt, default=3, 40
-        Frequency range for FOOOF fitting (Hz).
+    specparam_freq_range_low, specparam_freq_range_high : PositiveInt, default=3, 40
+        Frequency range for specparam fitting (Hz).
     aperiodic_mode : {"knee", "fixed"}, default="knee"
         Aperiodic component model.
-    fooof_peak_width_limits : list[float], default=[1.0, 12.0]
+    specparam_peak_width_limits : list[float], default=[1.0, 12.0]
         Allowed peak width range (Hz).
-    fooof_min_peak_height : int, default=0
+    specparam_min_peak_height : int, default=0
         Minimum peak height for detection.
-    fooof_peak_threshold : PositiveInt, default=2
+    specparam_peak_threshold : PositiveInt, default=2
         Peak detection threshold (in SD of the flattened spectrum).
-    fooof_res_save_path : str or None
-        Path to save FOOOF results.
+    specparam_res_save_path : str or None
+        Path to save specparam results.
     save_source_localized_epochs, save_psds : bool, default=False
         Persist intermediate source-localized epochs / PSDs to disk.
 
@@ -430,17 +430,17 @@ class Config(BaseModel):
     psd_n_fft: PositiveInt = 2
     psd_n_per_seg: PositiveInt = 2
 
-    parametrization_method: Literal["fooof", "irasa"] = "irasa"
+    parametrization_method: Literal["specparam", "irasa"] = "irasa"
     # PYRASA
     irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
 
-    # FOOOF analysis
-    fooof_freq_range_low: PositiveInt = 3
-    fooof_freq_range_high: PositiveInt = 40
+    # specparam analysis
+    specparam_freq_range_low: PositiveInt = 3
+    specparam_freq_range_high: PositiveInt = 40
     aperiodic_mode: Literal["knee", "fixed"] = "knee"
-    fooof_peak_width_limits: List[float] = [1.0, 12.0]
-    fooof_min_peak_height: int = 0
-    fooof_peak_threshold: PositiveInt = 2
+    specparam_peak_width_limits: List[float] = [1.0, 12.0]
+    specparam_min_peak_height: int = 0
+    specparam_peak_threshold: PositiveInt = 2
 
     save_source_localized_epochs: bool = False
     save_psds: bool = False
@@ -493,7 +493,7 @@ class Config(BaseModel):
         "Knee_Frequency": False,
     }
 
-    fooof_res_save_path: Optional[str] = None
+    specparam_res_save_path: Optional[str] = None
     random_state: int = 42
 
     @field_validator("muscle_activity_thr")

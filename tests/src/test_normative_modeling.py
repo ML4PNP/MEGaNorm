@@ -543,7 +543,11 @@ def test_model_diagnostics_collects_and_saves_real_arviz_summaries(tmp_path):
     for model_name in ["roi_alpha", "roi_beta"]:
         model_path = models_path / model_name
         model_path.mkdir()
-        az.from_dict(posterior={"theta": posterior}).to_netcdf(model_path / "idata.nc")
+        try:
+            idata = az.from_dict(posterior={"theta": posterior})
+        except TypeError:
+            idata = az.from_dict({"posterior": {"theta": posterior}})
+        idata.to_netcdf(model_path/'idata.nc')
     (models_path / "normative_model.json").write_text("{}")
     save_path = tmp_path / "diagnostics"
 

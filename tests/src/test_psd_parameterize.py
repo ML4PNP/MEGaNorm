@@ -8,7 +8,7 @@ from meganorm.src.psdParameterize import (
     _irasa_welch_kwargs,
     computePsd,
     computePsdIrasa,
-    fooof,
+    fit_specparam,
     irasa_epochs,
     parameterize_psds,
 )
@@ -51,13 +51,13 @@ def test_irasa_welch_kwargs_shortens_window_for_short_epochs(caplog):
 @pytest.mark.parametrize("method", ["periodogram", "invalid"])
 def test_parameterize_psds_rejects_unknown_psd_method(method):
     with pytest.raises(ValueError, match="psd_method"):
-        parameterize_psds(None, "fooof", psd_method=method)
+        parameterize_psds(None, "specparam", psd_method=method)
 
 
 @pytest.mark.unit
 def test_parameterize_psds_rejects_unknown_aperiodic_mode():
     with pytest.raises(ValueError, match="aperiodic_mode"):
-        parameterize_psds(None, "fooof", aperiodic_mode="none")
+        parameterize_psds(None, "specparam", aperiodic_mode="none")
 
 
 @pytest.mark.unit
@@ -147,21 +147,21 @@ def test_psd_helpers_average_power_across_nonidentical_epochs(calculator):
 
 
 @pytest.mark.integration
-def test_fooof_fits_each_channel_and_recovers_alpha_peak():
+def test_specparam_fits_each_channel_and_recovers_alpha_peak():
     freqs = np.arange(2.0, 25.5, 0.5)
     background = 1.0 / freqs
     alpha = 0.8 * np.exp(-0.5 * ((freqs - 10.0) / 0.8) ** 2)
     psds = np.vstack([background + alpha, 2 * (background + alpha)])
 
-    models, returned_psds, returned_freqs = fooof(
+    models, returned_psds, returned_freqs = fit_specparam(
         psds, freqs, freq_range_low=2, freq_range_high=25
     )
 
-    assert len(models) == 2
+    assert len(models.results.group_results) == 2
     np.testing.assert_array_equal(returned_psds, psds)
     np.testing.assert_array_equal(returned_freqs, freqs)
     for channel in range(2):
-        alpha_peaks = models.get_fooof(channel).get_params("peak_params")
+        alpha_peaks = models.get_model(channel).get_params("periodic")
         assert np.any(np.abs(alpha_peaks[:, 0] - 10.0) <= 0.5)
 
 
@@ -215,27 +215,27 @@ def test_irasa_epochs_averages_epochs_and_preserves_channel_metadata(monkeypatch
 
 
 @pytest.mark.integration
-def test_parameterize_psds_fooof_path_returns_consistent_shapes():
+def test_parameterize_psds_specparam_path_returns_consistent_shapes():
     epochs = make_epochs()
 
     models, psds, freqs = parameterize_psds(
         epochs,
-        "fooof",
+        "specparam",
         freq_range_low=3,
         freq_range_high=20,
         sampling_rate=100,
         psd_n_overlap=1,
         psd_n_fft=2,
         n_per_seg=2,
-        aperiodic_mode="fixed",
+        aperiodic_mode="fixed", 
     )
 
-    assert len(models) == len(epochs.ch_names)
+    assert len(models.results.group_results) == len(epochs.ch_names)
     assert psds.shape == (len(epochs.ch_names), len(freqs))
 
 
 @pytest.mark.unit
-def test_parameterize_psds_fooof_forwards_nondefault_configuration(monkeypatch):
+def test_parameterize_psds_specparam_forwards_nondefault_configuration(monkeypatch):
     expected_psds = np.ones((2, 3))
     expected_freqs = np.array([4.0, 5.0, 6.0])
     expected_models = object()
@@ -253,7 +253,7 @@ def test_parameterize_psds_fooof_forwards_nondefault_configuration(monkeypatch):
         }
         return expected_psds, expected_freqs
 
-    def fake_fooof(**kwargs):
+    def fake_fit_specparam(**kwargs):
         assert kwargs == {
             "psds": expected_psds,
             "freqs": expected_freqs,
@@ -267,11 +267,11 @@ def test_parameterize_psds_fooof_forwards_nondefault_configuration(monkeypatch):
         return expected_models, expected_psds, expected_freqs
 
     monkeypatch.setattr("meganorm.src.psdParameterize.computePsd", fake_compute_psd)
-    monkeypatch.setattr("meganorm.src.psdParameterize.fooof", fake_fooof)
+    monkeypatch.setattr("meganorm.src.psdParameterize.fit_specparam", fake_fit_specparam)
 
     result = parameterize_psds(
         "epochs",
-        "fooof",
+        "specparam",
         freq_range_low=4,
         freq_range_high=31,
         min_peak_height=0.2,
