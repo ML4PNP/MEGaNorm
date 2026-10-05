@@ -172,20 +172,25 @@ the Dutch Research Council (NWO). This work also used the Dutch national
 e-infrastructure with the support of the **SURF Cooperative** 
 (EINF-8659, EINF-13793, and EINF-18102).
 
-.. raw:: html
+.. list-table::
+   :widths: 33 33 33
+   :align: center
+   :class: funding-logos
 
-   <div style="text-align: center; margin-top: 1em; margin-bottom: 1em;">
-     <a href="https://www.tilburguniversity.edu/" target="_blank">
-       <img src="_static/tilburg-university-logo.png" alt="Tilburg University" height="55" style="margin: 0 18px;" />
-     </a>
-     <a href="https://www.nwo.nl/projecten/vqlab92202" target="_blank">
-       <img src="_static/nwo-logo.png" alt="NWO" height="55" style="margin: 0 18px;" />
-     </a>
-     <a href="https://www.surf.nl/en" target="_blank">
-       <img src="_static/surf-logo.png" alt="SURF" height="55" style="margin: 0 18px;" />
-     </a>
-   </div>
+   * - .. image:: _static/tilburg-university-logo.png
+          :alt: Tilburg University
+          :width: 180px
+          :target: https://www.tilburguniversity.edu/
 
+     - .. image:: _static/nwo-logo.jpg
+          :alt: Dutch Research Council (NWO)
+          :width: 140px
+          :target: https://www.nwo.nl/projecten/vqlab92202
+
+     - .. image:: _static/surf-logo.png
+          :alt: SURF Cooperative
+          :width: 140px
+          :target: https://www.surf.nl/en
 
 Developed by ML4PNP
 -------------------

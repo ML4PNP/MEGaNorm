@@ -64,6 +64,10 @@ html_theme_options = {
 }
 html_static_path = ["_static"]
 
+html_css_files = [
+    "custom.css",
+]
+
 # Logo path (relative to html_static_path)
 html_logo = "_static/logo.png"
 
