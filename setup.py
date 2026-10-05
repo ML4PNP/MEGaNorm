@@ -1,9 +1,16 @@
 from setuptools import setup, find_packages
+from pathlib import Path
+import tomllib
+
+ROOT = Path(__file__).resolve().parent
+with (ROOT / "pyproject.toml").open("rb") as f:
+    metadata = tomllib.load(f)["tool"]["meganorm"]
 
 # Load version from meganorm/_version.py
 version = {}
 with open("meganorm/_version.py") as f:
     exec(f.read(), version)
+
 
 # Load dependencies from requirements.txt
 def load_requirements(filename="requirements.txt"):
@@ -14,6 +21,7 @@ def load_requirements(filename="requirements.txt"):
             if line.strip() and not line.startswith("#")
         ]
 
+
 setup(
     name="meganorm",
     version=version["__version__"],
@@ -22,7 +30,13 @@ setup(
     long_description_content_type="text/markdown",
     author="Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn",
     license="GNU GPLv3",
-    url="https://github.com/ML4PNP/MEGaNorm",
+    url=metadata["repository"],
+    project_urls={
+        "Documentation": metadata["documentation"],
+        "Source": metadata["repository"],
+        "Software DOI": "https://doi.org/" + metadata["software-concept-doi"],
+        "Scientific paper": "https://doi.org/" + metadata["paper-doi"],
+    },
     packages=find_packages(),
     python_requires=">=3.12,<3.13",
     install_requires=load_requirements(),

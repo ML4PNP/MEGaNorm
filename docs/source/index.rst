@@ -24,11 +24,11 @@ normative deviation estimates.
 Quick Links
 -----------
 
-`GitHub <https://github.com/ML4PNP/MEGaNorm>`_
+|repository_link|
 | `PyPI <https://pypi.org/project/meganorm/>`_
-| `Documentation <https://meganorm.readthedocs.io/>`_
-| `Scientific Paper <https://doi.org/10.1038/s42003-026-09825-2>`_
-| `Software DOI <https://doi.org/10.5281/zenodo.15441320>`_
+| |documentation_link|
+| |paper_link|
+| |software_link|
 
 
 What is MEGaNorm?
@@ -86,11 +86,8 @@ Alternatively, the Docker image provides a reproducible environment:
 
    docker pull smkia/meganorm:latest
 
-For fully reproducible analyses, a specific release can be selected:
-
-.. code-block:: bash
-
-   docker pull smkia/meganorm:0.2.1
+For fully reproducible analyses, replace ``latest`` with a published version
+from the `Docker image tags <https://hub.docker.com/r/smkia/meganorm/tags>`_.
 
 For available releases and package metadata, see the
 `MEGaNorm PyPI page <https://pypi.org/project/meganorm/>`_.
@@ -105,8 +102,7 @@ modules, functions, and processing components.
 The MEGaNorm repository also provides example notebooks demonstrating
 the main analysis workflow.
 
-`Explore the example notebooks on GitHub
-<https://github.com/ML4PNP/MEGaNorm/tree/main/notebooks>`_
+|notebooks_link|
 
 
 Documentation
@@ -131,17 +127,18 @@ Citing the Package
 
 The MEGaNorm software is archived on Zenodo:
 
-`DOI: 10.5281/zenodo.15441320
-<https://doi.org/10.5281/zenodo.15441320>`_
+|software_doi_link|
 
 **Recommended citation**
 
-   Zamanzadeh, M., Verduyn, Y., & Kia, S. M. (2025).
-   *MEGaNorm: a Python package for normative modeling on MEG and EEG data
-   (v0.1.0).* Zenodo.
+   Zamanzadeh, M., Verduyn, Y., & Kia, S. M.
+   *MEGaNorm: A Python package for normative modeling of MEG and EEG data.* Zenodo.
 
 BibTeX and other citation formats can be downloaded directly from the
-`MEGaNorm Zenodo record <https://doi.org/10.5281/zenodo.15441320>`_.
+|software_link|.
+
+The concept DOI identifies the software across versions. For reproducibility,
+select the archived version used in your analysis and cite its version DOI.
 
 
 Citing the Paper
@@ -156,8 +153,7 @@ cite the associated publication in *Communications Biology*:
    *Normative modeling of MEG brain oscillations across the human lifespan.*
    Communications Biology.
 
-`DOI: 10.1038/s42003-026-09825-2
-<https://doi.org/10.1038/s42003-026-09825-2>`_
+|paper_doi_link|
 
 
 Developed by ML4PNP

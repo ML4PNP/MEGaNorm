@@ -19,9 +19,8 @@ authors:
     orcid: "https://orcid.org/0000-0002-7128-814X"
     affiliation: "Center of Cognitive Science and Artificial Intelligence, Tilburg University, Tilburg, the Netherlands"
 
-version: "0.2.1"
-date-released: "2026-09-16"
-doi: "10.5281/zenodo.21291858"
+version: "0.2.2"
+doi: "10.5281/zenodo.15441319"
 repository-code: "https://github.com/ML4PNP/MEGaNorm"
 url: "https://meganorm.readthedocs.io/"
 license: GPL-3.0
