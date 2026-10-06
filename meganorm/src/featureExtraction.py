@@ -8,6 +8,7 @@ from typing import Union
 from typing import Dict, List
 from abc import ABC, abstractmethod
 from pyrasa.irasa_mne.mne_objs import AperiodicEpochsSpectrum
+from pyrasa.utils.types import AperiodicFit
 # from layouts import load_specific_layout
 from meganorm.layouts.layouts import load_specific_layout
 
@@ -561,11 +562,7 @@ def feature_extract(
             fit_func=aperiodic_mode,
             fit_bounds=[freq_range_low + 1, freq_range_high - 1],
         )
-        try:
-            ap = aperiodic_avg.fit_aperiodic_model(scale=False, **fit_kwargs)
-        except Exception as e:
-            logger.info(f"Aperiodic fit failed unscaled ({e}); retrying with scale=True.")
-            ap = aperiodic_avg.fit_aperiodic_model(scale=True, **fit_kwargs)
+        ap = _fit_aperiodic_with_retry(aperiodic_avg, **fit_kwargs)
 
         # Peaks detected per epoch, then averaged
         for band_name, (fmin, fmax) in freq_bands.items():
@@ -597,7 +594,10 @@ def feature_extract(
         logger.info(
             f"The R**2 in PSD parametrization of the channel {channel_name} was {spectral_model.get_r_squared()}"
         )
-        if spectral_model.get_r_squared() < min_r_squared:
+        if (
+            not np.isfinite(spectral_model.get_r_squared())
+            or spectral_model.get_r_squared() < min_r_squared
+        ):
             logger.info(
                 f"The {channel_num}th channel, {channel_name}, was removed"
                 " since it's corresponding R2 score in PSD parametrization "
@@ -1155,6 +1155,66 @@ class PYRASADecomposer(SpectralDecomposer):
         gof = self.aperiodic.gof
         return gof[gof["ch_name"] == self.ch_name]["R2"].item()
 
+
+
+def _fit_aperiodic_with_retry(spectrum, *, fit_func, fit_bounds):
+    """Keep unscaled fits; retry numerical failures independently per channel.
+
+    Scaling is a recovery step, not a relaxation of the downstream R2 gate.
+    Normalize retry inputs so PyRASA's internal scaling factor is one, then
+    restore physical units explicitly. This avoids depending on PyRASA's
+    version-specific rescaling of model spectra and logarithmic offsets.
+    """
+    fits = []
+    for name in spectrum.ch_names:
+        channel = spectrum.copy().pick([name])
+        reason = None
+        try:
+            fit = channel.fit_aperiodic_model(
+                scale=False, fit_func=fit_func, fit_bounds=fit_bounds
+            )
+            score = fit.gof["R2"].item()
+            if not np.isfinite(score) or score < 0:
+                reason = f"R2={score}"
+        except Exception as error:
+            reason = f"{type(error).__name__}: {error}"
+
+        if reason is not None:
+            logger.info(
+                "IRASA channel %s: unscaled fit failed (%s); retrying with scale=True.",
+                name,
+                reason,
+            )
+            values = channel.get_data().copy()
+            mask = (channel.freqs >= fit_bounds[0]) & (channel.freqs <= fit_bounds[1])
+            minimum = values[..., mask].min()
+            if not np.isfinite(minimum) or minimum <= 0:
+                raise ValueError(
+                    f"Cannot scale IRASA channel {name}: fit power must be finite and positive."
+                )
+            normalization = 0.5 / minimum
+            normalized = AperiodicEpochsSpectrum(
+                values * normalization,
+                channel.info,
+                freqs=channel.freqs,
+                events=channel.events,
+                event_id=channel.event_id,
+            )
+            fit = normalized.fit_aperiodic_model(
+                scale=True, fit_func=fit_func, fit_bounds=fit_bounds
+            )
+            # Both built-in PyRASA fits define Offset in log10 power units.
+            fit.aperiodic_params["Offset"] -= np.log10(normalization)
+            fit.model["aperiodic_model"] /= normalization
+            logger.info(
+                "IRASA channel %s: scaled retry R2=%s.", name, fit.gof["R2"].item()
+            )
+        fits.append(fit)
+    return AperiodicFit(
+        aperiodic_params=pd.concat([fit.aperiodic_params for fit in fits]),
+        gof=pd.concat([fit.gof for fit in fits]),
+        model=pd.concat([fit.model for fit in fits]),
+    )
 
 
 def _average_aperiodic(aperiodic):
