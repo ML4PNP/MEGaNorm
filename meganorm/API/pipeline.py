@@ -2,6 +2,7 @@
 
 import json
 import logging
+import warnings
 from pathlib import Path
 from collections.abc import Sequence
 from typing import Literal
@@ -64,10 +65,15 @@ class Pipeline:
     def _preflight(self, datasets, manifest):
         root = self.output_dir
         requested = {}
+
         for dataset in datasets:
             if root.is_relative_to(dataset.root):
-                raise ValueError("output_dir must be outside every input dataset root.")
+                raise ValueError(
+                    "output_dir must be outside every input dataset root."
+                )
+
             requested[dataset.name] = []
+
             for family, (field, keys) in _AUXILIARY.items():
                 if any(dataset.options.get(key) is not None for key in keys):
                     missing = [
@@ -76,62 +82,112 @@ class Pipeline:
                         if dataset.options.get(key) is None
                         or dataset.options.get(key) == ""
                     ]
+
                     if missing:
                         raise ValueError(
-                            f"Incomplete {family} options for dataset {dataset.name}: missing {missing}."
+                            f"Incomplete {family} options for dataset "
+                            f"{dataset.name}: missing {missing}."
                         )
+
                     requested[dataset.name].append((family, field, keys))
-        for name in [
+
+        # Existing managed outputs are allowed, but warn that they will
+        # be overwritten by the new run.
+        managed_outputs = [
             "config.json",
             "Features",
             "run_summary.json",
             "manifest.csv",
             "processing.csv",
             "features_with_demographics.csv",
-        ]:
-            if (root / name).exists():
-                raise FileExistsError(
-                    f"Existing managed output: {root/name}; choose a fresh directory."
-                )
+        ]
+
+        existing_outputs = [
+            root / name
+            for name in managed_outputs
+            if (root / name).exists()
+        ]
+
+        if existing_outputs:
+            warnings.warn(
+                "Existing managed output(s) will be overwritten: "
+                + ", ".join(str(path) for path in existing_outputs),
+                UserWarning,
+                stacklevel=2,
+            )
+            _LOG.warning(
+                "Existing managed output(s) will be overwritten: %s",
+                ", ".join(str(path) for path in existing_outputs),
+            )
+
         # Validate metadata before any costly processing or output creation.
         _, counts = attach_metadata(
-            pd.DataFrame(index=manifest.participant_id), datasets, manifest
+            pd.DataFrame(index=manifest.participant_id),
+            datasets,
+            manifest,
         )
+
         selected = []
+
         for row in manifest.to_dict("records"):
             for family, field, keys in requested[row["dataset"]]:
                 if not row.get(field):
                     raise FileNotFoundError(
-                        f"Requested {family} files missing for dataset {row['dataset']} participant {row['participant_id']}; options: {keys}."
+                        f"Requested {family} files missing for dataset "
+                        f"{row['dataset']} participant "
+                        f"{row['participant_id']}; options: {keys}."
                     )
+
             if self.config.which_sensor == "eeg" and row.get("device") is not None:
                 raise ValueError(
-                    "EEG readers are inferred from extension; omit the MEG device setting."
+                    "EEG readers are inferred from extension; "
+                    "omit the MEG device setting."
                 )
+
             try:
                 path = row["recording_paths"][self.config.which_meg_session]
             except IndexError as error:
                 raise ValueError(
-                    f'Invalid session index for {row["participant_id"]}: {self.config.which_meg_session}'
+                    f'Invalid session index for {row["participant_id"]}: '
+                    f"{self.config.which_meg_session}"
                 ) from error
+
             if not path.exists():
-                raise FileNotFoundError(f"Selected recording missing: {path}")
+                raise FileNotFoundError(
+                    f"Selected recording missing: {path}"
+                )
+
             selected.append(path)
+
             if (
                 self.config.apply_source_localization
                 and not self.config.apply_mri_template
             ):
                 surface = row.get("mri_surface")
-                if not surface or not (Path(surface) / row["participant_id"]).is_dir():
+
+                if (
+                    not surface
+                    or not (
+                        Path(surface) / row["participant_id"]
+                    ).is_dir()
+                ):
                     raise FileNotFoundError(
-                        f'FreeSurfer derivatives missing for {row["participant_id"]}.'
+                        f'FreeSurfer derivatives missing for '
+                        f'{row["participant_id"]}.'
                     )
-            if self.config.apply_source_localization and self.config.apply_mri_template:
+
+            if (
+                self.config.apply_source_localization
+                and self.config.apply_mri_template
+            ):
                 template = self.config.freesurfer_template_path
+
                 if not template or not Path(template).exists():
                     raise FileNotFoundError(
-                        "Source localization requires a valid freesurfer_template_path."
+                        "Source localization requires a valid "
+                        "freesurfer_template_path."
                     )
+
             for key, index in [
                 ("empty_room_record", -1),
                 ("event_record", self.config.which_meg_session),
@@ -141,24 +197,41 @@ class Pipeline:
             ]:
                 if row.get(key):
                     try:
-                        auxiliary = select_session_path(row[key], index)
+                        auxiliary = select_session_path(
+                            row[key],
+                            index,
+                        )
                     except IndexError as error:
                         raise ValueError(
                             f"Invalid auxiliary session for {key}."
                         ) from error
+
                     if not Path(auxiliary).exists():
-                        raise FileNotFoundError(f"Missing {key}: {auxiliary}")
+                        raise FileNotFoundError(
+                            f"Missing {key}: {auxiliary}"
+                        )
+
             if row.get("event_record"):
                 try:
                     int(row["event_of_interest"])
                 except (ValueError, TypeError) as error:
                     raise ValueError(
-                        "event_of_interest must be an integer when event files are used."
+                        "event_of_interest must be an integer "
+                        "when event files are used."
                     ) from error
-            if row.get("layout_path") and not Path(row["layout_path"]).is_file():
-                raise FileNotFoundError(f'Missing layout_path: {row["layout_path"]}')
+
+            if (
+                row.get("layout_path")
+                and not Path(row["layout_path"]).is_file()
+            ):
+                raise FileNotFoundError(
+                    f'Missing layout_path: {row["layout_path"]}'
+                )
+
         manifest["selected_recording"] = selected
+
         return counts
+
 
     def run(self, dataset: Dataset | Sequence[Dataset]) -> FeatureDataset:
         """Process one or several datasets, returning a FeatureDataset."""
@@ -177,13 +250,13 @@ class Pipeline:
         counts = self._preflight(datasets, manifest)
         root = self.output_dir
         temp = root / "Features" / "temp"
-        temp.mkdir(parents=True)
+        temp.mkdir(parents=True, exist_ok=True)
         if self.config.save_preprocessed_data:
             (root / "Features" / "Saved_outputs" / "Preprocessed_data").mkdir(
-                parents=True
+                parents=True, exist_ok=True
             )
         config_path = root / "config.json"
-        self.config.save(str(config_path))
+        self.config.save(str(config_path), overwrite=True)
         rows = []
         successful = {}
         feature_names = None
