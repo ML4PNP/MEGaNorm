@@ -1,5 +1,3 @@
-"""Sequential orchestration over the existing feature extraction engine."""
-
 import json
 import logging
 import shutil
@@ -52,7 +50,7 @@ class Pipeline:
         *,
         config: Config,
         output_dir: str | Path,
-        on_error: Literal["raise", "continue"] = "raise",
+        on_error: Literal["raise", "continue"] = "continue",
         progress: bool = True,
     ):
         if not isinstance(config, Config):
