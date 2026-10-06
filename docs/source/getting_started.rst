@@ -112,6 +112,80 @@ not left behind as apparent current results. The output directory must be
 outside every input dataset root, and managed output paths must not contain
 input data.
 
+Processing several datasets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pass a list of ``Dataset`` objects to one ``Pipeline.run`` call to extract and
+combine their participants. For example, keep ``dataset`` from step 1 and add
+a second cohort with its own recording and demographic paths:
+
+.. code-block:: python
+
+   second_dataset = Dataset(
+       name="second_dataset",
+       root="/path/to/second_dataset",
+       demographics="participants.tsv",
+       participant_id="participant_id",
+       task="rest",
+       extension=".fif",
+       device="MEGIN",
+       line_freq=60,
+   )
+   combined_features = Pipeline(
+       config=config,
+       output_dir=Path("./meganorm_combined"),
+       on_error="continue",
+   ).run([dataset, second_dataset])
+   print(combined_features.data.groupby("dataset").size())
+   print(combined_features.processing)
+
+Use the line frequency appropriate for each acquisition; 60 Hz here is only
+an example. Relative paths resolve against each dataset's own root. Each
+cohort can specify its own device, task, extension, demographic identifier
+column, line frequency, and auxiliary ``options``. Participants from all
+cohorts are processed sequentially, with one shared ``Config`` and one combined
+``FeatureDataset``. Use ``combined_features`` in place of ``features`` in step 4
+to model this combined cohort, with a separate model output directory if needed.
+
+Dataset names and participant IDs must be unique across the entire run. For
+example, if the first cohort uses ``sub-001`` and ``sub-002``, the second could
+use ``sub-101`` and ``sub-102``, with matching demographic identifiers. Two
+cohorts both containing ``sub-001`` are rejected before output cleanup or
+processing; the API does not automatically prefix IDs. All participants must
+produce the same extracted feature columns for collection. Choose compatible
+recordings and layouts; this API does not harmonize mismatched feature schemas.
+
+The combined table retains each participant's ``dataset`` label and supplied
+``site`` label. When a cohort has no ``site`` column, its dataset name supplies
+one; missing values in an existing ``site`` column remain missing. Metadata
+validation covers all discovered participants before processing, including
+when ``on_error="continue"`` is used. That option only permits participant
+processing failures and excludes failed participants from the combined table.
+
+If cohorts require different processing configurations or have overlapping
+participant IDs, run them separately with distinct output directories:
+
+.. code-block:: python
+
+   cohort_a_features = Pipeline(
+       config=config,
+       output_dir=Path("./results/cohort_a"),
+   ).run(dataset)
+   cohort_b_features = Pipeline(
+       config=config,
+       output_dir=Path("./results/cohort_b"),
+   ).run(second_dataset)
+
+You can supply a different ``Config`` to each separate pipeline. These calls
+return independent results; they do not automatically merge tables or resolve
+participant-ID collisions. Calling ``run`` twice with the same output directory
+replaces the first run's managed outputs after a warning; it does not append
+the second cohort. To combine cohorts in one extraction run, pass their list
+in a single call as shown above.
+
+Phase 1 local extraction is sequential and has no participant-level ``n_jobs``
+option. The existing SLURM workflow remains available for parallel extraction.
+
 4. Fit and inspect a normative model
 ------------------------------------
 
@@ -190,8 +264,7 @@ feature extraction on these artificial signals. These checks
 verify orchestration and output alignment, not the complete default
 preprocessing stack or model adequacy for a clinical application.
 
-For multiple datasets use ``pipeline.run([dataset_a, dataset_b])`` with globally
-unique participant IDs. Existing dataset dictionaries can be adapted through
+Existing dataset dictionaries can be adapted through
 ``Dataset.from_dict(name, settings)``. Optional acquisition-specific inputs
 are available through ``Dataset(options={...})``; see :doc:`meganorm.API`.
 
