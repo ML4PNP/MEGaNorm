@@ -2852,13 +2852,13 @@ def psd_stage_report(
             return computePsdIrasa(
                 segments=segments,
                 hset_info=configs.irasa_hset,
-                freq_range_low=configs.specparam_freq_range_low,
-                freq_range_high=configs.specparam_freq_range_high,
+                freq_range_low=configs.psd_parametrization_freq_range_low,
+                freq_range_high=configs.psd_parametrization_freq_range_high,
             )
         return computePsd(
             segments=segments,
-            freq_range_low=configs.specparam_freq_range_low,
-            freq_range_high=configs.specparam_freq_range_high,
+            freq_range_low=configs.psd_parametrization_freq_range_low,
+            freq_range_high=configs.psd_parametrization_freq_range_high,
             sampling_rate=int(round(segments.info["sfreq"])),
             psd_method=configs.psd_method,
             psd_n_overlap=configs.psd_n_overlap,
