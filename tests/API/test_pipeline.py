@@ -53,8 +53,9 @@ def test_pipeline_collects_features_and_reports_without_changing_config(
     assert result.processing.status.tolist() == ["success", "success"]
     assert all(p.exists() for p in result.paths.values())
     assert Config.load(str(result.paths["config"])).which_meg_session == 0
-    with pytest.raises(FileExistsError):
-        run.run(cohort)
+    with pytest.warns(UserWarning, match="removed before rerun"):
+        repeated = run.run(cohort)
+    assert repeated.summary["succeeded"] == 2
 
 
 @pytest.mark.unit
@@ -285,3 +286,263 @@ def test_incomplete_auxiliary_options_fail_before_processing(tmp_path, cohort, o
     with pytest.raises(ValueError, match="Incomplete.*cohort"):
         pipeline.Pipeline(config=Config(), output_dir=tmp_path / "out").run(ds)
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.unit
+def test_rerun_clears_residual_outputs_and_uses_changed_cohort(
+    tmp_path, cohort, monkeypatch
+):
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    residual = out / "Features" / "Saved_outputs" / "Preprocessed_data" / "old.fif"
+    residual.parent.mkdir(parents=True, exist_ok=True)
+    residual.write_text("old preprocessing")
+    unrelated = out / "research-notes.txt"
+    unrelated.write_text("keep me")
+    (cohort.root / "002" / "002_rest.fif").unlink()
+
+    def new_features(info, **kwargs):
+        # Cleanup and warning must precede processing.
+        assert not residual.exists()
+        assert not (out / "Features" / "temp" / "002.csv").exists()
+        assert not (out / "Features" / "all_features.csv").exists()
+        assert not (out / "features_with_demographics.csv").exists()
+        assert Config.load(str(kwargs["config_path"])).save_preprocessed_data is False
+        pd.DataFrame(
+            {"feature__alpha": [0.8]}, index=[kwargs["participant_id"]]
+        ).to_csv(kwargs["temp_dir"] / f'{kwargs["participant_id"]}.csv')
+
+    monkeypatch.setattr(pipeline, "process_participant", new_features)
+    with pytest.warns(UserWarning, match="removed before rerun"):
+        result = pipeline.Pipeline(
+            config=Config(save_preprocessed_data=False), output_dir=out
+        ).run(cohort)
+    assert result.data.index.tolist() == ["001"]
+    assert result.data["feature__alpha"].tolist() == [0.8]
+    assert result.manifest.participant_id.tolist() == ["001"]
+    assert result.processing.index.tolist() == ["001"]
+    assert unrelated.read_text() == "keep me"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["raise", "continue"])
+def test_failed_rerun_removes_previous_aggregate_tables(
+    tmp_path, cohort, monkeypatch, mode
+):
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("rerun failure")
+
+    monkeypatch.setattr(pipeline, "process_participant", fail)
+    with pytest.warns(UserWarning, match="removed before rerun"):
+        with pytest.raises(RuntimeError):
+            pipeline.Pipeline(config=Config(), output_dir=out, on_error=mode).run(
+                cohort
+            )
+    assert not (out / "Features" / "all_features.csv").exists()
+    assert not (out / "features_with_demographics.csv").exists()
+    assert not list((out / "Features" / "temp").glob("*.csv"))
+    assert json.loads((out / "run_summary.json").read_text())["succeeded"] == 0
+
+
+@pytest.mark.unit
+def test_partial_rerun_does_not_collect_previous_successes(
+    tmp_path, cohort, monkeypatch
+):
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+
+    def process(info, **kwargs):
+        if kwargs["participant_id"] == "002":
+            raise RuntimeError("failed on rerun")
+        write_features(info, **kwargs)
+
+    monkeypatch.setattr(pipeline, "process_participant", process)
+    with pytest.warns(UserWarning, match="removed before rerun"):
+        result = pipeline.Pipeline(
+            config=Config(), output_dir=out, on_error="continue"
+        ).run(cohort)
+    assert result.data.index.tolist() == ["001"]
+    assert result.processing.loc["002", "status"] == "failed"
+    assert not (out / "Features" / "temp" / "002.csv").exists()
+
+
+@pytest.mark.unit
+def test_rerun_requires_new_participant_csv(tmp_path, cohort, monkeypatch):
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    monkeypatch.setattr(pipeline, "process_participant", lambda *args, **kwargs: None)
+    with pytest.warns(UserWarning, match="removed before rerun"):
+        with pytest.raises(RuntimeError, match="All participants failed"):
+            pipeline.Pipeline(config=Config(), output_dir=out, on_error="continue").run(
+                cohort
+            )
+    assert json.loads((out / "run_summary.json").read_text())["succeeded"] == 0
+
+
+@pytest.mark.unit
+def test_preflight_failure_preserves_existing_run(tmp_path, cohort, monkeypatch):
+    import warnings
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    paths = [
+        out / "config.json",
+        out / "Features" / "all_features.csv",
+        out / "run_summary.json",
+    ]
+    before = {p: p.read_bytes() for p in paths}
+    cohort.demographics.unlink()
+    with warnings.catch_warnings(record=True) as messages:
+        warnings.simplefilter("always")
+        with pytest.raises(FileNotFoundError):
+            pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    assert not any(
+        "removed before rerun" in str(w.message) or "overwritten" in str(w.message)
+        for w in messages
+    )
+    assert {p: p.read_bytes() for p in paths} == before
+
+
+@pytest.mark.unit
+def test_warning_as_error_preserves_previous_run(tmp_path, cohort, monkeypatch):
+    import warnings
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    before = (out / "Features" / "all_features.csv").read_bytes()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="removed before rerun"):
+            pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    assert (out / "Features" / "all_features.csv").read_bytes() == before
+
+
+@pytest.mark.unit
+def test_cleanup_refuses_managed_directory_containing_inputs(
+    tmp_path, cohort, monkeypatch
+):
+    import shutil
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    nested = out / "Features" / "input"
+    shutil.copytree(cohort.root, nested)
+    dataset = Dataset(name="nested", root=nested, task="rest", extension=".fif")
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    with pytest.raises(ValueError, match="managed output.*input"):
+        pipeline.Pipeline(config=Config(), output_dir=out).run(dataset)
+    assert (nested / "001" / "001_rest.fif").exists()
+
+
+@pytest.mark.unit
+def test_cleanup_unlinks_features_symlink_without_deleting_target(
+    tmp_path, cohort, monkeypatch
+):
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    out.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    sentinel = external / "keep.txt"
+    sentinel.write_text("keep")
+    try:
+        (out / "Features").symlink_to(external, target_is_directory=True)
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            pytest.skip(
+                "Windows symlink creation requires Developer Mode or privileges"
+            )
+        raise
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    with pytest.warns(UserWarning, match="removed before rerun"):
+        pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    assert sentinel.read_text() == "keep"
+    assert not (out / "Features").is_symlink()
+
+
+@pytest.mark.unit
+def test_each_participant_must_write_its_own_csv(tmp_path, cohort, monkeypatch):
+    from meganorm.API import pipeline
+
+    def process(info, **kwargs):
+        if kwargs["participant_id"] == "001":
+            write_features(info, **kwargs)
+            premature = dict(kwargs, participant_id="002")
+            write_features(info, **premature)
+
+    monkeypatch.setattr(pipeline, "process_participant", process)
+    result = pipeline.Pipeline(
+        config=Config(), output_dir=tmp_path / "out", on_error="continue"
+    ).run(cohort)
+    assert result.data.index.tolist() == ["001"]
+    assert result.processing.loc["002", "status"] == "failed"
+
+
+@pytest.mark.unit
+def test_cleanup_preserves_demographics_in_managed_directory(
+    tmp_path, cohort, monkeypatch
+):
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    features = out / "Features"
+    features.mkdir(parents=True)
+    demo = features / "participants.tsv"
+    demo.write_bytes(cohort.demographics.read_bytes())
+    cohort.demographics = demo
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    with pytest.raises(ValueError, match="managed output.*input"):
+        pipeline.Pipeline(config=Config(), output_dir=out).run(cohort)
+    assert demo.exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "field",
+    [
+        "freesurfer_template_path",
+        "freesurfer_home",
+        "freesurfer_license",
+        "parcellation_annot_fname",
+    ],
+)
+def test_cleanup_preserves_configured_input_paths(tmp_path, cohort, monkeypatch, field):
+    from meganorm.API import pipeline
+
+    out = tmp_path / "out"
+    features = out / "Features"
+    features.mkdir(parents=True)
+    source = features / field
+    if field in {"freesurfer_template_path", "freesurfer_home"}:
+        source.mkdir()
+        sentinel = source / "input.txt"
+    else:
+        sentinel = source
+    sentinel.write_text("input data")
+    settings = {field: source if field == "parcellation_annot_fname" else str(source)}
+    if field == "freesurfer_template_path":
+        settings.update(apply_source_localization=True, apply_mri_template=True)
+    monkeypatch.setattr(pipeline, "process_participant", write_features)
+    with pytest.raises(ValueError, match="managed output.*input"):
+        pipeline.Pipeline(config=Config(**settings), output_dir=out).run(cohort)
+    assert sentinel.read_text() == "input data"

@@ -65,8 +65,7 @@ recording candidates without processing, call ``dataset.discover()``.
 
 This is the existing :class:`~meganorm.utils.IO.Config`. The pipeline saves it
 automatically and snapshots it when constructed. Source localization is off,
-but the defaults still include substantial preprocessing, including ICA and
-GEDAI. Choose settings appropriate for your recordings.
+but the defaults still include substantial preprocessing, including ICA. GEDAI is disabled by default. Choose settings appropriate for your recordings.
 
 If several recordings match a participant, ``config.which_meg_session`` selects
 one from the sorted candidate list. The API does not concatenate all sessions.
@@ -101,8 +100,17 @@ For extraction without demographics, omit the ``demographics`` argument.
 By default, processing stops at the first failure and preserves a partial
 report. Use ``Pipeline(..., on_error="continue")`` to process the remaining
 participants and collect only successful outputs. All-failed runs raise an
-error. Managed outputs are never appended or reused: choose a fresh directory
-for another run, outside every input dataset root.
+error. Managed outputs are never appended or reused. When rerunning in the same
+output directory, the pipeline validates inputs first, warns, and removes its
+previous ``Features/`` tree (including temporary CSVs, logs, plots, and saved
+preprocessing), ``config.json``, ``manifest.csv``, ``processing.csv``,
+``run_summary.json``, and ``features_with_demographics.csv`` before processing.
+Save a copy elsewhere if you need to retain those results. Unrelated files and
+separate model-output directories are preserved. If input validation fails,
+previous outputs are preserved; if processing fails, old aggregate tables are
+not left behind as apparent current results. The output directory must be
+outside every input dataset root, and managed output paths must not contain
+input data.
 
 4. Fit and inspect a normative model
 ------------------------------------

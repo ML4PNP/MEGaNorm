@@ -2,6 +2,7 @@
 
 import json
 import logging
+import shutil
 import warnings
 from pathlib import Path
 from collections.abc import Sequence
@@ -42,7 +43,7 @@ _AUXILIARY = {
 class Pipeline:
     """Extract features locally, preserving processing outcomes and metadata.
 
-    Runs use fresh managed outputs. on_error='continue' admits only participants
+    Reruns warn and clear managed outputs after input validation. on_error='continue' admits only participants
     whose processing completes normally with a valid current-run feature file.
     """
 
@@ -68,9 +69,7 @@ class Pipeline:
 
         for dataset in datasets:
             if root.is_relative_to(dataset.root):
-                raise ValueError(
-                    "output_dir must be outside every input dataset root."
-                )
+                raise ValueError("output_dir must be outside every input dataset root.")
 
             requested[dataset.name] = []
 
@@ -90,35 +89,6 @@ class Pipeline:
                         )
 
                     requested[dataset.name].append((family, field, keys))
-
-        # Existing managed outputs are allowed, but warn that they will
-        # be overwritten by the new run.
-        managed_outputs = [
-            "config.json",
-            "Features",
-            "run_summary.json",
-            "manifest.csv",
-            "processing.csv",
-            "features_with_demographics.csv",
-        ]
-
-        existing_outputs = [
-            root / name
-            for name in managed_outputs
-            if (root / name).exists()
-        ]
-
-        if existing_outputs:
-            warnings.warn(
-                "Existing managed output(s) will be overwritten: "
-                + ", ".join(str(path) for path in existing_outputs),
-                UserWarning,
-                stacklevel=2,
-            )
-            _LOG.warning(
-                "Existing managed output(s) will be overwritten: %s",
-                ", ".join(str(path) for path in existing_outputs),
-            )
 
         # Validate metadata before any costly processing or output creation.
         _, counts = attach_metadata(
@@ -153,9 +123,7 @@ class Pipeline:
                 ) from error
 
             if not path.exists():
-                raise FileNotFoundError(
-                    f"Selected recording missing: {path}"
-                )
+                raise FileNotFoundError(f"Selected recording missing: {path}")
 
             selected.append(path)
 
@@ -165,21 +133,13 @@ class Pipeline:
             ):
                 surface = row.get("mri_surface")
 
-                if (
-                    not surface
-                    or not (
-                        Path(surface) / row["participant_id"]
-                    ).is_dir()
-                ):
+                if not surface or not (Path(surface) / row["participant_id"]).is_dir():
                     raise FileNotFoundError(
-                        f'FreeSurfer derivatives missing for '
+                        f"FreeSurfer derivatives missing for "
                         f'{row["participant_id"]}.'
                     )
 
-            if (
-                self.config.apply_source_localization
-                and self.config.apply_mri_template
-            ):
+            if self.config.apply_source_localization and self.config.apply_mri_template:
                 template = self.config.freesurfer_template_path
 
                 if not template or not Path(template).exists():
@@ -207,9 +167,7 @@ class Pipeline:
                         ) from error
 
                     if not Path(auxiliary).exists():
-                        raise FileNotFoundError(
-                            f"Missing {key}: {auxiliary}"
-                        )
+                        raise FileNotFoundError(f"Missing {key}: {auxiliary}")
 
             if row.get("event_record"):
                 try:
@@ -220,18 +178,76 @@ class Pipeline:
                         "when event files are used."
                     ) from error
 
-            if (
-                row.get("layout_path")
-                and not Path(row["layout_path"]).is_file()
-            ):
-                raise FileNotFoundError(
-                    f'Missing layout_path: {row["layout_path"]}'
-                )
+            if row.get("layout_path") and not Path(row["layout_path"]).is_file():
+                raise FileNotFoundError(f'Missing layout_path: {row["layout_path"]}')
 
         manifest["selected_recording"] = selected
 
         return counts
 
+    def _reset_outputs(self, datasets, manifest):
+        """Remove this pipeline's previous outputs without following symlinks."""
+        existing = [
+            self.output_dir / name
+            for name in (
+                "config.json",
+                "Features",
+                "run_summary.json",
+                "manifest.csv",
+                "processing.csv",
+                "features_with_demographics.csv",
+            )
+            if (self.output_dir / name).exists()
+            or (self.output_dir / name).is_symlink()
+        ]
+        protected = []
+        for field in (
+            "freesurfer_template_path",
+            "freesurfer_home",
+            "freesurfer_license",
+            "parcellation_annot_fname",
+        ):
+            if value := getattr(self.config, field):
+                protected.append(Path(value).expanduser())
+        for dataset in datasets:
+            protected.append(dataset.root)
+            if dataset.demographics is not None:
+                protected.append(dataset.demographics)
+            protected.extend(
+                value for value in dataset.options.values() if isinstance(value, Path)
+            )
+        for row in manifest.to_dict("records"):
+            protected.extend(row["recording_paths"])
+            for field in {field for field, _ in _AUXILIARY.values()} | {
+                "layout_path",
+                "mri_surface",
+            }:
+                value = row.get(field)
+                if isinstance(value, str) and value and value != "None":
+                    protected.extend(Path(part) for part in value.split("*") if part)
+        protected = [Path(path).resolve() for path in protected]
+        # Check every deletion before changing anything. A managed directory
+        # may be an ancestor of an input even when output_dir is outside root.
+        for path in existing:
+            if path.is_symlink():
+                continue
+            resolved = path.resolve()
+            if any(source.is_relative_to(resolved) for source in protected):
+                raise ValueError(
+                    f"Cannot remove managed output {path}: it contains input data."
+                )
+        if existing:
+            message = (
+                "Existing managed output(s) will be removed before rerun: "
+                + ", ".join(str(path) for path in existing)
+            )
+            warnings.warn(message, UserWarning, stacklevel=2)
+            _LOG.warning(message)
+        for path in existing:
+            if path.is_symlink() or not path.is_dir():
+                path.unlink()
+            else:
+                shutil.rmtree(path)
 
     def run(self, dataset: Dataset | Sequence[Dataset]) -> FeatureDataset:
         """Process one or several datasets, returning a FeatureDataset."""
@@ -248,6 +264,7 @@ class Pipeline:
                 "Duplicate participant IDs across datasets; Phase 1 requires globally unique IDs."
             )
         counts = self._preflight(datasets, manifest)
+        self._reset_outputs(datasets, manifest)
         root = self.output_dir
         temp = root / "Features" / "temp"
         temp.mkdir(parents=True, exist_ok=True)
@@ -336,6 +353,8 @@ class Pipeline:
                             len(rows),
                             len(manifest),
                         )
+                    # A successful participant must produce its own new CSV.
+                    path.unlink(missing_ok=True)
                     process_participant(
                         info,
                         participant_id=participant,
