@@ -18,7 +18,7 @@ def checkout(tmp_path):
     (tmp_path / "meganorm/_version.py").write_text(
         '__version__ = "0.2.2"\n',
         encoding="utf-8",
-    )    
+    )
     return tmp_path
 
 

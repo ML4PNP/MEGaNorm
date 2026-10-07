@@ -6,7 +6,7 @@ fit a normative model. Each participant has a folder containing their
 recording, and a participant table supplies their age and other information.
 Use a cohort large enough for model training and evaluation.
 
-Install MEGaNorm:
+Use Python 3.12 and install MEGaNorm:
 
 .. code-block:: bash
 
@@ -72,9 +72,10 @@ to the dataset directory. Choose an output directory outside your dataset.
    )
 
 This example extracts sensor-level features averaged across channels. The
-default settings include preprocessing such as ICA; GEDAI is disabled.
+default settings include preprocessing such as ICA.
 Choose settings appropriate for your recordings. If a participant has several
 matching recordings, ``which_meg_session`` selects one; the default is the first.
+See :doc:`configuration` to adjust settings or load them from a JSON file.
 
 3. Extract features for the cohort
 --------------------------------------

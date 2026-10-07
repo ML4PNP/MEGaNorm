@@ -39,6 +39,7 @@ MEGaNorm supports processing on high-performance computing (HPC) infrastructure 
 * Normative modeling of oscillatory brain activity
 * Integration with MNE-Python, PCNToolkit, and SpecParam
 * EEG and MEG support with BIDS integration
+* A local Python API for cohort feature extraction and normative modeling
 * High-performance computing workflows for SLURM clusters
 * Reproducible deployment using Docker
 
@@ -60,7 +61,7 @@ pip install meganorm
 
 ### From source
 
-To install the latest development version:
+To install from the repository:
 
 <!-- BEGIN MEGANORM METADATA: source-install -->
 ```bash
@@ -105,7 +106,10 @@ The Docker environment mounts:
 * `results/` for analysis outputs
 * `data/` for EEG/MEG data
 
-JupyterLab is available at http://localhost:8888.
+Open the JupyterLab URL printed in the terminal at http://localhost:8888;
+it includes the login token. The Makefile exposes the port on localhost.
+To select a published version, pass the same `TAG` to both `make pull` and
+`make run`.
 
 ---
 
@@ -145,6 +149,9 @@ The local scientific API is available from `meganorm.API` and follows
 `Dataset → Config → Pipeline → FeatureDataset → NormativeModel → NormativeResults`.
 The [Getting Started guide](docs/source/getting_started.rst) covers the complete
 workflow, processing several datasets, participant failure reports, and reruns.
+The [configuration guide](docs/source/configuration.rst) explains processing
+settings, JSON files, and updates to older configuration names. See
+[changes in v0.2.2](docs/source/whats_new.rst) before updating an existing analysis.
 Existing low-level functions, command-line tools, and SLURM workflows remain
 available.
 
@@ -156,11 +163,12 @@ Example workflows are also available in the [`notebooks/`](notebooks/) directory
 
 MEGaNorm includes an automated test suite covering its core processing,
 feature-extraction, normative-modeling, source-localization, IO, layout,
-plotting, and utility functionality. The full suite runs automatically through
+plotting, and utility functionality. The suite runs automatically through
 <!-- BEGIN MEGANORM METADATA: ci-link -->
 [GitHub Actions](https://github.com/ML4PNP/MEGaNorm/actions/workflows/tests.yml)
 <!-- END MEGANORM METADATA: ci-link -->
-on pushes and pull requests.
+on pushes and pull requests, excluding tests marked `slow`. Run the Tests
+workflow manually to include the HBR workflow and IRASA decomposition checks.
 
 To run the tests locally from a development checkout:
 

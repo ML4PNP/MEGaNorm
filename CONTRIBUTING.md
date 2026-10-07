@@ -98,7 +98,7 @@ Tests are organized by package area under `tests/`, with separate markers for
 fast unit tests, integration tests, and slow tests. New functionality and bug
 fixes should include focused tests where applicable. GitHub Actions runs the
 suite excluding ``slow`` tests on pushes and pull requests. Manually dispatch
-the Tests workflow to run the HBR workflow smoke test as well.
+the Tests workflow to run the HBR workflow and IRASA decomposition checks as well.
 
 Run tests from the repository checkout. On native Windows, tests that create
 filenames forbidden by Windows or exercise POSIX FreeSurfer shell/executable

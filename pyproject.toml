@@ -37,8 +37,8 @@ software-concept-doi = "10.5281/zenodo.15441319"
 paper-doi = "10.1038/s42003-026-09825-2"
 
 
-# Empty while developing. Populate only for the version being released.
-# version is a provenance guard, not a second source of the package version.
+# Populate these fields when finalizing a release.
+# version must match meganorm/_version.py when set.
 [tool.meganorm.release]
 version = ""
 date = ""  # YYYY-MM-DD; never inferred from today's date

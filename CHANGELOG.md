@@ -6,20 +6,43 @@ Detailed release notes for each version are available on the [GitHub Releases](h
 
 ## [Unreleased]
 
-Changes currently under development on the `dev` branch.
-
-- Added the local scientific API under `meganorm.API`, including dataset
-  discovery, multi-dataset feature extraction, explicit normative-model fitting,
-  and aligned result tables with participant and analysis reports.
-- Continue local extraction after participant failures by default; retain an
-  explicit stop-on-error mode and collect only successful current-run outputs.
-- Validate inputs before warning and clearing managed extraction/model outputs
-  on reruns, while preserving unrelated files and protecting known inputs.
-- Retry numerically failed IRASA aperiodic fits per channel with scaling,
-  preserve original output units, and retain the spectral quality threshold.
-- Disable GEDAI by default.
-- Add API and real workflow integration tests, improve Windows path handling,
-  and document local workflows and existing SLURM execution.
+- Added the local scientific API under `meganorm.API`: cohort discovery,
+  multi-dataset feature extraction, explicit normative-model fitting, and
+  participant-aligned prediction, deviation, and evaluation tables.
+- Fix EEG fixed-threshold flatness limits, ICA method/seed handling, independent
+  physiological-artifact passes, removal counts, and artifact annotation
+  timing for cropped recordings.
+- Retry failed IRASA aperiodic fits per channel with scaling while preserving
+  original spectral units and the fit-quality threshold. Check the bandwidth
+  needed for IRASA resampling before processing.
+- Validate processing ranges, Welch windows, complete feature-family settings,
+  and three-layer EEG source models when loading configurations.
+- Make `prepare_nm_data` work with released PCNtoolkit schemas. Fit imputation
+  donors, feature eligibility, and outlier bounds on training rows before
+  applying them to held-out rows. Correct age centile units and limits.
+- Normalize outlier group columns and the z-score method name for PCNtoolkit's
+  extended interface while retaining the helper's existing calling convention.
+- Handle MEG source localization without digitization when a transform is
+  provided; retain scaled anatomy beside its morph target when both are needed.
+- Monitor exact submitted SLURM job IDs, wait for accounting records, classify
+  terminal failures, and keep the driver reusable after a run. Exclude all
+  failed/missing MRI QC participants and retain leading zeros in collected IDs.
+- Correct legacy train/validation splitting, diagnosis exclusion, MACE batch
+  handling, site-zero centile statistics, and site-specific growth charts.
+- Use consistent image names and tags for Docker build/pull/run/push. Retain
+  Jupyter login tokens and expose the Makefile's notebook port on localhost.
+- Add a configuration guide, configuration migration notes, release instructions,
+  and API/real-workflow regression tests. Update tutorials and remove obsolete
+  development notes and commented-out experiments.
+- Current defaults use a 40 Hz low-pass filter, 300 Hz resampling, five-second
+  epochs, and specparam with a fixed aperiodic slope. Oversampled temporal
+  projection, reference-channel environmental ICA, and intermediate saves are
+  disabled by default. GEDAI and its configuration fields are no longer present.
+- Replace `parametrization_method` and old `fooof_*` settings with the current
+  `psd_parametrization_*` fields. See the configuration guide for the full mapping.
+- IRASA with the default 3–40 Hz fitting range needs a wider input passband;
+  use `cutoffFreqHigh=80` with `resampling_rate=300`. Saving a complete
+  configuration records defaults explicitly for reproducibility.
 
 ## [0.2.1] - 2026-09-16
 

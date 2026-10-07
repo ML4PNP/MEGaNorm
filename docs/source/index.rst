@@ -96,8 +96,9 @@ For available releases and package metadata, see the
 Getting Started
 ---------------
 
-For a minimal example running MEGaNorm on a single recording and a local
-computer, see the :doc:`Getting Started guide <getting_started>`.
+For a local workflow covering feature extraction and normative modeling for a
+cohort, see the :doc:`Getting Started guide <getting_started>`. The
+:doc:`configuration` guide explains how to choose and save processing settings.
 
 For large datasets, advanced configuration, and SLURM-based processing,
 see the full example notebooks:
@@ -113,7 +114,9 @@ Documentation
    :caption: User Guide
 
    getting_started
+   configuration
    meganorm.API
+   whats_new
 
 .. toctree::
    :maxdepth: 2
