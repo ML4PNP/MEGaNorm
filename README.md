@@ -141,6 +141,13 @@ After installation, verify that MEGaNorm can be imported:
 import meganorm
 ```
 
+The local scientific API is available from `meganorm.API` and follows
+`Dataset → Config → Pipeline → FeatureDataset → NormativeModel → NormativeResults`.
+The [Getting Started guide](docs/source/getting_started.rst) covers the complete
+workflow, processing several datasets, participant failure reports, and reruns.
+Existing low-level functions, command-line tools, and SLURM workflows remain
+available.
+
 Example workflows are also available in the [`notebooks/`](notebooks/) directory.
 
 ---

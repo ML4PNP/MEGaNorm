@@ -84,7 +84,7 @@ class Config(BaseModel):
 
     GEDAI Artifact Removal
     -----------------------
-    apply_gedai : bool, default=True
+    apply_gedai : bool, default=False
         Apply GEDAI-based artifact removal.
     gedai_method : {"both", "spectral", "broadband"}, default="both"
         GEDAI denoising strategy.
@@ -312,7 +312,7 @@ class Config(BaseModel):
     apply_chpi_filter: bool = False
 
     # gedai settings
-    apply_gedai: bool = True
+    apply_gedai: bool = False
     gedai_method: Literal["both", "spectral", "broadband"] = "both"
     sensai_method: Literal["optimize", "gridsearch"] = "optimize"
     gedai_duration: Union[float, int] = 12

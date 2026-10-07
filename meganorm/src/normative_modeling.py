@@ -443,6 +443,9 @@ def nm_model_train(
     if_save_plots=True,
     colors=None,  # TODO
     job_configs=None,
+    *,
+    return_model=False,
+    save_results=True,
 ):
     """
     Fit a PCNtoolkit normative model, optionally in parallel across
@@ -500,15 +503,28 @@ def nm_model_train(
         "time_limit", "memory", "n_cores", "preamble", and
         "max_retries".
 
+    return_model : bool, optional
+        Return the fitted PCNtoolkit model after a local fit. Default False
+        preserves the historical None return. Cannot be used with parallel jobs.
+
+    save_results : bool, optional
+        Save native PCNtoolkit result files. Default True preserves historical
+        behavior. Disable when evaluation is off on PCNtoolkit versions whose
+        native result writer requires evaluation statistics.
+
     Returns
     -------
-    None
+    NormativeModel or None
+        The fitted model when return_model=True; otherwise None.
 
     Raises
     ------
     ValueError
         If `if_parallel` is True and `job_configs` is not provided.
     """
+
+    if return_model and if_parallel:
+        raise ValueError("return_model=True requires local execution.")
 
     nm_dir = os.path.join(project_dir, "Normative_models")
     if not os.path.isdir(nm_dir):
@@ -518,7 +534,7 @@ def nm_model_train(
         template_regression_model=template_regression_model,
         savemodel=if_save_models,
         evaluate_model=if_evaluate_models,
-        saveresults=True,
+        saveresults=save_results,
         saveplots=if_save_plots,
         save_dir=nm_dir,
         inscaler=inscaler_method,
@@ -556,6 +572,9 @@ def nm_model_train(
             runner.fit_predict(model, train, test, observe=False)
         else:
             runner.fit(model, train, observe=False)
+
+    if return_model:
+        return model
 
     # if if_model_diagnosis:
     #     model_diagnostics(
