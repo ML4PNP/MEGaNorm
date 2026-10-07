@@ -4,3 +4,9 @@ recursive-include meganorm/layouts *.json
 
 include pyproject.toml CITATION.cff
 include tools/sync_metadata.py
+
+include CHANGELOG.md RELEASE.md CONTRIBUTING.md
+include docs/requirements.txt
+graft docs/source
+recursive-include tests *.py
+global-exclude *.py[cod]

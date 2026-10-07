@@ -48,7 +48,7 @@ jobs:
 
   hbr-smoke:
     if: github.event_name == 'workflow_dispatch'
-    name: HBR local workflow (Python 3.12)
+    name: Slow integration checks (Python 3.12)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -60,5 +60,21 @@ jobs:
           python-version: "3.12"
       - name: Install package and test dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Execute published HBR workflow
-        run: python -m pytest tests/integration/test_api_hbr.py -q -m slow
+      - name: Run HBR workflow and IRASA decomposition checks
+        run: python -m pytest -q -m slow
+
+  documentation:
+    name: Documentation (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package and documentation dependencies
+        run: python -m pip install . -r docs/requirements.txt
+      - name: Build documentation with warnings treated as errors
+        run: python -m sphinx -W --keep-going -b html docs/source docs/build/html

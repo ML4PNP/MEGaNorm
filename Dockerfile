@@ -26,4 +26,4 @@ RUN pip install --no-cache-dir .
 EXPOSE 8888
 
 # Start Jupyter Lab
-CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--NotebookApp.token=''", "--NotebookApp.open_browser=True", "--allow-root"]
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
