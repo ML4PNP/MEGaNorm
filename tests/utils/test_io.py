@@ -149,21 +149,6 @@ def test_config_save_protects_existing_file_unless_overwrite_is_enabled(tmp_path
             },
             "MRI QC",
         ),
-        (
-            {"gedai_method": "broadband", "gedai_wavelet_level": "auto"},
-            "wavelet_level=0",
-        ),
-        (
-            {"gedai_method": "spectral", "gedai_wavelet_level": 0},
-            "wavelet_level > 0",
-        ),
-        (
-            {
-                "gedai_method": "both",
-                "gedai_preliminary_broadband_noise_multiplier": 0,
-            },
-            "preliminary_broadband_noise_multiplier",
-        ),
     ],
 )
 def test_config_rejects_incompatible_cross_field_settings(overrides, message):
@@ -185,8 +170,6 @@ def test_config_rejects_incompatible_cross_field_settings(overrides, message):
             "beamformer_pick_ori": "vector",
             "beamformer_weight_norm": "unit-noise-gain-invariant",
         },
-        {"gedai_method": "broadband", "gedai_wavelet_level": 0},
-        {"gedai_method": "spectral", "gedai_wavelet_level": "auto"},
     ],
 )
 def test_config_accepts_compatible_cross_field_settings(overrides):

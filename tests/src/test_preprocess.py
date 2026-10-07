@@ -14,7 +14,6 @@ from meganorm.src.preprocess import (
     _detect_bad_channels_ransac,
     _find_tsss,
     _is_tsss,
-    _validate_gedai_params,
     annotate_noisy_raw,
     annotate_nonfinite,
     auto_reject_segmentation,
@@ -557,42 +556,6 @@ def test_extract_rs_blocks_rejects_nonfinite_timing_parameters(
 
     with pytest.raises(ValueError, match=message):
         extract_rs_blocks(raw, events, 7, 10.0, segments_length, overlap)
-
-
-@pytest.mark.parametrize(
-    "method, level, duration, multiplier",
-    [
-        ("broadband", 0, 2.0, None),
-        ("spectral", 2, None, None),
-        ("spectral", "auto", None, None),
-        ("both", 2, 2.0, 1.5),
-    ],
-)
-def test_validate_gedai_params_accepts_supported_combinations(
-    method, level, duration, multiplier
-):
-    assert _validate_gedai_params(method, level, duration, multiplier) is None
-
-
-@pytest.mark.parametrize(
-    "method, level, duration, multiplier, message",
-    [
-        ("broadband", 1, 2.0, None, "wavelet_level=0"),
-        ("broadband", 0, None, None, "gedai_duration"),
-        ("spectral", 0, None, None, "wavelet_level > 0"),
-        ("both", 2, 2.0, None, "preliminary_broadband"),
-    ],
-)
-def test_validate_gedai_params_rejects_incompatible_combinations(
-    method, level, duration, multiplier, message
-):
-    with pytest.raises(ValueError, match=message):
-        _validate_gedai_params(method, level, duration, multiplier)
-
-
-def test_validate_gedai_params_rejects_unknown_method():
-    with pytest.raises(ValueError, match="method"):
-        _validate_gedai_params("unknown", 0, 2.0, 1.0)
 
 
 def test_annotate_nonfinite_returns_clean_raw_unchanged():

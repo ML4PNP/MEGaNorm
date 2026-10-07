@@ -46,7 +46,6 @@ def api_cohort(tmp_path):
     config = Config(
         apply_source_localization=False,
         apply_ica=False,
-        apply_gedai=False,
         apply_oversampled_temporal_projection=False,
         apply_Head_movement_correction=False,
         apply_environmental_noise_correction=False,
@@ -54,7 +53,7 @@ def api_cohort(tmp_path):
         bad_segment_removal_method=None,
         which_layout=None,
         save_psds=False,
-        parametrization_method="specparam",
+        psd_parametrization_method="specparam",
         aperiodic_mode="fixed",
         min_r_squared=0.0,
     )

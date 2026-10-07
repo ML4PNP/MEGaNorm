@@ -243,7 +243,7 @@ def main(args):
     Run the full spectral feature extraction pipeline for one subject.
 
     Loads raw MEG/EEG/OPM data and processes it end-to-end: channel
-    cleanup, filtering, ICA/GEDAI and environmental noise correction,
+    cleanup, filtering, ICA and environmental noise correction,
     head-movement correction, segmentation with optional Autoreject
     bad-segment removal, optional source localization, PSD computation
     with specparam/IRASA spectral parametrization, and band-power feature
@@ -411,20 +411,8 @@ def main(args):
         ica_if_reject_by_annotation=configs.ica_if_reject_by_annotation,
         environmental_noise_ica_with_ref_meg_method=configs.environmental_noise_ica_with_ref_meg_method,
         environmental_noise_ica_with_ref_meg_measure=configs.environmental_noise_ica_with_ref_meg_measure,
-        apply_gedai=configs.apply_gedai,
-        gedai_method=configs.gedai_method,
-        sensai_method=configs.sensai_method,
         conductivity=configs.SL_conductivity,
         source_space=configs.SL_source_space,
-        gedai_duration=configs.gedai_duration,
-        gedai_overlap=configs.gedai_overlap,
-        gedai_preliminary_broadband_noise_multiplier=configs.gedai_preliminary_broadband_noise_multiplier,
-        gedai_noise_multiplier=configs.gedai_noise_multiplier,
-        gedai_wavelet_type=configs.gedai_wavelet_type,
-        gedai_wavelet_level=configs.gedai_wavelet_level,
-        gedai_wavelet_low_cutoff=configs.gedai_wavelet_low_cutoff,
-        gedai_epoch_size_in_cycles=configs.gedai_epoch_size_in_cycles,
-        gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
         source_space_spacing=configs.source_space_spacing,
         source_space_spacing_number=configs.source_space_spacing_number,
         event_record=event_record,
@@ -560,16 +548,15 @@ def main(args):
         psd_n_overlap=configs.psd_n_overlap,
         psd_n_fft=configs.psd_n_fft,
         n_per_seg=configs.psd_n_per_seg,
-        # parametrization method
-        parametrization_method=configs.parametrization_method,
+        # parametrization (shared by specparam and IRASA)
+        parametrization_method=configs.psd_parametrization_method,
         aperiodic_mode=configs.aperiodic_mode,
-        freq_range_low=configs.specparam_freq_range_low,
-        freq_range_high=configs.specparam_freq_range_high,
-        # specparam parameters
-        min_peak_height=configs.specparam_min_peak_height,
-        peak_threshold=configs.specparam_peak_threshold,
-        peak_width_limits=configs.specparam_peak_width_limits,
-        # pyrasa parameters
+        freq_range_low=configs.psd_parametrization_freq_range_low,
+        freq_range_high=configs.psd_parametrization_freq_range_high,
+        min_peak_height=configs.psd_parametrization_min_peak_height,
+        peak_threshold=configs.psd_parametrization_peak_threshold,
+        peak_width_limits=configs.psd_parametrization_peak_width_limits,
+        # IRASA only
         irasa_hset=configs.irasa_hset,
     )
 
@@ -580,6 +567,10 @@ def main(args):
         os.makedirs(save_psds_path, exist_ok=True)
         np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
         np.save(f"{save_psds_path}/{args.subject}-freqs.npy", freqs)
+
+    min_peak_epochs = 1
+    if configs.lowest_num_of_epochs is not None:
+        min_peak_epochs = configs.lowest_num_of_epochs/2 + 1
 
     # ------------------------------------------------------------
     features, aperiodic_fit_result = feature_extract(
@@ -598,8 +589,12 @@ def main(args):
         min_r_squared=configs.min_r_squared,
         power_band_ratios_list=configs.power_band_ratios_list,
         layout_path=args.layout_path,
-        freq_range_low=configs.specparam_freq_range_low,
-        freq_range_high=configs.specparam_freq_range_high,
+        freq_range_low=configs.psd_parametrization_freq_range_low,
+        freq_range_high=configs.psd_parametrization_freq_range_high,
+        peak_threshold=configs.psd_parametrization_peak_threshold,
+        peak_width_limits=configs.psd_parametrization_peak_width_limits,
+        min_peak_height=configs.psd_parametrization_min_peak_height,
+        min_peak_epochs=min_peak_epochs
     )
 
     for column in configs.extra_metadata_columns:
@@ -625,7 +620,7 @@ def main(args):
             filtered_sampling_rate=sampling_rate,
             sl_segments=sl_segments,
             spectral_models=spectral_models,
-            parametrization_method=configs.parametrization_method,
+            parametrization_method=configs.psd_parametrization_method,
             aperiodic_mode=configs.aperiodic_mode,
             aperiodic_fit_result=aperiodic_fit_result,
         )

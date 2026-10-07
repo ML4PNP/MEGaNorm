@@ -17,6 +17,7 @@ from pydantic import (
     BaseModel,
     Field,
     PositiveInt,
+    PositiveFloat,
     confloat,
     conint,
     conlist,
@@ -81,31 +82,6 @@ class Config(BaseModel):
         Exclude annotated bad segments when fitting ICA.
     auto_ica_corr_thr : float, default=0.5
         Correlation threshold (0-1) for automatic ICA component rejection.
-
-    GEDAI Artifact Removal
-    -----------------------
-    apply_gedai : bool, default=False
-        Apply GEDAI-based artifact removal.
-    gedai_method : {"both", "spectral", "broadband"}, default="both"
-        GEDAI denoising strategy.
-    sensai_method : {"optimize", "gridsearch"}, default="optimize"
-        Parameter search strategy for SensAI.
-    gedai_duration, gedai_overlap : float or int, default=12, 0.5
-        Window duration (s) and overlap fraction for GEDAI.
-    gedai_preliminary_broadband_noise_multiplier : float, default=6.0
-        Noise multiplier for preliminary broadband detection.
-    gedai_noise_multiplier : float, default=3.0
-        Noise multiplier used in GEDAI thresholding.
-    gedai_wavelet_type : str, default="haar"
-        Wavelet family used for spectral GEDAI.
-    gedai_wavelet_level : "auto", PositiveInt, or 0, default="auto"
-        Wavelet decomposition level.
-    gedai_wavelet_low_cutoff : float or None, default=None
-        Low-frequency cutoff for wavelet-based denoising.
-    gedai_epoch_size_in_cycles : PositiveInt, default=12
-        Epoch size expressed in number of cycles.
-    gedai_highpass_cutoff : float, default=0.1
-        High-pass cutoff applied before GEDAI (Hz).
 
     Muscle Artifact Detection
     ---------------------------
@@ -217,22 +193,22 @@ class Config(BaseModel):
         PSD estimation method.
     psd_n_overlap, psd_n_fft, psd_n_per_seg : PositiveInt, default=1, 2, 2
         Welch/multitaper PSD parameters.
-    parametrization_method : {"specparam", "irasa"}, default="irasa"
+    psd_parametrization_method : {"specparam", "irasa"}, default="irasa"
         Method for separating aperiodic and periodic spectral components.
-    irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
-        Resampling factor range/step for IRASA.
-    specparam_freq_range_low, specparam_freq_range_high : PositiveInt, default=3, 40
-        Frequency range for specparam fitting (Hz).
+    psd_parametrization_freq_range_low, psd_parametrization_freq_range_high : PositiveInt, default=3, 40
+        Frequency range for spectral parametrization (Hz). Used by both methods.
+    psd_parametrization_peak_threshold : PositiveFloat, default=2.0
+        Peak detection threshold. Used by both methods.
+    psd_parametrization_peak_width_limits : tuple[float, float], default=(1.0, 12.0)
+        Allowed peak width range (Hz). Used by both methods.
+    psd_parametrization_min_peak_height : float, default=0.0
+        Minimum peak height for detection. Used by both methods.
     aperiodic_mode : {"knee", "fixed"}, default="knee"
         Aperiodic component model.
-    specparam_peak_width_limits : list[float], default=[1.0, 12.0]
-        Allowed peak width range (Hz).
-    specparam_min_peak_height : int, default=0
-        Minimum peak height for detection.
-    specparam_peak_threshold : PositiveInt, default=2
-        Peak detection threshold (in SD of the flattened spectrum).
+    irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
+        Resampling factor range/step for IRASA.
     specparam_res_save_path : str or None
-        Path to save specparam results.
+        Path to save specparam results (specparam only).
     save_source_localized_epochs, save_psds : bool, default=False
         Persist intermediate source-localized epochs / PSDs to disk.
 
@@ -263,14 +239,6 @@ class Config(BaseModel):
     load(path)
         Load a configuration from a JSON file.
 
-    Notes
-    -----
-    Model validators enforce cross-field consistency, e.g.: a three-layer
-    `SL_conductivity` is required for EEG source localization; `beamformer_pick_ori
-    == "vector"` requires `beamformer_weight_norm == "unit-noise-gain-invariant"`;
-    `source_space_spacing` must match `source_space_spacing_number`; GEDAI
-    parameters must be consistent with the chosen `gedai_method`; and MRI
-    template use is mutually exclusive with MRI QC.
     """
 
     # Recording-level metadata added as columns to each subject's features CSV.
@@ -298,32 +266,18 @@ class Config(BaseModel):
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
     cutoffFreqLow: float = 1.0
-    cutoffFreqHigh: PositiveInt = 80
+    cutoffFreqHigh: PositiveInt = 40
 
-    resampling_rate: PositiveInt = 1000
+    resampling_rate: PositiveInt = 300
     digital_filter: bool = True
     notch_filter: bool = True
 
-    apply_oversampled_temporal_projection: bool = True
+    apply_oversampled_temporal_projection: bool = False
 
     apply_Head_movement_correction: bool = True
     Head_movement_limit_from_mean: float = 0.0015
 
     apply_chpi_filter: bool = False
-
-    # gedai settings
-    apply_gedai: bool = False
-    gedai_method: Literal["both", "spectral", "broadband"] = "both"
-    sensai_method: Literal["optimize", "gridsearch"] = "optimize"
-    gedai_duration: Union[float, int] = 12
-    gedai_overlap: Union[float, int] = 0.5
-    gedai_preliminary_broadband_noise_multiplier: float = 6.0
-    gedai_noise_multiplier: float = 3.0
-    gedai_wavelet_type: str = "haar"
-    gedai_wavelet_level: Union[Literal["auto"], PositiveInt, Literal[0]] = "auto"
-    gedai_wavelet_low_cutoff: Union[None, float] = None
-    gedai_epoch_size_in_cycles: PositiveInt = 12
-    gedai_highpass_cutoff: float = 0.1
 
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
@@ -333,14 +287,14 @@ class Config(BaseModel):
     same_environmental_noise_removal: bool = False
     ctf_gradient_comp_level: PositiveInt = 3
     apply_environmental_noise_ssp_with_eroom: bool = False
-    apply_environmental_noise_ica_with_ref_meg: bool = True
-    environmental_noise_ica_with_ref_meg_thr: float = 2.0
+    apply_environmental_noise_ica_with_ref_meg: bool = False
+    environmental_noise_ica_with_ref_meg_thr: float = 0.4
     ica_if_reject_by_annotation: bool = True
     environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = (
         "separate"
     )
     environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = (
-        "zscore"
+        "correlation"
     )
 
     apply_ica: bool = True
@@ -350,6 +304,7 @@ class Config(BaseModel):
     rereference_method: Literal["average", "REST", None] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
+
     mag_var_threshold: float = 5000e-15
     grad_var_threshold: float = 5000e-13
     eeg_var_threshold: float = 40e-6
@@ -360,10 +315,10 @@ class Config(BaseModel):
 
     segments_tmin: PositiveInt = 20
     segments_tmax: NegativeInt = -20
-    segments_length: PositiveInt = 10
+    segments_length: PositiveInt = 5
     segments_overlap: int = 2
 
-    save_preprocessed_data: bool = True
+    save_preprocessed_data: bool = False
 
     # autoreject
     autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
@@ -437,17 +392,17 @@ class Config(BaseModel):
     psd_n_fft: PositiveInt = 2
     psd_n_per_seg: PositiveInt = 2
 
-    parametrization_method: Literal["specparam", "irasa"] = "irasa"
-    # PYRASA
-    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
+    psd_parametrization_method: Literal["specparam", "irasa"] = "specparam"
+    # Shared by specparam and IRASA
+    psd_parametrization_freq_range_low: PositiveInt = 3
+    psd_parametrization_freq_range_high: PositiveInt = 40
+    psd_parametrization_peak_threshold: PositiveFloat = 2.0
+    psd_parametrization_peak_width_limits: Tuple[float, float] = (1.0, 12.0)
+    psd_parametrization_min_peak_height: confloat(ge=0) = 0.0
+    aperiodic_mode: Literal["knee", "fixed"] = "fixed"
 
-    # specparam analysis
-    specparam_freq_range_low: PositiveInt = 3
-    specparam_freq_range_high: PositiveInt = 40
-    aperiodic_mode: Literal["knee", "fixed"] = "knee"
-    specparam_peak_width_limits: List[float] = [1.0, 12.0]
-    specparam_min_peak_height: int = 0
-    specparam_peak_threshold: PositiveInt = 2
+    # IRASA only
+    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
 
     save_source_localized_epochs: bool = False
     save_psds: bool = False
@@ -613,26 +568,6 @@ class Config(BaseModel):
                 "You can not apply MRI QC on already preprocessed freesurfer template"
             )
             raise ValueError(err_msg)
-        return self
-
-    @model_validator(mode="after")
-    def gedai_params_check(self):
-        method = self.gedai_method
-        wavelet_level = self.gedai_wavelet_level
-        duration = self.gedai_duration
-        broadband_multiplier = self.gedai_preliminary_broadband_noise_multiplier
-
-        if method == "broadband" and wavelet_level != 0:
-            raise ValueError("broadband method requires wavelet_level=0")
-        if method == "broadband" and not duration:
-            raise ValueError("broadband method requires gedai_duration")
-        if method == "spectral" and wavelet_level == 0:
-            raise ValueError("spectral method requires wavelet_level > 0")
-        if method == "both" and not broadband_multiplier:
-            raise ValueError(
-                "both method requires gedai_preliminary_broadband_noise_multiplier"
-            )
-
         return self
 
     def save(self, save_path: str, overwrite=False):

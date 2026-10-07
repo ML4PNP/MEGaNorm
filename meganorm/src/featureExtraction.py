@@ -473,6 +473,10 @@ def feature_extract(
     freq_range_low: int,
     freq_range_high: int,
     layout_path: str | None = None,
+    peak_threshold: float = 2.0,
+    peak_width_limits: tuple = (1.0, 12.0),
+    min_peak_height: float = 0.0,
+    min_peak_epochs: int = 1,
 ) -> pd.DataFrame:
     """
     Extract features from specparam models for each channel and frequency band.
@@ -520,6 +524,19 @@ def feature_extract(
     power_band_ratios_list : List[tuple]
         List of ratio specifications (each exposing `numerator` and `denominator`
         band names) for which band-power ratio features should be computed.
+    freq_range_low, freq_range_high : int
+        Frequency range (Hz) used to bound the IRASA aperiodic fit.
+    layout_path : str or None, optional
+        Path to a custom JSON layout file.
+    peak_threshold : float, default=2.0
+        Peak detection threshold passed to pyrasa's `get_peaks` (IRASA only).
+    peak_width_limits : tuple of float, default=(1.0, 12.0)
+        Allowed peak width range in Hz (IRASA only).
+    min_peak_height : float, default=0.0
+        Minimum peak height passed to pyrasa's `get_peaks` (IRASA only).
+    min_peak_epochs : int, default=1
+        Minimum number of epochs in which a channel must have a peak in a
+        band; otherwise its peak features are NaN (IRASA only).
 
     Returns
     -------
@@ -567,9 +584,14 @@ def feature_extract(
         # Peaks detected per epoch, then averaged
         for band_name, (fmin, fmax) in freq_bands.items():
             band_peaks_avg[band_name] = average_peaks_across_epochs(
-                spectral_models.periodic, fmin, fmax
+                spectral_models.periodic,
+                fmin,
+                fmax,
+                peak_threshold=peak_threshold,
+                peak_width_limits=peak_width_limits,
+                min_peak_height=min_peak_height,
+                min_epochs=min_peak_epochs,
             )
-
 
     for channel_num, channel_name in enumerate(channel_names):
 
@@ -1023,7 +1045,7 @@ class SpecParamDecomposer(SpectralDecomposer):
             return None, None
 
         peaks = np.atleast_2d(self.model.get_params("periodic"))
-        
+
         # filter peaks: check for NaNs and then within thee frequency band
         band_peaks = [
             peak
@@ -1080,8 +1102,9 @@ class PYRASADecomposer(SpectralDecomposer):
         self.aperiodic = aperiodic
         self.ch_name = ch_name
         self.ch_num = ch_num
-        self.band_peaks_avg = band_peaks_avg  # {band_name: DataFrame indexed by ch_name}
-
+        self.band_peaks_avg = (
+            band_peaks_avg  # {band_name: DataFrame indexed by ch_name}
+        )
 
     def get_aperiodic_params(self):
         """
@@ -1229,17 +1252,40 @@ def _average_aperiodic(aperiodic):
     )
 
 
-
-def average_peaks_across_epochs(periodic, fmin, fmax):
+def average_peaks_across_epochs(
+    periodic,
+    fmin,
+    fmax,
+    peak_threshold=2.0,
+    peak_width_limits=(1.0, 12.0),
+    min_peak_height=0.0,
+    min_epochs=1,
+):
     """
     Detect peaks in each epoch, keep the strongest peak per channel per epoch,
     and average those peaks across epochs.
+
+    Parameters
+    ----------
+    periodic : PeriodicEpochsSpectrum
+        Per-epoch periodic spectra from IRASA.
+    fmin, fmax : float
+        Band limits in Hz.
+    peak_threshold : float, default=2.0
+        Peak detection threshold passed to `get_peaks`.
+    peak_width_limits : tuple of float, default=(1.0, 12.0)
+        Allowed peak width range in Hz.
+    min_peak_height : float, default=0.0
+        Minimum peak height passed to `get_peaks`.
+    min_epochs : int, default=1
+        Minimum number of epochs in which a channel must have a peak
+        in the band. Channels below this get NaN.
 
     Returns
     -------
     pd.DataFrame or None
         One row per channel (index: ch_name) with averaged cf, pw, bw.
-        Channels without any peak in the band are absent.
+        NaN for channels with a peak in fewer than `min_epochs` epochs.
         None if peak detection failed in every epoch.
     """
     all_peaks = []
@@ -1247,11 +1293,14 @@ def average_peaks_across_epochs(periodic, fmin, fmax):
         try:
             peaks = periodic[epoch_idx].get_peaks(
                 cut_spectrum=(fmin - 1, fmax + 1),
-                peak_threshold=1.5,
-                peak_width_limits=(1, 12.0),
+                peak_threshold=peak_threshold,
+                peak_width_limits=peak_width_limits,
+                min_peak_height=min_peak_height,
             )
         except ValueError as e:
-            logger.warning(f"Peak detection failed (epoch {epoch_idx}, [{fmin}, {fmax}] Hz): {e}")
+            logger.warning(
+                f"Peak detection failed (epoch {epoch_idx}, [{fmin}, {fmax}] Hz): {e}"
+            )
             continue
         peaks["epoch"] = epoch_idx
         all_peaks.append(peaks)
@@ -1262,9 +1311,18 @@ def average_peaks_across_epochs(periodic, fmin, fmax):
 
     # Peaks inside the band only
     peaks = peaks[peaks["cf"].between(fmin, fmax)].dropna(subset=["cf", "pw", "bw"])
+    # Peak power in natural log space
+    peaks["pw"] = np.log(peaks["pw"])
 
     # 1. One peak per channel per epoch: the strongest
     strongest = peaks.sort_values("pw").groupby(["ch_name", "epoch"]).tail(1)
 
     # 2. Average across epochs, per channel
-    return strongest.groupby("ch_name")[["cf", "pw", "bw"]].mean()
+    by_channel = strongest.groupby("ch_name")
+    averaged = by_channel[["cf", "pw", "bw"]].mean()
+
+    # 3. NaN for channels with a peak in fewer than `min_epochs` epochs
+    averaged.loc[by_channel.size() < min_epochs] = np.nan
+
+    # Include every channel, also those without any peak (NaN)
+    return averaged.reindex(periodic.ch_names)

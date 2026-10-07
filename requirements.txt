@@ -16,7 +16,6 @@ pcntoolkit>=1.3.0
 pyrasa==1.1.1
 pydantic==2.13.4
 kneed==0.8.6
-gedai==0.1.0
 autoreject==0.4.3
 pingouin==0.6.1
 scikit-image==0.26.0
