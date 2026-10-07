@@ -106,7 +106,8 @@ def test_pipeline_stops_with_partial_report_and_preserves_exception(
 
     monkeypatch.setattr(pipeline, "process_participant", fail)
     with pytest.raises(error):
-        pipeline.Pipeline(config=Config(), output_dir=tmp_path / "out").run(cohort)
+        pipeline.Pipeline(config=Config(), output_dir=tmp_path / "out",
+                           on_error="raise").run(cohort)
     report = json.loads((tmp_path / "out" / "run_summary.json").read_text())
     assert report["attempted"] == 1 and report["succeeded"] == 0
     assert (tmp_path / "out" / "processing.csv").exists()
