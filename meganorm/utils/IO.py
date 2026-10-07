@@ -266,13 +266,13 @@ class Config(BaseModel):
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
     cutoffFreqLow: float = 1.0
-    cutoffFreqHigh: PositiveInt = 80
+    cutoffFreqHigh: PositiveInt = 40
 
-    resampling_rate: PositiveInt = 1000
+    resampling_rate: PositiveInt = 300
     digital_filter: bool = True
     notch_filter: bool = True
 
-    apply_oversampled_temporal_projection: bool = True
+    apply_oversampled_temporal_projection: bool = False
 
     apply_Head_movement_correction: bool = True
     Head_movement_limit_from_mean: float = 0.0015
@@ -287,14 +287,14 @@ class Config(BaseModel):
     same_environmental_noise_removal: bool = False
     ctf_gradient_comp_level: PositiveInt = 3
     apply_environmental_noise_ssp_with_eroom: bool = False
-    apply_environmental_noise_ica_with_ref_meg: bool = True
-    environmental_noise_ica_with_ref_meg_thr: float = 2.0
+    apply_environmental_noise_ica_with_ref_meg: bool = False
+    environmental_noise_ica_with_ref_meg_thr: float = 0.4
     ica_if_reject_by_annotation: bool = True
     environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = (
         "separate"
     )
     environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = (
-        "zscore"
+        "correlation"
     )
 
     apply_ica: bool = True
@@ -304,6 +304,7 @@ class Config(BaseModel):
     rereference_method: Literal["average", "REST", None] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
+
     mag_var_threshold: float = 5000e-15
     grad_var_threshold: float = 5000e-13
     eeg_var_threshold: float = 40e-6
@@ -314,10 +315,10 @@ class Config(BaseModel):
 
     segments_tmin: PositiveInt = 20
     segments_tmax: NegativeInt = -20
-    segments_length: PositiveInt = 10
+    segments_length: PositiveInt = 5
     segments_overlap: int = 2
 
-    save_preprocessed_data: bool = True
+    save_preprocessed_data: bool = False
 
     # autoreject
     autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
@@ -391,14 +392,14 @@ class Config(BaseModel):
     psd_n_fft: PositiveInt = 2
     psd_n_per_seg: PositiveInt = 2
 
-    psd_parametrization_method: Literal["specparam", "irasa"] = "irasa"
+    psd_parametrization_method: Literal["specparam", "irasa"] = "specparam"
     # Shared by specparam and IRASA
     psd_parametrization_freq_range_low: PositiveInt = 3
     psd_parametrization_freq_range_high: PositiveInt = 40
     psd_parametrization_peak_threshold: PositiveFloat = 2.0
     psd_parametrization_peak_width_limits: Tuple[float, float] = (1.0, 12.0)
     psd_parametrization_min_peak_height: confloat(ge=0) = 0.0
-    aperiodic_mode: Literal["knee", "fixed"] = "knee"
+    aperiodic_mode: Literal["knee", "fixed"] = "fixed"
 
     # IRASA only
     irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
