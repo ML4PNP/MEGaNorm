@@ -339,28 +339,31 @@ def _make_richards_mri_template_bem(template, root, overwrite=False, fig_dir=Non
 
     # Which tissues each surface wraps around, and how many triangles it gets
     SURFACES = {
-        'inner_skull': ([BRAIN, CSF], 5120), # compatible with ico 4
-        'outer_skull': ([BRAIN, CSF, SKULL], 5120),
-        'outer_skin': ([BRAIN, CSF, SKULL, SCALP], 10240),
+        "inner_skull": ([BRAIN, CSF], 5120),  # compatible with ico 4
+        "outer_skull": ([BRAIN, CSF, SKULL], 5120),
+        "outer_skin": ([BRAIN, CSF, SKULL, SCALP], 10240),
     }
 
-
-    subjects_dir = os.path.join(root, 'Head', 'Freesurfer')
-    bem_dir = os.path.join(subjects_dir, template, 'bem')
-    seg_file = os.path.join(root, 'Sources', 'BEM',
-                            f'{template.replace("ANTS", "AVG")}_segmented_BEM4.nii.gz')
-    head_file = os.path.join(bem_dir, f'{template}-head.fif')
+    subjects_dir = os.path.join(root, "Head", "Freesurfer")
+    bem_dir = os.path.join(subjects_dir, template, "bem")
+    seg_file = os.path.join(
+        root,
+        "Sources",
+        "BEM",
+        f'{template.replace("ANTS", "AVG")}_segmented_BEM4.nii.gz',
+    )
+    head_file = os.path.join(bem_dir, f"{template}-head.fif")
 
     if not os.path.exists(seg_file):
-        raise FileNotFoundError(f'No BEM4 segmentation for {template}: {seg_file}')
+        raise FileNotFoundError(f"No BEM4 segmentation for {template}: {seg_file}")
 
-    outputs = [os.path.join(bem_dir, f'{name}.surf') for name in SURFACES] + [head_file]
+    outputs = [os.path.join(bem_dir, f"{name}.surf") for name in SURFACES] + [head_file]
     if not overwrite and all(os.path.exists(f) for f in outputs):
-        
+
         return None
 
     # Put the tissue map on the FreeSurfer grid
-    t1 = nib.load(os.path.join(subjects_dir, template, 'mri', 'T1.mgz'))
+    t1 = nib.load(os.path.join(subjects_dir, template, "mri", "T1.mgz"))
     voxel_to_mm = t1.header.get_vox2ras_tkr()
     tissue = resample_from_to(nib.load(seg_file), t1, order=0).get_fdata()
 
@@ -368,33 +371,48 @@ def _make_richards_mri_template_bem(template, root, overwrite=False, fig_dir=Non
     os.makedirs(bem_dir, exist_ok=True)
     built = {}
     for name, (labels, n_triangles) in SURFACES.items():
-        points, triangles = _mask_to_surface(np.isin(tissue, labels), voxel_to_mm,
-                                             n_triangles, name=f'{template} {name}')
-        _save_surface(os.path.join(bem_dir, f'{name}.surf'), points, triangles)
+        points, triangles = _mask_to_surface(
+            np.isin(tissue, labels), voxel_to_mm, n_triangles, name=f"{template} {name}"
+        )
+        _save_surface(os.path.join(bem_dir, f"{name}.surf"), points, triangles)
         built[name] = (points, triangles)
 
     # Scalp for MEG-MRI coregistration (in metres)
-    scalp_points, scalp_triangles = built['outer_skin']
-    mne.write_head_bem(head_file, scalp_points / 1000, scalp_triangles,
-                       on_defects='warn', overwrite=True)
+    scalp_points, scalp_triangles = built["outer_skin"]
+    mne.write_head_bem(
+        head_file,
+        scalp_points / 1000,
+        scalp_triangles,
+        on_defects="warn",
+        overwrite=True,
+    )
 
     # Check the single-layer model and the nesting of all three surfaces
-    mne.make_bem_model(template, ico=None, conductivity=(0.3,), subjects_dir=subjects_dir)
-    mne.make_bem_model(template, ico=None, conductivity=(0.3, 0.006, 0.3),
-                       subjects_dir=subjects_dir)
+    mne.make_bem_model(
+        template, ico=None, conductivity=(0.3,), subjects_dir=subjects_dir
+    )
+    mne.make_bem_model(
+        template, ico=None, conductivity=(0.3, 0.006, 0.3), subjects_dir=subjects_dir
+    )
 
     if fig_dir is not None:
         os.makedirs(fig_dir, exist_ok=True)
-        fig = mne.viz.plot_bem(subject=template, subjects_dir=subjects_dir,
-                               orientation='coronal', show=False)
-        fig.savefig(os.path.join(fig_dir, f'{template}_richards_bem.png'))
+        fig = mne.viz.plot_bem(
+            subject=template,
+            subjects_dir=subjects_dir,
+            orientation="coronal",
+            show=False,
+        )
+        fig.savefig(os.path.join(fig_dir, f"{template}_richards_bem.png"))
         plt.close(fig)
 
-    print(f'{template}: BEM written to {bem_dir}')
+    print(f"{template}: BEM written to {bem_dir}")
     return None
 
-def _mask_to_surface(mask, voxel_to_mm, n_triangles, name='surface',
-                     sigmas=(1.0, 1.25, 1.5, 2.0)):
+
+def _mask_to_surface(
+    mask, voxel_to_mm, n_triangles, name="surface", sigmas=(1.0, 1.25, 1.5, 2.0)
+):
     """Turn a solid 3D region into a closed surface with a fixed number of triangles.
 
     Starts with light smoothing; if simplifying the mesh leaves defects, it
@@ -402,27 +420,31 @@ def _mask_to_surface(mask, voxel_to_mm, n_triangles, name='surface',
     """
     mask = _keep_largest_piece(mask)
     mask = ndimage.binary_fill_holes(mask)
-    padded = np.pad(mask, 1).astype(float)            # closes the surface at the neck
+    padded = np.pad(mask, 1).astype(float)  # closes the surface at the neck
 
     for sigma in sigmas:
         smooth = ndimage.gaussian_filter(padded, sigma=sigma)
         points, triangles, *_ = measure.marching_cubes(smooth, level=0.5)
-        points = nib.affines.apply_affine(voxel_to_mm, points - 1)   # -1 undoes the padding
+        points = nib.affines.apply_affine(
+            voxel_to_mm, points - 1
+        )  # -1 undoes the padding
         points, triangles = mne.decimate_surface(points, triangles, n_triangles)
         points, triangles = _remove_unused_points(points, triangles)
         if _count_defects(points, triangles) == 0:
             if sigma != sigmas[0]:
-                print(f'{name} needed smoothing sigma={sigma} for a clean surface')
+                print(f"{name} needed smoothing sigma={sigma} for a clean surface")
             return points, triangles
 
-    raise RuntimeError(f'{name}: still defective after smoothing up to sigma={sigmas[-1]}')
+    raise RuntimeError(
+        f"{name}: still defective after smoothing up to sigma={sigmas[-1]}"
+    )
 
 
 def _keep_largest_piece(mask):
     """Keep only the biggest connected blob; drop stray specks."""
     pieces, _ = ndimage.label(mask)
     sizes = np.bincount(pieces.ravel())
-    sizes[0] = 0                       # ignore the background
+    sizes[0] = 0  # ignore the background
     return pieces == np.argmax(sizes)
 
 

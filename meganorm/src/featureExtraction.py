@@ -9,7 +9,6 @@ from typing import Dict, List
 from abc import ABC, abstractmethod
 from pyrasa.irasa_mne.mne_objs import AperiodicEpochsSpectrum
 from pyrasa.utils.types import AperiodicFit
-# from layouts import load_specific_layout
 from meganorm.layouts.layouts import load_specific_layout
 
 logger = logging.getLogger(__name__)
@@ -230,7 +229,7 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     clean_df = df.dropna(axis=0, how="all")
     summarized_df = pd.DataFrame(index=clean_df.index)
 
-    # TODO: If both meg and eeg is True, this won't work!
+    # Regional layouts use the first requested sensor modality.
     if which_layout == "all":
         summarized_df[which_layout] = clean_df.mean(axis=1)
 
@@ -274,7 +273,7 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
 
 def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     """
-    Calculates the raw ratio of power between two frequency bands.
+    Calculate the natural logarithm of power ratios between two frequency bands.
 
     Parameters
     ----------
@@ -290,7 +289,8 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     Returns
     -------
     float
-        power_numerator / power_denominator, or np.nan if denominator is zero.
+        Natural logarithm of power_numerator / power_denominator, or np.nan
+        if either band's integrated power is non-positive.
     """
     idx_num = np.logical_and(freqs >= fmin_num, freqs <= fmax_num)
     idx_den = np.logical_and(freqs >= fmin_den, freqs <= fmax_den)
@@ -477,7 +477,7 @@ def feature_extract(
     peak_width_limits: tuple = (1.0, 12.0),
     min_peak_height: float = 0.0,
     min_peak_epochs: int = 1,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, AperiodicFit | None]:
     """
     Extract features from specparam models for each channel and frequency band.
 
@@ -540,9 +540,11 @@ def feature_extract(
 
     Returns
     -------
-    pd.DataFrame
-        A DataFrame with features extracted for each channel and frequency band. The
-        DataFrame has features as rows and channels (and frequency bands) as columns.
+    features : pd.DataFrame
+        One row indexed by subject_id, with columns combining feature,
+        frequency-band, and channel or regional-layout names.
+    aperiodic_fit : AperiodicFit or None
+        The epoch-averaged IRASA aperiodic fit, or None for specparam.
 
     Raises
     ------
@@ -1177,7 +1179,6 @@ class PYRASADecomposer(SpectralDecomposer):
         """
         gof = self.aperiodic.gof
         return gof[gof["ch_name"] == self.ch_name]["R2"].item()
-
 
 
 def _fit_aperiodic_with_retry(spectrum, *, fit_func, fit_bounds):

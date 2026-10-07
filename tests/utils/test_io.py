@@ -25,7 +25,6 @@ from meganorm.utils.IO import (
     set_path,
 )
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -579,9 +578,7 @@ def test_add_artemis_headshape_attaches_pos_points(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("suffix", "separator"), [(".csv", ","), (".tsv", "\t")])
-def test_load_demographic_file_preserves_text_subject_ids(
-    tmp_path, suffix, separator
-):
+def test_load_demographic_file_preserves_text_subject_ids(tmp_path, suffix, separator):
     path = tmp_path / f"participants{suffix}"
     path.write_text(
         separator.join(["participant_id", "age", "sex", "eyes"])
@@ -642,10 +639,7 @@ def test_load_demographic_file_keeps_numeric_columns_when_index_is_disabled(tmp_
 @pytest.mark.unit
 def test_merge_fidp_demo_preserves_subject_ids_and_assigns_missing_sites(tmp_path):
     first_demo = tmp_path / "first.tsv"
-    first_demo.write_text(
-        "participant_id\tage\tsex\teyes\n"
-        "001\t20\tFemale\topen\n"
-    )
+    first_demo.write_text("participant_id\tage\tsex\teyes\n" "001\t20\tFemale\topen\n")
     second_demo = tmp_path / "second.tsv"
     second_demo.write_text(
         "participant_id\tage\tsex\teyes\tsite\n"
@@ -654,10 +648,7 @@ def test_merge_fidp_demo_preserves_subject_ids_and_assigns_missing_sites(tmp_pat
     features_dir = tmp_path / "features"
     features_dir.mkdir()
     (features_dir / "all_features.csv").write_text(
-        "participant_id,alpha_power\n"
-        "001,1.5\n"
-        "010,2.5\n"
-        "999,9.0\n"
+        "participant_id,alpha_power\n" "001,1.5\n" "010,2.5\n" "999,9.0\n"
     )
 
     result = merge_fidp_demo(
@@ -686,9 +677,7 @@ def test_merge_fidp_demo_rejects_missing_demographic_file(tmp_path):
 @pytest.mark.unit
 def test_merge_fidp_demo_rejects_missing_feature_file(tmp_path):
     demographic = tmp_path / "participants.tsv"
-    demographic.write_text(
-        "participant_id\tage\tsex\teyes\nsub-01\t20\tFemale\topen\n"
-    )
+    demographic.write_text("participant_id\tage\tsex\teyes\nsub-01\t20\tFemale\topen\n")
 
     with pytest.raises(FileNotFoundError, match="all_features.csv"):
         merge_fidp_demo([demographic], tmp_path, ["dataset-a"])

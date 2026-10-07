@@ -247,7 +247,9 @@ def parameterize_psds(
 
         per = spectral_models.periodic.get_data()
         if per.shape != psds_epochs.shape:
-            raise ValueError(f"periodic {per.shape} vs raw spectrum {psds_epochs.shape}")
+            raise ValueError(
+                f"periodic {per.shape} vs raw spectrum {psds_epochs.shape}"
+            )
 
         # Epoch-averaged spectrum for downstream features (same shape as specparam);
         # per-epoch spectra remain available in spectral_models.

@@ -25,9 +25,12 @@ from meganorm.src.featureExtraction import (
 
 pytestmark = pytest.mark.unit
 
+
 def test_abs_canonical_power_integrates_only_inclusive_band(simple_psd, freqs):
     # Integral of y=x from 2 through 4 Hz is 6; returned on natural-log scale.
-    assert abs_canonical_power(simple_psd, freqs, 2.0, 4.0) == pytest.approx(np.log(6.0))
+    assert abs_canonical_power(simple_psd, freqs, 2.0, 4.0) == pytest.approx(
+        np.log(6.0)
+    )
 
 
 def test_rel_canonical_power_is_band_fraction(simple_psd, freqs):
@@ -57,7 +60,9 @@ def test_abs_individual_power_returns_nan_for_zero_power(
 ):
     peaks = [(10.0, 7.0, 1.5)]
     assert np.isnan(
-        abs_individual_power(zero_psd, freqs, peaks, individualized_band_ranges, "Alpha")
+        abs_individual_power(
+            zero_psd, freqs, peaks, individualized_band_ranges, "Alpha"
+        )
     )
 
 
@@ -90,7 +95,9 @@ def test_individual_power_respects_asymmetric_offsets(freqs):
     ranges = {"Alpha": (-1.0, 3.0)}
     peaks = [(10.0, 5.0, 1.0)]
 
-    assert abs_individual_power(psd, freqs, peaks, ranges, "Alpha") == pytest.approx(np.log(4.0))
+    assert abs_individual_power(psd, freqs, peaks, ranges, "Alpha") == pytest.approx(
+        np.log(4.0)
+    )
 
 
 @pytest.mark.parametrize(
@@ -259,6 +266,7 @@ def test_compute_hemispheric_asymmetry_honors_selected_base_features():
         "Hemispheric_Asymmetry__Feature_B__Alpha__parcel_lh_vs_rh_value"
     ]
     assert result[asymmetry_columns[0]].item() == 6.0
+
 
 class FakeSpecParamData:
     def get_data(self, component, space):
@@ -446,6 +454,7 @@ def test_pyrasa_decomposer_returns_no_peak_when_band_unavailable(band_peaks_avg)
 
     assert decomposer.get_peak_params(8.0, 12.0, band_name="Alpha") == (None, None)
 
+
 class FakeEpoch:
     """One epoch of a PeriodicEpochsSpectrum; only get_peaks is needed."""
 
@@ -483,7 +492,7 @@ def peaks_table(rows):
 def test_average_peaks_keeps_strongest_per_epoch_then_averages_across_epochs():
     epoch_0 = peaks_table(
         [
-            ("MEG001", 9.0, 1.0, 2.0),   # weaker peak, ignored
+            ("MEG001", 9.0, 1.0, 2.0),  # weaker peak, ignored
             ("MEG001", 11.0, 2.0, 6.0),  # strongest in epoch 0
             ("MEG002", 10.0, 1.0, 4.0),
         ]
@@ -511,7 +520,7 @@ def test_average_peaks_ignores_out_of_band_and_nan_peaks():
     epoch_0 = peaks_table(
         [
             ("MEG001", 10.0, 1.0, 3.0),
-            ("MEG001", 20.0, 1.0, 100.0),        # outside band, must not win
+            ("MEG001", 20.0, 1.0, 100.0),  # outside band, must not win
             ("MEG002", np.nan, np.nan, np.nan),  # no peak for this channel
         ]
     )
@@ -553,6 +562,7 @@ def test_average_peaks_returns_none_when_every_epoch_fails():
     )
 
     assert average_peaks_across_epochs(periodic, 8.0, 12.0) is None
+
 
 def test_average_aperiodic_collapses_epochs_into_single_epoch():
     info = mne.create_info(["MEG001", "MEG002"], 100.0, "mag")

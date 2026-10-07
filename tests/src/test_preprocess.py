@@ -41,6 +41,137 @@ def make_epochs(names, types, *, n_epochs=3, sfreq=10.0):
     return mne.EpochsArray(data, info, verbose=False)
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("from_config", [False, True])
+def test_segment_epoch_default_thresholds_retain_clean_eeg(from_config):
+    sfreq = 100.0
+    raw = mne.io.RawArray(
+        np.random.default_rng(4).normal(scale=1e-6, size=(4, 1000)),
+        mne.create_info(["Fz", "Cz", "Pz", "Oz"], sfreq, "eeg"),
+        verbose=False,
+    )
+
+    thresholds = {}
+    if from_config:
+        from meganorm.utils.IO import Config
+
+        config = Config(which_sensor="eeg")
+        thresholds = {
+            "eeg_var_threshold": config.eeg_var_threshold,
+            "eeg_flat_threshold": config.eeg_flat_threshold,
+        }
+    epochs = preprocess_module.segment_epoch(
+        raw, {"eeg": True}, sfreq, tmin=0, tmax=-1, segments_length=2, **thresholds
+    )
+
+    assert len(epochs) == 4
+
+
+@pytest.mark.integration
+def test_eeg_ica_without_physiological_channels_uses_compatible_fit(
+    monkeypatch, caplog
+):
+    raw = mne.io.RawArray(
+        np.random.default_rng(4).normal(scale=1e-6, size=(4, 1000)),
+        mne.create_info(["Fz", "Cz", "Pz", "Oz"], 100.0, "eeg"),
+        verbose=False,
+    )
+    fitted = []
+
+    def classify(data, ica, method):
+        fitted.append(ica)
+        return {
+            "labels": ["brain"] * ica.n_components_,
+            "y_pred_proba": np.ones(ica.n_components_),
+        }
+
+    monkeypatch.setattr(preprocess_module, "label_components", classify)
+    caplog.set_level("INFO", logger=preprocess_module.__name__)
+    cleaned, removed = preprocess_module.apply_auto_ica_pipeline(
+        raw, ["eeg"], {"eeg": True}, 3, 20, "fastica", 0.9, random_state=9
+    )
+
+    assert cleaned is raw
+    assert removed == 0
+    assert len(fitted) == 2
+    assert all(ica.method == "infomax" and ica.fit_params["extended"] for ica in fitted)
+    assert all(ica.random_state == 9 for ica in fitted)
+    assert "infomax" in caplog.text.lower()
+
+
+@pytest.mark.unit
+def test_automatic_ica_removes_each_physiology_once_and_totals_components(monkeypatch):
+    calls = []
+
+    def correlate(**kwargs):
+        signal = kwargs["physiological_sensor"]
+        calls.append(signal)
+        return kwargs["data"], False, {"ecg": 2, "eog": 3}[signal]
+
+    monkeypatch.setattr(preprocess_module, "auto_ica_with_corr", correlate)
+    data = object()
+    cleaned, removed = preprocess_module.apply_auto_ica_pipeline(
+        data,
+        ["mag", "eeg", "ecg", "eog"],
+        {"mag": True, "eeg": True},
+        3,
+        20,
+        "fastica",
+        0.9,
+    )
+
+    assert cleaned is data
+    assert calls == ["ecg", "eog"]
+    assert removed == 5
+
+
+@pytest.mark.unit
+def test_automatic_eeg_ica_checks_missing_eog_after_removing_ecg(monkeypatch):
+    classified = []
+    monkeypatch.setattr(
+        preprocess_module,
+        "auto_ica_with_corr",
+        lambda **kwargs: (kwargs["data"], False, 2),
+    )
+
+    def classify(**kwargs):
+        classified.append(kwargs["physiological_noise_type"])
+        return kwargs["data"], 3
+
+    monkeypatch.setattr(preprocess_module, "AutoIca_with_IcaLabel", classify)
+    _, removed = preprocess_module.apply_auto_ica_pipeline(
+        object(),
+        ["eeg", "ecg"],
+        {"eeg": True},
+        3,
+        20,
+        "fastica",
+        0.9,
+    )
+
+    assert classified == ["eog"]
+    assert removed == 5
+
+
+@pytest.mark.integration
+def test_auto_ica_with_mean_accepts_its_default_sensor_dictionary(monkeypatch):
+    raw = mne.io.RawArray(
+        np.random.default_rng(4).normal(scale=1e-13, size=(4, 1000)),
+        mne.create_info([f"MEG{i}" for i in range(4)], 100.0, "mag"),
+        verbose=False,
+    )
+    monkeypatch.setattr(
+        mne.preprocessing.ICA, "find_bads_ecg", lambda *a, **k: ([], np.zeros(2))
+    )
+
+    cleaned, removed = preprocess_module.auto_ica_with_mean(
+        raw, n_components=2, ica_max_iter=20
+    )
+
+    assert cleaned is raw
+    assert removed == 0
+
+
 def install_fake_autoreject(monkeypatch, bad_epochs):
     captured = {}
 
@@ -568,6 +699,107 @@ def test_annotate_nonfinite_returns_clean_raw_unchanged():
     assert intervals == []
     np.testing.assert_array_equal(raw.get_data(), original)
     assert len(raw.annotations) == 0
+
+
+@pytest.mark.parametrize("with_meas_date", [False, True])
+def test_annotate_nonfinite_preserves_existing_annotations_with_nonzero_first_sample(
+    with_meas_date,
+):
+    raw = mne.io.RawArray(
+        np.ones((1, 200)),
+        mne.create_info(["EEG001"], 100.0, "eeg"),
+        first_samp=1000,
+        verbose=False,
+    )
+    if with_meas_date:
+        raw.set_meas_date(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    raw.set_annotations(mne.Annotations([0.2], [0.1], ["BAD_existing"]))
+    raw._data[0, 60] = np.nan
+
+    annotate_nonfinite(raw, verbose=False)
+
+    assert raw.annotations.description.tolist() == ["BAD_existing", "BAD_nan"]
+    np.testing.assert_allclose(raw.annotations.onset, [10.2, 10.6])
+    np.testing.assert_allclose(raw.annotations.duration, [0.1, 0.01])
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("with_meas_date", [False, True])
+def test_preprocess_muscle_annotations_preserve_existing_annotation_times(
+    with_meas_date,
+):
+    raw = mne.io.RawArray(
+        np.random.default_rng(4).normal(scale=1e-6, size=(4, 3200)),
+        mne.create_info(["Fz", "Cz", "Pz", "Oz"], 400.0, "eeg"),
+        first_samp=4000,
+        verbose=False,
+    )
+    if with_meas_date:
+        raw.set_meas_date(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    raw.set_annotations(mne.Annotations([0.2], [0.1], ["BAD_existing"]))
+    expected = raw.annotations.copy()
+
+    processed, *_ = preprocess_module.preprocess(
+        raw,
+        "EEG",
+        "s0",
+        None,
+        {"meg": False, "mag": False, "grad": False, "eeg": True},
+        resampling_rate=None,
+        digital_filter=False,
+        rereference_method=None,
+        apply_ica=False,
+        apply_Head_movement_correction=False,
+        apply_environmental_noise_correction=False,
+        cutoffFreqHigh=150,
+        muscle_activity_thr=1e6,
+    )
+
+    assert processed.annotations.description.tolist() == expected.description.tolist()
+    np.testing.assert_allclose(processed.annotations.onset, expected.onset)
+    np.testing.assert_allclose(processed.annotations.duration, expected.duration)
+
+
+@pytest.mark.parametrize("with_meas_date", [False, True])
+def test_head_motion_annotations_preserve_existing_annotation_times(
+    monkeypatch,
+    with_meas_date,
+):
+    raw = mne.io.RawArray(
+        np.ones((1, 200)),
+        mne.create_info(["MEG001"], 100.0, "mag"),
+        first_samp=1000,
+        verbose=False,
+    )
+    if with_meas_date:
+        raw.set_meas_date(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    raw.set_annotations(mne.Annotations([0.2], [0.1], ["BAD_existing"]))
+    onset = 0.6 + (raw.first_time if with_meas_date else 0)
+    movement = mne.Annotations(
+        [onset], [0.1], ["BAD_mov_dist"], orig_time=raw.info["meas_date"]
+    )
+    # Hardware-specific head-position estimates supply the annotation. The
+    # Raw object and annotation alignment remain actual MNE behavior.
+    monkeypatch.setattr(preprocess_module, "_chpi_usable", lambda *a, **k: True)
+    monkeypatch.setattr(mne.chpi, "extract_chpi_locs_ctf", lambda *a, **k: None)
+    monkeypatch.setattr(mne.chpi, "compute_head_pos", lambda *a, **k: None)
+    monkeypatch.setattr(
+        mne.preprocessing, "annotate_movement", lambda *a, **k: (movement, None)
+    )
+    monkeypatch.setattr(
+        mne.preprocessing,
+        "compute_average_dev_head_t",
+        lambda *a, **k: mne.Transform("meg", "head"),
+    )
+
+    processed, _, _ = preprocess_module.head_motion_correction(raw, None, "CTF")
+
+    assert processed.annotations.description.tolist() == [
+        "BAD_existing",
+        "BAD_mov_dist",
+    ]
+    np.testing.assert_allclose(processed.annotations.onset, [10.2, 10.6])
+    np.testing.assert_allclose(processed.annotations.duration, [0.1, 0.1])
 
 
 def test_annotate_nonfinite_groups_intervals_and_zero_fills_all_nonfinite_values():

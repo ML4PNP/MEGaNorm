@@ -51,13 +51,13 @@ class Config(BaseModel):
 
     Filtering & Resampling
     -----------------------
-    cutoffFreqLow, cutoffFreqHigh : float, PositiveInt, default=1.0, 80
+    cutoffFreqLow, cutoffFreqHigh : float, PositiveInt, default=1.0, 40
         Bandpass filter cutoff frequencies (Hz).
-    resampling_rate : PositiveInt, default=1000
+    resampling_rate : PositiveInt, default=300
         Target sampling rate (Hz).
     digital_filter, notch_filter : bool, default=True
         Apply bandpass / line-noise notch filtering.
-    apply_oversampled_temporal_projection : bool, default=True
+    apply_oversampled_temporal_projection : bool, default=False
         Apply oversampled temporal projection (OTP) denoising.
     apply_Head_movement_correction : bool, default=True
         Correct for head movement during recording.
@@ -100,14 +100,16 @@ class Config(BaseModel):
         CTF gradient compensation level.
     apply_environmental_noise_ssp_with_eroom : bool, default=False
         Use empty-room SSP projectors for noise correction.
-    apply_environmental_noise_ica_with_ref_meg : bool, default=True
+    apply_environmental_noise_ica_with_ref_meg : bool, default=False
         Use reference-MEG-guided ICA for environmental noise removal.
-    environmental_noise_ica_with_ref_meg_thr : float, default=2.5
+    environmental_noise_ica_with_ref_meg_thr : float, default=0.4
         Threshold for ref-MEG-guided ICA component rejection.
     environmental_noise_ica_with_ref_meg_method : {"together", "separate"}, default="separate"
         Whether to process reference channels jointly or separately.
-    environmental_noise_ica_with_ref_meg_measure : {"zscore", "correlation"}, default="zscore"
+    environmental_noise_ica_with_ref_meg_measure : {"zscore", "correlation"}, default="correlation"
         Metric used to score ICA components against reference channels.
+    same_environmental_noise_removal : bool, default=False
+        Reserved compatibility field; no effect in the current pipeline.
 
     EEG Reference & Bad-Segment Rejection
     ----------------------------------------
@@ -116,9 +118,9 @@ class Config(BaseModel):
     bad_segment_removal_method : {"autoreject", "fixed_thr", None}, default="autoreject"
         Method for rejecting bad data segments.
     mag_var_threshold, grad_var_threshold, eeg_var_threshold : float
-        Variance-based rejection thresholds per channel type.
+        Peak-to-peak amplitude rejection thresholds per channel type (T, T/m, V).
     mag_flat_threshold, grad_flat_threshold, eeg_flat_threshold : float
-        Flatline-detection thresholds per channel type.
+        Peak-to-peak flatness thresholds per channel type (T, T/m, V).
     zscore_std_thresh : PositiveInt, default=15
         Z-score threshold for outlier rejection.
     autoreject_n_interpolates : list[int], default=[1, 4, 8, 16, 32]
@@ -133,8 +135,8 @@ class Config(BaseModel):
     Segmentation
     ------------
     segments_tmin, segments_tmax : PositiveInt, NegativeInt, default=20, -20
-        Segment start/end times relative to event (s).
-    segments_length, segments_overlap : int, default=10, 2
+        Start/end cropping margins for resting-state recordings (s).
+    segments_length, segments_overlap : int, default=5, 2
         Segment length and overlap (s).
 
     Source Localization
@@ -159,10 +161,10 @@ class Config(BaseModel):
         Head-model layer conductivities (three values required for EEG).
     SL_inverse_operator : {"lcmv"}, default="lcmv"
         Inverse operator method.
-    source_space_spacing : {"ico3"..."ico6", "oct5", "oct6"}, default="ico4"
+    source_space_spacing : {"ico3"..."ico6", "oct5", "oct6", "all"}, default="ico4"
         Source space resolution.
-    source_space_spacing_number : {3, 4, 5, 6}, default=4
-        Numeric resolution; must match `source_space_spacing`.
+    source_space_spacing_number : {3, 4, 5, 6, None}, default=4
+        Numeric resolution; must match `source_space_spacing`; use None for "all".
     coregisteration_final_n_iterations : int, default=20
         Iterations for the final coregistration refinement.
     coregisteration_final_nasion_weight : float, default=10.0
@@ -174,9 +176,9 @@ class Config(BaseModel):
     ----------------------------
     beamformer_pick_ori : {None, "normal", "max-power", "vector"}, default="max-power"
         Source orientation constraint.
-    beamformer_weight_norm : {None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"}, default="unit-noise-gain"
+    beamformer_weight_norm : {None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"}, default="unit-noise-gain-invariant"
         Beamformer weight normalization.
-    beamforme_depth : float, default=0.08
+    beamforme_depth : float, default=0.8
         Depth-weighting factor correcting for center-of-head bias.
     inverse_regularization_value : float, default=0.05
         Regularization applied to the data covariance matrix.
@@ -192,8 +194,8 @@ class Config(BaseModel):
     psd_method : {"multitaper", "welch"}, default="welch"
         PSD estimation method.
     psd_n_overlap, psd_n_fft, psd_n_per_seg : PositiveInt, default=1, 2, 2
-        Welch/multitaper PSD parameters.
-    psd_parametrization_method : {"specparam", "irasa"}, default="irasa"
+        Welch FFT/window durations and overlap (s), converted to samples internally.
+    psd_parametrization_method : {"specparam", "irasa"}, default="specparam"
         Method for separating aperiodic and periodic spectral components.
     psd_parametrization_freq_range_low, psd_parametrization_freq_range_high : PositiveInt, default=3, 40
         Frequency range for spectral parametrization (Hz). Used by both methods.
@@ -203,12 +205,12 @@ class Config(BaseModel):
         Allowed peak width range (Hz). Used by both methods.
     psd_parametrization_min_peak_height : float, default=0.0
         Minimum peak height for detection. Used by both methods.
-    aperiodic_mode : {"knee", "fixed"}, default="knee"
+    aperiodic_mode : {"knee", "fixed"}, default="fixed"
         Aperiodic component model.
     irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
         Resampling factor range/step for IRASA.
     specparam_res_save_path : str or None
-        Path to save specparam results (specparam only).
+        Reserved compatibility field; use save_psds for pipeline spectral outputs.
     save_source_localized_epochs, save_psds : bool, default=False
         Persist intermediate source-localized epochs / PSDs to disk.
 
@@ -227,6 +229,13 @@ class Config(BaseModel):
         peak parameters, canonical/individualized band power, band ratios,
         hemispheric asymmetry).
 
+    save_preprocessed_data, save_segmented_data : bool, default=False
+        Save intermediate preprocessed recordings and epochs.
+    extra_metadata_columns : list of str, default=[]
+        Optional recording metadata: "if_eroom", "scanner", "number_of_epochs".
+    lowest_num_of_epochs : int or None, default=None
+        Minimum number of retained epochs required for feature extraction.
+
     Miscellaneous
     -------------
     random_state : int, default=42
@@ -244,9 +253,9 @@ class Config(BaseModel):
     # Recording-level metadata added as columns to each subject's features CSV.
     # Demographic columns (age, sex, site, diagnosis, eyes) are joined later
     # in merge_fidp_demo, so they are not listed here.
-    extra_metadata_columns: list[
-        Literal["if_eroom", "scanner", "number_of_epochs"]
-    ] = []
+    extra_metadata_columns: list[Literal["if_eroom", "scanner", "number_of_epochs"]] = (
+        []
+    )
 
     model_config = {"extra": "forbid"}
 
@@ -310,7 +319,7 @@ class Config(BaseModel):
     eeg_var_threshold: float = 40e-6
     mag_flat_threshold: float = 10e-15
     grad_flat_threshold: float = 10e-13
-    eeg_flat_threshold: float = 40e-6
+    eeg_flat_threshold: float = 1e-6
     zscore_std_thresh: PositiveInt = 15
 
     segments_tmin: PositiveInt = 20
@@ -352,7 +361,7 @@ class Config(BaseModel):
     bem_max_fine_segmentation_iteration: int = 100
     bem_plot_orientations: Literal["coronal", "axial", "sagittal", None] = "coronal"
 
-    # the spacing to use for source space specificatin
+    # Resolution of the cortical source space.
     source_space_spacing: Literal[
         "ico3", "ico4", "ico5", "ico6", "oct5", "oct6", "all"
     ] = "ico4"
@@ -374,12 +383,12 @@ class Config(BaseModel):
     # This parameter scales the activation to correct for head-center bias.
     beamforme_depth: confloat(ge=0, le=1) = 0.8
 
-    # this is used for regularaizing the data covariance (shifting the matrix)
+    # Regularization of the data covariance matrix.
     inverse_regularization_value: confloat(ge=0, le=1) = 0.05
 
     apply_morphing: bool = False
 
-    # the pacellation to use
+    # Cortical atlas used for parcellation.
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
     parcellation_mode: Literal["mean_flip", "mean", "auto", "pca_flip", "max"] = "auto"
 
@@ -458,6 +467,91 @@ class Config(BaseModel):
     specparam_res_save_path: Optional[str] = None
     random_state: int = 42
 
+    @field_validator("feature_categories")
+    @classmethod
+    def feature_categories_fv(cls, value):
+        required = set(cls.model_fields["feature_categories"].default)
+        missing = required - set(value)
+        unknown = set(value) - required
+        if missing or unknown:
+            raise ValueError(
+                "feature_categories must include all supported families. "
+                f"Missing: {sorted(missing)}; unknown: {sorted(unknown)}. "
+                "Copy Config().feature_categories and change the desired flags."
+            )
+        return value
+
+    @model_validator(mode="after")
+    def processing_ranges_mv(self):
+        if not 0 <= self.segments_overlap < self.segments_length:
+            raise ValueError(
+                "segments_overlap must be nonnegative and shorter than segments_length."
+            )
+        if self.digital_filter and not 0 <= self.cutoffFreqLow < self.cutoffFreqHigh:
+            raise ValueError(
+                "Bandpass cutoffs must satisfy 0 <= cutoffFreqLow < cutoffFreqHigh."
+            )
+        if self.digital_filter and self.cutoffFreqHigh >= self.resampling_rate / 2:
+            raise ValueError(
+                "cutoffFreqHigh must be below the resampled Nyquist frequency."
+            )
+        if (
+            not self.psd_parametrization_freq_range_low
+            < self.psd_parametrization_freq_range_high
+        ):
+            raise ValueError(
+                "The spectral fitting lower limit must be below the upper limit."
+            )
+        if self.psd_parametrization_freq_range_high >= self.resampling_rate / 2:
+            raise ValueError(
+                "The spectral fitting range must be below the resampled Nyquist frequency."
+            )
+        if (
+            self.psd_parametrization_method == "specparam"
+            and self.psd_method == "welch"
+        ):
+            if self.psd_n_overlap >= self.psd_n_per_seg:
+                raise ValueError("psd_n_overlap must be shorter than psd_n_per_seg.")
+            if self.psd_n_fft < self.psd_n_per_seg:
+                raise ValueError("psd_n_fft must be at least psd_n_per_seg.")
+        low, high = self.psd_parametrization_peak_width_limits
+        if not 0 < low <= high:
+            raise ValueError("Spectral peak width limits must be positive and ordered.")
+        start, stop, step = self.irasa_hset
+        if not 1 < start < stop or step <= 0:
+            raise ValueError(
+                "irasa_hset requires 1 < start < stop and a positive step."
+            )
+        if self.psd_parametrization_method == "irasa":
+            hmax = max(self.irasa_hset)
+            evaluated_low = self.psd_parametrization_freq_range_low / hmax
+            evaluated_high = self.psd_parametrization_freq_range_high * hmax
+            if evaluated_high >= self.resampling_rate / 2:
+                raise ValueError(
+                    "The IRASA resampling range must stay below the resampled Nyquist frequency."
+                )
+            if self.digital_filter and not (
+                self.cutoffFreqLow <= evaluated_low
+                and evaluated_high <= self.cutoffFreqHigh
+            ):
+                raise ValueError(
+                    "IRASA requires the bandpass to include the spectral fitting "
+                    "range expanded by irasa_hset. For the default 3-40 Hz range, "
+                    "use cutoffFreqHigh=80 or higher."
+                )
+        if self.bad_segment_removal_method == "fixed_thr":
+            sensors = {"meg": ("mag", "grad"), "opm": ("mag",)}.get(
+                self.which_sensor, (self.which_sensor,)
+            )
+            for sensor in sensors:
+                flat = getattr(self, f"{sensor}_flat_threshold")
+                reject = getattr(self, f"{sensor}_var_threshold")
+                if not 0 <= flat < reject:
+                    raise ValueError(
+                        f"{sensor}_flat_threshold must be nonnegative and below {sensor}_var_threshold."
+                    )
+        return self
+
     @field_validator("muscle_activity_thr")
     def muscle_activity_thr_fv(cls, v):
         if v < 3:
@@ -478,7 +572,7 @@ class Config(BaseModel):
     @model_validator(mode="after")
     def SL_conductivity_mv(self):
         if (
-            len(self.SL_conductivity) == 1
+            len(self.SL_conductivity) != 3
             and self.which_sensor == "eeg"
             and self.apply_source_localization
         ):
@@ -665,7 +759,6 @@ def infer_device(path, device_type, which_sensor, logger):
     """Determine the acquisition device from an explicit override or the path."""
     MEG_DEVICE_BY_EXTENSION = {"ds": "CTF", "fif": "MEGIN", "bin": "ARTEMIS123"}
     if which_sensor == "eeg":
-        # TODO: was originally path[0]. Check if this correction is correct.
         return path.split(".")[-1].upper()
 
     if device_type:
@@ -1024,9 +1117,10 @@ def merge_datasets_with_glob(datasets):
                 pos_path = None
 
             if annotation_p:
+                # Match the full ID so sub-1 cannot reuse sub-10's annotations.
                 annotation_path = sorted(
                     glob.glob(
-                        f"{annotation_p}/*{subj}*/**/*{annotaion_task_name}*{annotation_ending}",
+                        f"{annotation_p}/{subj}/**/*{annotaion_task_name}*{annotation_ending}",
                         recursive=True,
                     )
                 )

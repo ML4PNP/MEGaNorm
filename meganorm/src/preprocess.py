@@ -205,8 +205,10 @@ def auto_ica_with_mean(
         Raw data with ECG-related ICA components removed.
     """
     data = data.pick_types(
-        meg=which_sensor["meg"] | which_sensor["mag"] | which_sensor["grad"],
-        eeg=which_sensor["eeg"],
+        meg=which_sensor.get("meg", False)
+        | which_sensor.get("mag", False)
+        | which_sensor.get("grad", False),
+        eeg=which_sensor.get("eeg", False),
         ref_meg=False,
         eog=True,
         ecg=True,
@@ -243,7 +245,26 @@ def AutoIca_with_IcaLabel(
     ica_max_iter=1000,
     IcaMethod="infomax",
     iclabel_thr=0.8,
+    random_state=42,
 ):
+    """Remove EEG artifact components classified by ICLabel.
+
+    ICLabel is trained on extended Infomax decompositions, so this route
+    always fits extended Infomax. ``IcaMethod`` is retained for compatibility
+    with the automatic pipeline; a different request is logged before the fit.
+    The other automatic ICA routes continue to use the requested algorithm.
+
+    ``physiological_noise_type`` is ``"ecg"`` or ``"eog"``. Components with
+    that classification and a probability greater than ``iclabel_thr`` are
+    removed in place. Return the cleaned raw data and the number removed.
+    """
+
+    if IcaMethod != "infomax":
+        logger.info(
+            "ICLabel uses extended Infomax; fitting method='infomax' "
+            "instead of the requested %s for this classification step.",
+            IcaMethod,
+        )
 
     if physiological_noise_type == "ecg":
         physiological_noise_type = "heart beat"
@@ -254,11 +275,11 @@ def AutoIca_with_IcaLabel(
     ica = mne.preprocessing.ICA(
         n_components=n_components,
         max_iter=ica_max_iter,
-        method=IcaMethod,
-        random_state=42,
+        method="infomax",
+        random_state=random_state,
         fit_params=dict(extended=True),
         verbose=False,
-    )  # fit_params=dict(extended=True) bc icalabel is trained with this
+    )
     ica.fit(data, verbose=False, picks=["eeg"])
 
     # apply ICLabel
@@ -331,38 +352,33 @@ def apply_auto_ica_pipeline(
         channel: channel in channel_types for channel in ["ecg", "eog"]
     }
 
-    ICA_flag = True
     number_of_reduced_ic = 0
+    has_meg = any(which_sensor.get(sensor, False) for sensor in ("meg", "mag", "grad"))
+    has_eeg = which_sensor.get("eeg", False)
 
     for phys_activity_type, if_elec_exist in physiological_electrods.items():
 
-        # -------- MEG / MAG / GRAD --------
-        if (
-            which_sensor.get("meg")
-            or which_sensor.get("mag")
-            or which_sensor.get("grad")
-        ):
-
-            if if_elec_exist:
-                logger.info(
-                    f"Removing {phys_activity_type.upper()} noise using auto_ica_with_corr function."
-                )
-                data, _, number_of_reduced_ic = auto_ica_with_corr(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    physiological_sensor=phys_activity_type,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                    random_state=random_state,
-                )
-
-            elif not if_elec_exist and phys_activity_type == "ecg":
+        if if_elec_exist and (has_meg or has_eeg):
+            logger.info(
+                f"Removing {phys_activity_type.upper()} noise using auto_ica_with_corr function."
+            )
+            data, _, removed = auto_ica_with_corr(
+                data=data,
+                n_components=n_component,
+                ica_max_iter=ica_max_iter,
+                IcaMethod=IcaMethod,
+                which_sensor=which_sensor,
+                physiological_sensor=phys_activity_type,
+                auto_ica_corr_thr=auto_ica_corr_thr,
+                random_state=random_state,
+            )
+            number_of_reduced_ic += removed
+        elif not if_elec_exist:
+            if has_meg and phys_activity_type == "ecg":
                 logger.info(
                     f"Removing {phys_activity_type.upper()} noise using auto_ica_with_mean function."
                 )
-                data, number_of_reduced_ic = auto_ica_with_mean(
+                data, removed = auto_ica_with_mean(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
@@ -371,37 +387,22 @@ def apply_auto_ica_pipeline(
                     auto_ica_corr_thr=auto_ica_corr_thr,
                     random_state=random_state,
                 )
+                number_of_reduced_ic += removed
 
-        # -------- EEG --------
-        if which_sensor.get("eeg"):
-
-            if if_elec_exist:
-                logger.info(
-                    f"Removing {phys_activity_type.upper()} noise using auto_ica_with_corr function."
-                )
-                data, ICA_flag, number_of_reduced_ic = auto_ica_with_corr(
-                    data=data,
-                    n_components=n_component,
-                    ica_max_iter=ica_max_iter,
-                    IcaMethod=IcaMethod,
-                    which_sensor=which_sensor,
-                    physiological_sensor=phys_activity_type,
-                    auto_ica_corr_thr=auto_ica_corr_thr,
-                    random_state=random_state,
-                )
-
-            elif not if_elec_exist and ICA_flag:
+            if has_eeg:
                 logger.info(
                     f"Removing {phys_activity_type.upper()} noise using AutoIca_with_IcaLabel function."
                 )
-                data, number_of_reduced_ic = AutoIca_with_IcaLabel(
+                data, removed = AutoIca_with_IcaLabel(
                     data=data,
                     n_components=n_component,
                     ica_max_iter=ica_max_iter,
                     IcaMethod=IcaMethod,
                     iclabel_thr=auto_ica_corr_thr,
                     physiological_noise_type=phys_activity_type,
+                    random_state=random_state,
                 )
+                number_of_reduced_ic += removed
 
     return data, number_of_reduced_ic
 
@@ -484,7 +485,7 @@ def segment_epoch(
     eeg_var_threshold: float = 40e-6,
     mag_flat_threshold: float = 10e-15,
     grad_flat_threshold: float = 10e-13,
-    eeg_flat_threshold: float = 40e-6,
+    eeg_flat_threshold: float = 1e-6,
     segment_events=None,
 ):
     """
@@ -516,9 +517,9 @@ def segment_epoch(
         Whether to reject epochs based on annotations (e.g., ICA-identified
         artifacts). Passed to ``reject_by_annotation`` in ``mne.Epochs``.
         Default is True.
-    remove_bad_segments : bool, optional
-        Whether to apply amplitude and flatness thresholds to reject bad
-        epochs. Default is True.
+    bad_segment_removal_method : str or None, optional
+        Apply amplitude and flatness thresholds when set to ``"fixed_thr"``.
+        Other values disable threshold-based rejection. Default is ``"fixed_thr"``.
     mag_var_threshold : float, optional
         Peak-to-peak amplitude threshold for rejecting epochs containing
         artifacts in magnetometer channels (in Tesla). Default is 5000e-15.
@@ -535,26 +536,15 @@ def segment_epoch(
         Flatness threshold for gradiometer channels (in Tesla/m). Default is
         10e-13.
     eeg_flat_threshold : float, optional
-        Flatness threshold for EEG channels (in Volts). Default is 40e-6.
+        Flatness threshold for EEG channels (in Volts). Default is 1e-6.
 
     Returns
     -------
     segments : mne.Epochs
         An ``Epochs`` object containing fixed-length segments extracted from
         the continuous data.
-    rejection_summary : dict
-        A dictionary summarising epoch retention and rejection, with keys:
-
-        - ``total_epochs`` : int, total epochs before rejection.
-        - ``retained_epochs`` : int, number of epochs kept.
-        - ``discarded_epochs`` : int, number of epochs removed.
-        - ``pct_discarded`` : float, percentage of epochs discarded.
-        - ``signal_retained_s`` : float, seconds of signal retained.
-        - ``signal_total_s`` : float, total seconds before rejection.
-        - ``drop_reasons`` : Counter, counts per channel name or annotation
-          label that caused rejection. Channel names indicate threshold-based
-          rejection; annotation labels (e.g. ``'IGNORED'``) indicate
-          annotation-based rejection.
+        Retention and drop reasons are logged when threshold-based rejection
+        is enabled.
 
     Raises
     ------
@@ -768,8 +758,7 @@ def preprocess(
         f"Duration of the signal before preprocessing was {data.times[-1]:.1f}s"
     )
 
-    # since pick_channels can not seperate mag and grad signals
-    # if not (which_sensor["meg"] or which_sensor["eeg"]):
+    # Select an individual MEG sensor type before the remaining preprocessing.
     if which_sensor["grad"] or which_sensor["mag"]:
         data, empty_room_recording = drop_mag_or_grad(
             data, empty_room_recording, which_sensor
@@ -779,9 +768,7 @@ def preprocess(
     channel_types = set(data.get_channel_types())
 
     # Before resampling, we need to find events
-    # TODO: we need to remove this Hard-coded part ASAP. But for now,
-    # given that each aston MEG recording is composed of both eyes closed
-    # and eyes open, I seperated them like this:
+    # Aston recordings contain separate eyes-closed and eyes-open rest blocks.
     if "sub-ast1_" in subject:
         data = data_specific_utils._ast_get_rs_block(
             data, block_index=event_of_interest
@@ -792,7 +779,7 @@ def preprocess(
         if device == "MEGIN":
             events = mne.read_events(event_record)
         elif device == "CTF":
-            # TODO: stim_channel should be recieved from Users
+            # CTF task events are read from the conventional UPPT001 trigger channel.
             events = mne.find_events(data, stim_channel="UPPT001")
         else:
             events = mne.read_events(event_record)
@@ -920,7 +907,11 @@ def preprocess(
             threshold=muscle_activity_thr,
         )
         # ICA will ignore these and later will be removed in segmentation
-        data.set_annotations(data.annotations + muscle_annot)
+        # MNE aligns the new onsets; existing annotation onsets are already aligned.
+        previous_annotations = data.annotations.copy()
+        data.set_annotations(muscle_annot)
+        aligned_annotations = data.annotations
+        aligned_annotations += previous_annotations
         logger.info(
             f"Muscle artifact rejection alg removed {sum(muscle_annot.duration)} seconds of"
             " the signal."
@@ -1064,8 +1055,6 @@ def drop_noisy_meg_channels(
             "Therefore, bad channel detection using maxwell will be not applied."
         )
         logger.info(msg)
-        # auto_noisy_chs = []
-        # auto_flat_chs = []
 
     else:
         data_temp = data.copy()
@@ -1520,8 +1509,6 @@ def drop_mag_or_grad(data, empty_room_recording, which_sensor):
         if not provided.
     """
 
-    # since pick_channels can not seperate mag and grad signals
-    # if not (which_sensor["meg"] or which_sensor["eeg"]):
     dropping_channels = []
 
     if which_sensor["grad"]:
@@ -1644,8 +1631,8 @@ def head_motion_correction(
         data = mne.preprocessing.maxwell_filter(
             data,
             head_pos=head_pos,
-            cross_talk=None,  # TODO: this should be changed to the real cross_talk file
-            calibration=None,  # TODO: this should be changed to the real calibration file
+            cross_talk=None,
+            calibration=None,
         )
 
         logger.info(
@@ -1660,11 +1647,11 @@ def head_motion_correction(
             empty_room_recording = mne.preprocessing.maxwell_filter(
                 empty_room_recording,
                 head_pos=head_pos,  # head_pos must match the rs-data
-                cross_talk=None,  # TODO: this should be changed to the real cross_talk file
-                calibration=None,  # TODO: this should be changed to the real calibration file
+                cross_talk=None,
+                calibration=None,
             )
 
-    # TODO, expand this if new device comes in!
+    # Head-position extraction differs by vendor.
     elif device in ["CTF", "BTI"] and _chpi_usable(data, device=device):
         if device == "CTF":
             chpi_locs = mne.chpi.extract_chpi_locs_ctf(data, verbose=False)
@@ -1686,7 +1673,11 @@ def head_motion_correction(
             )
         )
 
-        data.set_annotations(data.annotations + movement_annotation)
+        # MNE aligns the new onsets; existing annotation onsets are already aligned.
+        previous_annotations = data.annotations.copy()
+        data.set_annotations(movement_annotation)
+        aligned_annotations = data.annotations
+        aligned_annotations += previous_annotations
         movement_dur = sum(movement_annotation.duration)
         logger.info(
             f"Movement annotation algorithm using cHPI coils detected {movement_dur}"
@@ -1782,8 +1773,8 @@ def remove_environmental_noise(
         data, empty_room_recording = apply_tsss(
             data,
             empty_room_record=empty_room_recording,
-            st_duration=10.0,  # TODO: congig
-            st_correlation=0.98,  # TODO: congig
+            st_duration=10.0,
+            st_correlation=0.98,
         )
 
     if device != "MEGIN":
@@ -1935,11 +1926,6 @@ def find_ref_meg_artifact(
         raise ValueError(
             "Wrong argument for environmental_noise_ica_with_ref_meg_method."
         )
-
-        # if empty_room_recording is not None:
-        #     empty_room_recording = ica_sep.apply(
-        #         empty_room_recording, exclude=bad_comps
-        #     )
 
     return data, bad_comps, scores, empty_room_recording
 
@@ -2648,8 +2634,12 @@ def annotate_nonfinite(
                 f"({e - s + 1} samples)"
             )
 
-    annot = mne.Annotations(onsets, durations, descs, orig_time=raw.info["meas_date"])
-    raw.set_annotations(raw.annotations + annot)
+    # Append in the raw annotation time frame. Re-setting a combined annotation
+    # object would add first_time to existing onsets a second time when no
+    # measurement date is available.
+    raw.annotations.append(
+        np.asarray(onsets) + raw.first_time - offset, durations, descs
+    )
 
     # excise the actual NaN/Inf so filtering/resampling can't spread it
     np.nan_to_num(raw._data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -2761,5 +2751,4 @@ def fix_physiological_channel_types(data, device="CTF", path=None):
                 mapping[ch] = "ecg"
     if mapping:
         data.set_channel_types(mapping)
-        # logger.info(f"Retyped physiological channels: {mapping}")
     return data

@@ -171,6 +171,60 @@ def test_corregistration_scales_template_for_participant(monkeypatch, tmp_path):
 
 
 @pytest.mark.unit
+def test_corregistration_creates_transform_output_parent(monkeypatch, tmp_path):
+    def coregistration(*args, **kwargs):
+        coreg = FakeCoregistration(*args, **kwargs)
+        coreg.trans = mne.transforms.Transform("head", "mri")
+        return coreg
+
+    monkeypatch.setattr(mne.coreg, "Coregistration", coregistration)
+    monkeypatch.setattr(
+        sl, "check_digitization_points", lambda data, logger: (0, 0, 0, 0)
+    )
+    output = tmp_path / "new-output" / "transforms"
+
+    corregistration(
+        SimpleNamespace(info="info"),
+        "sub-01",
+        tmp_path,
+        "sub-01",
+        trans_save_path=output,
+        save_transformation_FIF_file=True,
+    )
+
+    assert (output / "sub-01-trans.fif").is_file()
+
+
+@pytest.mark.unit
+def test_corregistration_saving_to_subjects_directory_preserves_scaled_mri(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(mne.coreg, "Coregistration", FakeCoregistration)
+    monkeypatch.setattr(
+        sl, "check_digitization_points", lambda data, logger: (0, 0, 0, 0)
+    )
+
+    def scale_mri(**kwargs):
+        scaled = tmp_path / kwargs["subject_to"]
+        scaled.mkdir()
+        (scaled / "anatomy").write_text("scaled")
+
+    monkeypatch.setattr(mne, "scale_mri", scale_mri)
+    _, subject, returned_root = corregistration(
+        SimpleNamespace(info="info"),
+        "template",
+        tmp_path,
+        "sub-01",
+        scaled_mri_save_path=tmp_path,
+        apply_mri_template=True,
+        coregisteration_scale_mode="uniform",
+    )
+
+    assert returned_root == tmp_path
+    assert (tmp_path / subject / "anatomy").read_text() == "scaled"
+
+
+@pytest.mark.unit
 def test_morph_stc_builds_surface_target_and_applies_morph(monkeypatch, tmp_path):
     calls = {}
 
@@ -739,6 +793,109 @@ def test_source_localization_propagates_scaled_subject_through_morphing(
     assert calls["parcellate"]["subject"] == "fsaverage"
     assert calls["parcellate"]["src"] == "target-source"
     assert calls["parcellate"]["stc"] == ["morphed-epoch-1", "morphed-epoch-2"]
+
+
+@pytest.mark.unit
+def test_source_localization_uses_precomputed_transform_without_digitization(
+    monkeypatch, tmp_path
+):
+    inner_skull = tmp_path / "sub-01" / "bem" / "inner_skull.surf"
+    inner_skull.parent.mkdir(parents=True)
+    inner_skull.touch()
+    trans_path = tmp_path / "sub-01-trans.fif"
+    mne.write_trans(trans_path, mne.transforms.Transform("head", "mri"))
+    raw = mne.io.RawArray(
+        np.ones((1, 100)), mne.create_info(["MEG001"], 100.0, "mag"), verbose=False
+    )
+    assert raw.info["dig"] is None
+    calls = {}
+
+    def forward(**kwargs):
+        calls.update(kwargs)
+        return "forward", "source"
+
+    monkeypatch.setattr(sl, "forward_solution", forward)
+    monkeypatch.setattr(sl, "inverse_solution", lambda **kwargs: "stc")
+    monkeypatch.setattr(sl, "parcellate", lambda **kwargs: ("parcels", ["ROI"]))
+    result = sl.source_localization(
+        recording_path="raw.fif",
+        project_dir=tmp_path,
+        subject="sub-01",
+        subjects_dir=tmp_path,
+        subject_to="fsaverage",
+        data=raw,
+        segments="epochs",
+        figures_path=tmp_path,
+        which_sensor_dict={"meg": True},
+        precomputed_trans_path=trans_path,
+        bem_plot_orientations=None,
+    )
+
+    assert result == ("parcels", ["ROI"])
+    np.testing.assert_array_equal(calls["transformation_matrix"]["trans"], np.eye(4))
+
+
+@pytest.mark.unit
+def test_scaled_template_morph_keeps_both_anatomies_in_subjects_directory(
+    monkeypatch, tmp_path
+):
+    subjects_dir = tmp_path / "subjects"
+    for subject in ("template", "fsaverage"):
+        skull = subjects_dir / subject / "bem" / "inner_skull.surf"
+        skull.parent.mkdir(parents=True)
+        skull.touch()
+    monkeypatch.setattr(mne.coreg, "Coregistration", FakeCoregistration)
+    monkeypatch.setattr(
+        sl, "check_digitization_points", lambda data, logger: (0, 0, 0, 0)
+    )
+    monkeypatch.setattr(
+        sl, "prepare_template", lambda **kwargs: ("template", subjects_dir)
+    )
+
+    def scale_mri(**kwargs):
+        scaled = subjects_dir / kwargs["subject_to"] / "bem" / "inner_skull.surf"
+        scaled.parent.mkdir(parents=True)
+        scaled.write_text("scaled anatomy")
+
+    def morph(**kwargs):
+        root = kwargs["subjects_dir"]
+        assert (root / kwargs["subject"]).is_dir()
+        assert (root / kwargs["subject_to"]).is_dir()
+        return "morphed", "target-source"
+
+    monkeypatch.setattr(mne, "scale_mri", scale_mri)
+    monkeypatch.setattr(sl, "forward_solution", lambda **kwargs: ("forward", "source"))
+    monkeypatch.setattr(sl, "inverse_solution", lambda **kwargs: "stc")
+    monkeypatch.setattr(sl, "morph_stc", morph)
+    monkeypatch.setattr(sl, "parcellate", lambda **kwargs: ("parcels", ["ROI"]))
+
+    result = sl.source_localization(
+        recording_path="raw.fif",
+        project_dir=tmp_path / "project",
+        subject="sub-01",
+        subjects_dir=subjects_dir,
+        subject_to="fsaverage",
+        data=SimpleNamespace(info={"dig": []}),
+        segments="epochs",
+        figures_path=tmp_path,
+        which_sensor_dict={"meg": True},
+        apply_mri_template=True,
+        coregisteration_scale_mode="uniform",
+        apply_morphing=True,
+        bem_plot_orientations=None,
+    )
+
+    assert result == ("parcels", ["ROI"])
+    assert (subjects_dir / "sub-01_scaled").is_dir()
+    assert (
+        tmp_path
+        / "project"
+        / "Saved_outputs"
+        / "MRI_templates"
+        / "sub-01_scaled"
+        / "bem"
+        / "inner_skull.surf"
+    ).read_text() == "scaled anatomy"
 
 
 @pytest.mark.unit

@@ -143,7 +143,11 @@ def test_psd_helpers_average_power_across_nonidentical_epochs(calculator):
 
     np.testing.assert_array_equal(combined_freqs, first_freqs)
     np.testing.assert_array_equal(combined_freqs, second_freqs)
-    np.testing.assert_allclose(combined_psd, (first_psd + second_psd) / 2)
+    expected_psd = (first_psd + second_psd) / 2
+    # Bins at the numerical noise floor need an absolute roundoff allowance;
+    # retain the relative check on signal bins and the unequal-epoch average.
+    roundoff = 10 * np.finfo(expected_psd.dtype).eps * np.max(np.abs(expected_psd))
+    np.testing.assert_allclose(combined_psd, expected_psd, rtol=1e-7, atol=roundoff)
 
 
 @pytest.mark.integration
@@ -237,7 +241,7 @@ def test_parameterize_psds_specparam_path_returns_consistent_shapes():
         psd_n_overlap=1,
         psd_n_fft=2,
         n_per_seg=2,
-        aperiodic_mode="fixed", 
+        aperiodic_mode="fixed",
     )
 
     assert len(models.results.group_results) == len(epochs.ch_names)
@@ -308,7 +312,9 @@ def test_parameterize_psds_specparam_forwards_nondefault_configuration(monkeypat
         return expected_models, expected_psds, expected_freqs
 
     monkeypatch.setattr("meganorm.src.psdParameterize.computePsd", fake_compute_psd)
-    monkeypatch.setattr("meganorm.src.psdParameterize.fit_specparam", fake_fit_specparam)
+    monkeypatch.setattr(
+        "meganorm.src.psdParameterize.fit_specparam", fake_fit_specparam
+    )
 
     result = parameterize_psds(
         "epochs",
@@ -343,7 +349,7 @@ def test_parameterize_psds_rejects_irasa_raw_frequency_mismatch(monkeypatch):
         parameterize_psds(None, "irasa")
 
 
-@pytest.mark.unit   
+@pytest.mark.unit
 def test_parameterize_psds_rejects_irasa_periodic_shape_mismatch(monkeypatch):
     models = SimpleNamespace(
         periodic=SimpleNamespace(get_data=lambda: np.ones((1, 2, 4)))
@@ -355,6 +361,3 @@ def test_parameterize_psds_rejects_irasa_periodic_shape_mismatch(monkeypatch):
 
     with pytest.raises(ValueError, match="periodic"):
         parameterize_psds(None, "irasa")
-
-
-

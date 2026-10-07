@@ -406,18 +406,23 @@ def corregistration(
     """
     Coregister MEG data to MRI, with optional scaling to a template MRI.
 
-    Same as before, but if `coregisteration_scale_mode` is set (e.g. "uniform"),
+    If `coregisteration_scale_mode` is set (e.g. "uniform"),
     a scale factor is estimated during fitting and a physically scaled copy of
-    the subject's MRI is written to `subjects_dir` as `{subject}_scaled`.
+    the subject's MRI is written as `{participant_id}_scaled`.
     Downstream steps (source space, parcellation) must use the returned
-    `fit_subject` name, not the original template name.
+    `fit_subject` name. When saving scaled anatomy and morphing is requested,
+    it is copied to the output directory and retained in `subjects_dir` so
+    the source and morph target remain available in one anatomical directory.
 
     Returns
     -------
     coreg : mne.coreg.Coregistration
     fit_subject : str
         The subject name to use for all subsequent anatomy-dependent steps
-        (equals `subject` if no scaling was applied, else `f"{subject}_scaled"`).
+        Equals `subject` if no scaling was applied, else
+        `f"{participant_id}_scaled"`.
+    subjects_dir : str or Path
+        Directory containing `fit_subject` for downstream anatomical steps.
     """
     coreg = mne.coreg.Coregistration(
         data.info,
@@ -465,13 +470,7 @@ def corregistration(
 
     fit_subject = subject
     if scale_mode and kwargs.get("apply_mri_template", False):
-        # scale_id = participant_id or subject
         scaled_subject = f"{participant_id}_scaled"
-        # scaled_bem_exists = os.path.exists(
-        #     os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
-        # )
-
-        # if not scaled_bem_exists:
         logger.info(f"Estimated MRI scale factor: {coreg.scale}")
         mne.scale_mri(
             subject_from=subject,
@@ -483,7 +482,7 @@ def corregistration(
             annot=True,
             skip_fiducials=True,
         )
-        # Note that scale_mri also scale labels and bem models internally
+        # scale_mri also scales labels and BEM surfaces.
         logger.info(f"Scaled MRI subject written: {scaled_subject}")
 
         if scaled_mri_save_path:
@@ -491,44 +490,23 @@ def corregistration(
             dst_root = Path(scaled_mri_save_path)
             dst = dst_root / scaled_subject
             dst_root.mkdir(parents=True, exist_ok=True)
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.move(str(src), str(dst))
-            subjects_dir = dst_root
-            logger.info(f"Scaled MRI moved to {dst}")
+            if src.resolve() != dst.resolve():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                if kwargs.get("apply_morphing", False):
+                    shutil.copytree(src, dst)
+                    logger.info(
+                        f"Scaled MRI copied to {dst}; retained beside the morph target."
+                    )
+                else:
+                    shutil.move(str(src), str(dst))
+                    subjects_dir = dst_root
+                    logger.info(f"Scaled MRI moved to {dst}")
 
         fit_subject = scaled_subject
 
-        # TODO: is it necessary to make a new watershed mode after scaling?
-        # if kwargs.get("force_new_watershed_bem", False):
-        #     pass
-        # mne.bem.make_watershed_bem(
-        #     subject=scaled_subject,
-        #     subjects_dir=subjects_dir,
-        #     overwrite=True,
-        #     gcaatlas=kwargs.get("gcaatlas", True),
-        #     volume="T1",
-        #     preflood=kwargs.get("preflood", None),
-        # )
-        # logger.info(
-        #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
-        # )
-        # else:
-        #     logger.info(f"Using existing scaled subject: {scaled_subject}")
-
-    # TODO
-    # if kwargs.get("take_screenshot_of_coregisteration", True):
-    #     save_coreg_screenshots(
-    #         info=data.info,
-    #         trans=coreg.trans,
-    #         subject=fit_subject,
-    #         subjects_dir=subjects_dir,
-    #         out_dir=qc_out_dir,
-    #         participant_id=fit_subject,
-    #         **kwargs,
-    #     )
-
     if kwargs.get("save_transformation_FIF_file", False):
+        os.makedirs(trans_save_path, exist_ok=True)
         trans_save_path = os.path.join(trans_save_path, f"{fit_subject}-trans.fif")
         mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
@@ -560,8 +538,8 @@ def forward_solution(
         The subject name as used in FreeSurfer.
     subjects_dir : str or Path
         Path to the FreeSurfer SUBJECTS_DIR containing all subject MRI folders.
-    data:
-        To be written
+    data : mne.io.Raw or mne.Epochs
+        Measurement data whose channel information is used for the forward model.
     transformation_matrix : str, Path, or dict
         Transformation between head and MRI coordinates, typically from coregistration.
     conductivity : tuple of float
@@ -853,7 +831,6 @@ def inverse_solution(
             data,
             method=kwargs.get("covariance_method", "empirical"),
             reject_by_annotation=True,
-            # rank=lcmv_rank,  # TODO: this should be removed
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
@@ -865,20 +842,6 @@ def inverse_solution(
             tag="dataCovariance",
             logger=logger,
         )
-
-        # rank_based_quality_control(
-        #     data_cov=data_cov,
-        #     info=data.info,
-        #     subject=subject,
-        #     figures_path=figures_path,
-        #     exclude=[], #TODO
-        #     qc_ignore=qc_ignore)
-
-        # _, cond_before, cond_after = regularized_cov_condition(data_cov.data,
-        #         shrinkage=0.05,
-        #         diag_scale='auto')
-        # logger.info(f"Condition number of data covariance before regularization: {cond_before}")
-        # logger.info(f"Condition number of data covariance After regularization: {cond_after}")
 
         filters = mne.beamformer.make_lcmv(
             segments.info,
@@ -987,7 +950,7 @@ def morph_stc(
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
-    elif source_space == "volumetric":  # TODO
+    elif source_space == "volumetric":
 
         inner_skull_path = Path(subjects_dir) / subject_to / "bem" / "inner_skull.surf"
         if not os.path.exists(inner_skull_path):
@@ -996,7 +959,7 @@ def morph_stc(
                 subjects_dir=subjects_dir,
                 overwrite=True,
                 gcaatlas=kwargs.get("gcaatlas", True),
-                volume="T1",  # TODO: this should be a data specific info.
+                volume="T1",
                 preflood=kwargs.get("preflood", None),
             )
 
@@ -1196,13 +1159,6 @@ def source_localization(
     - The BEM model is generated internally using provided conductivity values.
     """
 
-    # set_freesurfer_paths(
-    #     freesurfer_home=freesurfer_path,
-    #     subjects_dir=subjects_dir,
-    #     license_path=freesurfer_license_path,
-    # )
-
-    # check_freesurfer()
     # Set FreeSurfer environment variables so all subprocess calls can find the license
     if kwargs.get("freesurfer_home"):
         os.environ["FREESURFER_HOME"] = kwargs.get("freesurfer_home")
@@ -1212,7 +1168,11 @@ def source_localization(
     if kwargs.get("freesurfer_license"):
         os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
 
-    if kwargs.get("which_sensor", "meg") in ["meg", "grad", "mag"]:
+    default_sensor = "eeg" if which_sensor_dict.get("eeg") else "meg"
+    if (
+        kwargs.get("which_sensor", default_sensor) in ["meg", "grad", "mag"]
+        and data.info["dig"]
+    ):
         new_dig = [d for d in data.info["dig"] if d["kind"] != FIFF.FIFFV_POINT_EEG]
         with data.info._unlock():
             data.info["dig"] = new_dig
@@ -1263,7 +1223,7 @@ def source_localization(
         logger.info(
             "A precomputed transformation matrix was loaded for corregistration"
         )
-    # This part is hardcoded and must be changed ASAP.
+    # NIMH recordings provide their coregistration coordinates in a BIDS sidecar.
     elif "sub-ON" in subject:
         matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
         if not matches:
