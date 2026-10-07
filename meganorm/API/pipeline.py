@@ -1,3 +1,5 @@
+"""Sequential orchestration over the existing feature extraction engine."""
+
 import json
 import logging
 import shutil
@@ -41,8 +43,10 @@ _AUXILIARY = {
 class Pipeline:
     """Extract features locally, preserving processing outcomes and metadata.
 
-    Reruns warn and clear managed outputs after input validation. on_error='continue' admits only participants
-    whose processing completes normally with a valid current-run feature file.
+    Reruns warn and clear managed outputs after input validation. By default,
+    participant failures are reported and processing continues; only valid
+    current-run feature files are collected. on_error='raise' stops at the
+    first processing failure. Interrupts always stop the run.
     """
 
     def __init__(

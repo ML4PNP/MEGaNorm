@@ -3,10 +3,11 @@
 import copy
 import shutil
 import json
+import logging
+import warnings
 from pathlib import Path
 from collections.abc import Sequence
 from typing import Literal
-from meganorm.API.pipeline import _LOG
 import numpy as np
 import pandas as pd
 from pcntoolkit.regression_model.regression_model import RegressionModel
@@ -15,6 +16,8 @@ from .datasets import _path
 from ._metadata import normalize_ids
 from ._pcntoolkit import extract_test_outputs, prepare_data
 from .results import FeatureDataset, NormativeResults
+
+_LOG = logging.getLogger("meganorm.API.modeling")
 
 
 def _names(values, label, *, allow_empty=False):
@@ -35,6 +38,8 @@ class NormativeModel:
 
     Responses and covariates must be numeric. missing='drop' performs complete
     case filtering only over selected model columns. No imputation is applied.
+    New analyses in the same output directory warn and clear managed results
+    after validation; an already fitted wrapper cannot be fitted again.
     """
 
     def __init__(
@@ -207,20 +212,35 @@ class NormativeModel:
         existing_outputs = [
             root / name
             for name in managed
-            if (root / name).exists()
+            if (root / name).exists() or (root / name).is_symlink()
         ]
-
+        protected = []
+        for source in (data, test_data):
+            if isinstance(source, FeatureDataset):
+                protected.extend([source.output_dir, *source.paths.values()])
+                if "recording_paths" in source.manifest:
+                    for recordings in source.manifest.recording_paths:
+                        protected.extend(recordings)
+        protected = [Path(path).resolve() for path in protected]
+        for path in existing_outputs:
+            if not path.is_symlink() and any(
+                source.is_relative_to(path.resolve()) for source in protected
+            ):
+                raise ValueError(
+                    f"Cannot remove managed model output {path}: it contains input data."
+                )
         if existing_outputs:
-            _LOG.warning(
-                "Existing managed model output(s) will be overwritten: %s",
-                ", ".join(str(path) for path in existing_outputs),
+            message = (
+                "Existing managed model output(s) will be removed before fitting: "
+                + ", ".join(str(path) for path in existing_outputs)
             )
-
+            warnings.warn(message, UserWarning, stacklevel=2)
+            _LOG.warning(message)
             for path in existing_outputs:
-                if path.is_dir():
-                    shutil.rmtree(path)
-                else:
+                if path.is_symlink() or not path.is_dir():
                     path.unlink()
+                else:
+                    shutil.rmtree(path)
         root.mkdir(parents=True, exist_ok=True)
         model = nm_model_train(
             train=train,

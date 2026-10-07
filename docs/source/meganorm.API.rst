@@ -2,8 +2,11 @@ Local scientific API
 ====================
 
 The canonical import path is ``meganorm.API`` (uppercase ``API``). The existing
-``Config`` is re-exported without changed defaults. Compatibility aliases are
-also available at the package root.
+``Config`` is re-exported; GEDAI is disabled by default. Compatibility aliases
+are also available at the package root. Local extraction is sequential and
+continues after participant failures by default; use ``on_error="raise"`` to
+stop at the first processing failure. See :doc:`getting_started` for
+multi-dataset examples, result interpretation, and rerun cleanup behavior.
 
 .. automodule:: meganorm.API.datasets
    :members: Dataset
