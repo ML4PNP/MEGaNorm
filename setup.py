@@ -15,11 +15,7 @@ with open("meganorm/_version.py") as f:
 # Load dependencies from requirements.txt
 def load_requirements(filename="requirements.txt"):
     with open(filename, encoding="utf-8") as f:
-        return [
-            line.strip()
-            for line in f
-            if line.strip() and not line.startswith("#")
-        ]
+        return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 
 setup(
