@@ -1,5 +1,6 @@
 """End-to-end release metadata checks without scientific dependencies."""
 
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,20 @@ ROOT = Path(__file__).resolve().parents[1]
 def checkout(tmp_path):
     for name in ("pyproject.toml", "README.md", "CITATION.cff"):
         shutil.copy(ROOT / name, tmp_path / name)
+    # Give each test a development baseline even when the checkout is a release.
+    config = tmp_path / "pyproject.toml"
+    content, count = re.subn(
+        r"(?ms)(^\[tool\.meganorm\.release\]\s*\n)(.*?)(?=^\[|\Z)",
+        lambda match: match[1]
+        + re.sub(
+            r"(?m)^(version|date|doi)\s*=.*$",
+            r'\1 = ""',
+            match[2],
+        ),
+        config.read_text(encoding="utf-8"),
+    )
+    assert count == 1, "Expected one release metadata table"
+    config.write_text(content, encoding="utf-8")
     (tmp_path / "meganorm").mkdir()
     (tmp_path / "meganorm/_version.py").write_text(
         '__version__ = "0.2.2"\n',
