@@ -96,8 +96,24 @@ python -m pytest -q
 
 Tests are organized by package area under `tests/`, with separate markers for
 fast unit tests, integration tests, and slow tests. New functionality and bug
-fixes should include focused tests where applicable. The same full suite runs
-automatically through GitHub Actions on pushes and pull requests.
+fixes should include focused tests where applicable. GitHub Actions runs the
+suite excluding ``slow`` tests on pushes and pull requests. Manually dispatch
+the Tests workflow to run the HBR workflow smoke test as well.
+
+Run tests from the repository checkout. On native Windows, tests that create
+filenames forbidden by Windows or exercise POSIX FreeSurfer shell/executable
+fixtures are skipped. Portable path-validation and source-localization unit
+tests still run. Use Linux, macOS, or Python inside WSL for the FreeSurfer
+shell integration tests.
+
+---
+
+## Building documentation
+
+```bash
+python -m pip install -r docs/requirements.txt
+python -m sphinx -W --keep-going -b html docs/source docs/build/html
+```
 
 ---
 

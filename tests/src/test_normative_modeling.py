@@ -829,3 +829,43 @@ def test_anova_group_level_effect_isolates_invalid_response_column():
     assert result["roi"]["p_val"] is not None
     assert result["roi"]["np2"] is not None
     assert result["label"] == {"p_val": None, "np2": None}
+
+@pytest.mark.unit
+def test_training_default_return_stays_none(tmp_path, recording_training_boundaries):
+    result = nm.nm_model_train(
+        train=SimpleNamespace(response_vars=['roi']), test=None,
+        project_dir=tmp_path, experiment_name='test',
+        template_regression_model='template', model_name='model',
+    )
+    assert result is None
+
+
+@pytest.mark.unit
+def test_training_returns_constructed_model_on_opt_in(tmp_path, recording_training_boundaries):
+    result = nm.nm_model_train(
+        train=SimpleNamespace(response_vars=['roi']), test=None,
+        project_dir=tmp_path, experiment_name='test',
+        template_regression_model='template', model_name='model', return_model=True,
+    )
+    assert result is RecordingNormativeModel.instances[-1]
+    assert result.fit_call is not None
+
+
+@pytest.mark.unit
+def test_parallel_return_model_rejected_before_submission(tmp_path, recording_training_boundaries):
+    with pytest.raises(ValueError, match='return_model'):
+        nm.nm_model_train(
+            train=SimpleNamespace(response_vars=['roi']), test=None,
+            project_dir=tmp_path, experiment_name='test',
+            template_regression_model='template', model_name='model',
+            if_parallel=True, return_model=True,
+        )
+    assert not RecordingRunner.instances
+
+@pytest.mark.unit
+def test_training_can_disable_native_results_when_evaluation_off(tmp_path, recording_training_boundaries):
+    model=nm.nm_model_train(train=SimpleNamespace(response_vars=['roi']),test=None,
+        project_dir=tmp_path,experiment_name='test',template_regression_model='template',model_name='model',
+        if_evaluate_models=False,return_model=True,save_results=False)
+    assert model.kwargs['saveresults'] is False
+    assert model.kwargs['evaluate_model'] is False

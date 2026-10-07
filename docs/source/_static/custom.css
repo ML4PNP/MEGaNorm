@@ -1,0 +1,20 @@
+.funding-logos,
+.funding-logos table,
+.funding-logos tbody,
+.funding-logos tr,
+.funding-logos td {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.funding-logos td {
+    text-align: center;
+    vertical-align: middle;
+    padding: 1rem 1.5rem !important;
+}
+
+.funding-logos img {
+    display: inline-block;
+    margin: 0 auto;
+}

@@ -33,6 +33,11 @@ from meganorm.src.source_localization import (
     set_freesurfer_paths,
 )
 
+requires_posix = pytest.mark.skipif(
+    os.name == "nt",
+    reason="FreeSurfer shell/executable integration requires POSIX; use Linux, macOS, or WSL.",
+)
+
 
 def make_fake_freesurfer(tmp_path, exit_code=0):
     freesurfer_home = tmp_path / "FreeSurfer Home"
@@ -480,7 +485,6 @@ def test_forward_solution_leaves_christian_bem_untouched(
 
     assert model[0]["rr"].dtype == np.dtype(">f8")
 
-    
 
 @pytest.mark.unit
 def test_inverse_solution_uses_info_rank_and_ad_hoc_noise_covariance(
@@ -883,6 +887,7 @@ def test_forward_solution_rejects_unsupported_source_space(monkeypatch, tmp_path
 
 
 @pytest.mark.integration
+@requires_posix
 def test_run_recon_freesurfer_preserves_paths_and_configures_environment(
     monkeypatch, tmp_path
 ):
@@ -932,6 +937,7 @@ def test_run_recon_freesurfer_preserves_paths_and_configures_environment(
 
 
 @pytest.mark.integration
+@requires_posix
 def test_run_recon_freesurfer_propagates_recon_all_failure(monkeypatch, tmp_path):
     freesurfer_home = make_fake_freesurfer(tmp_path, exit_code=7)
     record_path = tmp_path / "failed recon.txt"
@@ -951,6 +957,7 @@ def test_run_recon_freesurfer_propagates_recon_all_failure(monkeypatch, tmp_path
 
 
 @pytest.mark.integration
+@requires_posix
 def test_run_recon_freesurfer_stops_when_setup_fails(monkeypatch, tmp_path):
     freesurfer_home = make_fake_freesurfer(tmp_path)
     (freesurfer_home / "SetUpFreeSurfer.sh").write_text("return 9\n")
@@ -1234,6 +1241,7 @@ def test_set_freesurfer_paths_is_idempotent(monkeypatch, tmp_path):
 
 
 @pytest.mark.integration
+@requires_posix
 def test_check_freesurfer_discovers_executable_and_configures_environment(
     monkeypatch, tmp_path
 ):
@@ -1262,6 +1270,7 @@ def test_check_freesurfer_discovers_executable_and_configures_environment(
 
 
 @pytest.mark.integration
+@requires_posix
 def test_check_freesurfer_resolves_symlinked_executable(monkeypatch, tmp_path):
     freesurfer_home = tmp_path / "freesurfer"
     freesurfer_bin = freesurfer_home / "bin"
@@ -1283,6 +1292,7 @@ def test_check_freesurfer_resolves_symlinked_executable(monkeypatch, tmp_path):
 
 
 @pytest.mark.integration
+@requires_posix
 def test_check_freesurfer_rejects_installation_without_license(monkeypatch, tmp_path):
     freesurfer_bin = tmp_path / "freesurfer" / "bin"
     freesurfer_bin.mkdir(parents=True)
