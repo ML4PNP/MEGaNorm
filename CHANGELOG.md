@@ -4,7 +4,7 @@ This file provides a summary of notable changes to **MEGaNorm** across released 
 
 Detailed release notes for each version are available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) page.
 
-## [Unreleased]
+## [0.2.2] - 2026-10-07
 
 - Added the local scientific API under `meganorm.API`: cohort discovery,
   multi-dataset feature extraction, explicit normative-model fitting, and

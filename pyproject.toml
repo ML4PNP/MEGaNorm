@@ -40,7 +40,7 @@ paper-doi = "10.1038/s42003-026-09825-2"
 # Populate these fields when finalizing a release.
 # version must match meganorm/_version.py when set.
 [tool.meganorm.release]
-version = ""
-date = ""  # YYYY-MM-DD; never inferred from today's date
+version = "0.2.2"
+date = "2026-10-07"  # YYYY-MM-DD; never inferred from today's date
 # Optional DOI reserved/issued for this exact release; never copy an older DOI.
 doi = ""
