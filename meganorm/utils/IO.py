@@ -83,31 +83,6 @@ class Config(BaseModel):
     auto_ica_corr_thr : float, default=0.5
         Correlation threshold (0-1) for automatic ICA component rejection.
 
-    GEDAI Artifact Removal
-    -----------------------
-    apply_gedai : bool, default=False
-        Apply GEDAI-based artifact removal.
-    gedai_method : {"both", "spectral", "broadband"}, default="both"
-        GEDAI denoising strategy.
-    sensai_method : {"optimize", "gridsearch"}, default="optimize"
-        Parameter search strategy for SensAI.
-    gedai_duration, gedai_overlap : float or int, default=12, 0.5
-        Window duration (s) and overlap fraction for GEDAI.
-    gedai_preliminary_broadband_noise_multiplier : float, default=6.0
-        Noise multiplier for preliminary broadband detection.
-    gedai_noise_multiplier : float, default=3.0
-        Noise multiplier used in GEDAI thresholding.
-    gedai_wavelet_type : str, default="haar"
-        Wavelet family used for spectral GEDAI.
-    gedai_wavelet_level : "auto", PositiveInt, or 0, default="auto"
-        Wavelet decomposition level.
-    gedai_wavelet_low_cutoff : float or None, default=None
-        Low-frequency cutoff for wavelet-based denoising.
-    gedai_epoch_size_in_cycles : PositiveInt, default=12
-        Epoch size expressed in number of cycles.
-    gedai_highpass_cutoff : float, default=0.1
-        High-pass cutoff applied before GEDAI (Hz).
-
     Muscle Artifact Detection
     ---------------------------
     muscle_activity_thr : int, default=4
@@ -264,14 +239,6 @@ class Config(BaseModel):
     load(path)
         Load a configuration from a JSON file.
 
-    Notes
-    -----
-    Model validators enforce cross-field consistency, e.g.: a three-layer
-    `SL_conductivity` is required for EEG source localization; `beamformer_pick_ori
-    == "vector"` requires `beamformer_weight_norm == "unit-noise-gain-invariant"`;
-    `source_space_spacing` must match `source_space_spacing_number`; GEDAI
-    parameters must be consistent with the chosen `gedai_method`; and MRI
-    template use is mutually exclusive with MRI QC.
     """
 
     # Recording-level metadata added as columns to each subject's features CSV.
@@ -311,20 +278,6 @@ class Config(BaseModel):
     Head_movement_limit_from_mean: float = 0.0015
 
     apply_chpi_filter: bool = False
-
-    # gedai settings
-    apply_gedai: bool = False
-    gedai_method: Literal["both", "spectral", "broadband"] = "both"
-    sensai_method: Literal["optimize", "gridsearch"] = "optimize"
-    gedai_duration: Union[float, int] = 12
-    gedai_overlap: Union[float, int] = 0.5
-    gedai_preliminary_broadband_noise_multiplier: float = 6.0
-    gedai_noise_multiplier: float = 3.0
-    gedai_wavelet_type: str = "haar"
-    gedai_wavelet_level: Union[Literal["auto"], PositiveInt, Literal[0]] = "auto"
-    gedai_wavelet_low_cutoff: Union[None, float] = None
-    gedai_epoch_size_in_cycles: PositiveInt = 12
-    gedai_highpass_cutoff: float = 0.1
 
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
@@ -614,26 +567,6 @@ class Config(BaseModel):
                 "You can not apply MRI QC on already preprocessed freesurfer template"
             )
             raise ValueError(err_msg)
-        return self
-
-    @model_validator(mode="after")
-    def gedai_params_check(self):
-        method = self.gedai_method
-        wavelet_level = self.gedai_wavelet_level
-        duration = self.gedai_duration
-        broadband_multiplier = self.gedai_preliminary_broadband_noise_multiplier
-
-        if method == "broadband" and wavelet_level != 0:
-            raise ValueError("broadband method requires wavelet_level=0")
-        if method == "broadband" and not duration:
-            raise ValueError("broadband method requires gedai_duration")
-        if method == "spectral" and wavelet_level == 0:
-            raise ValueError("spectral method requires wavelet_level > 0")
-        if method == "both" and not broadband_multiplier:
-            raise ValueError(
-                "both method requires gedai_preliminary_broadband_noise_multiplier"
-            )
-
         return self
 
     def save(self, save_path: str, overwrite=False):

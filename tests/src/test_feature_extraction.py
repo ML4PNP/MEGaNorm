@@ -464,8 +464,9 @@ class FakeEpoch:
 class FakeEpochsPeriodic:
     """Indexable stand-in for PeriodicEpochsSpectrum: periodic[i] -> one epoch."""
 
-    def __init__(self, epochs):
+    def __init__(self, epochs, ch_names=("MEG001", "MEG002")):
         self._epochs = epochs
+        self.ch_names = list(ch_names)
 
     def __len__(self):
         return len(self._epochs)
@@ -496,13 +497,13 @@ def test_average_peaks_keeps_strongest_per_epoch_then_averages_across_epochs():
 
     result = average_peaks_across_epochs(periodic, 8.0, 12.0)
 
-    # MEG001: mean of (11, 6, 2) and (10, 8, 1)
+    # MEG001: strongest per epoch is (11, 6, 2) and (10, 8, 1); pw averaged in ln space
     assert result.loc["MEG001"].to_dict() == pytest.approx(
-        {"cf": 10.5, "pw": 7.0, "bw": 1.5}
+        {"cf": 10.5, "pw": (np.log(6.0) + np.log(8.0)) / 2, "bw": 1.5}
     )
     # MEG002: only epoch 0 has a peak
     assert result.loc["MEG002"].to_dict() == pytest.approx(
-        {"cf": 10.0, "pw": 4.0, "bw": 1.0}
+        {"cf": 10.0, "pw": np.log(4.0), "bw": 1.0}
     )
 
 
@@ -518,10 +519,12 @@ def test_average_peaks_ignores_out_of_band_and_nan_peaks():
 
     result = average_peaks_across_epochs(periodic, 8.0, 12.0)
 
-    assert result.index.tolist() == ["MEG001"]
+    # Every channel is reported; MEG002 had no valid peak, so it's all NaN
+    assert result.index.tolist() == ["MEG001", "MEG002"]
     assert result.loc["MEG001"].to_dict() == pytest.approx(
-        {"cf": 10.0, "pw": 3.0, "bw": 1.0}
+        {"cf": 10.0, "pw": np.log(3.0), "bw": 1.0}
     )
+    assert result.loc["MEG002"].isna().all()
 
 
 def test_average_peaks_passes_padded_band_to_get_peaks():
@@ -540,7 +543,7 @@ def test_average_peaks_skips_failed_epochs():
     result = average_peaks_across_epochs(periodic, 8.0, 12.0)
 
     assert result.loc["MEG001"].to_dict() == pytest.approx(
-        {"cf": 10.0, "pw": 3.0, "bw": 1.0}
+        {"cf": 10.0, "pw": np.log(3.0), "bw": 1.0}
     )
 
 

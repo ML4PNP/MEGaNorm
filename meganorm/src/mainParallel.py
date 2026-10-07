@@ -243,7 +243,7 @@ def main(args):
     Run the full spectral feature extraction pipeline for one subject.
 
     Loads raw MEG/EEG/OPM data and processes it end-to-end: channel
-    cleanup, filtering, ICA/GEDAI and environmental noise correction,
+    cleanup, filtering, ICA and environmental noise correction,
     head-movement correction, segmentation with optional Autoreject
     bad-segment removal, optional source localization, PSD computation
     with specparam/IRASA spectral parametrization, and band-power feature
@@ -411,20 +411,8 @@ def main(args):
         ica_if_reject_by_annotation=configs.ica_if_reject_by_annotation,
         environmental_noise_ica_with_ref_meg_method=configs.environmental_noise_ica_with_ref_meg_method,
         environmental_noise_ica_with_ref_meg_measure=configs.environmental_noise_ica_with_ref_meg_measure,
-        apply_gedai=configs.apply_gedai,
-        gedai_method=configs.gedai_method,
-        sensai_method=configs.sensai_method,
         conductivity=configs.SL_conductivity,
         source_space=configs.SL_source_space,
-        gedai_duration=configs.gedai_duration,
-        gedai_overlap=configs.gedai_overlap,
-        gedai_preliminary_broadband_noise_multiplier=configs.gedai_preliminary_broadband_noise_multiplier,
-        gedai_noise_multiplier=configs.gedai_noise_multiplier,
-        gedai_wavelet_type=configs.gedai_wavelet_type,
-        gedai_wavelet_level=configs.gedai_wavelet_level,
-        gedai_wavelet_low_cutoff=configs.gedai_wavelet_low_cutoff,
-        gedai_epoch_size_in_cycles=configs.gedai_epoch_size_in_cycles,
-        gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
         source_space_spacing=configs.source_space_spacing,
         source_space_spacing_number=configs.source_space_spacing_number,
         event_record=event_record,
