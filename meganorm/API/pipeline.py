@@ -263,7 +263,7 @@ class Pipeline:
         manifest = pd.concat([d.discover() for d in datasets], ignore_index=True)
         if manifest.participant_id.duplicated().any():
             raise ValueError(
-                "Duplicate participant IDs across datasets; Phase 1 requires globally unique IDs."
+                "Duplicate participant IDs across datasets; globally unique IDs are required."
             )
         counts = self._preflight(datasets, manifest)
         self._reset_outputs(datasets, manifest)

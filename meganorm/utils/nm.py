@@ -10,13 +10,11 @@ from scipy.stats import shapiro
 import itertools
 from scipy.stats import skew, kurtosis
 
-# from pcntoolkit.util.utils import z_to_abnormal_p, anomaly_detection_auc
 from scipy.stats import false_discovery_control
 from scipy.stats import ranksums
 from sklearn.model_selection import train_test_split
 
 
-# **
 def haddbr_data_split(
     data,
     save_path,
@@ -25,7 +23,7 @@ def haddbr_data_split(
     train_split=0.5,
     validation_split=None,
     drop_nans=False,
-    random_seed="23d",
+    random_seed=23,
     prefix="",
     stratification_columns=["site", "sex"],
 ):
@@ -57,8 +55,8 @@ def haddbr_data_split(
     drop_nans : bool, optional, default=False
         If `True`, rows with missing values are dropped (default is `False`).
 
-    random_seed : int or str, optional, default="23d"
-        Seed for random number generation to ensure reproducibility (default is `23d`).
+    random_seed : int or None, optional, default=23
+        Seed for random number generation to ensure reproducibility.
 
     prefix : str, optional, default=""
         Prefix to be added to the filenames when saving the pickled data (default is `""`).
@@ -95,6 +93,7 @@ def haddbr_data_split(
     ... )
     """
     os.makedirs(save_path, exist_ok=True)
+    data = data.copy()
 
     if drop_nans:
         data = data.dropna(axis=0)
@@ -110,7 +109,7 @@ def haddbr_data_split(
     if validation_split:
         train_df, val_df = train_test_split(
             train_df,
-            stratify=data["combination"],
+            stratify=train_df["combination"],
             test_size=validation_split,
             random_state=random_seed,
         )
@@ -128,12 +127,15 @@ def haddbr_data_split(
     )
     y_train = (
         train_df.drop(
-            columns=covariates + batch_effects + ["combination", "diganosis"],
+            columns=covariates
+            + batch_effects
+            + ["combination", "diagnosis", "diganosis"],
             errors="ignore",
         )
         if batch_effects is not None
         else train_df.drop(
-            columns=covariates + ["combination", "diganosis"], errors="ignore"
+            columns=covariates + ["combination", "diagnosis", "diganosis"],
+            errors="ignore",
         )
     )
 
@@ -150,12 +152,15 @@ def haddbr_data_split(
     )
     y_test = (
         test_df.drop(
-            columns=covariates + batch_effects + ["combination", "diganosis"],
+            columns=covariates
+            + batch_effects
+            + ["combination", "diagnosis", "diganosis"],
             errors="ignore",
         )
         if batch_effects is not None
         else test_df.drop(
-            columns=covariates + ["combination", "diganosis"], errors="ignore"
+            columns=covariates + ["combination", "diagnosis", "diganosis"],
+            errors="ignore",
         )
     )
 
@@ -173,12 +178,15 @@ def haddbr_data_split(
         )
         y_val = (
             val_df.drop(
-                columns=covariates + batch_effects + ["combination", "diganosis"],
+                columns=covariates
+                + batch_effects
+                + ["combination", "diagnosis", "diganosis"],
                 errors="ignore",
             )
             if batch_effects is not None
             else val_df.drop(
-                columns=covariates + ["combination", "diganosis"], errors="ignore"
+                columns=covariates + ["combination", "diagnosis", "diganosis"],
+                errors="ignore",
             )
         )
 
@@ -203,7 +211,6 @@ def haddbr_data_split(
     return biomarker_name.tolist()
 
 
-# **
 def evaluate_mace(
     model_path,
     X_path,
@@ -267,7 +274,7 @@ def evaluate_mace(
         )
     )
     x_test = pickle.load(open(X_path, "rb")).to_numpy()
-    be_test = pickle.load(open(be_path, "rb")).to_numpy().squeeze()
+    be_test = pickle.load(open(be_path, "rb")).to_numpy()
     y_test = pickle.load(open(y_path, "rb")).to_numpy()[:, model_id : model_id + 1]
 
     meta_data = pickle.load(open(os.path.join(model_path, "meta_data.md"), "rb"))
@@ -292,18 +299,17 @@ def evaluate_mace(
 
     for i in range(batch_num):
         batch_ids = list(np.unique(be_test[:, i]))
-        if len(batch_ids) > 1:
-            for batch_id in batch_ids:
-                empirical_quantiles.append(
-                    (
-                        mcmc_quantiles[be_test[:, i] == batch_id, :]
-                        >= y_test[be_test[:, i] == batch_id, :]
-                    ).mean(axis=0)
-                )
-                batch_mace.append(
-                    np.abs(np.array(quantiles) - empirical_quantiles[b]).mean()
-                )
-                b += 1
+        for batch_id in batch_ids:
+            empirical_quantiles.append(
+                (
+                    mcmc_quantiles[be_test[:, i] == batch_id, :]
+                    >= y_test[be_test[:, i] == batch_id, :]
+                ).mean(axis=0)
+            )
+            batch_mace.append(
+                np.abs(np.array(quantiles) - empirical_quantiles[b]).mean()
+            )
+            b += 1
 
     batch_mace = np.array(batch_mace)
 
@@ -343,7 +349,6 @@ def evaluate_mace(
     return batch_mace.mean()
 
 
-# **
 def calculate_PNOCs(
     quantiles_path,
     gender_ids,
@@ -470,7 +475,6 @@ def calculate_PNOCs(
     return oscilogram, age_slices
 
 
-# **
 def shapiro_stat(z_scores, covariates, n_bins=10):
     """
     Computes Shapiro-Wilk test statistics for z-scores stratified by covariate bins.
@@ -520,7 +524,7 @@ def shapiro_stat(z_scores, covariates, n_bins=10):
 
             z_in_bin = z_scores[bin_indices == bin_idx, measure_idx]
 
-            if len(z_in_bin) > 2:  ## Check if there are enough data points for the test
+            if len(z_in_bin) > 2:
                 test_statistics[bin_idx, measure_idx], _ = shapiro(z_in_bin)
             else:  # If not set the statistic to NaN
                 test_statistics[bin_idx, measure_idx] = np.nan
@@ -528,7 +532,6 @@ def shapiro_stat(z_scores, covariates, n_bins=10):
     return test_statistics.mean(axis=0)
 
 
-# **
 def estimate_centiles(
     processing_dir,
     bio_num,
@@ -598,9 +601,7 @@ def estimate_centiles(
     q = np.zeros((scaled_synthetic_X.shape[0], len(quantiles), bio_num))
 
     for model_id in range(bio_num):
-        model_path = os.path.join(
-            processing_dir, f"batch_{model_id + 1}", "Models"
-        )  # TODO: it should not go to the batch files, it should go to the Models
+        model_path = os.path.join(processing_dir, f"batch_{model_id + 1}", "Models")
 
         with open(os.path.join(model_path, "meta_data.md"), "rb") as f:
             meta_data = pickle.load(f)
@@ -634,7 +635,6 @@ def estimate_centiles(
     return q
 
 
-# **
 def prepare_prediction_data(
     data: pd.DataFrame,
     save_path: str,
@@ -701,7 +701,6 @@ def prepare_prediction_data(
     return None
 
 
-# **
 def cal_stats_for_INOCs(
     q_path: str,
     features: list,
@@ -739,9 +738,7 @@ def cal_stats_for_INOCs(
     """
     q = pickle.load(open(q_path, "rb"))
     quantiles = q["quantiles"]
-    synthetic_X = (
-        q["synthetic_X"].reshape(num_of_datasets * 2, 100).mean(axis=0)
-    )  # since Xs are repeated !
+    synthetic_X = q["synthetic_X"].reshape(num_of_datasets * 2, num_points).mean(axis=0)
     b = q["batch_effects"]
 
     statistics = {feature: [] for feature in features}
@@ -750,13 +747,11 @@ def cal_stats_for_INOCs(
         biomarker_stats = []
         for quantile_id in range(quantiles.shape[1]):
 
-            if (
-                not site_id
-            ):  # if not any specific site, average between all sites (batch effect)
+            if site_id is None:
                 data = quantiles[b[:, 0] == sex_id, quantile_id, ind : ind + 1]
                 data = data.reshape(num_of_datasets, num_points, 1)
                 data = data.mean(axis=0)
-            if site_id:
+            else:
                 data = quantiles[
                     np.logical_and(b[:, 0] == sex_id, b[:, 1] == site_id),
                     quantile_id,
@@ -772,90 +767,6 @@ def cal_stats_for_INOCs(
 
         statistics[features[ind]].extend(biomarker_stats)
     return statistics
-
-
-# **
-# def abnormal_probability(
-#     processing_dir: str,
-#     nm_processing_dir: str,
-#     n_permutation: int = 1000,
-#     site_id: int = None,
-#     healthy_data_prefix: str = "",
-#     patient_data_prefix: str = "",
-# ):
-#     """
-#     Computes the abnormality probability index for both control and patient groups
-#     based on z-scores from normative modeling. Then calculates the AUC between
-#     these two groups and estimates the statistical significance of AUC values using
-#     permutation testing. Finally, it applies false discovery rate (FDR) correction
-#     to the p-values.
-
-#     Parameters
-#     ----------
-#     processing_dir : str
-#         Path to the directory containing z-score files.
-#     nm_processing_dir : str
-#         Path to normative modeling directory containing batch info.
-#     n_permutation : int, optional
-#         Number of permutations for statistical testing (default is 1000).
-#     site_id : int, optional
-#         If provided, filters both healthy and patient data by this site ID.
-#     healthy_data_prefix : str, optional
-#         Prefix used for healthy subject files (e.g., 'control').
-#     patient_data_prefix : str, optional
-#         Prefix used for patient subject files (e.g., 'patient').
-
-#     Returns
-#     -------
-#     p_val : np.ndarray
-#         Adjusted p-values for each biomarker based on FDR correction.
-#     auc : np.ndarray
-#         AUC values comparing abnormal probability between groups.
-#     """
-
-#     # Load z-scores
-#     with open(
-#         os.path.join(processing_dir, f"Z_{patient_data_prefix}.pkl"), "rb"
-#     ) as file:
-#         z_patient = pickle.load(file)
-#     with open(
-#         os.path.join(processing_dir, f"Z_{healthy_data_prefix}.pkl"), "rb"
-#     ) as file:
-#         z_healthy = pickle.load(file)
-
-#     # Filter by site if specified
-#     if site_id is not None:
-#         # Control group
-#         with open(os.path.join(nm_processing_dir, "b_test.pkl"), "rb") as file:
-#             b_healthy = pickle.load(file)
-#         z_healthy = z_healthy.iloc[np.where(b_healthy["site"] == site_id)[0], :]
-
-#         # Patient group
-#         with open(
-#             os.path.join(nm_processing_dir, f"{patient_data_prefix}_b_test.pkl"), "rb"
-#         ) as file:
-#             b_patient = pickle.load(file)
-#         z_patient = z_patient.iloc[np.where(b_patient["site"] == site_id)[0], :]
-
-#     # Convert z-scores to abnormal probabilities
-#     p_patient = z_to_abnormal_p(z_patient)
-#     p_healthy = z_to_abnormal_p(z_healthy)
-
-#     # Combine for AUC analysis
-#     p = np.concatenate([p_patient, p_healthy])
-#     # Assign 0 to control group and 1 to patient group as label
-#     labels = np.concatenate([np.ones(p_patient.shape[0]), np.zeros(p_healthy.shape[0])])
-
-#     # Compute AUC and p-values
-#     auc, p_val = anomaly_detection_auc(p, labels, n_permutation=n_permutation)
-
-#     # FDR correction
-#     p_val = false_discovery_control(p_val)
-
-#     return p_val, auc
-
-
-# **
 
 
 def wilcoxon_rank_test(proposed_dict, baseline_dict):

@@ -5,12 +5,13 @@ import shutil
 import json
 import logging
 import warnings
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from collections.abc import Sequence
 from typing import Literal
 import numpy as np
 import pandas as pd
 from pcntoolkit.regression_model.regression_model import RegressionModel
+from pcntoolkit.math_functions.scaler import Scaler
 from meganorm.src.normative_modeling import nm_model_train
 from .datasets import _path
 from ._metadata import normalize_ids
@@ -33,11 +34,47 @@ def _names(values, label, *, allow_empty=False):
     return values
 
 
+def _validate_scalers(input_scaler, output_scaler):
+    for label, value in (
+        ("input_scaler", input_scaler),
+        ("output_scaler", output_scaler),
+    ):
+        if not isinstance(value, str):
+            raise ValueError(f"{label} must name a supported PCNtoolkit scaler.")
+        try:
+            Scaler.from_string(value)
+        except ValueError as error:
+            raise ValueError(f"Invalid {label}: {value!r}.") from error
+
+
+def _validate_responses(responses):
+    unsafe = [
+        response
+        for response in responses
+        if response.endswith((".", " "))
+        or PureWindowsPath(response).is_reserved()
+        or any(
+            character in '<>:"/\\|?*' or ord(character) < 32 for character in response
+        )
+        or response.casefold() == "normative_model.json"
+    ]
+    if unsafe:
+        raise ValueError(
+            f"Response names must be portable model directory names; unsafe names: {unsafe}."
+        )
+    if len({response.casefold() for response in responses}) != len(responses):
+        raise ValueError(
+            "Response names must be unique ignoring case to prevent saved model overwrites."
+        )
+
+
 class NormativeModel:
     """Fit an explicitly configured PCNtoolkit regression template locally.
 
     Responses and covariates must be numeric. missing='drop' performs complete
     case filtering only over selected model columns. No imputation is applied.
+    Response names must be portable directory names, unique ignoring case and
+    distinct from normative_model.json, which stores native model metadata.
     New analyses in the same output directory warn and clear managed results
     after validation; an already fitted wrapper cannot be fitted again.
     """
@@ -73,6 +110,7 @@ class NormativeModel:
             raise ValueError("name must be nonempty.")
         if not isinstance(participant_id, str) or not participant_id.strip():
             raise ValueError("participant_id must be nonempty.")
+        _validate_scalers(input_scaler, output_scaler)
         self.output_dir = _path(output_dir)
         self.name, self.participant_id = name, participant_id
         self.input_scaler, self.output_scaler = input_scaler, output_scaler
@@ -125,9 +163,11 @@ class NormativeModel:
             raise RuntimeError(
                 "This wrapper is already fitted; create another analysis."
             )
+        _validate_scalers(self.input_scaler, self.output_scaler)
         responses = _names(
             [responses] if isinstance(responses, str) else responses, "responses"
         )
+        _validate_responses(responses)
         if set(responses) & set((*self.covariates, *self.batch_effects)):
             raise ValueError(
                 "Responses, covariates, and batch effects must not overlap."
@@ -174,6 +214,9 @@ class NormativeModel:
         else:
             train = prepared
             test = prepare(test_frame, None) if test_frame is not None else None
+        train.name = "train"
+        if test is not None:
+            test.name = "test"
         train_ids = train.subject_ids.values.astype(str).tolist()
         test_ids = (
             test.subject_ids.values.astype(str).tolist() if test is not None else []

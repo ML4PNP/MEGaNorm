@@ -44,6 +44,7 @@ class Dataset:
 
     Relative demographic and auxiliary paths are resolved against root. Device
     and line frequency follow the existing processing engine's inference rules.
+    Participant-specific auxiliary directories use the exact recording folder IDs.
     """
 
     def __init__(

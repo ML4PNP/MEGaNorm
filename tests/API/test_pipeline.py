@@ -548,3 +548,39 @@ def test_cleanup_preserves_configured_input_paths(tmp_path, cohort, monkeypatch,
     with pytest.raises(ValueError, match="managed output.*input"):
         pipeline.Pipeline(config=Config(**settings), output_dir=out).run(cohort)
     assert sentinel.read_text() == "input data"
+
+
+@pytest.mark.unit
+def test_wrong_participant_annotations_fail_before_rerun_cleanup(
+    tmp_path, cohort, monkeypatch
+):
+    from meganorm.API import pipeline
+
+    annotations = tmp_path / "annotations"
+    for participant in ["1001", "002"]:
+        path = annotations / participant / "bad.txt"
+        path.parent.mkdir(parents=True)
+        path.touch()
+    dataset = Dataset(
+        name="cohort",
+        root=cohort.root,
+        task="rest",
+        extension=".fif",
+        options={
+            "annotation_path": annotations,
+            "annotaion_task_name": "bad",
+            "annotation_ending": ".txt",
+        },
+    )
+    out = tmp_path / "out"
+    previous = out / "Features" / "all_features.csv"
+    previous.parent.mkdir(parents=True)
+    previous.write_text("previous features")
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Processing began with another participant's annotation file")
+
+    monkeypatch.setattr(pipeline, "process_participant", forbidden)
+    with pytest.raises(FileNotFoundError, match="annotation.*cohort.*001"):
+        pipeline.Pipeline(config=Config(), output_dir=out).run(dataset)
+    assert previous.read_text() == "previous features"

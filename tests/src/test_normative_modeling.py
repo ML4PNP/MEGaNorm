@@ -9,6 +9,244 @@ import pytest
 from meganorm.src import normative_modeling as nm
 
 
+@pytest.mark.integration
+def test_compute_idp_centile_keeps_original_age_units_for_real_fitted_model():
+    from pcntoolkit import BLR, NormData, NormativeModel
+
+    frame = pd.DataFrame(
+        {
+            "age": np.linspace(20, 80, 20),
+            "site": ["A"] * 20,
+            "roi": np.linspace(1, 3, 20) + 0.01 * np.sin(np.arange(20)),
+        }
+    )
+    data = NormData.from_dataframe(
+        "train",
+        frame,
+        covariates=["age"],
+        response_vars=["roi"],
+        batch_effects=["site"],
+    )
+    model = NormativeModel(
+        template_regression_model=BLR(),
+        savemodel=False,
+        saveresults=False,
+        saveplots=False,
+        evaluate_model=False,
+    )
+    model.fit(data)
+
+    ages, centiles, *_ = nm.compute_idp_centile(
+        model, "roi", upper_limit=60, scale_centiles=False
+    )
+
+    assert ages[0] == pytest.approx(20)
+    assert 59 < ages[-1] <= 60
+    assert len(ages) == len(centiles)
+    assert np.isfinite(centiles).all()
+
+
+@pytest.mark.integration
+def test_prepare_nm_data_supports_released_pcntoolkit_defaults():
+    frame = pd.DataFrame(
+        {
+            "subject": ["s0", "s1", "s2"],
+            "age": [20, 30, 40],
+            "site": ["A"] * 3,
+            "roi": [1.0, 2.0, 3.0],
+        }
+    )
+
+    data = nm.prepare_nm_data(
+        frame, ["roi"], ["age"], ["site"], "subject", train_split_size=None
+    )
+
+    np.testing.assert_array_equal(data.Y.values[:, 0], [1.0, 2.0, 3.0])
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("strategy", ["mean", "median"])
+def test_prepare_nm_data_imputation_uses_only_training_donors(monkeypatch, strategy):
+    from pcntoolkit import NormData
+    from sklearn.model_selection import train_test_split
+
+    # Ignore the unsupported legacy outlier keywords so the regression isolates
+    # imputation leakage while retaining the real PCNtoolkit dataset and split.
+    class ReleasedBoundary:
+        @staticmethod
+        def from_dataframe(**kwargs):
+            for key in (
+                "remove_outliers_approach",
+                "remove_outliers_group_by",
+                "iqr_factor",
+            ):
+                kwargs.pop(key, None)
+            return NormData.from_dataframe(**kwargs)
+
+    monkeypatch.setattr(nm, "NormData", ReleasedBoundary)
+    train_idx, test_idx = train_test_split(
+        np.arange(12), test_size=0.5, random_state=42, stratify=np.zeros(12)
+    )
+    frame = pd.DataFrame(
+        {
+            "subject": [f"s{i}" for i in range(12)],
+            "age": [30.0] * 12,
+            "site": ["A"] * 12,
+            "roi": np.zeros(12),
+        }
+    )
+    frame.loc[train_idx, "roi"] = [10, 20, 30, 40, 50, np.nan]
+    frame.loc[test_idx, "roi"] = [999, 999, 999, 999, 999, np.nan]
+
+    train, test = nm.prepare_nm_data(
+        frame,
+        ["roi"],
+        ["age"],
+        ["site"],
+        "subject",
+        train_split_size=0.5,
+        missing_value_handling_method=strategy,
+        subject_removal_nan_thr=0.5,
+    )
+
+    for split, missing_idx in ((train, train_idx[-1]), (test, test_idx[-1])):
+        row = np.flatnonzero(split.subject_ids.values == f"s{missing_idx}")[0]
+        assert split.Y.values[row, 0] == pytest.approx(30.0)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("approach", ["iqr", "zscore"])
+def test_prepare_nm_data_released_pcntoolkit_filters_outliers(approach):
+    frame = pd.DataFrame(
+        {
+            "subject": [f"s{i}" for i in range(12)],
+            "age": np.arange(20, 32),
+            "site": ["A"] * 12,
+            "roi": [*range(11), 100],
+        }
+    )
+
+    data = nm.prepare_nm_data(
+        frame,
+        ["roi"],
+        ["age"],
+        ["site"],
+        "subject",
+        train_split_size=None,
+        remove_outliers=True,
+        iqr_factor=1.5,
+        remove_outliers_approach=approach,
+    )
+
+    assert "s11" not in data.subject_ids.values
+    assert len(data.subject_ids) == 11
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "approach,native_approach", [("iqr", "iqr"), ("zscore", "z-score")]
+)
+@pytest.mark.parametrize(
+    "groups,native_groups",
+    [
+        ("site", ["site"]),
+        (["site"], ["site"]),
+        (["site", "sex"], ["site", "sex"]),
+        (None, None),
+    ],
+)
+def test_prepare_nm_data_supports_extended_pcntoolkit_outlier_contract(
+    monkeypatch, approach, native_approach, groups, native_groups
+):
+    from pcntoolkit import NormData
+
+    # The editable interface has these stricter arguments. Keep the actual
+    # released dataset construction and outlier removal behind that boundary.
+    class ExtendedBoundary:
+        @staticmethod
+        def from_dataframe(
+            *,
+            remove_outliers_approach="z-score",
+            remove_outliers_group_by=None,
+            iqr_factor=1.5,
+            **kwargs,
+        ):
+            if remove_outliers_group_by:
+                missing = [
+                    column
+                    for column in remove_outliers_group_by
+                    if column not in kwargs["dataframe"].columns
+                ]
+                if missing:
+                    raise ValueError(f"Outlier grouping columns not found: {missing}")
+            if remove_outliers_approach not in {"iqr", "z-score"}:
+                raise ValueError("Outlier approach must be 'iqr' or 'z-score'.")
+            assert remove_outliers_group_by == native_groups
+            assert remove_outliers_approach == native_approach
+            assert iqr_factor == 1.5
+            return NormData.from_dataframe(**kwargs)
+
+    monkeypatch.setattr(nm, "NormData", ExtendedBoundary)
+    frame = pd.DataFrame(
+        {
+            "subject": [f"s{i}" for i in range(12)],
+            "age": np.arange(20, 32),
+            "site": ["A"] * 12,
+            "sex": [0] * 12,
+            "roi": [*range(11), 100],
+        }
+    )
+
+    data = nm.prepare_nm_data(
+        frame,
+        ["roi"],
+        ["age"],
+        ["site"],
+        "subject",
+        train_split_size=None,
+        remove_outliers=True,
+        remove_outliers_approach=approach,
+        remove_outliers_group_by=groups,
+        iqr_factor=1.5,
+    )
+
+    assert data.subject_ids.values.tolist() == [f"s{i}" for i in range(11)]
+    np.testing.assert_array_equal(data.Y.values[:, 0], np.arange(11))
+
+
+@pytest.mark.integration
+def test_prepare_nm_data_split_outlier_bounds_come_from_training():
+    from sklearn.model_selection import train_test_split
+
+    train_idx, test_idx = train_test_split(
+        np.arange(12), test_size=0.5, random_state=42, stratify=np.zeros(12)
+    )
+    frame = pd.DataFrame(
+        {
+            "subject": [f"s{i}" for i in range(12)],
+            "age": [30.0] * 12,
+            "site": ["A"] * 12,
+            "roi": np.zeros(12),
+        }
+    )
+    frame.loc[train_idx, "roi"] = np.arange(6)
+    frame.loc[test_idx, "roi"] = [2, 999, 999, 999, 999, 999]
+
+    train, test = nm.prepare_nm_data(
+        frame,
+        ["roi"],
+        ["age"],
+        ["site"],
+        "subject",
+        train_split_size=0.5,
+        remove_outliers=True,
+        iqr_factor=1.5,
+    )
+
+    assert set(train.subject_ids.values) == set(frame.loc[train_idx, "subject"])
+    assert test.subject_ids.values.tolist() == [f"s{test_idx[0]}"]
+
+
 class RecordingNormData:
     """Small boundary double for inspecting data passed to PCNtoolkit."""
 
@@ -486,7 +724,7 @@ def test_prepare_nm_data_forwards_outlier_configuration(recording_norm_data):
     boundary = result.from_dataframe_kwargs
     assert boundary["remove_outliers"] is True
     assert boundary["remove_outliers_approach"] == "iqr"
-    assert boundary["remove_outliers_group_by"] == "site"
+    assert boundary["remove_outliers_group_by"] == ["site"]
     assert boundary["iqr_factor"] == pytest.approx(2.5)
 
 
@@ -568,6 +806,7 @@ def test_model_diagnostics_collects_and_saves_real_arviz_summaries(tmp_path):
 
     saved = pd.read_csv(save_path / "models_diagnosis.csv", index_col=0)
     pd.testing.assert_frame_equal(saved, result, check_dtype=False)
+
 
 class RecordingNormativeModel:
     instances = []
@@ -830,42 +1069,69 @@ def test_anova_group_level_effect_isolates_invalid_response_column():
     assert result["roi"]["np2"] is not None
     assert result["label"] == {"p_val": None, "np2": None}
 
+
 @pytest.mark.unit
 def test_training_default_return_stays_none(tmp_path, recording_training_boundaries):
     result = nm.nm_model_train(
-        train=SimpleNamespace(response_vars=['roi']), test=None,
-        project_dir=tmp_path, experiment_name='test',
-        template_regression_model='template', model_name='model',
+        train=SimpleNamespace(response_vars=["roi"]),
+        test=None,
+        project_dir=tmp_path,
+        experiment_name="test",
+        template_regression_model="template",
+        model_name="model",
     )
     assert result is None
 
 
 @pytest.mark.unit
-def test_training_returns_constructed_model_on_opt_in(tmp_path, recording_training_boundaries):
+def test_training_returns_constructed_model_on_opt_in(
+    tmp_path, recording_training_boundaries
+):
     result = nm.nm_model_train(
-        train=SimpleNamespace(response_vars=['roi']), test=None,
-        project_dir=tmp_path, experiment_name='test',
-        template_regression_model='template', model_name='model', return_model=True,
+        train=SimpleNamespace(response_vars=["roi"]),
+        test=None,
+        project_dir=tmp_path,
+        experiment_name="test",
+        template_regression_model="template",
+        model_name="model",
+        return_model=True,
     )
     assert result is RecordingNormativeModel.instances[-1]
     assert result.fit_call is not None
 
 
 @pytest.mark.unit
-def test_parallel_return_model_rejected_before_submission(tmp_path, recording_training_boundaries):
-    with pytest.raises(ValueError, match='return_model'):
+def test_parallel_return_model_rejected_before_submission(
+    tmp_path, recording_training_boundaries
+):
+    with pytest.raises(ValueError, match="return_model"):
         nm.nm_model_train(
-            train=SimpleNamespace(response_vars=['roi']), test=None,
-            project_dir=tmp_path, experiment_name='test',
-            template_regression_model='template', model_name='model',
-            if_parallel=True, return_model=True,
+            train=SimpleNamespace(response_vars=["roi"]),
+            test=None,
+            project_dir=tmp_path,
+            experiment_name="test",
+            template_regression_model="template",
+            model_name="model",
+            if_parallel=True,
+            return_model=True,
         )
     assert not RecordingRunner.instances
 
+
 @pytest.mark.unit
-def test_training_can_disable_native_results_when_evaluation_off(tmp_path, recording_training_boundaries):
-    model=nm.nm_model_train(train=SimpleNamespace(response_vars=['roi']),test=None,
-        project_dir=tmp_path,experiment_name='test',template_regression_model='template',model_name='model',
-        if_evaluate_models=False,return_model=True,save_results=False)
-    assert model.kwargs['saveresults'] is False
-    assert model.kwargs['evaluate_model'] is False
+def test_training_can_disable_native_results_when_evaluation_off(
+    tmp_path, recording_training_boundaries
+):
+    model = nm.nm_model_train(
+        train=SimpleNamespace(response_vars=["roi"]),
+        test=None,
+        project_dir=tmp_path,
+        experiment_name="test",
+        template_regression_model="template",
+        model_name="model",
+        if_evaluate_models=False,
+        return_model=True,
+        save_results=False,
+    )
+    assert model.kwargs["saveresults"] is False
+    assert model.kwargs["evaluate_model"] is False

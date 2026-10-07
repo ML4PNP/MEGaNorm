@@ -12,6 +12,8 @@ import json
 import sys
 import os
 import re
+import inspect
+from sklearn.model_selection import train_test_split
 
 
 def impute_by_subgroup(
@@ -22,6 +24,8 @@ def impute_by_subgroup(
     imputation_con_var_window=5,
     strategy="mean",
     customized_age_window=None,
+    *,
+    reference_df=None,
 ):
     """
     Impute missing values in numeric columns using subgroup- and
@@ -59,6 +63,10 @@ def impute_by_subgroup(
     customized_age_window : dict or None, optional
         Mapping from site name to an additional window width added to
         `imputation_con_var_window` for that site. Default is None.
+    reference_df : pandas.DataFrame or None, optional
+        Observed donor data used for column eligibility and imputation. Supply
+        the un-imputed training subset when transforming held-out data. If
+        None, the input dataframe supplies its own donors.
 
     Returns
     -------
@@ -79,7 +87,10 @@ def impute_by_subgroup(
     if strategy not in {"mean", "median"}:
         raise ValueError("strategy should be either 'mean' or 'median'.")
 
-    df = df.loc[:, df.isna().mean(axis=0) < subject_removal_nan_thr]
+    donors = df if reference_df is None else reference_df
+    eligible = donors.columns[donors.isna().mean(axis=0) < subject_removal_nan_thr]
+    df = df.loc[:, df.columns.isin(eligible)]
+    donors = donors.loc[:, df.columns]
 
     df_imputed = df.copy()
     agg_fn = np.nanmean if strategy == "mean" else np.nanmedian
@@ -95,32 +106,74 @@ def impute_by_subgroup(
             if pd.isna(row[col]):
 
                 # Build mask: same subgroup + within age window
-                group_mask = pd.Series([True] * len(df), index=df.index)
+                group_mask = pd.Series(True, index=donors.index)
                 for g in group_cols:
-                    group_mask &= df[g] == row[g]
+                    group_mask &= donors[g] == row[g]
 
                 window = imputation_con_var_window
                 if customized_age_window and row["site"] in customized_age_window:
                     window += customized_age_window[row["site"]]
 
-                age_mask = df[continous_cov_col].between(
+                age_mask = donors[continous_cov_col].between(
                     row[continous_cov_col] - window, row[continous_cov_col] + window
                 )
 
-                neighbors = df.loc[group_mask & age_mask, col].dropna()
+                neighbors = donors.loc[group_mask & age_mask, col].dropna()
 
                 if len(neighbors) > 0:
                     df_imputed.at[idx, col] = agg_fn(neighbors)
                 else:
                     # Fallback 1: same group, any age
-                    fallback_group = df.loc[group_mask, col].dropna()
+                    fallback_group = donors.loc[group_mask, col].dropna()
                     if len(fallback_group) > 0:
                         df_imputed.at[idx, col] = agg_fn(fallback_group)
                     else:
                         # Fallback 2: global statistic
-                        df_imputed.at[idx, col] = agg_fn(df[col].dropna())
+                        df_imputed.at[idx, col] = agg_fn(donors[col].dropna())
 
     return df_imputed
+
+
+def _filter_response_outliers(
+    frame, reference, responses, approach, group_by, iqr_factor
+):
+    """Filter responses using group bounds estimated only from reference rows.
+
+    IQR bounds are Q1/Q3 plus ``iqr_factor`` times their difference. Z-score
+    bounds use three population standard deviations from the reference mean.
+    Missing values and groups absent from the reference do not supply evidence
+    of an outlier and are left for the caller's missing-value policy.
+    """
+    if approach not in {"iqr", "zscore"}:
+        raise ValueError("remove_outliers_approach must be 'iqr' or 'zscore'.")
+    if approach == "iqr" and (not np.isfinite(iqr_factor) or iqr_factor <= 0):
+        raise ValueError("iqr_factor must be a positive finite number.")
+    keep = pd.Series(True, index=frame.index)
+    groups = [group_by] if isinstance(group_by, str) else list(group_by or [])
+    grouped = reference.groupby(groups, dropna=False) if groups else [(None, reference)]
+    for key, observed in grouped:
+        mask = pd.Series(True, index=frame.index)
+        if groups:
+            keys = key if isinstance(key, tuple) else (key,)
+            for column, value in zip(groups, keys):
+                mask &= (
+                    frame[column].isna() if pd.isna(value) else frame[column] == value
+                )
+        for response in responses:
+            values = observed[response].dropna()
+            if values.empty:
+                continue
+            if approach == "iqr":
+                q1, q3 = values.quantile([0.25, 0.75])
+                margin = iqr_factor * (q3 - q1)
+                lower, upper = q1 - margin, q3 + margin
+            else:
+                mean, margin = values.mean(), 3 * values.std(ddof=0)
+                lower, upper = mean - margin, mean + margin
+            keep &= ~(
+                mask & frame[response].notna() & ~frame[response].between(lower, upper)
+            )
+    return frame.loc[keep].copy()
 
 
 def prepare_nm_data(
@@ -150,7 +203,10 @@ def prepare_nm_data(
 
     The function supports one or more model covariates. When imputation
     is requested, `impute_by_column_name` specifies the single continuous
-    variable used to define the imputation neighbourhood.
+    variable used to define the imputation neighbourhood. When splitting,
+    imputation eligibility, donors, and response-outlier bounds are estimated
+    from the training subset only and applied to both subsets. Splits retain
+    PCNtoolkit's stratification by the combination of batch-effect columns.
 
     Parameters
     ----------
@@ -188,9 +244,11 @@ def prepare_nm_data(
     remove_outliers : bool, optional
         Whether NormData should remove response-variable outliers.
     remove_outliers_approach : str, optional
-        Outlier-removal method forwarded to NormData. Default is "iqr".
-    remove_outliers_group_by : str or None, optional
-        Column used to group observations during outlier removal.
+        Response-outlier method, ``"iqr"`` or ``"zscore"`` (three standard
+        deviations). Default is "iqr". Released PCNtoolkit versions without
+        the extended options use equivalent local filtering.
+    remove_outliers_group_by : str, list of str, or None, optional
+        Column or columns used to group observations during outlier removal.
         Default is "site".
     iqr_factor : float, optional
         IQR multiplier used for outlier detection. Default is 3.
@@ -216,15 +274,12 @@ def prepare_nm_data(
         its valid range.
     """
     if not covariate_list:
-        raise ValueError(
-            "covariate_list should contain at least one covariate."
-        )
+        raise ValueError("covariate_list should contain at least one covariate.")
 
     valid_missing_methods = {"mean", "median", None}
     if missing_value_handling_method not in valid_missing_methods:
         raise ValueError(
-            "missing_value_handling_method should be 'mean', "
-            "'median', or None."
+            "missing_value_handling_method should be 'mean', " "'median', or None."
         )
 
     if missing_value_handling_method is not None:
@@ -250,9 +305,7 @@ def prepare_nm_data(
     # Convert infinities before removing rows with invalid required data.
     df = df.replace([np.inf, -np.inf], np.nan)
 
-    required_columns = list(
-        dict.fromkeys(covariate_list + batch_effect_list)
-    )
+    required_columns = list(dict.fromkeys(covariate_list + batch_effect_list))
 
     if (
         missing_value_handling_method is not None
@@ -266,31 +319,20 @@ def prepare_nm_data(
         df = df[df["diagnosis"].isin(which_cohorts)]
 
     if excluding_ROIs:
-        excluded_columns = df.filter(
-            regex="|".join(excluding_ROIs)
-        ).columns
+        excluded_columns = df.filter(regex="|".join(excluding_ROIs)).columns
         df = df.drop(columns=excluded_columns)
 
         response_vars = [
             variable
             for variable in response_vars
-            if not any(
-                excluded_roi in variable
-                for excluded_roi in excluding_ROIs
-            )
+            if not any(excluded_roi in variable for excluded_roi in excluding_ROIs)
         ]
 
     if including_ROIs:
-        stripped_rois = [
-            re.sub(r"-(lh|rh)$", "", roi)
-            for roi in including_ROIs
-        ]
+        stripped_rois = [re.sub(r"-(lh|rh)$", "", roi) for roi in including_ROIs]
 
         required_patterns = (
-            stripped_rois
-            + batch_effect_list
-            + [subject_id_col_name]
-            + covariate_list
+            stripped_rois + batch_effect_list + [subject_id_col_name] + covariate_list
         )
 
         if (
@@ -313,6 +355,103 @@ def prepare_nm_data(
     if which_subjects:
         df = df[df[subject_id_col_name].isin(which_subjects)]
 
+    parameters = inspect.signature(NormData.from_dataframe).parameters
+    extended_outliers = "remove_outliers_approach" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+    def package(frame, name, *, remove_nan, native_outliers=False):
+        options = dict(
+            name=name,
+            dataframe=frame,
+            covariates=covariate_list,
+            batch_effects=batch_effect_list,
+            response_vars=response_vars,
+            subject_ids=subject_id_col_name,
+            remove_Nan=remove_nan,
+            remove_outliers=native_outliers,
+        )
+        if extended_outliers:
+            # The extended interface takes group lists and the name "z-score".
+            options.update(
+                remove_outliers_approach=(
+                    "z-score"
+                    if remove_outliers_approach == "zscore"
+                    else remove_outliers_approach
+                ),
+                remove_outliers_group_by=(
+                    [remove_outliers_group_by]
+                    if isinstance(remove_outliers_group_by, str)
+                    else remove_outliers_group_by
+                ),
+                iqr_factor=iqr_factor,
+            )
+        return NormData.from_dataframe(**options)
+
+    imputation_options = dict(
+        group_cols=batch_effect_list,
+        subject_removal_nan_thr=subject_removal_nan_thr,
+        continous_cov_col=impute_by_column_name,
+        imputation_con_var_window=5,
+        strategy=missing_value_handling_method,
+        customized_age_window=customized_con_var_imputation_window,
+    )
+
+    if train_split_size and (
+        missing_value_handling_method is not None or remove_outliers
+    ):
+        strata = (
+            df[batch_effect_list].astype(str).agg("".join, axis=1)
+            if batch_effect_list
+            else None
+        )
+        train_frame, test_frame = train_test_split(
+            df,
+            test_size=1 - train_split_size,
+            random_state=random_state,
+            stratify=strata,
+        )
+        if missing_value_handling_method is not None:
+            donors = train_frame.copy()
+            train_frame = impute_by_subgroup(
+                train_frame, reference_df=donors, **imputation_options
+            )
+            test_frame = impute_by_subgroup(
+                test_frame, reference_df=donors, **imputation_options
+            )
+            response_vars = [
+                variable
+                for variable in response_vars
+                if variable in train_frame.columns
+            ]
+        if remove_outliers:
+            outlier_reference = train_frame.copy()
+            train_frame = _filter_response_outliers(
+                train_frame,
+                outlier_reference,
+                response_vars,
+                remove_outliers_approach,
+                remove_outliers_group_by,
+                iqr_factor,
+            )
+            test_frame = _filter_response_outliers(
+                test_frame,
+                outlier_reference,
+                response_vars,
+                remove_outliers_approach,
+                remove_outliers_group_by,
+                iqr_factor,
+            )
+        return (
+            package(
+                train_frame, "train", remove_nan=missing_value_handling_method is None
+            ),
+            package(
+                test_frame, "test", remove_nan=missing_value_handling_method is None
+            ),
+        )
+
     if missing_value_handling_method in {"mean", "median"}:
         df = impute_by_subgroup(
             df=df,
@@ -321,32 +460,30 @@ def prepare_nm_data(
             continous_cov_col=impute_by_column_name,
             imputation_con_var_window=5,
             strategy=missing_value_handling_method,
-            customized_age_window=(
-                customized_con_var_imputation_window
-            ),
+            customized_age_window=(customized_con_var_imputation_window),
         )
 
         response_vars = [
-            variable
-            for variable in response_vars
-            if variable in df.columns
+            variable for variable in response_vars if variable in df.columns
         ]
         remove_nan = False
     else:
         remove_nan = True
 
-    reference_data = NormData.from_dataframe(
-        name=name_data,
-        dataframe=df,
-        covariates=covariate_list,
-        batch_effects=batch_effect_list,
-        response_vars=response_vars,
-        subject_ids=subject_id_col_name,
-        remove_Nan=remove_nan,
-        remove_outliers=remove_outliers,
-        remove_outliers_approach=remove_outliers_approach,
-        remove_outliers_group_by=remove_outliers_group_by,
-        iqr_factor=iqr_factor,
+    if remove_outliers and not extended_outliers:
+        df = _filter_response_outliers(
+            df,
+            df,
+            response_vars,
+            remove_outliers_approach,
+            remove_outliers_group_by,
+            iqr_factor,
+        )
+    reference_data = package(
+        df,
+        name_data,
+        remove_nan=remove_nan,
+        native_outliers=remove_outliers and extended_outliers,
     )
 
     if train_split_size:
@@ -363,7 +500,7 @@ def prepare_nm_data(
 def model_diagnostics(
     models_path,
     save_path,
-    if_loo_cv=False,  # TODO
+    if_loo_cv=False,
 ):
     """
     Collect MCMC convergence diagnostics across fitted normative models.
@@ -441,7 +578,7 @@ def nm_model_train(
     if_model_diagnosis=True,
     if_save_models=True,
     if_save_plots=True,
-    colors=None,  # TODO
+    colors=None,
     job_configs=None,
     *,
     return_model=False,
@@ -576,12 +713,6 @@ def nm_model_train(
     if return_model:
         return model
 
-    # if if_model_diagnosis:
-    #     model_diagnostics(
-    #         models_path=f"{nm_dir}/model",
-    #         save_path=os.path.join(nm_dir, "results"),
-    #     )
-
 
 def prior_predictive_check(
     idata_path,
@@ -656,7 +787,7 @@ def prior_predictive_check(
         hbr = HBR()
         hbr.is_fitted = True
     else:
-        err_msg = "Did not have time to implement for all models!"
+        err_msg = "prior_predictive_check currently only supports model='hbr'."
         raise ValueError(err_msg)
 
     hbr.from_dict(my_dict=m["model"])
@@ -711,8 +842,8 @@ def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
         Name of the response variable (imaging-derived phenotype) to
         evaluate.
     upper_limit : float, optional
-        Maximum age (in the same percentage/decade scale as the
-        model's inverse-transformed covariate) to include in the
+        Maximum age (in the same units as the model's original age
+        covariate) to include in the
         curve. Default is 80.
     scale_centiles : bool, optional
         If True, rescale the computed centile values to a 0-100 range
@@ -765,14 +896,16 @@ def compute_idp_centile(model, IDP, upper_limit=80, scale_centiles=True):
         batch_effects=list(batch_effects.keys()),
     )
     model.compute_centiles(centile_data, centiles=[0.5], recompute=True)
-    x_vals = centile_data.X.sel(covariates="age").values
-    x_vals_real = model.inscalers["age"].inverse_transform(x_vals)
+    # compute_centiles postprocesses its NormData back to the original units.
+    x_vals_real = centile_data.X.sel(covariates="age").values
     y_vals = centile_data.centiles.sel(centile=0.5, response_vars=IDP).values
 
     # Limit to upper_limit BEFORE scaling
-    mask = x_vals_real * 100 <= upper_limit
+    mask = x_vals_real <= upper_limit
     x_vals_real = x_vals_real[mask]
     y_vals = y_vals[mask]
+    if len(x_vals_real) == 0:
+        raise ValueError("upper_limit excludes every age in the fitted model range.")
 
     def scale_to_percent(values):
         lo = min(values)

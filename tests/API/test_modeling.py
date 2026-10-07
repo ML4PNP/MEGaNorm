@@ -71,6 +71,26 @@ def test_train_only_and_explicit_test_cohorts(tmp_path, model_frame):
     assert results.predictions.index.tolist() == model_frame.index[30:].tolist()
 
 
+@pytest.mark.integration
+def test_explicit_test_cohort_preserves_native_training_results(tmp_path, model_frame):
+    results = analysis(tmp_path).fit(
+        model_frame.iloc[:30],
+        test_data=model_frame.iloc[30:],
+        responses="large",
+        train_fraction=None,
+    )
+
+    for cohort, expected_ids in [
+        (results.train, model_frame.index[:30].tolist()),
+        (results.test, model_frame.index[30:].tolist()),
+    ]:
+        table = pd.read_csv(
+            results.paths["results"] / f"Z_{cohort.name}.csv",
+            dtype={"subject_ids": str},
+        )
+        assert table.subject_ids.tolist() == expected_ids
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "case",
@@ -278,3 +298,116 @@ def test_model_cleanup_warning_can_prevent_deletion(tmp_path, model_frame):
         with pytest.raises(UserWarning, match="removed"):
             runner.fit(model_frame, responses="large")
     assert previous.read_text() == "previous results"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", ["input_scaler", "output_scaler"])
+def test_invalid_scaler_is_rejected_when_constructing_the_model(tmp_path, field):
+    with pytest.raises(ValueError, match=field):
+        analysis(tmp_path, **{field: "standarize"})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", ["input_scaler", "output_scaler"])
+def test_changed_invalid_scaler_preserves_previous_results(
+    tmp_path, model_frame, field
+):
+    runner = analysis(tmp_path)
+    runner.output_dir.mkdir()
+    previous = runner.output_dir / "predictions.csv"
+    previous.write_text("previous results")
+    setattr(runner, field, "standarize")
+
+    with pytest.raises(ValueError):
+        runner.fit(model_frame, responses="large", train_fraction=None)
+
+    assert previous.read_text() == "previous results"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "response",
+    [
+        "absolute",
+        "../outside",
+        r"..\outside",
+        "nested/response",
+        r"nested\response",
+        r"C:\outside",
+        "C:outside",
+        ".",
+        "..",
+        "response\0name",
+        "Alpha:power",
+        "Alpha*power",
+        "Alpha?power",
+        "Alpha<power",
+        "Alpha>power",
+        'Alpha"power',
+        "Alpha|power",
+        "Alpha\x01power",
+        "Alpha\npower",
+        "Alpha.",
+        "Alpha ",
+        "NUL",
+        "com1.txt",
+        "LPT9",
+        "normative_model.json",
+    ],
+)
+def test_unsafe_response_paths_fail_before_cleanup_or_fitting(
+    tmp_path, model_frame, monkeypatch, response
+):
+    from meganorm.API import modeling
+
+    if response == "absolute":
+        response = str(tmp_path / "outside")
+    runner = analysis(tmp_path)
+    runner.output_dir.mkdir()
+    previous = runner.output_dir / "predictions.csv"
+    previous.write_text("previous results")
+    model_frame = model_frame.rename(columns={"large": response})
+
+    def forbidden(**kwargs):
+        pytest.fail("An unsafe response label reached the model fitter")
+
+    monkeypatch.setattr(modeling, "nm_model_train", forbidden)
+    with pytest.raises(ValueError, match="[Rr]esponse"):
+        runner.fit(model_frame, responses=response, train_fraction=None)
+
+    assert previous.read_text() == "previous results"
+    assert not (tmp_path / "outside").exists()
+
+
+@pytest.mark.unit
+def test_response_case_collisions_fail_before_cleanup_or_fitting(
+    tmp_path, model_frame, monkeypatch
+):
+    from meganorm.API import modeling
+
+    runner = analysis(tmp_path)
+    runner.output_dir.mkdir()
+    previous = runner.output_dir / "predictions.csv"
+    previous.write_text("previous results")
+    model_frame = model_frame.rename(columns={"large": "Alpha", "small": "alpha"})
+
+    def forbidden(**kwargs):
+        pytest.fail("Response filenames that differ only in case reached the fitter")
+
+    monkeypatch.setattr(modeling, "nm_model_train", forbidden)
+    with pytest.raises(ValueError, match="[Rr]esponse"):
+        runner.fit(model_frame, responses=["Alpha", "alpha"], train_fraction=None)
+
+    assert previous.read_text() == "previous results"
+
+
+@pytest.mark.integration
+def test_portable_scientific_response_name_can_be_saved(tmp_path, model_frame):
+    response = "Alpha__MEG001 [fT^2 Hz^-1]"
+    results = analysis(tmp_path).fit(
+        model_frame.rename(columns={"large": response}),
+        responses=response,
+        train_fraction=None,
+    )
+
+    assert (results.paths["model"] / response / "regression_model.json").is_file()

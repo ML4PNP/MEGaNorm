@@ -121,3 +121,33 @@ def test_literal_glob_components_cannot_reassign_recordings(tmp_path, component)
 def test_dataset_rejects_glob_paths_without_creating_illegal_files(tmp_path, character):
     with pytest.raises(ValueError, match="glob"):
         make_dataset(tmp_path / f"cohort{character}")
+
+
+@pytest.mark.unit
+def test_annotation_discovery_matches_the_complete_participant_id(tmp_path):
+    from meganorm.API.datasets import Dataset
+
+    root = tmp_path / "data"
+    for participant in ["sub-1", "sub-10"]:
+        folder = root / participant
+        folder.mkdir(parents=True)
+        (folder / "rest.fif").touch()
+    annotation = tmp_path / "annotations" / "sub-10" / "bad.txt"
+    annotation.parent.mkdir(parents=True)
+    annotation.touch()
+    dataset = Dataset(
+        name="cohort",
+        root=root,
+        task="rest",
+        extension=".fif",
+        options={
+            "annotation_path": annotation.parent.parent,
+            "annotaion_task_name": "bad",
+            "annotation_ending": ".txt",
+        },
+    )
+
+    manifest = dataset.discover().set_index("participant_id")
+
+    assert manifest.loc["sub-1", "annotation_path"] is None
+    assert manifest.loc["sub-10", "annotation_path"] == f"{annotation}*"

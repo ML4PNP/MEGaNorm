@@ -414,7 +414,7 @@ def plot_growthcharts(
     biomarker_names : list of str
         Descriptive names matching model_indices.
     site : int, optional
-        If specified, selects only data from this site. Not yet implemented.
+        Select this site's curves, including site 0. If None, average sites.
     point_num : int, optional
         Number of synthetic X points to use (default 100).
     number_of_sexs : int, optional
@@ -442,7 +442,7 @@ def plot_growthcharts(
 
     for i, idp in enumerate(model_indices):
 
-        if not site:
+        if site is None:
             data = np.concatenate(
                 [q[b[:, 0] == 0, :, idp : idp + 1], q[b[:, 0] == 1, :, idp : idp + 1]],
                 axis=2,
@@ -451,9 +451,15 @@ def plot_growthcharts(
                 num_of_sites, point_num, len(centiles_name), number_of_sexs
             )
             data = data.mean(axis=0)
-        if site:
-            raise ValueError(f"still not implmented")
-            # TODO
+        else:
+            data = np.concatenate(
+                [
+                    q[(b[:, 0] == sex) & (b[:, 1] == site), :, idp : idp + 1]
+                    for sex in (0, 1)
+                ],
+                axis=2,
+            )
+            data = data.reshape(point_num, len(centiles_name), number_of_sexs)
 
         plot_growthchart(
             x[0:point_num].squeeze(),
@@ -1976,7 +1982,6 @@ def plot_statistics_on_brain(
             )
 
             if show_parcel_contours:
-                before = set(id(c) for c in axes[row, col].collections)
                 plotting.plot_surf_contours(
                     surf_mesh=surf_mesh,
                     roi_map=labels,  # integer label array from read_annot
@@ -1987,9 +1992,6 @@ def plot_statistics_on_brain(
                     figure=fig,
                     linewidth=4.0,
                 )
-                # for collection in axes[row, col].collections:
-                #     if id(collection) not in before:
-                #         collection.set_linewidth(4.0)
 
             ax = axes[row, col]
             ax.set_facecolor((0, 0, 0, 0))  # transparent face
@@ -2005,7 +2007,6 @@ def plot_statistics_on_brain(
     fig.suptitle(title, fontsize=14, y=1.02)
     plt.tight_layout()
     if save_fig_path:
-        # plt.savefig(f"{save_fig_path}.svg")
         plt.savefig(f"{save_fig_path}.png", dpi=500)
     plt.show()
 
@@ -2146,7 +2147,6 @@ def plot_mass_metrics(
                 x_pos,
                 0,
                 label,
-                # fontweight="bold",
                 fontsize=row_label_fontsize,
                 ha="right",
                 va="bottom",
@@ -2916,7 +2916,8 @@ def psd_stage_report(
             ap_freqs = spectral_models.data.freqs
             ap_psds = np.array(
                 [
-                    10 ** gen_aperiodic(ap_freqs, spectral_models.modes.aperiodic, params)
+                    10
+                    ** gen_aperiodic(ap_freqs, spectral_models.modes.aperiodic, params)
                     for params in ap_params
                 ]
             )
@@ -2943,8 +2944,9 @@ def psd_stage_report(
                 )
                 if result.peak_converted.size:
                     full_fit_log = ap_fit_log + gen_periodic(
-                        per_freqs, spectral_models.modes.periodic,
-                        result.peak_converted.flatten()
+                        per_freqs,
+                        spectral_models.modes.periodic,
+                        result.peak_converted.flatten(),
                     )
                 else:
                     full_fit_log = ap_fit_log.copy()
