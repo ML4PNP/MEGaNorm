@@ -8,6 +8,19 @@ Detailed release notes for each version are available on the [GitHub Releases](h
 
 Changes currently under development on the `dev` branch.
 
+- Added the local scientific API under `meganorm.API`, including dataset
+  discovery, multi-dataset feature extraction, explicit normative-model fitting,
+  and aligned result tables with participant and analysis reports.
+- Continue local extraction after participant failures by default; retain an
+  explicit stop-on-error mode and collect only successful current-run outputs.
+- Validate inputs before warning and clearing managed extraction/model outputs
+  on reruns, while preserving unrelated files and protecting known inputs.
+- Retry numerically failed IRASA aperiodic fits per channel with scaling,
+  preserve original output units, and retain the spectral quality threshold.
+- Disable GEDAI by default.
+- Add API and real workflow integration tests, improve Windows path handling,
+  and document local workflows and existing SLURM execution.
+
 ## [0.2.1] - 2026-09-16
 
 - Added PSD visualization functionality.

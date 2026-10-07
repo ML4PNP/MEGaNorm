@@ -1,4 +1,5 @@
 import os
+import posixpath
 import shlex
 import time
 import shutil
@@ -114,8 +115,9 @@ def sbatchfile(
     sbatch_module = "".join(environment_setup)
 
     if log_path is not None:
-        output_log = shlex.quote(os.path.join(log_path, "%x_%j.out"))
-        error_log = shlex.quote(os.path.join(log_path, "%x_%j.err"))
+        # These paths are consumed by the Linux SLURM host, not this machine.
+        output_log = shlex.quote(posixpath.join(log_path, "%x_%j.out"))
+        error_log = shlex.quote(posixpath.join(log_path, "%x_%j.err"))
         sbatch_log_out = f"#SBATCH -o {output_log}\n"
         sbatch_log_error = f"#SBATCH -e {error_log}\n"
 
@@ -197,7 +199,7 @@ def sbatchfile(
 
     job_path = os.path.join(bash_file_path, batch_file_name + ".sh")
     # writes bash file into processing dir
-    with open(job_path, "w") as bash_file:
+    with open(job_path, "w", newline="\n") as bash_file:
         bash_file.writelines(bash_environment)
 
     # changes permissoins for bash.sh file

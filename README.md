@@ -141,6 +141,13 @@ After installation, verify that MEGaNorm can be imported:
 import meganorm
 ```
 
+The local scientific API is available from `meganorm.API` and follows
+`Dataset → Config → Pipeline → FeatureDataset → NormativeModel → NormativeResults`.
+The [Getting Started guide](docs/source/getting_started.rst) covers the complete
+workflow, processing several datasets, participant failure reports, and reruns.
+Existing low-level functions, command-line tools, and SLURM workflows remain
+available.
+
 Example workflows are also available in the [`notebooks/`](notebooks/) directory.
 
 ---
@@ -207,39 +214,25 @@ MEGaNorm is distributed under the **GNU General Public License v3.0**. See [`LIC
 
 ## Acknowledgements
 
-We gratefully acknowledge the starter grant for the **MEGaNorm** project, funded by the Dutch Ministry of Education, Culture and Science under the National Sector Plan. We further acknowledge support from the **NWA Innovative Projects within the Routes** grant (NWA.1418.24.006) and the **Small Compute Applications** grant (EINF-8659, EINF-13793, and EINF-18102) from the Dutch Research Council (NWO).
-
-We also acknowledge the computational resources and services provided by **SURF**, the collaborative organization for IT in Dutch education and research.
-
-<p align="center">
-  <a href="https://www.tilburguniversity.edu/">
-    <img src="docs/images/tilburg-university-logo.png" alt="Tilburg University" height="65">
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://www.nwo.nl/en">
-    <img src="docs/images/nwo-logo.png" alt="Dutch Research Council (NWO)" height="65">
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://www.surf.nl/en">
-    <img src="docs/images/surf-logo.png" alt="SURF" height="65">
-  </a>
-</p>
-
-## Acknowledgements
-
 We gratefully acknowledge the starter grant for the **MEGaNorm** project, funded by the Dutch Ministry of Education, Culture and Science under the National Sector Plan. We further acknowledge support from the **NWA Innovative Projects within the Routes** grant (NWA.1418.24.006) from the Dutch Research Council (NWO). This work also used the Dutch national e-infrastructure with the support of the **SURF Cooperative** (EINF-8659, EINF-13793, and EINF-18102).
 
 <p align="center">
   <a href="https://www.tilburguniversity.edu/">
-    <img src="docs/images/tilburg-university-logo.png" alt="Tilburg University" height="65">
+    <img src="docs/source/_static/tilburg-university-logo.png"
+         alt="Tilburg University"
+         height="65">
   </a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://www.nwo.nl/en">
-    <img src="docs/images/nwo-logo.jpg" alt="Dutch Research Council (NWO)" height="65">
+  <a href="https://www.nwo.nl/projecten/vqlab92202">
+    <img src="docs/source/_static/nwo-logo.jpg"
+         alt="Dutch Research Council (NWO)"
+         height="65">
   </a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://www.surf.nl/en">
-    <img src="docs/images/surf-logo.png" alt="SURF" height="65">
+    <img src="docs/source/_static/surf-logo.png"
+         alt="SURF"
+         height="65">
   </a>
 </p>
 
