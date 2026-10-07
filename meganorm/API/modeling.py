@@ -1,10 +1,12 @@
 """Data validation and local normative-model orchestration."""
 
 import copy
+import shutil
 import json
 from pathlib import Path
 from collections.abc import Sequence
 from typing import Literal
+from meganorm.API.pipeline import _LOG
 import numpy as np
 import pandas as pd
 from pcntoolkit.regression_model.regression_model import RegressionModel
@@ -202,11 +204,23 @@ class NormativeModel:
             "participants.csv",
             "analysis_summary.json",
         ]
-        for name in managed:
-            if (root / name).exists():
-                raise FileExistsError(
-                    f"Existing model output: {root/name}; use a fresh output_dir."
-                )
+        existing_outputs = [
+            root / name
+            for name in managed
+            if (root / name).exists()
+        ]
+
+        if existing_outputs:
+            _LOG.warning(
+                "Existing managed model output(s) will be overwritten: %s",
+                ", ".join(str(path) for path in existing_outputs),
+            )
+
+            for path in existing_outputs:
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
         root.mkdir(parents=True, exist_ok=True)
         model = nm_model_train(
             train=train,

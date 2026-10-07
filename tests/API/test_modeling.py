@@ -1,3 +1,4 @@
+from meganorm.API.modeling import NormativeModel
 import numpy as np
 import pandas as pd
 import pytest
@@ -22,7 +23,6 @@ def model_frame():
 
 
 def analysis(tmp_path, **kwargs):
-    from meganorm.API.modeling import NormativeModel
 
     return NormativeModel(
         estimator=BLR(),
@@ -133,10 +133,27 @@ def test_drop_records_only_selected_model_missingness(tmp_path, model_frame):
 
 
 @pytest.mark.unit
-def test_existing_model_outputs_are_not_overwritten(tmp_path, model_frame):
+def test_existing_model_outputs_are_overwritten(tmp_path, model_frame):
     output = tmp_path / "model" / "Normative_models"
     output.mkdir(parents=True)
-    (output / "sentinel").write_text("keep")
-    with pytest.raises(FileExistsError):
-        analysis(tmp_path).fit(model_frame, responses="large")
-    assert (output / "sentinel").read_text() == "keep"
+
+    sentinel = output / "sentinel"
+    sentinel.write_text("keep")
+
+    model = NormativeModel(
+        estimator=BLR(),
+        covariates=["age"],
+        batch_effects=["site"],
+        output_dir=tmp_path / "model",
+        name="test_model",
+        save_plots=False,
+    )
+
+    model.fit(
+        model_frame,
+        responses=["small"],
+        train_fraction=0.5,
+        random_state=42,
+    )
+
+    assert not sentinel.exists()
