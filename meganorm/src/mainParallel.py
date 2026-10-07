@@ -580,6 +580,10 @@ def main(args):
         np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
         np.save(f"{save_psds_path}/{args.subject}-freqs.npy", freqs)
 
+    min_peak_epochs = 1
+    if configs.lowest_num_of_epochs is not None:
+        min_peak_epochs = configs.lowest_num_of_epochs/2 + 1
+
     # ------------------------------------------------------------
     features, aperiodic_fit_result = feature_extract(
         subject_id=args.subject,
@@ -602,6 +606,7 @@ def main(args):
         peak_threshold=configs.psd_parametrization_peak_threshold,
         peak_width_limits=configs.psd_parametrization_peak_width_limits,
         min_peak_height=configs.psd_parametrization_min_peak_height,
+        min_peak_epochs=min_peak_epochs
     )
 
     for column in configs.extra_metadata_columns:

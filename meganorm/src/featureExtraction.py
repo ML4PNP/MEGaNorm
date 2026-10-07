@@ -476,6 +476,7 @@ def feature_extract(
     peak_threshold: float = 2.0,
     peak_width_limits: tuple = (1.0, 12.0),
     min_peak_height: float = 0.0,
+    min_peak_epochs: int = 1,
 ) -> pd.DataFrame:
     """
     Extract features from specparam models for each channel and frequency band.
@@ -533,6 +534,9 @@ def feature_extract(
         Allowed peak width range in Hz (IRASA only).
     min_peak_height : float, default=0.0
         Minimum peak height passed to pyrasa's `get_peaks` (IRASA only).
+    min_peak_epochs : int, default=1
+        Minimum number of epochs in which a channel must have a peak in a
+        band; otherwise its peak features are NaN (IRASA only).
 
     Returns
     -------
@@ -586,6 +590,7 @@ def feature_extract(
                 peak_threshold=peak_threshold,
                 peak_width_limits=peak_width_limits,
                 min_peak_height=min_peak_height,
+                min_epochs=min_peak_epochs,
             )
 
     for channel_num, channel_name in enumerate(channel_names):
@@ -1254,6 +1259,7 @@ def average_peaks_across_epochs(
     peak_threshold=2.0,
     peak_width_limits=(1.0, 12.0),
     min_peak_height=0.0,
+    min_epochs=1,
 ):
     """
     Detect peaks in each epoch, keep the strongest peak per channel per epoch,
@@ -1271,12 +1277,15 @@ def average_peaks_across_epochs(
         Allowed peak width range in Hz.
     min_peak_height : float, default=0.0
         Minimum peak height passed to `get_peaks`.
+    min_epochs : int, default=1
+        Minimum number of epochs in which a channel must have a peak
+        in the band. Channels below this get NaN.
 
     Returns
     -------
     pd.DataFrame or None
         One row per channel (index: ch_name) with averaged cf, pw, bw.
-        Channels without any peak in the band are absent.
+        NaN for channels with a peak in fewer than `min_epochs` epochs.
         None if peak detection failed in every epoch.
     """
     all_peaks = []
@@ -1302,9 +1311,18 @@ def average_peaks_across_epochs(
 
     # Peaks inside the band only
     peaks = peaks[peaks["cf"].between(fmin, fmax)].dropna(subset=["cf", "pw", "bw"])
+    # Peak power in natural log space
+    peaks["pw"] = np.log(peaks["pw"])
 
     # 1. One peak per channel per epoch: the strongest
     strongest = peaks.sort_values("pw").groupby(["ch_name", "epoch"]).tail(1)
 
     # 2. Average across epochs, per channel
-    return strongest.groupby("ch_name")[["cf", "pw", "bw"]].mean()
+    by_channel = strongest.groupby("ch_name")
+    averaged = by_channel[["cf", "pw", "bw"]].mean()
+
+    # 3. NaN for channels with a peak in fewer than `min_epochs` epochs
+    averaged.loc[by_channel.size() < min_epochs] = np.nan
+
+    # Include every channel, also those without any peak (NaN)
+    return averaged.reindex(periodic.ch_names)
