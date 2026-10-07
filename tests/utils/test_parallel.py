@@ -1,4 +1,5 @@
 import inspect
+import json
 import ntpath
 import os
 import subprocess
@@ -277,7 +278,7 @@ def test_check_user_jobs_parses_supported_states_and_suffixes(monkeypatch):
             "103|finished|COMPLETED",
             "104|broken|FAILED",
             "105|stopped|CANCELLED by 12345",
-            "106|unknown|TIMEOUT",
+            "106|timed-out|TIMEOUT",
             "malformed",
         ]
     )
@@ -294,10 +295,10 @@ def test_check_user_jobs_parses_supported_states_and_suffixes(monkeypatch):
         "PENDING": 1,
         "RUNNING": 1,
         "COMPLETED": 1,
-        "FAILED": 1,
+        "FAILED": 2,
         "CANCELLED": 1,
     }
-    assert failed == ["broken"]
+    assert failed == ["broken", "stopped", "timed-out"]
     assert ok is True
     command, kwargs = calls[0]
     assert command[:6] == ["sacct", "-n", "-X", "--parsable2", "--noheader", "-S"]
@@ -556,3 +557,287 @@ def test_sbatchfile_writes_linux_line_endings_on_windows_host(monkeypatch, tmp_p
     script = Path(parallel.sbatchfile("/project/mainParallel.py", str(tmp_path)))
     assert b"\r\n" not in script.read_bytes()
     assert script.read_bytes().startswith(b"#!/bin/bash\n")
+
+
+@pytest.mark.unit
+def test_submit_jobs_can_return_exact_job_ids(monkeypatch, tmp_path):
+    commands = []
+
+    def check_output(command, **kwargs):
+        commands.append((command, kwargs))
+        return "123;cluster\n"
+
+    monkeypatch.setattr(parallel.subprocess, "check_output", check_output)
+    start_time, job_ids = parallel.submit_jobs(
+        "/project/mainParallel.py",
+        str(tmp_path),
+        {"sub-01": _subject()},
+        str(tmp_path / "temp"),
+        return_job_ids=True,
+    )
+
+    datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S")
+    assert job_ids == {"123": "sub-01"}
+    assert commands[0][0][:3] == ["sbatch", "--parsable", "--job-name=sub-01"]
+    assert commands[0][1] == {"text": True}
+
+
+@pytest.mark.unit
+def test_check_user_jobs_filters_exact_ids_and_uses_submitted_subject_names(
+    monkeypatch,
+):
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="123|truncated-name|FAILED\n999|unrelated|FAILED\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(parallel.subprocess, "run", run)
+    counts, failed, ok = parallel.check_user_jobs(
+        "researcher", "start", job_ids={"123": "sub-very-long-name"}
+    )
+
+    assert counts["FAILED"] == 1
+    assert failed == ["sub-very-long-name"]
+    assert ok is True
+    assert "--jobs=123" in commands[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "state", ["TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "CANCELLED"]
+)
+def test_check_user_jobs_returns_terminal_failures_for_retry(monkeypatch, state):
+    monkeypatch.setattr(
+        parallel.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=f"123|sub-01|{state}\n", stderr=""
+        ),
+    )
+
+    counts, failed, ok = parallel.check_user_jobs("researcher", "start")
+
+    assert failed == ["sub-01"]
+    assert counts["FAILED"] + counts["CANCELLED"] == 1
+    assert ok is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("state", "counted_state"),
+    [
+        ("STAGE_OUT", "RUNNING"),
+        ("STOPPED", "RUNNING"),
+        ("POWER_UP_NODE", "RUNNING"),
+        ("SIGNALING", "RUNNING"),
+        ("UPDATE_DB", "RUNNING"),
+        ("EXPEDITING", "PENDING"),
+        ("RESV_DEL_HOLD", "PENDING"),
+        ("SPECIAL_EXIT", "PENDING"),
+        ("LAUNCH_FAILED", "PENDING"),
+        ("RECONFIG_FAIL", "PENDING"),
+        ("REVOKED", "PENDING"),
+        ("FUTURE_STATE", "PENDING"),
+    ],
+)
+def test_check_user_jobs_monitors_nonterminal_and_unknown_states(
+    monkeypatch, state, counted_state
+):
+    monkeypatch.setattr(
+        parallel.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=f"123|sub-01|{state}\n", stderr=""
+        ),
+    )
+
+    counts, failed, ok = parallel.check_user_jobs(
+        "researcher", "start", job_ids={"123": "sub-01"}
+    )
+
+    assert counts[counted_state] == 1
+    assert sum(counts.values()) == 1
+    assert failed == []
+    assert ok is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "state", ["SPECIAL_EXIT", "RESV_DEL_HOLD", "LAUNCH_FAILED", "FUTURE_STATE"]
+)
+def test_check_jobs_status_waits_for_terminal_after_held_or_unknown_state(
+    monkeypatch, state
+):
+    states = iter([state, "COMPLETED"])
+    sleeps = []
+    monkeypatch.setattr(
+        parallel.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=f"123|sub-01|{next(states)}\n", stderr=""
+        ),
+    )
+    monkeypatch.setattr(parallel.time, "sleep", sleeps.append)
+
+    assert (
+        parallel.check_jobs_status(
+            "researcher", "start", delay=1, job_ids={"123": "sub-01"}
+        )
+        == []
+    )
+    assert sleeps == [1]
+
+
+@pytest.mark.unit
+def test_check_jobs_status_waits_until_completing_job_is_finished(monkeypatch):
+    states = iter(["COMPLETING", "COMPLETED"])
+    sleeps = []
+    monkeypatch.setattr(
+        parallel.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=f"123|sub-01|{next(states)}\n", stderr=""
+        ),
+    )
+    monkeypatch.setattr(parallel.time, "sleep", sleeps.append)
+
+    assert parallel.check_jobs_status("researcher", "start", delay=1) == []
+    assert sleeps == [1]
+
+
+@pytest.mark.unit
+def test_check_jobs_status_waits_for_submitted_job_to_appear_in_accounting(monkeypatch):
+    outputs = iter(["", "123|sub-01|COMPLETED\n"])
+    sleeps = []
+    monkeypatch.setattr(
+        parallel.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=next(outputs), stderr=""
+        ),
+    )
+    monkeypatch.setattr(parallel.time, "sleep", sleeps.append)
+
+    assert (
+        parallel.check_jobs_status(
+            "researcher", "start", delay=1, job_ids={"123": "sub-01"}
+        )
+        == []
+    )
+    assert sleeps == [1]
+
+
+@pytest.fixture
+def isolated_feature_driver(monkeypatch, tmp_path):
+    parallel.set_path(str(tmp_path))
+    config_path = tmp_path / "config.json"
+    parallel.Config().save(config_path)
+    params = {
+        "mainParallel_path": "/project/mainParallel.py",
+        "project_dir": str(tmp_path),
+        "datasets": {"demo": {"surfaces_dir": "/surfaces"}},
+        "job_configs": {},
+        "config_file_path": str(config_path),
+        "auto_collect": False,
+        "auto_rerun": False,
+    }
+    params_path = tmp_path / "Features" / "Configurations" / "runner_params.json"
+    params_path.write_text(json.dumps(params))
+    submissions = []
+    queries = []
+
+    def submit(*args, **kwargs):
+        subjects = args[2]
+        submissions.append(subjects)
+        return "start", {str(i): subject for i, subject in enumerate(subjects, 1)}
+
+    def check(*args, **kwargs):
+        queries.append(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        parallel, "merge_datasets_with_glob", lambda datasets: {"sub-01": _subject()}
+    )
+    monkeypatch.setattr(parallel, "submit_jobs", submit)
+    monkeypatch.setattr(parallel, "check_jobs_status", check)
+    return params, params_path, submissions, queries
+
+
+@pytest.mark.unit
+def test_auto_parallel_driver_can_run_again_from_persisted_parameters(
+    isolated_feature_driver,
+):
+    params, params_path, submissions, queries = isolated_feature_driver
+
+    assert parallel.auto_parallel_feature_extraction(**params) == []
+    assert (
+        parallel.auto_parallel_feature_extraction(**json.loads(params_path.read_text()))
+        == []
+    )
+    assert len(submissions) == 2
+    assert "subjects" not in json.loads(params_path.read_text())
+    assert queries == [{"job_ids": {"1": "sub-01"}}] * 2
+
+
+@pytest.mark.unit
+def test_load_runner_params_accepts_legacy_runtime_subjects_and_missing_script(
+    tmp_path,
+):
+    params_path = tmp_path / "runner_params.json"
+    params_path.write_text(
+        json.dumps({"project_dir": "/project", "subjects": {"sub-01": {}}})
+    )
+
+    params = parallel._load_runner_params(params_path)
+
+    assert "subjects" not in params
+    assert params["mainParallel_path"] == os.path.abspath(
+        parallel.meganorm.src.mainParallel.__file__
+    )
+
+
+@pytest.mark.unit
+def test_auto_parallel_excludes_subject_when_no_subject_passes_mri_qc(
+    monkeypatch,
+    isolated_feature_driver,
+):
+    params, _, submissions, _ = isolated_feature_driver
+    parallel.Config(apply_source_localization=True, apply_mri_QC=True).save(
+        params["config_file_path"], overwrite=True
+    )
+    monkeypatch.setattr(
+        parallel.meganorm.utils.freesurfer,
+        "freesurfer_QC",
+        lambda path: ([], ["sub-01"], []),
+    )
+
+    assert parallel.auto_parallel_feature_extraction(**params) == []
+    assert submissions == [{}]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("index_name", [None, "participant_id"])
+def test_collect_results_preserves_leading_zero_ids_across_append(tmp_path, index_name):
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    target = tmp_path / "features"
+    for subject, value in [("001", 1.0), ("010", 2.0)]:
+        pd.DataFrame(
+            {"feature": [value]}, index=pd.Index([subject], name=index_name)
+        ).to_csv(temp / f"{subject}.csv")
+    subjects = {"001": {}, "010": {}}
+    parallel.collect_results(str(target), subjects, str(temp), clean=False)
+    pd.DataFrame({"feature": [3.0]}, index=pd.Index(["001"], name=index_name)).to_csv(
+        temp / "001.csv"
+    )
+    parallel.collect_results(str(target), {"001": {}}, str(temp), clean=False)
+
+    result = pd.read_csv(target / "features.csv", dtype={0: str, "subject": str})
+    assert result.iloc[:, 0].tolist() == ["010", "001"]
+    assert result["subject"].tolist() == ["010", "001"]
+    assert result["feature"].tolist() == [2.0, 3.0]

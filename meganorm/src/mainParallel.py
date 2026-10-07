@@ -93,9 +93,7 @@ def main_argparser(args=None):
     parser.add_argument("dir", type=str, help="Address to your data")
     parser.add_argument("save_dir", type=str, help="Where to save extracted features")
     parser.add_argument("subject", type=str, help="Participant ID")
-    parser.add_argument(
-        "configs", type=str
-    )  # TODO: make it optional for both sequential and parallel computing
+    parser.add_argument("configs", type=str)
     # Optional arguments
     parser.add_argument(
         "--line_freq",
@@ -269,6 +267,7 @@ def main(args):
     """
     # parse the arguments
     args = main_argparser(args)
+    os.makedirs(args.save_dir, exist_ok=True)
     logger = set_logger(args, ["mne", "numexpr", "dipy"])
 
     start_time = datetime.now()
@@ -430,11 +429,8 @@ def main(args):
             "Preprocessed_data",
             args.subject,
         )
+        os.makedirs(os.path.dirname(save_prep_path), exist_ok=True)
         filtered_data.save(f"{save_prep_path}_preproc-raw.fif", overwrite=True)
-
-    # Remove UADC001 annotations - temp
-    annot = filtered_data.annotations
-    filtered_data.set_annotations(annot[annot.description != "UADC001"])
 
     # ------------------------------------------------------------
     if configs.bad_segment_removal_method in [None, "fixed_thr"]:
@@ -475,7 +471,6 @@ def main(args):
             random_state=configs.random_state,
             segment_events=segment_events,
         )
-
 
     # ------------------------------------------------------------
     if configs.save_segmented_data:
@@ -533,8 +528,7 @@ def main(args):
             save_epoch_path = os.path.join(
                 Path(args.save_dir).parent, "Saved_outputs", "Epochs", args.subject
             )
-            if not os.path.exists(save_epoch_path):
-                os.mkdir(save_epoch_path)
+            os.makedirs(save_epoch_path, exist_ok=True)
             segments.save(
                 f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True
             )
@@ -570,7 +564,7 @@ def main(args):
 
     min_peak_epochs = 1
     if configs.lowest_num_of_epochs is not None:
-        min_peak_epochs = configs.lowest_num_of_epochs/2 + 1
+        min_peak_epochs = configs.lowest_num_of_epochs / 2 + 1
 
     # ------------------------------------------------------------
     features, aperiodic_fit_result = feature_extract(
@@ -594,7 +588,7 @@ def main(args):
         peak_threshold=configs.psd_parametrization_peak_threshold,
         peak_width_limits=configs.psd_parametrization_peak_width_limits,
         min_peak_height=configs.psd_parametrization_min_peak_height,
-        min_peak_epochs=min_peak_epochs
+        min_peak_epochs=min_peak_epochs,
     )
 
     for column in configs.extra_metadata_columns:

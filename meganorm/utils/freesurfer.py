@@ -6,6 +6,7 @@ import subprocess
 import argparse
 import pickle
 import re
+import shlex
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -133,9 +134,9 @@ def create_slurm_script(
     os.makedirs(results_dir, exist_ok=True)
 
     recon_all_command = (
-        f"recon-all -s ${{SUBJECT_ID}} -i ${{VOLUME}} -all"
+        'recon-all -s "${SUBJECT_ID}" -i "${VOLUME}" -all'
         if i_option
-        else f"recon-all -s ${{SUBJECT_ID}} -all -no-isrunning"
+        else 'recon-all -s "${SUBJECT_ID}" -all -no-isrunning'
     )
 
     script_content = f"""#!/bin/bash
@@ -145,18 +146,20 @@ def create_slurm_script(
 #SBATCH --cpus-per-task={cpus_per_task}
 #SBATCH --mem={mem}
 #SBATCH --time={time}
-#SBATCH --output={log_path}/%x_%j.log
-#SBATCH --error={log_path}/%x_%j.err
+#SBATCH --output={shlex.quote(os.path.join(log_path, '%x_%j.log'))}
+#SBATCH --error={shlex.quote(os.path.join(log_path, '%x_%j.err'))}
+
+set -e
 
 # FreeSurfer env (from resolved path or $FREESURFER_HOME)
-export FREESURFER_HOME={fs_home}
-source $FREESURFER_HOME/SetUpFreeSurfer.sh
+export FREESURFER_HOME={shlex.quote(fs_home)}
+source "$FREESURFER_HOME/SetUpFreeSurfer.sh"
 
 # Output root (BIDS derivatives by default)
-export SUBJECTS_DIR={results_dir}
+export SUBJECTS_DIR={shlex.quote(results_dir)}
 
 # Input T1
-VOLUME="{t1_path}"
+VOLUME={shlex.quote(t1_path)}
 
 # Keep BIDS subject id as-is (e.g., sub-01)
 SUBJECT_ID="$1"
@@ -223,11 +226,9 @@ def run_parallel_reconall(
       only those subjects are considered.
     - If selected_sessions is provided:
       only matching sessions are considered.
-    - If first_session_only=True and selected_sessions=None:
-      only the first discovered T1/session is used per subject.
-    - If session_specific_subject_ids=True:
-      FreeSurfer subject IDs become session-specific (e.g. sub-01_ses-01).
-      This is recommended when processing multiple sessions separately.
+    - Without selected_sessions, only the first discovered T1 is used.
+    - When sessions are selected, each T1 is processed under its job label
+      (e.g. sub-01_ses-01), including its run label when present.
 
     Returns
     -------

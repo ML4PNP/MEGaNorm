@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -99,8 +100,8 @@ def test_prepare_mri_data_moves_flat_nii_files_into_subject_anat(tmp_path):
 @pytest.mark.parametrize(
     ("i_option", "expected_command"),
     [
-        (True, "recon-all -s ${SUBJECT_ID} -i ${VOLUME} -all"),
-        (False, "recon-all -s ${SUBJECT_ID} -all -no-isrunning"),
+        (True, 'recon-all -s "${SUBJECT_ID}" -i "${VOLUME}" -all'),
+        (False, 'recon-all -s "${SUBJECT_ID}" -all -no-isrunning'),
     ],
 )
 def test_create_slurm_script_writes_executable_job(
@@ -138,7 +139,7 @@ def test_create_slurm_script_writes_executable_job(
     assert "#SBATCH --time=12:00:00" in content
     assert "export FREESURFER_HOME=/opt/freesurfer" in content
     assert f"export SUBJECTS_DIR={results}" in content
-    assert f'VOLUME="{t1}"' in content
+    assert f"VOLUME={t1}" in content
     assert expected_command in content
 
 
@@ -152,6 +153,50 @@ def test_create_slurm_script_rejects_missing_t1(tmp_path):
             str(tmp_path / "processing"),
             "/opt/freesurfer",
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_generated_reconall_script_preserves_paths_and_failure_status(
+    tmp_path, exit_code
+):
+    fs_home = tmp_path / "Free Surfer"
+    fs_home.mkdir()
+    (fs_home / "SetUpFreeSurfer.sh").write_text("export FS_SETUP_RAN=yes\n")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    recon_all = fake_bin / "recon-all"
+    capture = tmp_path / "arguments.txt"
+    recon_all.write_text(
+        '#!/bin/bash\nprintf "%s\\n" "$FS_SETUP_RAN" "$SUBJECTS_DIR" "$@" > "$CAPTURE"\n'
+        f"exit {exit_code}\n"
+    )
+    recon_all.chmod(0o755)
+    t1 = _write_t1(tmp_path / "input files" / "subject scan.nii.gz")
+    results = tmp_path / "output files"
+    script = fs.create_slurm_script(
+        str(t1), "sub-01", str(results), str(tmp_path / "processing"), str(fs_home)
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "CAPTURE": str(capture),
+    }
+
+    result = subprocess.run(
+        ["bash", script, "sub-01"], env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode == exit_code
+    assert capture.read_text().splitlines() == [
+        "yes",
+        str(results),
+        "-s",
+        "sub-01",
+        "-i",
+        str(t1),
+        "-all",
+    ]
 
 
 @pytest.mark.unit

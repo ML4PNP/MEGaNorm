@@ -137,7 +137,6 @@ def sbatchfile(
     sbatch_input_14 = 'layout_path="${14}"\n'
     sbatch_input_15 = 'demographic_path="${15}"\n'
 
-    # if with_config:
     command = (
         "srun --cpus-per-task="
         + str(core)
@@ -145,13 +144,6 @@ def sbatchfile(
         + shlex.quote(mainParallel_path)
         + ' "$source" "$target" "$subject" "$config"'
     )
-    # command = (
-    #     "srun --cpus-per-task="
-    #     + str(core)
-    #     + " xvfb-run -a --server-args='-screen 0 1920x1080x24' python "
-    #     + mainParallel_path
-    #     + " $source $target $subject $config"
-    # )
 
     command += ' --line_freq "$line_freq"'
     command += ' --surfaces_dir "$surfaces_dir"'
@@ -218,6 +210,7 @@ def submit_jobs(
     progress=False,
     freesurfer_home=None,
     freesurfer_license=None,
+    return_job_ids=False,
 ):
     """
     Submits jobs for each subject to the SLURM cluster for parallel execution.
@@ -241,11 +234,15 @@ def submit_jobs(
         Defaults to None, in which case default configurations will be used.
     progress : bool, optional
         Whether to show a progress bar during job submission. Default is False.
+    return_job_ids : bool, optional
+        Return the start time and a mapping of submitted SLURM job IDs to
+        subject names. The default returns only the start time.
 
     Returns
     -------
-    str
-        The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
+    str or tuple[str, dict[str, str]]
+        Submission start time, formatted as 'YYYY-MM-DDTHH:MM:SS', and
+        optionally the submitted job IDs.
     """
 
     def add_argument(command, value):
@@ -281,12 +278,10 @@ def submit_jobs(
         batch_file_name=job_configs["batch_file_name"],
         freesurfer_home=freesurfer_home,
         freesurfer_license=freesurfer_license,
-        # with_config=config_file is not None,
-        # with_source_localization=surfaces_dir is not None,
-        # with_empty_room_recording=empty_room_recording is not None
     )
 
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    job_ids = {}
 
     for s, subject in enumerate(subjects.keys()):
 
@@ -328,15 +323,23 @@ def submit_jobs(
         ):
             add_argument(command, value)
 
-        subprocess.check_call(command)
+        if return_job_ids:
+            command.insert(1, "--parsable")
+            output = subprocess.check_output(command, text=True)
+            job_id = output.strip().split(";")[0]
+            if not job_id.isdigit():
+                raise RuntimeError(f"Unexpected sbatch job ID: {output.strip()!r}")
+            job_ids[job_id] = subject
+        else:
+            subprocess.check_call(command)
 
         if progress:
             progress_bar(s + 1, len(subjects))
 
-    return start_time
+    return (start_time, job_ids) if return_job_ids else start_time
 
 
-def check_jobs_status(username, start_time, delay=20):
+def check_jobs_status(username, start_time, delay=20, job_ids=None):
     """
     Checks the status of submitted jobs to the SLURM cluster.
 
@@ -348,6 +351,9 @@ def check_jobs_status(username, start_time, delay=20):
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
     delay : int, optional
         The delay, in seconds, between each status check. Default is 20 seconds.
+    job_ids : dict[str, str] or None, optional
+        Submitted job IDs mapped to their subject names. When provided, only
+        those jobs are monitored.
 
     Returns
     -------
@@ -357,7 +363,12 @@ def check_jobs_status(username, start_time, delay=20):
     failed_job_names = []
 
     while True:
-        job_counts, failed_job_names, ok = check_user_jobs(username, start_time)
+        if job_ids is None:
+            job_counts, failed_job_names, ok = check_user_jobs(username, start_time)
+        else:
+            job_counts, failed_job_names, ok = check_user_jobs(
+                username, start_time, job_ids=job_ids
+            )
 
         if not ok:
             # The sacct query itself failed (nonzero return or exception).
@@ -381,7 +392,7 @@ def check_jobs_status(username, start_time, delay=20):
     return failed_job_names
 
 
-def check_user_jobs(username, start_time):
+def check_user_jobs(username, start_time, job_ids=None):
     """
     Count the status of jobs submitted to the SLURM scheduler.
 
@@ -392,10 +403,16 @@ def check_user_jobs(username, start_time):
     start_time : str
         The start time for the batch job submission, formatted as 'YYYY-MM-DDTHH:MM:SS'.
 
+    job_ids : dict[str, str] or None, optional
+        Submitted job IDs mapped to their subject names. When provided, only
+        those jobs are counted, and failures use the original subject names.
+
     Returns
     -------
     status_counts : dict
-        Number of jobs in each SLURM state.
+        Counts in the existing pending, running, completed, failed and
+        cancelled categories. Nonterminal flags and unrecognized states
+        remain pending or running until a terminal state is reported.
     failed_jobs : list of str
         Names of jobs that failed.
     ok : bool
@@ -408,6 +425,8 @@ def check_user_jobs(username, start_time):
         "FAILED": 0,
         "CANCELLED": 0,
     }
+    if job_ids is not None and not job_ids:
+        return empty_counts.copy(), [], True
 
     try:
         end_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -426,6 +445,8 @@ def check_user_jobs(username, start_time):
             username,
             "--format=JobIDRaw,JobName,State",
         ]
+        if job_ids is not None:
+            cmd.append("--jobs=" + ",".join(job_ids))
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -436,6 +457,7 @@ def check_user_jobs(username, start_time):
         status_counts = empty_counts.copy()
         failed_jobs = []
         current_job_id = os.environ.get("SLURM_JOB_ID")
+        seen_job_ids = set()
 
         lines = result.stdout.strip().split("\n")
         for line in lines:
@@ -445,15 +467,52 @@ def check_user_jobs(username, start_time):
             if len(parts) < 3:
                 continue
             job_id, job_name, state = parts[0], parts[1], parts[2]
+            if job_ids is not None:
+                if job_id not in job_ids:
+                    continue
+                job_name = job_ids[job_id]
+                seen_job_ids.add(job_id)
             if current_job_id and job_id == current_job_id:
                 continue
             # State can carry a suffix, e.g. "CANCELLED by 12345"
-            state = state.split()[0]
-            if state in status_counts:
+            state = state.split()[0].rstrip("+")
+            failed_states = {
+                "BOOT_FAIL",
+                "CANCELLED",
+                "DEADLINE",
+                "FAILED",
+                "NODE_FAIL",
+                "OUT_OF_MEMORY",
+                "PREEMPTED",
+                "TIMEOUT",
+            }
+            if state in {
+                "RUNNING",
+                "COMPLETING",
+                "CONFIGURING",
+                "POWER_UP_NODE",
+                "RESIZING",
+                "SIGNALING",
+                "STAGE_OUT",
+                "STOPPED",
+                "SUSPENDED",
+                "UPDATE_DB",
+            }:
+                status_counts["RUNNING"] += 1
+            elif state in status_counts:
                 status_counts[state] += 1
-            if state == "FAILED":
+            elif state in failed_states:
+                status_counts["FAILED"] += 1
+            else:
+                # A state flag can hide the base state. Holds, launch flags,
+                # and unknown future states do not establish termination.
+                status_counts["PENDING"] += 1
+            if state in failed_states:
                 failed_jobs.append(job_name)
 
+        if job_ids is not None:
+            # Newly submitted jobs may not have reached SLURM accounting yet.
+            status_counts["PENDING"] += len(set(job_ids) - seen_job_ids)
         return status_counts, failed_jobs, True
 
     except Exception as e:
@@ -498,10 +557,20 @@ def collect_results(
 
     out_path = os.path.join(target_dir, file_name + ".csv")
 
+    def read_features(path):
+        # Read the identifier as a column first: pandas can infer a numeric
+        # index from an unnamed CSV column even when dtype={0: str} is given.
+        df = pd.read_csv(path, dtype={0: str, "subject": str})
+        index_name = df.columns[0]
+        df = df.set_index(index_name)
+        if index_name.startswith("Unnamed:"):
+            df.index.name = None
+        return df
+
     new_features = []
     for subject in subjects.keys():
         try:
-            df = pd.read_csv(os.path.join(temp_path, subject + ".csv"), index_col=0)
+            df = read_features(os.path.join(temp_path, subject + ".csv"))
         except Exception:
             continue
         # tag each row with its subject so we can dedup on rerun
@@ -518,7 +587,7 @@ def collect_results(
     features = pd.concat(new_features)
 
     if append and os.path.exists(out_path):
-        existing = pd.read_csv(out_path, index_col=0)
+        existing = read_features(out_path)
         if "subject" not in existing.columns:
             # older file without the tag; treat its index as the subject id
             existing["subject"] = existing.index
@@ -598,12 +667,9 @@ def auto_parallel_feature_extraction(
       or not present in `which_subjects` are excluded before submission.
       Excluded subject lists are written as JSON files under
       `Features/excluded_participants`.
-    - Runner parameters are persisted to
-      `Features/Configurations/runner_params.json` before job
-      submission.
     - If `auto_collect` is True, per-subject results are merged and
-      combined with demographic data into
-      `Features/all_features.csv`.
+      written to `Features/all_features.csv`. Demographics are joined
+      only when `combine_features_and_demographics` is True.
     """
     features_dir = os.path.join(project_dir, "Features")
     subjects = merge_datasets_with_glob(datasets)
@@ -621,11 +687,12 @@ def auto_parallel_feature_extraction(
     all_qc_passed_samples = []
     all_qc_failed_samples = []
     all_missing_samples = []
-    if (
+    apply_mri_qc = (
         conf.apply_source_localization
         and conf.apply_mri_QC
         and not conf.apply_mri_template
-    ):
+    )
+    if apply_mri_qc:
         for keys, values in datasets.items():
             qc_passed_samples, qc_failed_samples, missing_samples = (
                 meganorm.utils.freesurfer.freesurfer_QC(values["surfaces_dir"])
@@ -658,7 +725,7 @@ def auto_parallel_feature_extraction(
             missing_meg_participants.append(subj)
             subjects_temp.pop(subj)
             continue
-        if all_qc_passed_samples and subj not in all_qc_passed_samples:
+        if apply_mri_qc and subj not in all_qc_passed_samples:
             subjects_temp.pop(subj)
             continue
         if which_subjects and subj not in which_subjects:
@@ -675,23 +742,13 @@ def auto_parallel_feature_extraction(
     ) as file:
         json.dump(missing_meg_participants, file, indent=4)
 
-    with open(
-        os.path.join(features_dir, "Configurations", "runner_params.json"), "r"
-    ) as file:
-        runner_params = json.load(file)
-        runner_params["subjects"] = subjects
-    with open(
-        os.path.join(features_dir, "Configurations", "runner_params.json"), "w"
-    ) as file:
-        json.dump(runner_params, file, indent=4)
-
     features_temp_path = os.path.join(features_dir, "temp")
 
     if username is None:
         username = os.environ.get("USER")
 
     # Running Jobs
-    start_time = submit_jobs(
+    start_time, job_ids = submit_jobs(
         mainParallel_path,
         features_dir,
         subjects,
@@ -700,10 +757,11 @@ def auto_parallel_feature_extraction(
         config_file=config_file_path,
         freesurfer_home=freesurfer_home,
         freesurfer_license=freesurfer_license,
+        return_job_ids=True,
     )
 
     # Checking jobs
-    failed_jobs = check_jobs_status(username, start_time)
+    failed_jobs = check_jobs_status(username, start_time, job_ids=job_ids)
 
     falied_subjects = {failed_job: subjects[failed_job] for failed_job in failed_jobs}
 
@@ -711,7 +769,7 @@ def auto_parallel_feature_extraction(
 
     while len(failed_jobs) > 0 and auto_rerun and try_num < max_try:
         # Re-running Jobs
-        start_time = submit_jobs(
+        start_time, job_ids = submit_jobs(
             mainParallel_path,
             features_dir,
             falied_subjects,
@@ -720,9 +778,10 @@ def auto_parallel_feature_extraction(
             config_file=config_file_path,
             freesurfer_home=freesurfer_home,
             freesurfer_license=freesurfer_license,
+            return_job_ids=True,
         )
         # Checking jobs
-        failed_jobs = check_jobs_status(username, start_time)
+        failed_jobs = check_jobs_status(username, start_time, job_ids=job_ids)
         falied_subjects = {
             failed_job: subjects[failed_job] for failed_job in failed_jobs
         }
@@ -915,16 +974,22 @@ python {os.path.abspath(meganorm.utils.parallel.__file__)}
     with open(save_path, "w") as f:
         f.write(sbatch_text)
 
-    print("Created run_driver.sbatch")
+    print("Created feature_extraction_runner.sbatch")
+
+
+def _load_runner_params(path):
+    """Load driver arguments, accepting files written by earlier releases."""
+    with open(path) as f:
+        params = json.load(f)
+    params.pop("subjects", None)
+    if params.get("mainParallel_path", None) is None:
+        params["mainParallel_path"] = os.path.abspath(
+            meganorm.src.mainParallel.__file__
+        )
+    return params
 
 
 if __name__ == "__main__":
+    params = _load_runner_params("Features/Configurations/runner_params.json")
 
-    with open("Features/Configurations/runner_params.json") as f:
-        params = json.load(f)
-
-    if params.get("mainParallel_path", None) is None:
-        params["mainParallel_path"] = os.path.abspath(mainParallel.__file__)
-
-    # Run
     auto_parallel_feature_extraction(**params)
