@@ -63,7 +63,7 @@ Local and cluster execution use the same core processing functions through diffe
 
 Tests and documentation support maintenance of the workflow and its links to upstream libraries. Automated tests cover core processing, feature extraction, data handling, plotting, and model integration, and run through GitHub Actions. Sphinx documentation provides installation instructions, API descriptions, and worked examples.
 
-![MEGaNorm links EEG/MEG recordings to normative reference trajectories and individual deviations. Spectral IDPs are extracted from preprocessed sensor epochs or from reconstructed source activity grouped into brain regions (dashed path). The cohort joins participant feature tables and links them to participant data, such as age, sex, and recording site, for normative modeling with PCNtoolkit. Labels identify the main tools and MEGaNorm modules.\label{fig:architecture}](figures/architecture.png){ width=100% }
+![MEGaNorm links EEG/MEG recordings to normative reference trajectories and individual deviations. Spectral IDPs are extracted from preprocessed sensor epochs or from reconstructed source activity grouped into brain regions (dashed path). The cohort joins participant feature tables and links them to participant data, such as age, sex, and recording site, for normative modeling with PCNtoolkit. Labels identify the main tools and MEGaNorm modules.\label{fig:architecture}](figures/architecture.pdf){ width=100% }
 
 # Research impact statement
 
