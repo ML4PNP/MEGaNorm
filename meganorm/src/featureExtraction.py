@@ -1188,6 +1188,10 @@ def _fit_aperiodic_with_retry(spectrum, *, fit_func, fit_bounds):
     Normalize retry inputs so PyRASA's internal scaling factor is one, then
     restore physical units explicitly. This avoids depending on PyRASA's
     version-specific rescaling of model spectra and logarithmic offsets.
+
+    If a channel cannot be fitted even after rescaling (e.g. its spectrum is
+    zero or non-finite), it gets a placeholder fit with R2 = NaN, so the R2
+    gate in `feature_extract` skips it instead of the whole subject failing.
     """
     fits = []
     for name in spectrum.ch_names:
@@ -1209,35 +1213,56 @@ def _fit_aperiodic_with_retry(spectrum, *, fit_func, fit_bounds):
                 name,
                 reason,
             )
-            values = channel.get_data().copy()
-            mask = (channel.freqs >= fit_bounds[0]) & (channel.freqs <= fit_bounds[1])
-            minimum = values[..., mask].min()
-            if not np.isfinite(minimum) or minimum <= 0:
-                raise ValueError(
-                    f"Cannot scale IRASA channel {name}: fit power must be finite and positive."
+            try:
+                values = channel.get_data().copy()
+                mask = (channel.freqs >= fit_bounds[0]) & (
+                    channel.freqs <= fit_bounds[1]
                 )
-            normalization = 0.5 / minimum
-            normalized = AperiodicEpochsSpectrum(
-                values * normalization,
-                channel.info,
-                freqs=channel.freqs,
-                events=channel.events,
-                event_id=channel.event_id,
-            )
-            fit = normalized.fit_aperiodic_model(
-                scale=True, fit_func=fit_func, fit_bounds=fit_bounds
-            )
-            # Both built-in PyRASA fits define Offset in log10 power units.
-            fit.aperiodic_params["Offset"] -= np.log10(normalization)
-            fit.model["aperiodic_model"] /= normalization
-            logger.info(
-                "IRASA channel %s: scaled retry R2=%s.", name, fit.gof["R2"].item()
-            )
+                minimum = values[..., mask].min()
+                if not np.isfinite(minimum) or minimum <= 0:
+                    raise ValueError("fit power must be finite and positive")
+                normalization = 0.5 / minimum
+                normalized = AperiodicEpochsSpectrum(
+                    values * normalization,
+                    channel.info,
+                    freqs=channel.freqs,
+                    events=channel.events,
+                    event_id=channel.event_id,
+                )
+                fit = normalized.fit_aperiodic_model(
+                    scale=True, fit_func=fit_func, fit_bounds=fit_bounds
+                )
+                # Both built-in PyRASA fits define Offset in log10 power units.
+                fit.aperiodic_params["Offset"] -= np.log10(normalization)
+                fit.model["aperiodic_model"] /= normalization
+                logger.info(
+                    "IRASA channel %s: scaled retry R2=%s.",
+                    name,
+                    fit.gof["R2"].item(),
+                )
+            except Exception as error:
+                logger.warning(
+                    "IRASA channel %s: no usable aperiodic fit (%s); "
+                    "it will be excluded by the R2 check.",
+                    name,
+                    error,
+                )
+                fit = _empty_aperiodic_fit(name)
         fits.append(fit)
+
     return AperiodicFit(
         aperiodic_params=pd.concat([fit.aperiodic_params for fit in fits]),
         gof=pd.concat([fit.gof for fit in fits]),
         model=pd.concat([fit.model for fit in fits]),
+    )
+
+
+def _empty_aperiodic_fit(ch_name):
+    """Placeholder fit with R2 = NaN so the channel is skipped downstream."""
+    return AperiodicFit(
+        aperiodic_params=pd.DataFrame({"ch_name": [ch_name]}),
+        gof=pd.DataFrame({"ch_name": [ch_name], "R2": [np.nan]}),
+        model=pd.DataFrame(),
     )
 
 
