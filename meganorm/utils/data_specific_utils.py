@@ -311,7 +311,12 @@ def _read_annotation_brainstorm(
             f"Precomputed annotation detected {annot_dur}"
             f" seconds of {annotation_lable}."
         )
-    data.set_annotations(data.annotations + annot)
+    # annot has orig_time=None; set_annotations aligns it to the recording's
+    # orig_time (meas_date), then the existing annotations are added back.
+    previous_annotations = data.annotations.copy()
+    data.set_annotations(annot)
+    data.annotations.__iadd__(previous_annotations)
+
     return data, annot_dur
 
 
