@@ -289,7 +289,22 @@ def _read_annotation_brainstorm(
         if label != "BAD":
             continue
 
-        times = np.atleast_2d(ev.times)  # shape (2, n_segments): row0=start, row1=end
+        times = np.asarray(ev.times, dtype=float)
+        n_occ = np.size(ev.epochs)  # one entry per occurrence
+        if times.size == 0 or n_occ == 0:
+            continue
+        # squeeze_me collapses (2, 1) to (2,); restore (rows, n_occurrences).
+        # rows = 2 for extended events (start/end), 1 for simple point events.
+        times = times.reshape(-1, n_occ)
+
+        if times.shape[0] != 2:
+            if logger:
+                logger.warning(
+                    f"'{label}' events in {annotation_path} are point events "
+                    "without duration; they cannot mark bad segments and are skipped."
+                )
+            continue
+
         for start, end in zip(times[0, :], times[1, :]):
             onsets.append(float(start))
             durations.append(float(end - start))
@@ -311,6 +326,7 @@ def _read_annotation_brainstorm(
             f"Precomputed annotation detected {annot_dur}"
             f" seconds of {annotation_lable}."
         )
+
     # annot has orig_time=None; set_annotations aligns it to the recording's
     # orig_time (meas_date), then the existing annotations are added back.
     previous_annotations = data.annotations.copy()
