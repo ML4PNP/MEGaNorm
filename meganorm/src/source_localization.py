@@ -24,6 +24,7 @@ import glob
 import json
 import pandas as pd
 import os
+import fcntl
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -401,6 +402,7 @@ def corregistration(
     participant_id,
     trans_save_path=False,
     scaled_mri_save_path=False,
+    output_id=None,
     **kwargs,
 ):
     """
@@ -470,7 +472,9 @@ def corregistration(
 
     fit_subject = subject
     if scale_mode and kwargs.get("apply_mri_template", False):
-        scaled_subject = f"{participant_id}_scaled"
+        # Named per run: each run has its own head shape and scale factor, and
+        # parallel runs of one participant must not write the same folder.
+        scaled_subject = f"{output_id or participant_id}_scaled"
         logger.info(f"Estimated MRI scale factor: {coreg.scale}")
         mne.scale_mri(
             subject_from=subject,
@@ -507,7 +511,9 @@ def corregistration(
 
     if kwargs.get("save_transformation_FIF_file", False):
         os.makedirs(trans_save_path, exist_ok=True)
-        trans_save_path = os.path.join(trans_save_path, f"{fit_subject}-trans.fif")
+        trans_save_path = os.path.join(
+            trans_save_path, f"{output_id or fit_subject}-trans.fif"
+        )
         mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
     logger.info("Automatic coregisteration is done!")
@@ -954,15 +960,17 @@ def morph_stc(
 
         inner_skull_path = Path(subjects_dir) / subject_to / "bem" / "inner_skull.surf"
         if not os.path.exists(inner_skull_path):
-            mne.bem.make_watershed_bem(
-                subject=subject_to,
-                subjects_dir=subjects_dir,
-                overwrite=True,
-                gcaatlas=kwargs.get("gcaatlas", True),
-                volume="T1",
-                preflood=kwargs.get("preflood", None),
-            )
-
+            with _anatomy_lock(subjects_dir, subject_to, "watershed_bem"):
+                # Another job may have created it while this one waited.
+                if not os.path.exists(inner_skull_path):
+                    mne.bem.make_watershed_bem(
+                        subject=subject_to,
+                        subjects_dir=subjects_dir,
+                        overwrite=True,
+                        gcaatlas=kwargs.get("gcaatlas", True),
+                        volume="T1",
+                        preflood=kwargs.get("preflood", None),
+                    )
         src_morph_to = mne.setup_volume_source_space(
             subject=subject_to,
             subjects_dir=subjects_dir,
@@ -1108,6 +1116,7 @@ def source_localization(
     precomputed_trans_path=None,
     empty_room_recording=None,
     demographic_path=None,
+    output_id=None,
     **kwargs,
 ):
     """
@@ -1121,23 +1130,24 @@ def source_localization(
     Parameters
     ----------
     subject : str
-        The name of the subject (must correspond to a FreeSurfer reconstruction).
+        The participant ID. Used to find the FreeSurfer reconstruction and
+        the participant's age in the demographic file.
+    output_id : str or None, optional
+        Name used for every file this function writes (covariance and BEM
+        figures, BEM log, transformation file, scaled MRI). With
+        process_all_sessions this is the run name. Defaults to `subject`.
     subjects_dir : str
         Path to the FreeSurfer `SUBJECTS_DIR` containing anatomical reconstructions.
     subject_to : str
         Target subject for morphing the source estimate (typically 'fsaverage').
     data : instance of mne.io.Raw | Epochs | Evoked
         The data to localize. Must be preprocessed and contain sensor locations.
-    freesurfer_path : str
-        Path to the FreeSurfer installation (used to set environment variables).
-    freesurfer_license_path : str
-        Path to the FreeSurfer license file.
     source_space : str, default='surface'
-        Type of source space to use ('surface' or 'volume').
+        Type of source space to use ('surface' or 'volumetric').
     conductivity : tuple of float, default=(0.3,)
         Conductivity values for the BEM model (e.g., one value for 1-layer, three for 3-layer).
     inverse_operator : str, default='lcmv'
-        Method to compute the inverse solution. Options: 'lcmv', 'dspm', 'mne', etc.
+        Method to compute the inverse solution. Only 'lcmv' is supported.
     empty_room_recording: mne.io.Raw
         empty_room_recording
     kwargs : dict, optional
@@ -1154,10 +1164,12 @@ def source_localization(
     Notes
     -----
     - This function assumes all anatomical preprocessing (e.g., `recon-all`) has been done for `subject`.
-    - Morphing is performed using spherical surface morphing to a target subject (e.g., fsaverage).
-    - Only surface-based source localization is currently supported.
-    - The BEM model is generated internally using provided conductivity values.
+    - FreeSurfer's own files (BEM surfaces, MRI volumes) belong to the
+      participant or template and keep its name; they are created once,
+      under a file lock, when several runs need them at the same time.
     """
+    participant_id = subject
+    output_id = output_id or participant_id
 
     # Set FreeSurfer environment variables so all subprocess calls can find the license
     if kwargs.get("freesurfer_home"):
@@ -1177,36 +1189,43 @@ def source_localization(
         with data.info._unlock():
             data.info["dig"] = new_dig
 
-    participant_id = subject
+    # From here on, `subject` is the anatomy (participant or template).
     if kwargs.get("apply_mri_template"):
         subject, subjects_dir = prepare_template(
-            subject=subject, demographic_file_p=demographic_path, **kwargs
+            subject=participant_id, demographic_file_p=demographic_path, **kwargs
         )
 
-    if not os.path.exists(
-        os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
-    ) or kwargs.get("force_new_watershed_bem"):
-
-        logger.info("bem surface was not found; Creating a bem surface for the subject")
-        bem_log_path = os.path.join(
-            project_dir, "Saved_outputs", "BEM_logs", f"{subject}_watershed_bem.log"
-        )
-        make_bem_model(
-            subject=subject,
-            subjects_dir=subjects_dir,
-            bem_log_path=bem_log_path,
-            max_erosion_pct=kwargs.get("bem_max_erosion_pct", 15.0),
-            suspect_erosion_pct=kwargs.get("bem_suspect_erosion_pct", 0.2),
-            max_fine_segmentation_iteration=kwargs.get(
-                "bem_max_fine_segmentation_iteration", 100
-            ),
-            gcaatlas=kwargs.get("bem_gcaatlas", True),
-            volume="T1",
-            preflood=kwargs.get("bem_preflood", None),
-            preflood_parameter_space=kwargs.get(
-                "bem_preflood_parameter_space", (10, 15, 20, 30, 35)
-            ),
-        )
+    inner_skull = os.path.join(subjects_dir, subject, "bem", "inner_skull.surf")
+    force_bem = kwargs.get("force_new_watershed_bem")
+    if not os.path.exists(inner_skull) or force_bem:
+        with _anatomy_lock(subjects_dir, subject, "watershed_bem"):
+            # Another run may have created it while this one waited.
+            if not os.path.exists(inner_skull) or force_bem:
+                logger.info(
+                    "bem surface was not found; Creating a bem surface for the subject"
+                )
+                bem_log_path = os.path.join(
+                    project_dir,
+                    "Saved_outputs",
+                    "BEM_logs",
+                    f"{output_id}_watershed_bem.log",
+                )
+                make_bem_model(
+                    subject=subject,
+                    subjects_dir=subjects_dir,
+                    bem_log_path=bem_log_path,
+                    max_erosion_pct=kwargs.get("bem_max_erosion_pct", 15.0),
+                    suspect_erosion_pct=kwargs.get("bem_suspect_erosion_pct", 0.2),
+                    max_fine_segmentation_iteration=kwargs.get(
+                        "bem_max_fine_segmentation_iteration", 100
+                    ),
+                    gcaatlas=kwargs.get("bem_gcaatlas", True),
+                    volume="T1",
+                    preflood=kwargs.get("bem_preflood", None),
+                    preflood_parameter_space=kwargs.get(
+                        "bem_preflood_parameter_space", (10, 15, 20, 30, 35)
+                    ),
+                )
 
     orientation = kwargs.get("bem_plot_orientations", "coronal")
     if orientation is not None:
@@ -1216,6 +1235,7 @@ def source_localization(
             out_dir=os.path.join(project_dir, "Saved_outputs", "BEM_figures"),
             orientation=orientation,
             logger=logger,
+            file_tag=output_id,
         )
 
     if precomputed_trans_path:
@@ -1224,10 +1244,14 @@ def source_localization(
             "A precomputed transformation matrix was loaded for corregistration"
         )
     # NIMH recordings provide their coregistration coordinates in a BIDS sidecar.
-    elif "sub-ON" in subject:
-        matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
+    elif "sub-ON" in participant_id:
+        matches = sorted(
+            glob.glob(str(recording_path).replace("_meg.ds", "_coordsystem.json"))
+        ) or sorted(
+            glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
+        )
         if not matches:
-            err_msg = f"No coordsystem.json found for {subject} in {Path(recording_path).parent}"
+            err_msg = f"No coordsystem.json found for {participant_id} in {Path(recording_path).parent}"
             logger.error(err_msg)
             raise FileNotFoundError(err_msg)
         coreg, _ = data_specific_utils._trans_from_nimh(
@@ -1240,6 +1264,7 @@ def source_localization(
             subject=subject,
             subjects_dir=subjects_dir,
             participant_id=participant_id,
+            output_id=output_id,
             trans_save_path=os.path.join(
                 project_dir, "Saved_outputs", "transformation_FIF_file"
             ),
@@ -1265,7 +1290,8 @@ def source_localization(
         del coreg
 
     stc = inverse_solution(
-        subject=subject,
+        # inverse_solution uses `subject` only to name the covariance figures.
+        subject=output_id,
         data=data,
         segments=segments,
         fwd=fwd,
@@ -1667,9 +1693,20 @@ def save_cov_figures(cov, info, out_dir, subject, tag, logger=None):
 
 
 def save_bem_figure(
-    subject, subjects_dir, out_dir, orientation="coronal", slices=None, logger=None
+    subject,
+    subjects_dir,
+    out_dir,
+    orientation="coronal",
+    slices=None,
+    logger=None,
+    file_tag=None,
 ):
-    """Save a BEM/MRI overlay figure without opening a GUI."""
+    """
+    Save a BEM/MRI overlay figure without opening a GUI.
+
+    `subject` selects the anatomy to plot; `file_tag` (default: `subject`)
+    names the output file, so each run gets its own figure.
+    """
 
     os.makedirs(out_dir, exist_ok=True)
     fig = mne.viz.plot_bem(
@@ -1681,7 +1718,7 @@ def save_bem_figure(
         show=False,
     )
     fig.savefig(
-        os.path.join(out_dir, f"{subject}_bem_{orientation}.png"),
+        os.path.join(out_dir, f"{file_tag or subject}_bem_{orientation}.png"),
         dpi=150,
         bbox_inches="tight",
     )
@@ -1843,3 +1880,26 @@ def make_bem_model(
     )
     logger.error(err_msg)
     raise RuntimeError(err_msg)
+
+
+@contextlib.contextmanager
+def _anatomy_lock(subjects_dir, subject, name):
+    """
+    Hold an exclusive file lock while shared anatomy files are created.
+
+    Several SLURM jobs can use the same FreeSurfer subject at once: the runs
+    of one participant, or different participants matched to the same
+    template. The lock file lives next to the files it protects, so every
+    job sees the same one. fcntl.lockf is used because it works on NFS.
+    """
+    lock_dir = Path(subjects_dir) / subject / "bem"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / f".{name}.lock"
+    with open(lock_path, "a") as handle:
+        logger.info(f"Waiting for lock {lock_path}")
+        fcntl.lockf(handle, fcntl.LOCK_EX)
+        logger.info(f"Acquired lock {lock_path}")
+        try:
+            yield
+        finally:
+            fcntl.lockf(handle, fcntl.LOCK_UN)

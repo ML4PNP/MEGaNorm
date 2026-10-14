@@ -11,7 +11,6 @@ from typing import Literal, Dict, Tuple, List, Optional
 from typing import Optional
 import warnings
 from typing import Union
-from typing import ClassVar
 from mne.io.artemis123.utils import _read_pos
 from pydantic import (
     BaseModel,
@@ -26,7 +25,24 @@ from pydantic import (
     model_validator,
 )
 from mne.io.constants import FIFF
+import logging
+import secrets
 
+logger = logging.getLogger(__name__)
+
+
+_EYE_CODES = {
+    "ec": "EC",
+    "closed": "EC",
+    "eyeclosed": "EC",
+    "eyesclosed": "EC",
+    "eo": "EO",
+    "open": "EO",
+    "eyeopen": "EO",
+    "eyesopen": "EO",
+    "dr": "DR",
+    "darkroom": "DR",
+}
 
 class BandRatio(BaseModel):
     numerator: Literal["Delta", "Theta", "Alpha", "Beta", "Gamma"]
@@ -42,6 +58,10 @@ class Config(BaseModel):
     ----------
     which_meg_session : int, default=0
         Index of the MEG session to process.
+    process_all_sessions : bool, default=False
+        Process every matched recording of a participant as a separate job
+        instead of only `which_meg_session`. Outputs are then named
+        `<participant>_RunXX_<eye condition>_<random number>`.
     which_layout : {"all", "lobe", None}, default="all"
         Sensor layout grouping used for reporting/analysis.
     which_sensor : {"mag", "grad", "meg", "eeg", "opm"}, default="meg"
@@ -260,6 +280,7 @@ class Config(BaseModel):
     model_config = {"extra": "forbid"}
 
     which_meg_session: int = 0  # the first session
+    process_all_sessions: bool = False
 
     which_layout: Literal["all", "lobe", None] = "all"
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
@@ -935,14 +956,6 @@ def merge_fidp_demo(
     Returns
     -------
     data : pandas.DataFrame
-        Merged DataFrame containing both demographic information and feature data,
-        with participants indexed as strings.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the 'participants_bids.tsv' file is missing in any of the dataset paths or
-        the 'all_features.csv' file is missing in the provided features directory.
     """
 
     demographic_df = pd.DataFrame()
@@ -965,7 +978,6 @@ def merge_fidp_demo(
     if drop_columns:
         demographic_df.drop(columns=drop_columns, errors="ignore", inplace=True)
 
-    # Load features
     feature_path = os.path.join(features_dir, "all_features.csv")
     if not os.path.exists(feature_path):
         raise FileNotFoundError(
@@ -974,42 +986,62 @@ def merge_fidp_demo(
     features_df = pd.read_csv(feature_path, index_col=0, dtype={0: str})
     features_df.index = features_df.index.astype(str)
 
-    # Merge demographic and features
-    data = demographic_df.join(features_df, how="inner")
+    if "participant_id" in features_df.columns:
+        # One row per run: give every run its participant's demographics.
+        # Columns present in both (e.g. eye condition) keep the per-run value.
+        features_df["participant_id"] = features_df["participant_id"].astype(str)
+        overlap = [c for c in demographic_df.columns if c in features_df.columns]
+        demo_cols = [c for c in demographic_df.columns if c not in overlap]
+        data = features_df.join(
+            demographic_df[demo_cols], on="participant_id", how="inner"
+        )
+        # Demographic columns first, as in the one-row-per-participant layout.
+        data = data[demo_cols + list(features_df.columns)]
+    else:
+        # Merge demographic and features
+        data = demographic_df.join(features_df, how="inner")
+
     data.index.name = None
 
     return data
 
 
-def merge_datasets_with_glob(datasets):
+def merge_datasets_with_glob(datasets, process_all_sessions=False):
     """
     Merges file paths across multiple datasets using glob pattern matching.
 
     This function walks through the provided datasets' base directories to find
-    subject folders and file paths matching a specified task and file ending. It
-    creates a dictionary mapping each subject to a glob pattern that can be used
-    to aggregate files across multiple runs or sessions.
+    subject folders and file paths matching a specified task and file ending.
+
+    If `process_all_sessions` is False, each subject gets one entry keyed by
+    its ID, holding all its matched recordings joined with '*'; the session
+    used is chosen later by `which_meg_session`.
+
+    If `process_all_sessions` is True, each matched recording gets its own
+    entry keyed '<subject>_RunXX_<eye condition>_<random number>'. The random
+    number is drawn once per subject per launch and shared by all its runs.
+    Event, trans and annotation files are paired with the recordings by
+    position, which requires one such file per recording.
 
     Parameters
     ----------
-    ddatasets : dict
+    datasets : dict
         Dataset configuration dictionary. Each dataset must define
         ``base_dir``, ``task``, and ``ending``. Additional optional entries
         configure recording device, line frequency, empty-room recordings,
         source-localization inputs, and event files.
+    process_all_sessions : bool, optional
+        Create one entry per recording instead of one per subject.
+        Default is False.
 
     Returns
     -------
     dict
-        A dictionary mapping subject IDs to a glob-style path string that aggregates
-        all matching files for that subject. Only subjects with at least one matched
-        file are included.
-
-    Notes
-    -----
-    This function is designed to assist in scenarios where each subject may have
-    multiple files (e.g., different runs or sessions), and the goal is to create
-    a single pattern that can be used to load all related files for a subject.
+        Mapping of entry keys to metadata. Every entry holds
+        'participant_id' (the plain subject ID) and 'run_index' (None when
+        `process_all_sessions` is False). With multiple runs, entries also
+        hold 'eye_condition'. Only subjects with at least one matched file
+        are included.
     """
 
     def join_with_star(lst):
@@ -1018,6 +1050,18 @@ def merge_datasets_with_glob(datasets):
         if len(lst) == 1:
             return lst[0] + "*"
         return "*".join(lst)
+
+    def pick_for_run(paths, run_index, n_runs, what, run_name):
+        """Pair a per-run file with its recording by position."""
+        if not paths:
+            return None
+        if len(paths) == n_runs:
+            return paths[run_index] + "*"
+        logger.warning(
+            f"{run_name}: {len(paths)} {what} files for {n_runs} recordings; "
+            f"cannot pair them, so no {what} file is used."
+        )
+        return None
 
     subjects = {}
 
@@ -1053,6 +1097,18 @@ def merge_datasets_with_glob(datasets):
         demographic_path = dataset_info.get(
             "demographic_path", os.path.join(base_dir, "participants_bids.tsv")
         )
+
+        # Read the eye condition once per dataset, not once per run.
+        eyes_by_subject = {}
+        if process_all_sessions and demographic_path and os.path.exists(demographic_path):
+            demo = load_demographic_file(demographic_path)
+            if "eyes" in demo.columns:
+                eyes_by_subject = demo["eyes"].to_dict()
+            else:
+                logger.warning(
+                    f"No 'eyes' column in {demographic_path}; "
+                    "eye condition will be 'eyesNA' in file names."
+                )
 
         dirs = sorted(
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
@@ -1127,27 +1183,65 @@ def merge_datasets_with_glob(datasets):
             else:
                 annotation_path = None
 
-            subjects.update(
-                {
-                    subj: {
-                        "rest_record": join_with_star(rs_record_paths),
-                        "device": device,
-                        "line_freq": str(line_freq),
-                        "empty_room_record": join_with_star(er_record_paths),
-                        "mri_surface": surface,
-                        "dataset_name": dataset_name,
-                        "event_record": join_with_star(event_record_paths),
-                        "event_of_interest": str(event_of_interest),
-                        "trans_path": join_with_star(trans_path),
-                        "pos_path": join_with_star(pos_path),
-                        "annotation_path": join_with_star(annotation_path),
-                        "layout_path": layout_path,
-                        "demographic_path": demographic_path,
-                    }
+            entry = {
+                "participant_id": subj,
+                "run_index": None,
+                "rest_record": join_with_star(rs_record_paths),
+                "device": device,
+                "line_freq": str(line_freq),
+                "empty_room_record": join_with_star(er_record_paths),
+                "mri_surface": surface,
+                "dataset_name": dataset_name,
+                "event_record": join_with_star(event_record_paths),
+                "event_of_interest": str(event_of_interest),
+                "trans_path": join_with_star(trans_path),
+                "pos_path": join_with_star(pos_path),
+                "annotation_path": join_with_star(annotation_path),
+                "layout_path": layout_path,
+                "demographic_path": demographic_path,
+            }
+
+            if not process_all_sessions:
+                subjects[subj] = entry
+                continue
+
+            # One entry per recording. Empty-room and .pos files stay shared;
+            # the job uses the last match, as before.
+            eyes = normalize_eye_condition(eyes_by_subject.get(subj))
+            rn = f"{secrets.randbelow(1_000_000):06d}"
+            n_runs = len(rs_record_paths)
+
+            for run_index, rest_path in enumerate(rs_record_paths):
+                new_subj = f"{subj}_Run{run_index + 1:02d}_{eyes}_{rn}"
+                subjects[new_subj] = {
+                    **entry,
+                    "run_index": run_index,
+                    "eye_condition": eyes,
+                    "rest_record": rest_path + "*",
+                    "event_record": pick_for_run(
+                        event_record_paths, run_index, n_runs, "event", new_subj
+                    ),
+                    "trans_path": pick_for_run(
+                        trans_path, run_index, n_runs, "trans", new_subj
+                    ),
+                    "annotation_path": pick_for_run(
+                        annotation_path, run_index, n_runs, "annotation", new_subj
+                    ),
                 }
-            )
 
     return subjects
+
+
+def normalize_eye_condition(value):
+    """Map a free-text eye condition to a short, file-name-safe code."""
+    if value is None or pd.isna(value):
+        return "eyesNA"
+    key = re.sub(r"[^a-z]", "", str(value).lower())
+    if key in {"", "nan", "na", "none", "nr"}:
+        return "eyesNA"
+    if key in _EYE_CODES:
+        return _EYE_CODES[key]
+    return re.sub(r"[^A-Za-z0-9]", "", str(value)) or "eyesNA"
 
 
 def load_demographic_file(path, index_col=0):
@@ -1511,3 +1605,24 @@ def check_demographic_format(df):
             f"The 'sex' column holds {sorted(unexpected)}; "
             f"only {list(DEMOGRAPHIC_ALLOWED_SEX)} are allowed."
         )
+
+
+# Must match the key built in merge_datasets_with_glob:
+# f"{subj}_Run{run_index + 1:02d}_{eyes}_{rn}"
+_RUN_KEY = re.compile(
+    r"^(?P<participant_id>.+)_Run(?P<run>\d{2,})_(?P<eyes>[A-Za-z0-9]+)_(?P<number>\d{6})$"
+)
+
+
+def parse_run_key(key):
+    """
+    Split a run name into participant ID, run number and eye condition.
+
+    Returns ``(participant_id, run, eyes)`` for names like
+    'sub-01_Run02_EC_482913', and ``(key, None, None)`` for plain subject
+    IDs (used when process_all_sessions is False).
+    """
+    match = _RUN_KEY.match(key)
+    if match is None:
+        return key, None, None
+    return match["participant_id"], int(match["run"]), match["eyes"]

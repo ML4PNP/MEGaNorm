@@ -11,7 +11,13 @@ import matplotlib.pyplot as plt
 import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_epoch
-from meganorm.utils.IO import Config, load_recording, select_session_path, infer_device
+from meganorm.utils.IO import (
+    Config,
+    load_recording,
+    select_session_path,
+    infer_device,
+    parse_run_key,
+)
 from meganorm.src.preprocess import (
     preprocess,
     segment_epoch,
@@ -92,7 +98,12 @@ def main_argparser(args=None):
     # Positional Arguments
     parser.add_argument("dir", type=str, help="Address to your data")
     parser.add_argument("save_dir", type=str, help="Where to save extracted features")
-    parser.add_argument("subject", type=str, help="Participant ID")
+    parser.add_argument(
+        "subject",
+        type=str,
+        help="Participant ID, or run name '<participant>_RunXX_<eyes>_<number>' "
+        "when process_all_sessions is True. Used to name all output files.",
+    )
     parser.add_argument("configs", type=str)
     # Optional arguments
     parser.add_argument(
@@ -290,9 +301,10 @@ def main(args):
             setattr(args, attr, None)
 
     configs = Config.load(args.configs)
+    participant_id, run, eye_condition = parse_run_key(args.subject)
 
     if configs.apply_source_localization and not configs.apply_mri_template:
-        freesurfer_data_path = os.path.join(args.surfaces_dir, args.subject)
+        freesurfer_data_path = os.path.join(args.surfaces_dir, participant_id)
         if not os.path.isdir(freesurfer_data_path):
             error_msg = f"The Freesurfer file corresponding to this subject is not found in {freesurfer_data_path}."
             logger.error(error_msg)
@@ -301,7 +313,7 @@ def main(args):
     current = Path(args.save_dir)
     project_dir = current.parent
 
-    session = configs.which_meg_session
+    session = 0 if configs.process_all_sessions else configs.which_meg_session
 
     path = select_session_path(args.dir, session)
     empty_room_recording_path = select_session_path(args.empty_room_recording_path, -1)
@@ -312,12 +324,14 @@ def main(args):
 
     event_of_interest = int(args.event_of_interest) if event_record else None
 
-    paths = args.dir.split("*")
-    paths = list(filter(lambda x: len(x), paths))
-    logger.warning(
-        f"{len(paths)} recordings were detected for this subject. "
-        f"Session {session} will be used in this analysis."
-    )
+    if configs.process_all_sessions:
+        logger.info(f"Processing run {run} of {participant_id}: {path}")
+    else:
+        paths = [p for p in args.dir.split("*") if p]
+        logger.warning(
+            f"{len(paths)} recordings were detected for this subject. "
+            f"Session {session} will be used in this analysis."
+        )
 
     device = infer_device(path, args.device_type, configs.which_sensor, logger)
     # ------------------------------------------------------------ load data
@@ -504,7 +518,8 @@ def main(args):
         stc, labels = source_localization(
             recording_path=path,
             project_dir=project_dir,
-            subject=args.subject,
+            subject=participant_id,
+            output_id=args.subject,
             subjects_dir=args.surfaces_dir,
             subject_to="fsaverage",
             data=filtered_data,
@@ -598,6 +613,12 @@ def main(args):
             features["scanner"] = device
         elif column == "number_of_epochs":
             features["number_of_epochs"] = n_kept
+
+    if configs.process_all_sessions:
+        # merge_fidp_demo joins demographics on participant_id.
+        features["participant_id"] = participant_id
+        features["run"] = run
+        features["eye_condition"] = eye_condition
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 

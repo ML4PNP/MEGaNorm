@@ -534,7 +534,9 @@ def collect_results(
     If ``append`` is True and an existing ``file_name``.csv is present in
     ``target_dir``, the newly extracted subjects are added to it. Subjects
     present in both the existing file and the new results are updated with
-    the new values (new rows win).
+    the new values (new rows win). For run names
+    ('<subject>_RunXX_<eyes>_<number>'), the random number is ignored when
+    matching, so a relaunch replaces the earlier row of the same recording.
 
     Parameters
     ----------
@@ -592,8 +594,14 @@ def collect_results(
             # older file without the tag; treat its index as the subject id
             existing["subject"] = existing.index
         combined = pd.concat([existing, features])
+        # Run names end in a random number that changes per launch. Ignore it
+        # when deduplicating, so participant + run + eye condition identify a
+        # recording. Plain subject IDs (single-session mode) are left as is.
+        recording_id = combined["subject"].astype(str).str.replace(
+            r"(_Run\d{2,}_[A-Za-z0-9]+)_\d{6}$", r"\1", regex=True
+        )
         # new rows come last, so keep="last" lets reruns overwrite old values
-        combined = combined.drop_duplicates(subset="subject", keep="last")
+        combined = combined[~recording_id.duplicated(keep="last")]
     else:
         combined = features
 
@@ -672,8 +680,10 @@ def auto_parallel_feature_extraction(
       only when `combine_features_and_demographics` is True.
     """
     features_dir = os.path.join(project_dir, "Features")
-    subjects = merge_datasets_with_glob(datasets)
     conf = meganorm.utils.IO.Config.load(path=config_file_path)
+    subjects = merge_datasets_with_glob(
+        datasets, process_all_sessions=conf.process_all_sessions
+    )
 
     from meganorm.src.source_localization import produce_aparc_a2009s_aseg
 
@@ -719,17 +729,23 @@ def auto_parallel_feature_extraction(
     missing_meg_participants = []
     subjects_temp = subjects.copy()
 
-    for subj, meta in subjects.items():
+    for key, meta in subjects.items():
+        # Anatomy QC and subject selection refer to the participant, not the run.
+        participant_id = meta["participant_id"]
 
         if not meta["rest_record"]:
-            missing_meg_participants.append(subj)
-            subjects_temp.pop(subj)
+            missing_meg_participants.append(key)
+            subjects_temp.pop(key)
             continue
-        if apply_mri_qc and subj not in all_qc_passed_samples:
-            subjects_temp.pop(subj)
+        if apply_mri_qc and participant_id not in all_qc_passed_samples:
+            subjects_temp.pop(key)
             continue
-        if which_subjects and subj not in which_subjects:
-            subjects_temp.pop(subj)
+        if (
+            which_subjects
+            and participant_id not in which_subjects
+            and key not in which_subjects
+        ):
+            subjects_temp.pop(key)
             continue
 
     subjects = subjects_temp.copy()
