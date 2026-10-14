@@ -176,6 +176,81 @@ def _filter_response_outliers(
     return frame.loc[keep].copy()
 
 
+def _normalize_split_size(train_split_size):
+    """Return the training fraction (0-1), or None if no split is wanted.
+
+    Values above 1 are treated as percentages (e.g. 70 -> 0.7).
+    """
+    if not train_split_size:
+        return None
+
+    if train_split_size > 1:
+        train_split_size /= 100
+
+    if not 0 < train_split_size < 1:
+        raise ValueError(
+            "train_split_size should be between 0 and 1, or "
+            "between 0 and 100 when expressed as a percentage."
+        )
+    return train_split_size
+
+
+def _filter_rois(df, response_vars, including_ROIs, excluding_ROIs, always_keep):
+    """Drop excluded ROIs, then keep only included ROIs (plus `always_keep`).
+
+    Returns the filtered dataframe and the matching list of response variables.
+    """
+    if excluding_ROIs:
+        excluded_columns = df.filter(regex="|".join(excluding_ROIs)).columns
+        df = df.drop(columns=excluded_columns)
+        response_vars = [
+            var for var in response_vars
+            if not any(roi in var for roi in excluding_ROIs)
+        ]
+
+    if including_ROIs:
+        # "insula-lh" and "insula-rh" both become "insula"
+        rois = [re.sub(r"-(lh|rh)$", "", roi) for roi in including_ROIs]
+
+        pattern = "|".join(map(re.escape, rois + always_keep))
+        df = df.loc[:, df.columns.str.contains(pattern)]
+        response_vars = [
+            var for var in response_vars
+            if any(roi in var for roi in rois)
+        ]
+
+    return df, response_vars
+
+
+def _split_by_batch_effects(
+    df, batch_effect_list, subject_id_col_name, train_size, random_state
+):
+    """Train/test split by subject, stratified by the combination of batch effects.
+
+    All rows of a subject end up in the same partition. Each subject is
+    stratified by the batch-effect values of its first row.
+    """
+    # One row per subject
+    subjects = df.drop_duplicates(subset=subject_id_col_name)
+
+    if batch_effect_list:
+        strata = subjects[batch_effect_list].astype(str).agg("".join, axis=1)
+    else:
+        strata = None
+
+    train_ids, test_ids = train_test_split(
+        subjects[subject_id_col_name],
+        test_size=1 - train_size,
+        random_state=random_state,
+        stratify=strata,
+    )
+
+    # All rows of each subject follow its ID
+    train_df = df[df[subject_id_col_name].isin(train_ids)]
+    test_df = df[df[subject_id_col_name].isin(test_ids)]
+    return train_df, test_df
+
+
 def prepare_nm_data(
     df,
     response_vars,
@@ -183,6 +258,7 @@ def prepare_nm_data(
     batch_effect_list,
     subject_id_col_name,
     impute_by_column_name="age",
+    impute_group_by=None,
     which_cohorts=None,
     subject_removal_nan_thr=0.2,
     including_ROIs=None,
@@ -191,7 +267,6 @@ def prepare_nm_data(
     missing_value_handling_method=None,
     customized_con_var_imputation_window=None,
     remove_outliers=False,
-    remove_outliers_approach="iqr",
     remove_outliers_group_by="site",
     iqr_factor=3,
     train_split_size=0.5,
@@ -201,300 +276,188 @@ def prepare_nm_data(
     """
     Filter, clean, and package a dataframe into PCNtoolkit NormData.
 
-    The function supports one or more model covariates. When imputation
-    is requested, `impute_by_column_name` specifies the single continuous
-    variable used to define the imputation neighbourhood. When splitting,
-    imputation eligibility, donors, and response-outlier bounds are estimated
-    from the training subset only and applied to both subsets. Splits retain
-    PCNtoolkit's stratification by the combination of batch-effect columns.
+    Steps
+    -----
+    1. Validate the inputs.
+    2. Remove rows with missing covariates/batch effects; filter by cohort.
+    3. Keep/drop ROI columns; filter by subject.
+    4. Split into train/test by subject (optional).
+    5. Remove response outliers with the IQR rule (optional).
+    6. Impute remaining missing values (optional).
+    7. Package as NormData.
+
+    Outliers are removed BEFORE imputation, so extreme values cannot
+    leak into imputed values. When splitting, all rows of a subject go
+    to the same partition, and outlier bounds and imputation donors come
+    from the training set only and are applied to both sets, so the test
+    set does not influence preprocessing.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Input dataset containing covariates, batch effects, response
-        variables, and subject identifiers.
+        Covariates, batch effects, responses and subject IDs.
     response_vars : list of str
         Candidate response-variable columns.
     covariate_list : list of str
-        One or more columns to use as model covariates.
+        Model covariates (at least one).
     batch_effect_list : list of str
-        Columns representing batch effects, such as site or sex.
+        Batch-effect columns, e.g. ["site", "sex"].
     subject_id_col_name : str
-        Column containing subject identifiers.
+        Subject identifier column.
     impute_by_column_name : str, optional
-        Continuous column used to define neighbourhoods during
-        imputation. Default is "age".
+        Continuous column defining the imputation window. Default "age".
+    impute_group_by : list of str or None, optional
+        Categorical columns to group by during imputation, e.g.
+        ["sex", "eyes"]. Default None means batch_effect_list.
     which_cohorts : list of str or None, optional
-        Restrict the data to rows whose "diagnosis" value is included
-        in this list.
+        Keep only rows whose "diagnosis" is in this list.
     subject_removal_nan_thr : float, optional
-        Missing-value fraction at or above which a column is dropped
-        during imputation. Default is 0.2.
-    including_ROIs : list of str or None, optional
-        ROI name patterns to retain.
-    excluding_ROIs : list of str or None, optional
-        ROI name patterns to exclude.
+        Columns with at least this fraction missing are dropped when
+        imputing. Default 0.2.
+    including_ROIs, excluding_ROIs : list of str or None, optional
+        ROI name patterns to keep / drop.
     name_data : str, optional
-        Name assigned to the resulting NormData object.
+        Name of the NormData object when no split is requested.
     missing_value_handling_method : {"mean", "median", None}, optional
-        Imputation strategy. If None, NormData removes rows containing
-        missing values.
+        Imputation strategy. None means rows with NaNs are removed instead.
     customized_con_var_imputation_window : dict or None, optional
-        Site-specific additions to the default imputation window.
+        Extra imputation window width per site.
     remove_outliers : bool, optional
-        Whether NormData should remove response-variable outliers.
-    remove_outliers_approach : str, optional
-        Response-outlier method, ``"iqr"`` or ``"zscore"`` (three standard
-        deviations). Default is "iqr". Released PCNtoolkit versions without
-        the extended options use equivalent local filtering.
+        Remove subjects with any response outside the IQR bounds.
+        Default False.
     remove_outliers_group_by : str, list of str, or None, optional
-        Column or columns used to group observations during outlier removal.
-        Default is "site".
+        Grouping for the IQR bounds. Default "site".
     iqr_factor : float, optional
-        IQR multiplier used for outlier detection. Default is 3.
+        Bounds are Q1 - iqr_factor*IQR and Q3 + iqr_factor*IQR. Default 3.
     train_split_size : float or None, optional
-        Training proportion. Values greater than 1 are interpreted as
-        percentages. If None or 0, the full NormData object is returned.
+        Fraction of subjects in the training set (or percentage if > 1).
+        None/0 means no split.
     which_subjects : list or None, optional
-        Restrict the data to identifiers in `subject_id_col_name`.
+        Keep only these subject IDs.
     random_state : int, optional
-        Random seed used for the train/test split.
+        Seed for the train/test split.
 
     Returns
     -------
-    NormData or tuple of NormData
-        Full NormData object, or `(train, test)` when splitting is
-        requested.
-
-    Raises
-    ------
-    ValueError
-        If no covariate is provided, the imputation method is invalid,
-        the imputation column is invalid, or the split size is outside
-        its valid range.
+    NormData or (NormData, NormData)
+        The full dataset, or (train, test) if a split was requested.
     """
+    imputing = missing_value_handling_method is not None
+
+    if impute_group_by is None:
+        impute_group_by = batch_effect_list
+
+    # 1. Validate inputs 
     if not covariate_list:
         raise ValueError("covariate_list should contain at least one covariate.")
 
-    valid_missing_methods = {"mean", "median", None}
-    if missing_value_handling_method not in valid_missing_methods:
+    if missing_value_handling_method not in {"mean", "median", None}:
         raise ValueError(
-            "missing_value_handling_method should be 'mean', " "'median', or None."
+            "missing_value_handling_method should be 'mean', 'median', or None."
         )
 
-    if missing_value_handling_method is not None:
+    if imputing:
         if not isinstance(impute_by_column_name, str):
             raise ValueError("impute_by_column_name should be a string.")
+        missing = [
+            col for col in [impute_by_column_name] + impute_group_by
+            if col not in df.columns
+        ]
+        if missing:
+            raise ValueError(f"Imputation columns not found in the dataframe: {missing}")
 
-        if impute_by_column_name not in df.columns:
-            raise ValueError(
-                f"Imputation column '{impute_by_column_name}' "
-                "was not found in the dataframe."
-            )
+    train_split_size = _normalize_split_size(train_split_size)
 
-    if train_split_size:
-        if train_split_size > 1:
-            train_split_size /= 100
+    # Columns that must always be present (and never be NaN)
+    required_columns = covariate_list + batch_effect_list
+    if imputing:
+        required_columns = required_columns + [impute_by_column_name] + impute_group_by
+    required_columns = list(dict.fromkeys(required_columns))  # remove duplicates
 
-        if not 0 < train_split_size < 1:
-            raise ValueError(
-                "train_split_size should be between 0 and 1, or "
-                "between 0 and 100 when expressed as a percentage."
-            )
-
-    # Convert infinities before removing rows with invalid required data.
+    # 2. Clean rows 
     df = df.replace([np.inf, -np.inf], np.nan)
-
-    required_columns = list(dict.fromkeys(covariate_list + batch_effect_list))
-
-    if (
-        missing_value_handling_method is not None
-        and impute_by_column_name not in required_columns
-    ):
-        required_columns.append(impute_by_column_name)
-
     df = df.dropna(subset=required_columns)
 
     if which_cohorts:
         df = df[df["diagnosis"].isin(which_cohorts)]
 
-    if excluding_ROIs:
-        excluded_columns = df.filter(regex="|".join(excluding_ROIs)).columns
-        df = df.drop(columns=excluded_columns)
-
-        response_vars = [
-            variable
-            for variable in response_vars
-            if not any(excluded_roi in variable for excluded_roi in excluding_ROIs)
-        ]
-
-    if including_ROIs:
-        stripped_rois = [re.sub(r"-(lh|rh)$", "", roi) for roi in including_ROIs]
-
-        required_patterns = (
-            stripped_rois + batch_effect_list + [subject_id_col_name] + covariate_list
-        )
-
-        if (
-            missing_value_handling_method is not None
-            and impute_by_column_name not in required_patterns
-        ):
-            required_patterns.append(impute_by_column_name)
-
-        pattern = "|".join(map(re.escape, required_patterns))
-        df = df.loc[:, df.columns.str.contains(pattern)]
-
-        response_vars = [
-            variable
-            for variable in response_vars
-            if any(roi in variable for roi in stripped_rois)
-        ]
-
+    #  3. Select columns and subjects 
+    df, response_vars = _filter_rois(
+        df,
+        response_vars,
+        including_ROIs,
+        excluding_ROIs,
+        always_keep=required_columns + [subject_id_col_name],
+    )
     print("Number of response variables: ", len(response_vars))
 
     if which_subjects:
         df = df[df[subject_id_col_name].isin(which_subjects)]
 
-    parameters = inspect.signature(NormData.from_dataframe).parameters
-    extended_outliers = "remove_outliers_approach" in parameters or any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters.values()
-    )
+    #  Local shortcuts for the processing steps 
+    def drop_outliers(frame, reference):
+        return _filter_response_outliers(
+            frame,
+            reference,
+            response_vars,
+            approach="iqr",
+            group_by=remove_outliers_group_by,
+            iqr_factor=iqr_factor,
+        )
 
-    def package(frame, name, *, remove_nan, native_outliers=False):
-        options = dict(
+    def impute(frame, donors):
+        return impute_by_subgroup(
+            frame,
+            group_cols=impute_group_by,
+            subject_removal_nan_thr=subject_removal_nan_thr,
+            continous_cov_col=impute_by_column_name,
+            imputation_con_var_window=5,
+            strategy=missing_value_handling_method,
+            customized_age_window=customized_con_var_imputation_window,
+            reference_df=donors,
+        )
+
+    def to_normdata(frame, name):
+        return NormData.from_dataframe(
             name=name,
             dataframe=frame,
             covariates=covariate_list,
             batch_effects=batch_effect_list,
             response_vars=response_vars,
             subject_ids=subject_id_col_name,
-            remove_Nan=remove_nan,
-            remove_outliers=native_outliers,
+            remove_Nan=not imputing,  # without imputation, NaN rows are dropped
+            remove_outliers=False,    # already done above, before imputation
         )
-        if extended_outliers:
-            # The extended interface takes group lists and the name "z-score".
-            options.update(
-                remove_outliers_approach=(
-                    "z-score"
-                    if remove_outliers_approach == "zscore"
-                    else remove_outliers_approach
-                ),
-                remove_outliers_group_by=(
-                    [remove_outliers_group_by]
-                    if isinstance(remove_outliers_group_by, str)
-                    else remove_outliers_group_by
-                ),
-                iqr_factor=iqr_factor,
-            )
-        return NormData.from_dataframe(**options)
-
-    imputation_options = dict(
-        group_cols=batch_effect_list,
-        subject_removal_nan_thr=subject_removal_nan_thr,
-        continous_cov_col=impute_by_column_name,
-        imputation_con_var_window=5,
-        strategy=missing_value_handling_method,
-        customized_age_window=customized_con_var_imputation_window,
-    )
-
-    if train_split_size and (
-        missing_value_handling_method is not None or remove_outliers
-    ):
-        strata = (
-            df[batch_effect_list].astype(str).agg("".join, axis=1)
-            if batch_effect_list
-            else None
-        )
-        train_frame, test_frame = train_test_split(
-            df,
-            test_size=1 - train_split_size,
-            random_state=random_state,
-            stratify=strata,
-        )
-        if missing_value_handling_method is not None:
-            donors = train_frame.copy()
-            train_frame = impute_by_subgroup(
-                train_frame, reference_df=donors, **imputation_options
-            )
-            test_frame = impute_by_subgroup(
-                test_frame, reference_df=donors, **imputation_options
-            )
-            response_vars = [
-                variable
-                for variable in response_vars
-                if variable in train_frame.columns
-            ]
-        if remove_outliers:
-            outlier_reference = train_frame.copy()
-            train_frame = _filter_response_outliers(
-                train_frame,
-                outlier_reference,
-                response_vars,
-                remove_outliers_approach,
-                remove_outliers_group_by,
-                iqr_factor,
-            )
-            test_frame = _filter_response_outliers(
-                test_frame,
-                outlier_reference,
-                response_vars,
-                remove_outliers_approach,
-                remove_outliers_group_by,
-                iqr_factor,
-            )
-        return (
-            package(
-                train_frame, "train", remove_nan=missing_value_handling_method is None
-            ),
-            package(
-                test_frame, "test", remove_nan=missing_value_handling_method is None
-            ),
-        )
-
-    if missing_value_handling_method in {"mean", "median"}:
-        df = impute_by_subgroup(
-            df=df,
-            group_cols=batch_effect_list,
-            subject_removal_nan_thr=subject_removal_nan_thr,
-            continous_cov_col=impute_by_column_name,
-            imputation_con_var_window=5,
-            strategy=missing_value_handling_method,
-            customized_age_window=(customized_con_var_imputation_window),
-        )
-
-        response_vars = [
-            variable for variable in response_vars if variable in df.columns
-        ]
-        remove_nan = False
-    else:
-        remove_nan = True
-
-    if remove_outliers and not extended_outliers:
-        df = _filter_response_outliers(
-            df,
-            df,
-            response_vars,
-            remove_outliers_approach,
-            remove_outliers_group_by,
-            iqr_factor,
-        )
-    reference_data = package(
-        df,
-        name_data,
-        remove_nan=remove_nan,
-        native_outliers=remove_outliers and extended_outliers,
-    )
 
     if train_split_size:
-        train, test = reference_data.train_test_split(
-            splits=(train_split_size, 1 - train_split_size),
-            split_names=["train", "test"],
-            random_state=random_state,
+        train_df, test_df = _split_by_batch_effects(
+            df, batch_effect_list, subject_id_col_name, train_split_size, random_state
         )
-        return train, test
+    else:
+        # No split: the whole dataset plays the role of the training set.
+        train_df, test_df = df, None
 
-    return reference_data
+    # 5. Remove outliers (bounds from the training set only) 
+    if remove_outliers:
+        reference = train_df.copy()
+        train_df = drop_outliers(train_df, reference)
+        if test_df is not None:
+            test_df = drop_outliers(test_df, reference)
+
+    # 6. Impute (donors from the cleaned training set only) 
+    if imputing:
+        donors = train_df.copy()
+        train_df = impute(train_df, donors)
+        if test_df is not None:
+            test_df = impute(test_df, donors)
+        # Imputation may drop columns with too many NaNs
+        response_vars = [v for v in response_vars if v in train_df.columns]
+
+    # . Package 
+    if test_df is None:
+        return to_normdata(train_df, name_data)
+
+    return to_normdata(train_df, "train"), to_normdata(test_df, "test")
 
 
 def model_diagnostics(
