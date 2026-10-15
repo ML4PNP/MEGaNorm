@@ -17,6 +17,7 @@ from meganorm.utils.IO import (
     select_session_path,
     infer_device,
     parse_run_key,
+    load_demographic_file,
 )
 from meganorm.src.preprocess import (
     preprocess,
@@ -614,11 +615,27 @@ def main(args):
         elif column == "number_of_epochs":
             features["number_of_epochs"] = n_kept
 
+    # Attach this participant's demographics from this run's own file.
+    if args.demographic_path and os.path.exists(args.demographic_path):
+        demo = load_demographic_file(args.demographic_path)
+        if participant_id in demo.index:
+            demo_row = demo.loc[[participant_id]].copy()
+            demo_row.index = features.index
+            demo_row.insert(0, "participant_id", participant_id)
+            demo_row = demo_row.drop(
+                columns=[c for c in demo_row.columns if c in features.columns]
+            )
+            features = pd.concat([demo_row, features], axis=1)
+        else:
+            logger.warning(
+                f"{participant_id} not found in {args.demographic_path}; "
+                "no demographics added."
+            )
     if configs.process_all_sessions:
-        # merge_fidp_demo joins demographics on participant_id.
         features["participant_id"] = participant_id
         features["run"] = run
         features["eye_condition"] = eye_condition
+
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 

@@ -978,7 +978,7 @@ def merge_fidp_demo(
     if drop_columns:
         demographic_df.drop(columns=drop_columns, errors="ignore", inplace=True)
 
-    feature_path = os.path.join(features_dir, "all_features.csv")
+    feature_path = os.path.join(featres_dir, "all_features.csv")
     if not os.path.exists(feature_path):
         raise FileNotFoundError(
             f"The file 'all_features.csv' is missing in the directory: {features_dir}."
@@ -999,7 +999,7 @@ def merge_fidp_demo(
         data = data[demo_cols + list(features_df.columns)]
     else:
         # Merge demographic and features
-        data = demographic_df.join(features_df, how="inner")
+        data = demographic_df.join(featurues_df, how="inner")
 
     data.index.name = None
 
@@ -1192,6 +1192,7 @@ def merge_datasets_with_glob(datasets, process_all_sessions=False):
                 "empty_room_record": join_with_star(er_record_paths),
                 "mri_surface": surface,
                 "dataset_name": dataset_name,
+                "site": dataset_info.get("site_name", dataset_name),
                 "event_record": join_with_star(event_record_paths),
                 "event_of_interest": str(event_of_interest),
                 "trans_path": join_with_star(trans_path),

@@ -12,7 +12,6 @@ import meganorm.utils.parallel
 import meganorm.src.mainParallel
 from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
-from meganorm.utils.IO import merge_fidp_demo
 from meganorm.src.normative_modeling import anova_group_level_effect
 from meganorm.utils.IO import check_demographic_format, load_demographic_file
 
@@ -577,6 +576,8 @@ def collect_results(
             continue
         # tag each row with its subject so we can dedup on rerun
         df["subject"] = subject
+        df["dataset_name"] = subjects[subject].get("dataset_name")
+        df["site"] = subjects[subject].get("site")
         new_features.append(df)
 
     if not new_features:
@@ -813,25 +814,15 @@ def auto_parallel_feature_extraction(
             clean=False,
         )
 
-    # Merge demographic data and extracted f-IDPS
+    # Demographics are already in each run's CSV (added by mainParallel), and
+    # site is added by collect_results, so only the group-effect check remains.
     if combine_features_and_demographics:
-        demographic_paths = [
-            values.get("demographic_path")
-            or os.path.join(values["base_dir"], "participants_bids.tsv")
-            for values in datasets.values()
-        ]
-        dataset_names = list(datasets.keys())
-        df = merge_fidp_demo(
-            demographic_paths=demographic_paths,
-            features_dir=features_dir,
-            dataset_names=dataset_names,
-            drop_columns=None,
+        df = pd.read_csv(
+            os.path.join(features_dir, "all_features.csv"), index_col=0, dtype={0: str}
         )
-        df.to_csv(os.path.join(features_dir, "all_features.csv"))
-
         for batch_effect in ["site", "sex"]:
             anova_group_level_effect(
-                df,
+                df.dropna(subset=[batch_effect]),
                 batch_effect,
                 save_tag="raw",
                 save_output_path=os.path.join(
