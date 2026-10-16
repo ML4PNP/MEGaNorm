@@ -137,6 +137,7 @@ def test_sbatchfile_preserves_spaced_arguments_when_executed(tmp_path):
         "annotation file.annot",
         "layout file.json",
         "demographic file.tsv",
+        "montage file.tsv"
     ]
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
@@ -176,6 +177,8 @@ def test_sbatchfile_preserves_spaced_arguments_when_executed(tmp_path):
         arguments[13],
         "--demographic_path",
         arguments[14],
+        "--montage_path",
+        arguments[15],
     ]
 
 
@@ -234,6 +237,7 @@ def test_submit_jobs_uses_modules_conda_and_argument_list(monkeypatch, tmp_path)
                 "None",
                 "/data/custom layout.json",
                 "None",
+                "None"
             ],
             {},
         )
