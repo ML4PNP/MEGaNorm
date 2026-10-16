@@ -1,5 +1,5 @@
 ---
-title: 'MEGaNorm: Integrated EEG/MEG workflows for normative modeling of brain dynamics'
+title: 'MEGaNorm: Integrated EEG/MEG workflows for multisite normative modeling of brain dynamics'
 tags:
   - Python
   - neuroscience
