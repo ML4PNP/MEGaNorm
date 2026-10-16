@@ -1050,10 +1050,10 @@ def merge_datasets_with_glob(datasets):
         annotation_ending = dataset_info.get("annotation_ending", None)
 
         layout_path = dataset_info.get("layout_path", None)
-        montage_path = dataset_info.get("montage_path", None)
         demographic_path = dataset_info.get(
             "demographic_path", os.path.join(base_dir, "participants_bids.tsv")
         )
+        montage_path = dataset_info.get("montage_path", None)
 
         dirs = sorted(
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
@@ -1143,8 +1143,9 @@ def merge_datasets_with_glob(datasets):
                         "pos_path": join_with_star(pos_path),
                         "annotation_path": join_with_star(annotation_path),
                         "layout_path": layout_path,
-                        "montage_path": montage_path,
                         "demographic_path": demographic_path,
+                        "montage_path": montage_path,
+
                     }
                 }
             )

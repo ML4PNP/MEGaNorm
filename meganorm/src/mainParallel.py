@@ -171,6 +171,14 @@ def main_argparser(args=None):
         "need not be named 'participants_bids.tsv' nor live inside the dataset "
         "directory. Used for template-MRI age matching.",
     )
+
+    parser.add_argument(
+        "--montage_path",
+        type=str,
+        default=None,
+        help="Path to dataset's montage file.",
+        )
+
     return parser.parse_args(args)
 
 
@@ -285,6 +293,7 @@ def main(args):
         "annotation_path",
         "layout_path",
         "demographic_path",
+        "montage_path"
     ]:
         if getattr(args, attr) == "None":
             setattr(args, attr, None)
@@ -348,7 +357,7 @@ def main(args):
 
     # ------------------------------------------------------------
     if configs.which_sensor == "eeg":
-        data = prepare_eeg_data(data, path)
+        data = prepare_eeg_data(data, path, montage_path= args.montage_path)
 
     which_sensor_dict = dict.fromkeys(["meg", "mag", "grad", "eeg", "opm"], False)
     which_sensor_dict[configs.which_sensor] = True

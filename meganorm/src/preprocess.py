@@ -445,11 +445,20 @@ def prepare_eeg_data(data, path ,montage_path=None):
 
     # Set montage if not already set
     montage = data.get_montage()
+
+    if montage is not None:
+        logger.info(
+            "EEG montage already present in the data. "
+            "No external montage file was loaded."
+        )
+
     if montage is None:
+        montage_file = None
         try:
             #1. User defined a montage path:
             if montage_path is not None:
                 montage_file=os.fspath(montage_path)
+                montage_source = "user-specified"
                 scale = 1.0 
 
             #2. Otherwise search for BIDS CapTrak electrodes
@@ -461,6 +470,7 @@ def prepare_eeg_data(data, path ,montage_path=None):
                     raise FileNotFoundError("No BIDS CapTrak electrodes TSV file found!")
 
                 montage_file =montage_files[0]
+                montage_source = "automatically discovered using BIDS conform CapTrak file"
 
                 #also load and process coordsystem file with unit information
                 coordsystem_file = montage_file.replace("_electrodes.tsv", "_coordsystem.json")
@@ -477,7 +487,7 @@ def prepare_eeg_data(data, path ,montage_path=None):
             montage_df = pd.read_csv(montage_file, sep="\t")
 
             ch_positions = {
-                row["name"]: [row["x"]*scale, row["y"]*scale, row["z"]]*scale
+                row["name"]: [row["x"]*scale, row["y"]*scale, row["z"]*scale,]
                 for _, row in montage_df.iterrows()
             }
             eeg_montage = mne.channels.make_dig_montage(
@@ -486,17 +496,21 @@ def prepare_eeg_data(data, path ,montage_path=None):
             data.set_montage(eeg_montage)
 
             logger.info(
-                "EEG montage set from %s with %d channel positions",
-                montage_files[0],
+                "EEG montage successfully set. " 
+                "Source: %s, File: %s, Channels: %d",
+                montage_source,
+                montage_file,
                 len(ch_positions),
             )
 
-        except Exception as e:
-            logger.warning(
-                "Could not set EEG montage: %s"
-                " Continuing without a montage. This may raise issues for ICA labeling.",
-                e,
+        except Exception:
+            logger.exception(
+                "Failed to load EEG montage. "
+                "Requested path: %s, attempted file: %s",
+                montage_path,
+                montage_file,
             )
+            raise
 
     return data
 

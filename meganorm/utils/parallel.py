@@ -136,7 +136,7 @@ def sbatchfile(
     sbatch_input_13 = 'annotation_path="${13}"\n'
     sbatch_input_14 = 'layout_path="${14}"\n'
     sbatch_input_15 = 'demographic_path="${15}"\n'
-    sbatch_input_16 = 'montage_path="${15}"\n'
+    sbatch_input_16 = 'montage_path="${16}"\n'
 
     command = (
         "srun --cpus-per-task="
@@ -323,8 +323,8 @@ def submit_jobs(
             trans_path,
             annotation_path,
             layout_path,
-            montage_path,
             demographic_path,
+            montage_path,
         ):
             add_argument(command, value)
 
