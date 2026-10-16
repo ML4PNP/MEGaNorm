@@ -407,9 +407,14 @@ def apply_auto_ica_pipeline(
     return data, number_of_reduced_ic
 
 
-def prepare_eeg_data(data, path):
+def prepare_eeg_data(data, path ,montage_path=None):
     """
-    Prepare EEG data by setting channel types and electrode montage when they are not in the data yet
+    Prepare EEG data by setting channel types and electrode montage when they are not in the data yet. 
+
+    Montage priority logic:
+    1. Existing montage in the EEG data.
+    2. User defined montage path, should include "" for channel_names, and "" "" "" for X,Y,Z coordinates
+    3. Automatically discovered using *_CapTrak_electrodes.tsv following BIDS standards. 
 
     Parameters
     ----------
@@ -417,6 +422,10 @@ def prepare_eeg_data(data, path):
         The raw EEG data.
     path : str
         Path to the EEG recording file.
+    montage_path: str of None, optional
+        Path to user defined montage file, 
+        must be in tsv format and include the columns 'name', 'x', 'y', 'z' 
+        units should be in meters. 
 
     Returns
     -------
@@ -438,15 +447,37 @@ def prepare_eeg_data(data, path):
     montage = data.get_montage()
     if montage is None:
         try:
-            search_pattern_montage = os.path.join(base_dir, "*_montage.csv")
-            montage_files = glob.glob(search_pattern_montage, recursive=True)
+            #1. User defined a montage path:
+            if montage_path is not None:
+                montage_file=os.fspath(montage_path)
+                scale = 1.0 
 
-            if not montage_files:
-                raise FileNotFoundError("No montage CSV file found!")
+            #2. Otherwise search for BIDS CapTrak electrodes
+            else:
+                search_pattern_montage = os.path.join(base_dir, "*_space-CapTrak_electrodes.tsv")
+                montage_files = glob.glob(search_pattern_montage, recursive=True)
 
-            montage_df = pd.read_csv(montage_files[0])
+                if not montage_files:
+                    raise FileNotFoundError("No BIDS CapTrak electrodes TSV file found!")
+
+                montage_file =montage_files[0]
+
+                #also load and process coordsystem file with unit information
+                coordsystem_file = montage_file.replace("_electrodes.tsv", "_coordsystem.json")
+
+                with open(coordsystem_file) as f:
+                    coordsystem = json.load(f)
+
+                scale = {
+                    "m": 1.0,
+                    "cm": 0.01,
+                    "mm": 0.001,
+                    }[coordsystem["EEGCoordinateUnits"]]
+
+            montage_df = pd.read_csv(montage_file, sep="\t")
+
             ch_positions = {
-                row["Channel"]: [row["X"], row["Y"], row["Z"]]
+                row["name"]: [row["x"]*scale, row["y"]*scale, row["z"]]*scale
                 for _, row in montage_df.iterrows()
             }
             eeg_montage = mne.channels.make_dig_montage(

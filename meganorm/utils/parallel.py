@@ -136,6 +136,7 @@ def sbatchfile(
     sbatch_input_13 = 'annotation_path="${13}"\n'
     sbatch_input_14 = 'layout_path="${14}"\n'
     sbatch_input_15 = 'demographic_path="${15}"\n'
+    sbatch_input_16 = 'montage_path="${15}"\n'
 
     command = (
         "srun --cpus-per-task="
@@ -156,6 +157,7 @@ def sbatchfile(
     command += ' --annotation_path "$annotation_path"'
     command += ' --layout_path "$layout_path"'
     command += ' --demographic_path "$demographic_path"'
+    command += ' --montage_path "$montage_path"'
 
     bash_environment = [
         sbatch_init
@@ -186,6 +188,7 @@ def sbatchfile(
     bash_environment[0] += sbatch_input_13
     bash_environment[0] += sbatch_input_14
     bash_environment[0] += sbatch_input_15
+    bash_environment[0] += sbatch_input_16
 
     bash_environment[0] += command
 
@@ -297,6 +300,7 @@ def submit_jobs(
         annotation_path = subjects[subject].get("annotation_path")
         layout_path = subjects[subject].get("layout_path")
         demographic_path = subjects[subject].get("demographic_path")
+        montage_path = subjects[subject].get("montage_path")
 
         command = [
             "sbatch",
@@ -319,6 +323,7 @@ def submit_jobs(
             trans_path,
             annotation_path,
             layout_path,
+            montage_path,
             demographic_path,
         ):
             add_argument(command, value)

@@ -996,7 +996,7 @@ def merge_datasets_with_glob(datasets):
         Dataset configuration dictionary. Each dataset must define
         ``base_dir``, ``task``, and ``ending``. Additional optional entries
         configure recording device, line frequency, empty-room recordings,
-        source-localization inputs, and event files.
+        source-localization inputs, layout, montage and event files.
 
     Returns
     -------
@@ -1050,6 +1050,7 @@ def merge_datasets_with_glob(datasets):
         annotation_ending = dataset_info.get("annotation_ending", None)
 
         layout_path = dataset_info.get("layout_path", None)
+        montage_path = dataset_info.get("montage_path", None)
         demographic_path = dataset_info.get(
             "demographic_path", os.path.join(base_dir, "participants_bids.tsv")
         )
@@ -1142,6 +1143,7 @@ def merge_datasets_with_glob(datasets):
                         "pos_path": join_with_star(pos_path),
                         "annotation_path": join_with_star(annotation_path),
                         "layout_path": layout_path,
+                        "montage_path": montage_path,
                         "demographic_path": demographic_path,
                     }
                 }
