@@ -93,9 +93,7 @@ def main_argparser(args=None):
     parser.add_argument("dir", type=str, help="Address to your data")
     parser.add_argument("save_dir", type=str, help="Where to save extracted features")
     parser.add_argument("subject", type=str, help="Participant ID")
-    parser.add_argument(
-        "configs", type=str
-    )  # TODO: make it optional for both sequential and parallel computing
+    parser.add_argument("configs", type=str)
     # Optional arguments
     parser.add_argument(
         "--line_freq",
@@ -243,10 +241,10 @@ def main(args):
     Run the full spectral feature extraction pipeline for one subject.
 
     Loads raw MEG/EEG/OPM data and processes it end-to-end: channel
-    cleanup, filtering, ICA/GEDAI and environmental noise correction,
+    cleanup, filtering, ICA and environmental noise correction,
     head-movement correction, segmentation with optional Autoreject
     bad-segment removal, optional source localization, PSD computation
-    with FOOOF/IRASA spectral parametrization, and band-power feature
+    with specparam/IRASA spectral parametrization, and band-power feature
     extraction. Extracted features are saved to a per-subject CSV.
 
     Parameters
@@ -269,6 +267,7 @@ def main(args):
     """
     # parse the arguments
     args = main_argparser(args)
+    os.makedirs(args.save_dir, exist_ok=True)
     logger = set_logger(args, ["mne", "numexpr", "dipy"])
 
     start_time = datetime.now()
@@ -411,20 +410,8 @@ def main(args):
         ica_if_reject_by_annotation=configs.ica_if_reject_by_annotation,
         environmental_noise_ica_with_ref_meg_method=configs.environmental_noise_ica_with_ref_meg_method,
         environmental_noise_ica_with_ref_meg_measure=configs.environmental_noise_ica_with_ref_meg_measure,
-        apply_gedai=configs.apply_gedai,
-        gedai_method=configs.gedai_method,
-        sensai_method=configs.sensai_method,
         conductivity=configs.SL_conductivity,
         source_space=configs.SL_source_space,
-        gedai_duration=configs.gedai_duration,
-        gedai_overlap=configs.gedai_overlap,
-        gedai_preliminary_broadband_noise_multiplier=configs.gedai_preliminary_broadband_noise_multiplier,
-        gedai_noise_multiplier=configs.gedai_noise_multiplier,
-        gedai_wavelet_type=configs.gedai_wavelet_type,
-        gedai_wavelet_level=configs.gedai_wavelet_level,
-        gedai_wavelet_low_cutoff=configs.gedai_wavelet_low_cutoff,
-        gedai_epoch_size_in_cycles=configs.gedai_epoch_size_in_cycles,
-        gedai_highpass_cutoff=configs.gedai_highpass_cutoff,
         source_space_spacing=configs.source_space_spacing,
         source_space_spacing_number=configs.source_space_spacing_number,
         event_record=event_record,
@@ -442,11 +429,8 @@ def main(args):
             "Preprocessed_data",
             args.subject,
         )
+        os.makedirs(os.path.dirname(save_prep_path), exist_ok=True)
         filtered_data.save(f"{save_prep_path}_preproc-raw.fif", overwrite=True)
-
-    # Remove UADC001 annotations - temp
-    annot = filtered_data.annotations
-    filtered_data.set_annotations(annot[annot.description != "UADC001"])
 
     # ------------------------------------------------------------
     if configs.bad_segment_removal_method in [None, "fixed_thr"]:
@@ -488,10 +472,6 @@ def main(args):
             segment_events=segment_events,
         )
 
-    # Keep a handle to the post-rejection segments before `segments` gets
-    # reassigned to the source-localized epochs below.
-    rejected_segments = segments
-
     # ------------------------------------------------------------
     if configs.save_segmented_data:
         save_segments_path = os.path.join(
@@ -502,16 +482,20 @@ def main(args):
             f"{save_segments_path}/{args.subject}-segments-epo.fif", overwrite=True
         )
 
-    if configs.lowest_num_of_epochs is not None:
-        rejected_segments = segments.copy()
-        rejected_segments.drop_bad()          # no-op if rejection already ran
+    rejected_segments = segments.copy()
+    rejected_segments.drop_bad()  # no-op if rejection already ran
+    n_kept = len(rejected_segments)
 
-        n_kept = len(rejected_segments)
-
-        if n_kept < configs.lowest_num_of_epochs:
-            err_msg = f"The number of extracted epochs is below the specified minimum threshold of {configs.lowest_num_of_epochs}."
-            logger.error(err_msg)
-            raise Exception(err_msg)
+    if (
+        configs.lowest_num_of_epochs is not None
+        and n_kept < configs.lowest_num_of_epochs
+    ):
+        err_msg = (
+            f"The number of extracted epochs {n_kept} is below the specified "
+            f"minimum threshold of {configs.lowest_num_of_epochs}."
+        )
+        logger.error(err_msg)
+        raise Exception(err_msg)
 
     # ------------------------------------------------------------
     sl_segments = None  # populated below if source localization runs
@@ -544,8 +528,7 @@ def main(args):
             save_epoch_path = os.path.join(
                 Path(args.save_dir).parent, "Saved_outputs", "Epochs", args.subject
             )
-            if not os.path.exists(save_epoch_path):
-                os.mkdir(save_epoch_path)
+            os.makedirs(save_epoch_path, exist_ok=True)
             segments.save(
                 f"{save_epoch_path}/{args.subject}-SL-epo.fif", overwrite=True
             )
@@ -559,16 +542,15 @@ def main(args):
         psd_n_overlap=configs.psd_n_overlap,
         psd_n_fft=configs.psd_n_fft,
         n_per_seg=configs.psd_n_per_seg,
-        # parametrization method
-        parametrization_method=configs.parametrization_method,
+        # parametrization (shared by specparam and IRASA)
+        parametrization_method=configs.psd_parametrization_method,
         aperiodic_mode=configs.aperiodic_mode,
-        freq_range_low=configs.fooof_freq_range_low,
-        freq_range_high=configs.fooof_freq_range_high,
-        # fooof parameters
-        min_peak_height=configs.fooof_min_peak_height,
-        peak_threshold=configs.fooof_peak_threshold,
-        peak_width_limits=configs.fooof_peak_width_limits,
-        # pyrasa parameters
+        freq_range_low=configs.psd_parametrization_freq_range_low,
+        freq_range_high=configs.psd_parametrization_freq_range_high,
+        min_peak_height=configs.psd_parametrization_min_peak_height,
+        peak_threshold=configs.psd_parametrization_peak_threshold,
+        peak_width_limits=configs.psd_parametrization_peak_width_limits,
+        # IRASA only
         irasa_hset=configs.irasa_hset,
     )
 
@@ -579,6 +561,10 @@ def main(args):
         os.makedirs(save_psds_path, exist_ok=True)
         np.save(f"{save_psds_path}/{args.subject}-regional-psd.npy", psds)
         np.save(f"{save_psds_path}/{args.subject}-freqs.npy", freqs)
+
+    min_peak_epochs = 1
+    if configs.lowest_num_of_epochs is not None:
+        min_peak_epochs = configs.lowest_num_of_epochs / 2 + 1
 
     # ------------------------------------------------------------
     features, aperiodic_fit_result = feature_extract(
@@ -597,9 +583,21 @@ def main(args):
         min_r_squared=configs.min_r_squared,
         power_band_ratios_list=configs.power_band_ratios_list,
         layout_path=args.layout_path,
-        freq_range_low=configs.fooof_freq_range_low,
-        freq_range_high=configs.fooof_freq_range_high,
+        freq_range_low=configs.psd_parametrization_freq_range_low,
+        freq_range_high=configs.psd_parametrization_freq_range_high,
+        peak_threshold=configs.psd_parametrization_peak_threshold,
+        peak_width_limits=configs.psd_parametrization_peak_width_limits,
+        min_peak_height=configs.psd_parametrization_min_peak_height,
+        min_peak_epochs=min_peak_epochs,
     )
+
+    for column in configs.extra_metadata_columns:
+        if column == "if_eroom":
+            features["if_eroom"] = empty_room_recording is not None
+        elif column == "scanner":
+            features["scanner"] = device
+        elif column == "number_of_epochs":
+            features["number_of_epochs"] = n_kept
 
     features.to_csv(os.path.join(args.save_dir, f"{args.subject}.csv"))
 
@@ -616,11 +614,10 @@ def main(args):
             filtered_sampling_rate=sampling_rate,
             sl_segments=sl_segments,
             spectral_models=spectral_models,
-            parametrization_method=configs.parametrization_method,
+            parametrization_method=configs.psd_parametrization_method,
             aperiodic_mode=configs.aperiodic_mode,
             aperiodic_fit_result=aperiodic_fit_result,
         )
-
 
     logger.info(
         f"The feature extraction process for the subject {args.subject} is complete."

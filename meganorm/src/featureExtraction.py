@@ -1,20 +1,14 @@
 import numpy as np
-import os
-import sys
-import tqdm
 import json
-import pickle
-import argparse
 import logging
 import pyrasa
-import fooof as f
+import specparam as sp
 import pandas as pd
 from typing import Union
 from typing import Dict, List
 from abc import ABC, abstractmethod
-from pyrasa.irasa_mne import irasa_epochs
-
-# from layouts import load_specific_layout
+from pyrasa.irasa_mne.mne_objs import AperiodicEpochsSpectrum
+from pyrasa.utils.types import AperiodicFit
 from meganorm.layouts.layouts import load_specific_layout
 
 logger = logging.getLogger(__name__)
@@ -50,7 +44,7 @@ def abs_canonical_power(
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
     band_power = np.trapezoid(psd[band_indices], freqs[band_indices])
 
-    return band_power
+    return np.log(band_power) if band_power > 0 else np.nan
 
 
 def rel_canonical_power(
@@ -130,7 +124,7 @@ def abs_individual_power(psd, freqs, band_peaks, individualized_band_ranges, ban
     )
 
     band_power = np.trapezoid(psd[peak_range_indices], freqs[peak_range_indices])
-    return band_power
+    return np.log(band_power) if band_power > 0 else np.nan
 
 
 def rel_individual_power(psd, freqs, band_peaks, individualized_band_ranges, band_name):
@@ -195,20 +189,24 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     on the recording device (e.g., 'FIF', 'DS') and contains channel groupings for either whole-brain or regional
     (lobe-level) parcellation.
 
-    Example layout for regional parcellation:
-        "FIF_MEG_LOBE": {
-            "MAG_frontal_left": ["MEG0121", "MEG0341", "MEG0311", "MEG0321", ...],
-            "MAG_frontal_right": ["MEG1411", "MEG1221", "MEG1211", "MEG1231", ...]
+    Example layouts::
+
+        {
+            "FIF_MEG_LOBE": {
+                "MAG_frontal_left": ["MEG0121", "MEG0341"],
+                "MAG_frontal_right": ["MEG1411", "MEG1221"]
+            }
         }
 
-    Example layout for whole-brain averaging:
-        "FIF_MAG_ALL": {
-            "MAG_ALL": ["MEG0121", "MEG0341", "MEG0311", ...]
+        {
+            "FIF_MAG_ALL": {
+                "MAG_ALL": ["MEG0121", "MEG0341", "MEG0311"]
+            }
         }
 
     Layout files must be stored in a dedicated layout directory and named based on the recording
     device (e.g., 'FIF.json'). The appropriate key in the JSON (e.g., 'FIF_MEG_LOBE') is constructed
-    using `device`, `which_layout`, and `which_sensor`.
+    using ``device``, ``which_layout``, and ``which_sensor``.
 
     Parameters
     ----------
@@ -228,12 +226,12 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
     pd.DataFrame
         A new DataFrame where columns represent averaged parcels and rows represent samples.
     """
-    df.dropna(axis=0, how="all", inplace=True)
-    summarized_df = pd.DataFrame(index=df.index)
+    clean_df = df.dropna(axis=0, how="all")
+    summarized_df = pd.DataFrame(index=clean_df.index)
 
-    # TODO: If both meg and eeg is True, this won't work!
+    # Regional layouts use the first requested sensor modality.
     if which_layout == "all":
-        summarized_df[which_layout] = df.mean(axis=1)
+        summarized_df[which_layout] = clean_df.mean(axis=1)
 
     else:
         modality = [
@@ -268,14 +266,14 @@ def summarizeFeatures(df, device, which_layout, which_sensor, layout_path=None):
             )
 
         for parcel_name, channels_list in layout.items():
-            summarized_df[parcel_name] = df[list(channels_list)].mean(axis=1)
+            summarized_df[parcel_name] = clean_df[list(channels_list)].mean(axis=1)
 
     return summarized_df
 
 
 def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     """
-    Calculates the log ratio of power between two frequency bands.
+    Calculate the natural logarithm of power ratios between two frequency bands.
 
     Parameters
     ----------
@@ -291,7 +289,8 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     Returns
     -------
     float
-        log10(power_numerator / power_denominator), or np.nan if denominator is zero.
+        Natural logarithm of power_numerator / power_denominator, or np.nan
+        if either band's integrated power is non-positive.
     """
     idx_num = np.logical_and(freqs >= fmin_num, freqs <= fmax_num)
     idx_den = np.logical_and(freqs >= fmin_den, freqs <= fmax_den)
@@ -299,10 +298,9 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     power_num = np.trapezoid(psd[idx_num], freqs[idx_num])
     power_den = np.trapezoid(psd[idx_den], freqs[idx_den])
 
-    if power_den == 0:
+    if power_num <= 0 or power_den <= 0:
         return np.nan
-
-    return power_num / power_den
+    return np.log(power_num / power_den)
 
 
 def compute_hemispheric_asymmetry(
@@ -440,7 +438,7 @@ def add_feature(feature_container, feature_arr, feature_name, channel_name, band
     feature_arr : np.ndarray
         Array containing the feature value(s) to add.
     feature_name : str
-        Name of the feature (e.g., 'RelativePower_').
+        Name of the feature (e.g., ``RelativePower_``).
     channel_name : str
         Name of the channel (e.g., 'MEG0121') to which the feature value should be assigned.
     band_name : str
@@ -475,11 +473,15 @@ def feature_extract(
     freq_range_low: int,
     freq_range_high: int,
     layout_path: str | None = None,
-) -> pd.DataFrame:
+    peak_threshold: float = 2.0,
+    peak_width_limits: tuple = (1.0, 12.0),
+    min_peak_height: float = 0.0,
+    min_peak_epochs: int = 1,
+) -> tuple[pd.DataFrame, AperiodicFit | None]:
     """
-    Extract features from FOOOF models for each channel and frequency band.
+    Extract features from specparam models for each channel and frequency band.
 
-    This function computes various features from FOOOF models for each channel,
+    This function computes various features from specparam models for each channel,
     based on specified frequency bands. Features such as offset, exponent, peak
     characteristics, and canonical power are calculated and stored in a DataFrame.
 
@@ -488,7 +490,7 @@ def feature_extract(
     subject_id : str
         The unique identifier for the subject whose data is being processed.
     spectral_models :
-        Group of FOOOF models or PYRASA models, where each model corresponds to a channel and
+        Group of specparam models or PYRASA models, where each model corresponds to a channel and
         its power spectral data.
     psds : np.ndarray
         Original power spectral density values, with shape (n_channels, n_freqs).
@@ -515,26 +517,41 @@ def feature_extract(
         A dictionary indicating which modalities (e.g., 'meg', 'eeg') should be included
         in the feature extraction.
     aperiodic_mode : str
-        Defines the aperiodic component fitting mode for FOOOF. Options are 'knee' or 'fixed'.
+        Defines the aperiodic component fitting mode for specparam. Options are 'knee' or 'fixed'.
     min_r_squared : float
-        Minimum acceptable R-squared value for FOOOF model fitting. Channels with
+        Minimum acceptable R-squared value for specparam model fitting. Channels with
         R-squared values below this threshold are excluded.
     power_band_ratios_list : List[tuple]
         List of ratio specifications (each exposing `numerator` and `denominator`
         band names) for which band-power ratio features should be computed.
+    freq_range_low, freq_range_high : int
+        Frequency range (Hz) used to bound the IRASA aperiodic fit.
+    layout_path : str or None, optional
+        Path to a custom JSON layout file.
+    peak_threshold : float, default=2.0
+        Peak detection threshold passed to pyrasa's `get_peaks` (IRASA only).
+    peak_width_limits : tuple of float, default=(1.0, 12.0)
+        Allowed peak width range in Hz (IRASA only).
+    min_peak_height : float, default=0.0
+        Minimum peak height passed to pyrasa's `get_peaks` (IRASA only).
+    min_peak_epochs : int, default=1
+        Minimum number of epochs in which a channel must have a peak in a
+        band; otherwise its peak features are NaN (IRASA only).
 
     Returns
     -------
-    pd.DataFrame
-        A DataFrame with features extracted for each channel and frequency band. The
-        DataFrame has features as rows and channels (and frequency bands) as columns.
+    features : pd.DataFrame
+        One row indexed by subject_id, with columns combining feature,
+        frequency-band, and channel or regional-layout names.
+    aperiodic_fit : AperiodicFit or None
+        The epoch-averaged IRASA aperiodic fit, or None for specparam.
 
     Raises
     ------
     ValueError
         If `aperiodic_mode` is not 'knee' or 'fixed'.
     TypeError
-        If `spectral_models` is not an instance of f.FOOOF or
+        If `spectral_models` is not an instance of sp.SpectralGroupModel or
         pyrasa.irasa_mne.mne_objs.IrasaEpoched.
     """
 
@@ -542,11 +559,11 @@ def feature_extract(
         raise ValueError(
             f"Unknown aperiodic_mode: {aperiodic_mode}. Expected 'knee' or 'fixed'."
         )
-    if not isinstance(spectral_models, f.FOOOF) and not isinstance(
+    if not isinstance(spectral_models, sp.SpectralGroupModel) and not isinstance(
         spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched
     ):
         raise TypeError(
-            "Expected a f.FOOOF or pyrasa.irasa_mne.mne_objs.IrasaEpoched object instance."
+            "Expected a sp.SpectralGroupModel or pyrasa.irasa_mne.mne_objs.IrasaEpoched object instance."
         )
 
     # Store features in a pandas DataFrame with channel names as columns
@@ -556,25 +573,32 @@ def feature_extract(
     )
 
     ap = None
+    band_peaks_avg = {}
     if isinstance(spectral_models, pyrasa.irasa_mne.mne_objs.IrasaEpoched):
-        try:
-            ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode,
-                scale=False,
-                fit_bounds=[freq_range_low + 1, freq_range_high - 1],
+        # Aperiodic fit on the epoch-averaged spectrum
+        aperiodic_avg = _average_aperiodic(spectral_models.aperiodic)
+        fit_kwargs = dict(
+            fit_func=aperiodic_mode,
+            fit_bounds=[freq_range_low + 1, freq_range_high - 1],
+        )
+        ap = _fit_aperiodic_with_retry(aperiodic_avg, **fit_kwargs)
+
+        # Peaks detected per epoch, then averaged
+        for band_name, (fmin, fmax) in freq_bands.items():
+            band_peaks_avg[band_name] = average_peaks_across_epochs(
+                spectral_models.periodic,
+                fmin,
+                fmax,
+                peak_threshold=peak_threshold,
+                peak_width_limits=peak_width_limits,
+                min_peak_height=min_peak_height,
+                min_epochs=min_peak_epochs,
             )
-        except Exception as e:
-            ap = spectral_models.aperiodic.fit_aperiodic_model(
-                fit_func=aperiodic_mode,
-                scale=True,
-                fit_bounds=[freq_range_low + 1, freq_range_high - 1],
-            )
-            logger.info(f"Data was rescaled in PYRASA due to numerical instability!")
 
     for channel_num, channel_name in enumerate(channel_names):
 
-        if isinstance(spectral_models, f.FOOOF):
-            spectral_model = FOOOFDecomposer(
+        if isinstance(spectral_models, sp.SpectralGroupModel):
+            spectral_model = SpecParamDecomposer(
                 spectral_models, mode=aperiodic_mode, ch_num=channel_num
             )
 
@@ -585,8 +609,8 @@ def feature_extract(
                 ch_name=channel_name,
                 ch_num=channel_num,
                 aperiodic=ap,
+                band_peaks_avg=band_peaks_avg,
             )
-
         else:
             raise TypeError(f"Unknown spectral model type: {type(spectral_models)}")
 
@@ -594,7 +618,10 @@ def feature_extract(
         logger.info(
             f"The R**2 in PSD parametrization of the channel {channel_name} was {spectral_model.get_r_squared()}"
         )
-        if spectral_model.get_r_squared() < min_r_squared:
+        if (
+            not np.isfinite(spectral_model.get_r_squared())
+            or spectral_model.get_r_squared() < min_r_squared
+        ):
             logger.info(
                 f"The {channel_num}th channel, {channel_name}, was removed"
                 " since it's corresponding R2 score in PSD parametrization "
@@ -636,7 +663,7 @@ def feature_extract(
                 )
 
         # isolate periodic parts of signals
-        flattened_psd = spectral_model.get_periodic_spectrum(original_psds=psds)
+        flattened_psd = spectral_model.get_periodic_spectrum()
         original_psd = psds[channel_num, :]
 
         # # whenever aperidic activity is higher than periodic activity
@@ -681,7 +708,7 @@ def feature_extract(
 
             # Peak Features ==================================
             peak_params, band_peaks = spectral_model.get_peak_params(
-                fmin=fmin, fmax=fmax
+                fmin=fmin, fmax=fmax, band_name=band_name
             )
             if peak_params is not None:
                 if feature_categories["Peak_Center"] and peak_params[0] is not None:
@@ -884,27 +911,20 @@ class SpectralDecomposer(ABC):
         pass
 
     @abstractmethod
-    def get_periodic_spectrum(self, original_psds):
+    def get_periodic_spectrum(self):
         """
-        Isolate the periodic component of the power spectrum by removing
-        the fitted aperiodic component.
-
-        Parameters
-        ----------
-        original_psds : np.ndarray
-            Original power spectral density values, shape
-            (n_channels, n_freqs).
+        Return the periodic/ flattened spectrum for this channel
 
         Returns
         -------
         np.ndarray
             Periodic (flattened) power spectrum for the current channel,
-            shape (n_freqs,).
+            shape (n_freqs,) in linear space.
         """
         pass
 
     @abstractmethod
-    def get_peak_params(self, fmin, fmax):
+    def get_peak_params(self, fmin, fmax, band_name=None):
         """
         Return peak parameters within a given frequency range.
 
@@ -939,27 +959,27 @@ class SpectralDecomposer(ABC):
         pass
 
 
-class FOOOFDecomposer(SpectralDecomposer):
-    """Spectral decomposer wrapping a FOOOF model for a single channel."""
+class SpecParamDecomposer(SpectralDecomposer):
+    """Spectral decomposer wrapping a specparam model for a single channel."""
 
-    def __init__(self, fooof_model, mode, ch_num):
+    def __init__(self, spectral_group_model, mode, ch_num):
         """
         Parameters
         ----------
-        fooof_model :
-            Group of FOOOF models, one per channel.
+        spectral_group_model :
+            Group of specparam models, one per channel.
         mode : str
             Aperiodic fitting mode, either 'knee' or 'fixed'.
         ch_num : int
             Index of the channel to decompose.
         """
         self.ch_num = ch_num
-        self.model = fooof_model.get_fooof(ind=ch_num)
+        self.model = spectral_group_model.get_model(ind=ch_num)
         self.mode = mode
 
     def get_aperiodic_params(self):
         """
-        Return the aperiodic parameters for the channel's FOOOF fit.
+        Return the aperiodic parameters for the channel's specparam fit.
 
         Returns
         -------
@@ -974,7 +994,7 @@ class FOOOFDecomposer(SpectralDecomposer):
         """
 
         reordered_params = []
-        params = self.model.get_params("aperiodic_params")
+        params = self.model.get_params("aperiodic")
         # offset
         reordered_params.append(params[0])
 
@@ -991,29 +1011,21 @@ class FOOOFDecomposer(SpectralDecomposer):
 
         return reordered_params
 
-    def get_periodic_spectrum(self, original_psds):
+    def get_periodic_spectrum(self):
         """
-        Compute the periodic component by subtracting the fitted
-        aperiodic component (in log space) from the original PSD.
-
-        Parameters
-        ----------
-        original_psds : np.ndarray
-            Original power spectral density values, shape
-            (n_channels, n_freqs).
+        Compute the periodic component for this channel.
 
         Returns
         -------
         np.ndarray
-            Periodic power spectrum for the channel, shape (n_freqs,).
+            Periodic power spectrum for the channel, shape (n_freqs,) in linear space.
         """
-        original_psd = original_psds[self.ch_num, :]
-        return original_psd - 10**self.model._ap_fit
+        return self.model.data.get_data("peak", "linear")
 
-    def get_peak_params(self, fmin, fmax):
+    def get_peak_params(self, fmin, fmax, band_name=None):
         """
         Extract the dominant peak and all peaks within a frequency band
-        from the FOOOF model's peak parameters.
+        from the specparam model's peak parameters.
 
         Parameters
         ----------
@@ -1031,8 +1043,10 @@ class FOOOFDecomposer(SpectralDecomposer):
             All non-NaN peaks within the frequency band, or None if
             none are found.
         """
+        if self.model.results.n_peaks == 0:
+            return None, None
 
-        peaks = self.model.get_params("peak_params")
+        peaks = np.atleast_2d(self.model.get_params("periodic"))
 
         # filter peaks: check for NaNs and then within thee frequency band
         band_peaks = [
@@ -1052,14 +1066,14 @@ class FOOOFDecomposer(SpectralDecomposer):
 
     def get_r_squared(self):
         """
-        Return the R-squared value of the FOOOF model fit.
+        Return the R-squared value of the specparam model fit.
 
         Returns
         -------
         float
             R-squared value.
         """
-        return self.model.r_squared_
+        return float(self.model.results.metrics.results["gof_rsquared"])
 
 
 class PYRASADecomposer(SpectralDecomposer):
@@ -1068,7 +1082,7 @@ class PYRASADecomposer(SpectralDecomposer):
     channel.
     """
 
-    def __init__(self, model, mode, ch_name, ch_num, aperiodic):
+    def __init__(self, model, mode, ch_name, ch_num, aperiodic, band_peaks_avg):
         """
         Parameters
         ----------
@@ -1090,6 +1104,9 @@ class PYRASADecomposer(SpectralDecomposer):
         self.aperiodic = aperiodic
         self.ch_name = ch_name
         self.ch_num = ch_num
+        self.band_peaks_avg = (
+            band_peaks_avg  # {band_name: DataFrame indexed by ch_name}
+        )
 
     def get_aperiodic_params(self):
         """
@@ -1123,65 +1140,33 @@ class PYRASADecomposer(SpectralDecomposer):
 
         return params
 
-    def get_periodic_spectrum(self, original_psds=None):
+    def get_periodic_spectrum(self):
         """
         Return the periodic component of the spectrum for the channel
         as computed by PYRASA.
 
-        Parameters
-        ----------
-        original_psds : np.ndarray, optional
-            Unused; present for interface compatibility.
-
         Returns
         -------
         np.ndarray
-            Periodic power spectrum for the channel, shape (n_freqs,).
+            Periodic power spectrum for the channel, averaged across epochs,
+            with shape (n_freqs,).
         """
-        # print(self.model.periodic.get_data().squeeze().shape)
-        return self.model.periodic.get_data().squeeze()[self.ch_num, :]
-
-    def get_peak_params(self, fmin, fmax):
-        """
-        Extract peak parameters within a given frequency range.
-
-        Parameters
-        ----------
-        fmin : float
-            Lower bound of the frequency range.
-        fmax : float
-            Upper bound of the frequency range.
-
-        Returns
-        -------
-        dominant_peak : tuple or None
-            (center frequency, power, width) of the strongest peak in the
-            range, or None if no peak is found.
-        band_peaks : list of tuple or None
-            All peaks found within the frequency range, or None if none
-            are found.
-        """
-        try:
-            df = self.model.periodic.get_peaks(
-                cut_spectrum=(fmin - 1, fmax + 1),
-                peak_threshold=1.5,
-                peak_width_limits=(1, 12.0),
+        periodic = self.model.periodic.get_data()
+        if periodic.ndim != 3:
+            raise ValueError(
+                "Expected periodic spectrum with shape "
+                "(n_epochs, n_channels, n_freqs)."
             )
-        except ValueError as e:
-            logger.warning(
-                f"Peak detection failed for {self.ch_name} in [{fmin}, {fmax}] Hz: {e}"
-            )
+        return periodic[:, self.ch_num, :].mean(axis=0)
+
+    def get_peak_params(self, fmin, fmax, band_name=None):
+        """Return the epoch-averaged peak (cf, pw, bw) of this channel in the band."""
+        avg_peaks = self.band_peaks_avg.get(band_name)
+        if avg_peaks is None or self.ch_name not in avg_peaks.index:
             return None, None
 
-        sel = df.loc[df["ch_name"] == self.ch_name, ["cf", "pw", "bw"]].dropna()
-
-        if sel.empty:
-            return None, None
-
-        band_peaks = [tuple(row) for row in sel.to_numpy(dtype=float)]
-        dominant_peak = max(band_peaks, key=lambda x: x[1])
-
-        return dominant_peak, band_peaks
+        avg_peak = tuple(avg_peaks.loc[self.ch_name, ["cf", "pw", "bw"]].astype(float))
+        return avg_peak, [avg_peak]
 
     def get_r_squared(self):
         """
@@ -1194,3 +1179,151 @@ class PYRASADecomposer(SpectralDecomposer):
         """
         gof = self.aperiodic.gof
         return gof[gof["ch_name"] == self.ch_name]["R2"].item()
+
+
+def _fit_aperiodic_with_retry(spectrum, *, fit_func, fit_bounds):
+    """Keep unscaled fits; retry numerical failures independently per channel.
+
+    Scaling is a recovery step, not a relaxation of the downstream R2 gate.
+    Normalize retry inputs so PyRASA's internal scaling factor is one, then
+    restore physical units explicitly. This avoids depending on PyRASA's
+    version-specific rescaling of model spectra and logarithmic offsets.
+    """
+    fits = []
+    for name in spectrum.ch_names:
+        channel = spectrum.copy().pick([name])
+        reason = None
+        try:
+            fit = channel.fit_aperiodic_model(
+                scale=False, fit_func=fit_func, fit_bounds=fit_bounds
+            )
+            score = fit.gof["R2"].item()
+            if not np.isfinite(score) or score < 0:
+                reason = f"R2={score}"
+        except Exception as error:
+            reason = f"{type(error).__name__}: {error}"
+
+        if reason is not None:
+            logger.info(
+                "IRASA channel %s: unscaled fit failed (%s); retrying with scale=True.",
+                name,
+                reason,
+            )
+            values = channel.get_data().copy()
+            mask = (channel.freqs >= fit_bounds[0]) & (channel.freqs <= fit_bounds[1])
+            minimum = values[..., mask].min()
+            if not np.isfinite(minimum) or minimum <= 0:
+                raise ValueError(
+                    f"Cannot scale IRASA channel {name}: fit power must be finite and positive."
+                )
+            normalization = 0.5 / minimum
+            normalized = AperiodicEpochsSpectrum(
+                values * normalization,
+                channel.info,
+                freqs=channel.freqs,
+                events=channel.events,
+                event_id=channel.event_id,
+            )
+            fit = normalized.fit_aperiodic_model(
+                scale=True, fit_func=fit_func, fit_bounds=fit_bounds
+            )
+            # Both built-in PyRASA fits define Offset in log10 power units.
+            fit.aperiodic_params["Offset"] -= np.log10(normalization)
+            fit.model["aperiodic_model"] /= normalization
+            logger.info(
+                "IRASA channel %s: scaled retry R2=%s.", name, fit.gof["R2"].item()
+            )
+        fits.append(fit)
+    return AperiodicFit(
+        aperiodic_params=pd.concat([fit.aperiodic_params for fit in fits]),
+        gof=pd.concat([fit.gof for fit in fits]),
+        model=pd.concat([fit.model for fit in fits]),
+    )
+
+
+def _average_aperiodic(aperiodic):
+    """Collapse a per-epoch AperiodicEpochsSpectrum into a single-epoch one."""
+    data = aperiodic.get_data().mean(axis=0, keepdims=True)  # (1, n_channels, n_freqs)
+    return AperiodicEpochsSpectrum(
+        data,
+        aperiodic.info,
+        freqs=aperiodic.freqs,
+        events=np.array([[0, 0, 1]]),
+        event_id={"1": 1},
+    )
+
+
+def average_peaks_across_epochs(
+    periodic,
+    fmin,
+    fmax,
+    peak_threshold=2.0,
+    peak_width_limits=(1.0, 12.0),
+    min_peak_height=0.0,
+    min_epochs=1,
+):
+    """
+    Detect peaks in each epoch, keep the strongest peak per channel per epoch,
+    and average those peaks across epochs.
+
+    Parameters
+    ----------
+    periodic : PeriodicEpochsSpectrum
+        Per-epoch periodic spectra from IRASA.
+    fmin, fmax : float
+        Band limits in Hz.
+    peak_threshold : float, default=2.0
+        Peak detection threshold passed to `get_peaks`.
+    peak_width_limits : tuple of float, default=(1.0, 12.0)
+        Allowed peak width range in Hz.
+    min_peak_height : float, default=0.0
+        Minimum peak height passed to `get_peaks`.
+    min_epochs : int, default=1
+        Minimum number of epochs in which a channel must have a peak
+        in the band. Channels below this get NaN.
+
+    Returns
+    -------
+    pd.DataFrame or None
+        One row per channel (index: ch_name) with averaged cf, pw, bw.
+        NaN for channels with a peak in fewer than `min_epochs` epochs.
+        None if peak detection failed in every epoch.
+    """
+    all_peaks = []
+    for epoch_idx in range(len(periodic)):
+        try:
+            peaks = periodic[epoch_idx].get_peaks(
+                cut_spectrum=(fmin - 1, fmax + 1),
+                peak_threshold=peak_threshold,
+                peak_width_limits=peak_width_limits,
+                min_peak_height=min_peak_height,
+            )
+        except ValueError as e:
+            logger.warning(
+                f"Peak detection failed (epoch {epoch_idx}, [{fmin}, {fmax}] Hz): {e}"
+            )
+            continue
+        peaks["epoch"] = epoch_idx
+        all_peaks.append(peaks)
+
+    if not all_peaks:
+        return None
+    peaks = pd.concat(all_peaks, ignore_index=True)
+
+    # Peaks inside the band only
+    peaks = peaks[peaks["cf"].between(fmin, fmax)].dropna(subset=["cf", "pw", "bw"])
+    # Peak power in natural log space
+    peaks["pw"] = np.log(peaks["pw"])
+
+    # 1. One peak per channel per epoch: the strongest
+    strongest = peaks.sort_values("pw").groupby(["ch_name", "epoch"]).tail(1)
+
+    # 2. Average across epochs, per channel
+    by_channel = strongest.groupby("ch_name")
+    averaged = by_channel[["cf", "pw", "bw"]].mean()
+
+    # 3. NaN for channels with a peak in fewer than `min_epochs` epochs
+    averaged.loc[by_channel.size() < min_epochs] = np.nan
+
+    # Include every channel, also those without any peak (NaN)
+    return averaged.reindex(periodic.ch_names)

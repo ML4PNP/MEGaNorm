@@ -20,6 +20,14 @@ meganorm.src.mainParallel module
    :show-inheritance:
    :undoc-members:
 
+meganorm.src.normative_modeling module
+--------------------------------------
+
+.. automodule:: meganorm.src.normative_modeling
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 meganorm.src.preprocess module
 ------------------------------
 
@@ -36,6 +44,14 @@ meganorm.src.psdParameterize module
    :show-inheritance:
    :undoc-members:
 
+meganorm.src.source_localization module
+---------------------------------------
+
+.. automodule:: meganorm.src.source_localization
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 Module contents
 ---------------
 
@@ -43,3 +59,4 @@ Module contents
    :members:
    :show-inheritance:
    :undoc-members:
+   

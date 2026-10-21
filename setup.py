@@ -1,18 +1,22 @@
 from setuptools import setup, find_packages
+from pathlib import Path
+import tomllib
+
+ROOT = Path(__file__).resolve().parent
+with (ROOT / "pyproject.toml").open("rb") as f:
+    metadata = tomllib.load(f)["tool"]["meganorm"]
 
 # Load version from meganorm/_version.py
 version = {}
 with open("meganorm/_version.py") as f:
     exec(f.read(), version)
 
+
 # Load dependencies from requirements.txt
 def load_requirements(filename="requirements.txt"):
     with open(filename, encoding="utf-8") as f:
-        return [
-            line.strip()
-            for line in f
-            if line.strip() and not line.startswith("#")
-        ]
+        return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
 
 setup(
     name="meganorm",
@@ -22,12 +26,26 @@ setup(
     long_description_content_type="text/markdown",
     author="Seyed Mostafa Kia, Mohammad Zamanzadeh, Ymke Verduyn",
     license="GNU GPLv3",
-    url="https://github.com/ML4PNP/MEGaNorm",
+    url=metadata["repository"],
+    project_urls={
+        "Documentation": metadata["documentation"],
+        "Source": metadata["repository"],
+        "Software DOI": "https://doi.org/" + metadata["software-concept-doi"],
+        "Scientific paper": "https://doi.org/" + metadata["paper-doi"],
+    },
     packages=find_packages(),
-    python_requires=">=3.12",
+    python_requires=">=3.12,<3.13",
     install_requires=load_requirements(),
+    extras_require={
+        "dev": [
+            "black",
+            "pytest",
+            "pytest-cov",
+        ],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.12",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
         "Intended Audience :: Science/Research",

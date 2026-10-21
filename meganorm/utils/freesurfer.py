@@ -6,6 +6,7 @@ import subprocess
 import argparse
 import pickle
 import re
+import shlex
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -133,9 +134,9 @@ def create_slurm_script(
     os.makedirs(results_dir, exist_ok=True)
 
     recon_all_command = (
-        f"recon-all -s ${{SUBJECT_ID}} -i ${{VOLUME}} -all"
+        'recon-all -s "${SUBJECT_ID}" -i "${VOLUME}" -all'
         if i_option
-        else f"recon-all -s ${{SUBJECT_ID}} -all -no-isrunning"
+        else 'recon-all -s "${SUBJECT_ID}" -all -no-isrunning'
     )
 
     script_content = f"""#!/bin/bash
@@ -145,18 +146,20 @@ def create_slurm_script(
 #SBATCH --cpus-per-task={cpus_per_task}
 #SBATCH --mem={mem}
 #SBATCH --time={time}
-#SBATCH --output={log_path}/%x_%j.log
-#SBATCH --error={log_path}/%x_%j.err
+#SBATCH --output={shlex.quote(os.path.join(log_path, '%x_%j.log'))}
+#SBATCH --error={shlex.quote(os.path.join(log_path, '%x_%j.err'))}
+
+set -e
 
 # FreeSurfer env (from resolved path or $FREESURFER_HOME)
-export FREESURFER_HOME={fs_home}
-source $FREESURFER_HOME/SetUpFreeSurfer.sh
+export FREESURFER_HOME={shlex.quote(fs_home)}
+source "$FREESURFER_HOME/SetUpFreeSurfer.sh"
 
 # Output root (BIDS derivatives by default)
-export SUBJECTS_DIR={results_dir}
+export SUBJECTS_DIR={shlex.quote(results_dir)}
 
 # Input T1
-VOLUME="{t1_path}"
+VOLUME={shlex.quote(t1_path)}
 
 # Keep BIDS subject id as-is (e.g., sub-01)
 SUBJECT_ID="$1"
@@ -223,11 +226,9 @@ def run_parallel_reconall(
       only those subjects are considered.
     - If selected_sessions is provided:
       only matching sessions are considered.
-    - If first_session_only=True and selected_sessions=None:
-      only the first discovered T1/session is used per subject.
-    - If session_specific_subject_ids=True:
-      FreeSurfer subject IDs become session-specific (e.g. sub-01_ses-01).
-      This is recommended when processing multiple sessions separately.
+    - Without selected_sessions, only the first discovered T1 is used.
+    - When sessions are selected, each T1 is processed under its job label
+      (e.g. sub-01_ses-01), including its run label when present.
 
     Returns
     -------
@@ -552,9 +553,13 @@ def classify_subject_status(
         "error_hints": [],
     }
 
-    # No log at all
+    # A lock can be created before recon-all.log. Respect it so a newly
+    # submitted job is not misclassified as missing and submitted twice.
     if not log_path.exists():
-        status = "missing"
+        if isrunning_files:
+            status = "stalled" if now - newest_ir > stalled_s else "running"
+        else:
+            status = "missing"
         info["status"] = status
         return status, info
 
@@ -805,7 +810,7 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
 
     1. MAD-based robust z-score (default, recommended)
        Computes a robust z-score using the median and median absolute deviation
-       (MAD). Subjects with |z| > threshold are flagged as QC failures.
+       (MAD). Subjects with z < -threshold are flagged as QC failures.
        This approach is robust and recommended for large multi-site datasets.
 
     2. Absolute deviation from median
@@ -874,6 +879,10 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
     ... )
     """
 
+    method_u = str(method).upper()
+    if method_u not in {"MAD", "ABS"}:
+        raise ValueError("method must be 'MAD' or 'ABS'")
+
     euler_numbers, missing_samples = retrieve_freesurfer_eulernum(
         results_directory, verbose=verbose
     )
@@ -894,8 +903,6 @@ def freesurfer_QC(results_directory, method="MAD", threshold=3.0, verbose=False)
     # Worst hemisphere per subject (most negative Euler)
     e = df[["lh_en", "rh_en"]].to_numpy(float)
     per_subj = np.min(e, axis=1)
-
-    method_u = method.upper()
 
     if method_u == "MAD":
         med = np.median(per_subj)

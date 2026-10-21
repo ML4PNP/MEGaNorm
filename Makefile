@@ -1,6 +1,7 @@
 DOCKER_USER = smkia
 IMAGE_NAME = meganorm
 TAG = latest
+IMAGE = $(DOCKER_USER)/$(IMAGE_NAME):$(TAG)
 
 CONTAINER_NAME = meganorm-container
 HOST_PORT = 8888
@@ -9,26 +10,25 @@ RESULTS_DIR = $(PWD)/results
 DATA_DIR = $(PWD)/data
 
 build:
-	docker build -t $(IMAGE_NAME) .
+	docker build -t $(IMAGE) .
 
 run:
 	docker run --rm -it \
 		--name $(CONTAINER_NAME) \
-		-p $(HOST_PORT):8888 \
+		-p 127.0.0.1:$(HOST_PORT):8888 \
 		-v $(NOTEBOOK_DIR):/app/notebooks \
 		-v $(RESULTS_DIR):/app/results \
 		-v $(DATA_DIR):/app/data \
-		$(IMAGE_NAME)
+		$(IMAGE)
 
 stop:
 	docker stop $(CONTAINER_NAME) || true
 
 push:
-	@read -p "Enter Docker tag (e.g. latest, v0.1.0): " TAG; \
-	docker tag $(IMAGE_NAME) $(DOCKER_USER)/$(IMAGE_NAME):$(TAG)
-	docker push $(DOCKER_USER)/$(IMAGE_NAME):$(TAG)
+	docker push $(IMAGE)
 
 
 pull:
-	docker pull $(DOCKER_USER)/$(IMAGE_NAME):latest
-	
+	docker pull $(IMAGE)
+
+.PHONY: build run stop push pull

@@ -12,10 +12,12 @@ from typing import Optional
 import warnings
 from typing import Union
 from typing import ClassVar
+from mne.io.artemis123.utils import _read_pos
 from pydantic import (
     BaseModel,
     Field,
     PositiveInt,
+    PositiveFloat,
     confloat,
     conint,
     conlist,
@@ -49,13 +51,13 @@ class Config(BaseModel):
 
     Filtering & Resampling
     -----------------------
-    cutoffFreqLow, cutoffFreqHigh : float, PositiveInt, default=1.0, 80
+    cutoffFreqLow, cutoffFreqHigh : float, PositiveInt, default=1.0, 40
         Bandpass filter cutoff frequencies (Hz).
-    resampling_rate : PositiveInt, default=1000
+    resampling_rate : PositiveInt, default=300
         Target sampling rate (Hz).
     digital_filter, notch_filter : bool, default=True
         Apply bandpass / line-noise notch filtering.
-    apply_oversampled_temporal_projection : bool, default=True
+    apply_oversampled_temporal_projection : bool, default=False
         Apply oversampled temporal projection (OTP) denoising.
     apply_Head_movement_correction : bool, default=True
         Correct for head movement during recording.
@@ -81,31 +83,6 @@ class Config(BaseModel):
     auto_ica_corr_thr : float, default=0.5
         Correlation threshold (0-1) for automatic ICA component rejection.
 
-    GEDAI Artifact Removal
-    -----------------------
-    apply_gedai : bool, default=True
-        Apply GEDAI-based artifact removal.
-    gedai_method : {"both", "spectral", "broadband"}, default="both"
-        GEDAI denoising strategy.
-    sensai_method : {"optimize", "gridsearch"}, default="optimize"
-        Parameter search strategy for SensAI.
-    gedai_duration, gedai_overlap : float or int, default=12, 0.5
-        Window duration (s) and overlap fraction for GEDAI.
-    gedai_preliminary_broadband_noise_multiplier : float, default=6.0
-        Noise multiplier for preliminary broadband detection.
-    gedai_noise_multiplier : float, default=3.0
-        Noise multiplier used in GEDAI thresholding.
-    gedai_wavelet_type : str, default="haar"
-        Wavelet family used for spectral GEDAI.
-    gedai_wavelet_level : "auto", PositiveInt, or 0, default="auto"
-        Wavelet decomposition level.
-    gedai_wavelet_low_cutoff : float or None, default=None
-        Low-frequency cutoff for wavelet-based denoising.
-    gedai_epoch_size_in_cycles : PositiveInt, default=12
-        Epoch size expressed in number of cycles.
-    gedai_highpass_cutoff : float, default=0.1
-        High-pass cutoff applied before GEDAI (Hz).
-
     Muscle Artifact Detection
     ---------------------------
     muscle_activity_thr : int, default=4
@@ -123,14 +100,16 @@ class Config(BaseModel):
         CTF gradient compensation level.
     apply_environmental_noise_ssp_with_eroom : bool, default=False
         Use empty-room SSP projectors for noise correction.
-    apply_environmental_noise_ica_with_ref_meg : bool, default=True
+    apply_environmental_noise_ica_with_ref_meg : bool, default=False
         Use reference-MEG-guided ICA for environmental noise removal.
-    environmental_noise_ica_with_ref_meg_thr : float, default=2.5
+    environmental_noise_ica_with_ref_meg_thr : float, default=0.4
         Threshold for ref-MEG-guided ICA component rejection.
     environmental_noise_ica_with_ref_meg_method : {"together", "separate"}, default="separate"
         Whether to process reference channels jointly or separately.
-    environmental_noise_ica_with_ref_meg_measure : {"zscore", "correlation"}, default="zscore"
+    environmental_noise_ica_with_ref_meg_measure : {"zscore", "correlation"}, default="correlation"
         Metric used to score ICA components against reference channels.
+    same_environmental_noise_removal : bool, default=False
+        Reserved compatibility field; no effect in the current pipeline.
 
     EEG Reference & Bad-Segment Rejection
     ----------------------------------------
@@ -139,9 +118,9 @@ class Config(BaseModel):
     bad_segment_removal_method : {"autoreject", "fixed_thr", None}, default="autoreject"
         Method for rejecting bad data segments.
     mag_var_threshold, grad_var_threshold, eeg_var_threshold : float
-        Variance-based rejection thresholds per channel type.
+        Peak-to-peak amplitude rejection thresholds per channel type (T, T/m, V).
     mag_flat_threshold, grad_flat_threshold, eeg_flat_threshold : float
-        Flatline-detection thresholds per channel type.
+        Peak-to-peak flatness thresholds per channel type (T, T/m, V).
     zscore_std_thresh : PositiveInt, default=15
         Z-score threshold for outlier rejection.
     autoreject_n_interpolates : list[int], default=[1, 4, 8, 16, 32]
@@ -156,8 +135,8 @@ class Config(BaseModel):
     Segmentation
     ------------
     segments_tmin, segments_tmax : PositiveInt, NegativeInt, default=20, -20
-        Segment start/end times relative to event (s).
-    segments_length, segments_overlap : int, default=10, 2
+        Start/end cropping margins for resting-state recordings (s).
+    segments_length, segments_overlap : int, default=5, 2
         Segment length and overlap (s).
 
     Source Localization
@@ -182,10 +161,10 @@ class Config(BaseModel):
         Head-model layer conductivities (three values required for EEG).
     SL_inverse_operator : {"lcmv"}, default="lcmv"
         Inverse operator method.
-    source_space_spacing : {"ico3"..."ico6", "oct5", "oct6"}, default="ico4"
+    source_space_spacing : {"ico3"..."ico6", "oct5", "oct6", "all"}, default="ico4"
         Source space resolution.
-    source_space_spacing_number : {3, 4, 5, 6}, default=4
-        Numeric resolution; must match `source_space_spacing`.
+    source_space_spacing_number : {3, 4, 5, 6, None}, default=4
+        Numeric resolution; must match `source_space_spacing`; use None for "all".
     coregisteration_final_n_iterations : int, default=20
         Iterations for the final coregistration refinement.
     coregisteration_final_nasion_weight : float, default=10.0
@@ -197,9 +176,9 @@ class Config(BaseModel):
     ----------------------------
     beamformer_pick_ori : {None, "normal", "max-power", "vector"}, default="max-power"
         Source orientation constraint.
-    beamformer_weight_norm : {None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"}, default="unit-noise-gain"
+    beamformer_weight_norm : {None, "unit-noise-gain", "nai", "unit-noise-gain-invariant"}, default="unit-noise-gain-invariant"
         Beamformer weight normalization.
-    beamforme_depth : float, default=0.08
+    beamforme_depth : float, default=0.8
         Depth-weighting factor correcting for center-of-head bias.
     inverse_regularization_value : float, default=0.05
         Regularization applied to the data covariance matrix.
@@ -215,23 +194,23 @@ class Config(BaseModel):
     psd_method : {"multitaper", "welch"}, default="welch"
         PSD estimation method.
     psd_n_overlap, psd_n_fft, psd_n_per_seg : PositiveInt, default=1, 2, 2
-        Welch/multitaper PSD parameters.
-    parametrization_method : {"fooof", "irasa"}, default="irasa"
+        Welch FFT/window durations and overlap (s), converted to samples internally.
+    psd_parametrization_method : {"specparam", "irasa"}, default="specparam"
         Method for separating aperiodic and periodic spectral components.
+    psd_parametrization_freq_range_low, psd_parametrization_freq_range_high : PositiveInt, default=3, 40
+        Frequency range for spectral parametrization (Hz). Used by both methods.
+    psd_parametrization_peak_threshold : PositiveFloat, default=2.0
+        Peak detection threshold. Used by both methods.
+    psd_parametrization_peak_width_limits : tuple[float, float], default=(1.0, 12.0)
+        Allowed peak width range (Hz). Used by both methods.
+    psd_parametrization_min_peak_height : float, default=0.0
+        Minimum peak height for detection. Used by both methods.
+    aperiodic_mode : {"knee", "fixed"}, default="fixed"
+        Aperiodic component model.
     irasa_hset : tuple[float, float, float], default=(1.05, 2.0, 0.05)
         Resampling factor range/step for IRASA.
-    fooof_freq_range_low, fooof_freq_range_high : PositiveInt, default=3, 40
-        Frequency range for FOOOF fitting (Hz).
-    aperiodic_mode : {"knee", "fixed"}, default="knee"
-        Aperiodic component model.
-    fooof_peak_width_limits : list[float], default=[1.0, 12.0]
-        Allowed peak width range (Hz).
-    fooof_min_peak_height : int, default=0
-        Minimum peak height for detection.
-    fooof_peak_threshold : PositiveInt, default=2
-        Peak detection threshold (in SD of the flattened spectrum).
-    fooof_res_save_path : str or None
-        Path to save FOOOF results.
+    specparam_res_save_path : str or None
+        Reserved compatibility field; use save_psds for pipeline spectral outputs.
     save_source_localized_epochs, save_psds : bool, default=False
         Persist intermediate source-localized epochs / PSDs to disk.
 
@@ -250,6 +229,13 @@ class Config(BaseModel):
         peak parameters, canonical/individualized band power, band ratios,
         hemispheric asymmetry).
 
+    save_preprocessed_data, save_segmented_data : bool, default=False
+        Save intermediate preprocessed recordings and epochs.
+    extra_metadata_columns : list of str, default=[]
+        Optional recording metadata: "if_eroom", "scanner", "number_of_epochs".
+    lowest_num_of_epochs : int or None, default=None
+        Minimum number of retained epochs required for feature extraction.
+
     Miscellaneous
     -------------
     random_state : int, default=42
@@ -262,15 +248,14 @@ class Config(BaseModel):
     load(path)
         Load a configuration from a JSON file.
 
-    Notes
-    -----
-    Model validators enforce cross-field consistency, e.g.: a three-layer
-    `SL_conductivity` is required for EEG source localization; `beamformer_pick_ori
-    == "vector"` requires `beamformer_weight_norm == "unit-noise-gain-invariant"`;
-    `source_space_spacing` must match `source_space_spacing_number`; GEDAI
-    parameters must be consistent with the chosen `gedai_method`; and MRI
-    template use is mutually exclusive with MRI QC.
     """
+
+    # Recording-level metadata added as columns to each subject's features CSV.
+    # Demographic columns (age, sex, site, diagnosis, eyes) are joined later
+    # in merge_fidp_demo, so they are not listed here.
+    extra_metadata_columns: list[Literal["if_eroom", "scanner", "number_of_epochs"]] = (
+        []
+    )
 
     model_config = {"extra": "forbid"}
 
@@ -290,32 +275,18 @@ class Config(BaseModel):
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
     cutoffFreqLow: float = 1.0
-    cutoffFreqHigh: PositiveInt = 80
+    cutoffFreqHigh: PositiveInt = 40
 
-    resampling_rate: PositiveInt = 1000
+    resampling_rate: PositiveInt = 300
     digital_filter: bool = True
     notch_filter: bool = True
 
-    apply_oversampled_temporal_projection: bool = True
+    apply_oversampled_temporal_projection: bool = False
 
     apply_Head_movement_correction: bool = True
     Head_movement_limit_from_mean: float = 0.0015
 
     apply_chpi_filter: bool = False
-
-    # gedai settings
-    apply_gedai: bool = True
-    gedai_method: Literal["both", "spectral", "broadband"] = "both"
-    sensai_method: Literal["optimize", "gridsearch"] = "optimize"
-    gedai_duration: Union[float, int] = 12
-    gedai_overlap: Union[float, int] = 0.5
-    gedai_preliminary_broadband_noise_multiplier: float = 6.0
-    gedai_noise_multiplier: float = 3.0
-    gedai_wavelet_type: str = "haar"
-    gedai_wavelet_level: Union[Literal["auto"], PositiveInt, Literal[0]] = "auto"
-    gedai_wavelet_low_cutoff: Union[None, float] = None
-    gedai_epoch_size_in_cycles: PositiveInt = 12
-    gedai_highpass_cutoff: float = 0.1
 
     muscle_activity_thr: int = 4
     muscle_activity_min_length_good: float = 0.1
@@ -325,14 +296,14 @@ class Config(BaseModel):
     same_environmental_noise_removal: bool = False
     ctf_gradient_comp_level: PositiveInt = 3
     apply_environmental_noise_ssp_with_eroom: bool = False
-    apply_environmental_noise_ica_with_ref_meg: bool = True
-    environmental_noise_ica_with_ref_meg_thr: float = 2.0
+    apply_environmental_noise_ica_with_ref_meg: bool = False
+    environmental_noise_ica_with_ref_meg_thr: float = 0.4
     ica_if_reject_by_annotation: bool = True
     environmental_noise_ica_with_ref_meg_method: Literal["together", "separate"] = (
         "separate"
     )
     environmental_noise_ica_with_ref_meg_measure: Literal["zscore", "correlation"] = (
-        "zscore"
+        "correlation"
     )
 
     apply_ica: bool = True
@@ -342,20 +313,21 @@ class Config(BaseModel):
     rereference_method: Literal["average", "REST", None] = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
+
     mag_var_threshold: float = 5000e-15
     grad_var_threshold: float = 5000e-13
     eeg_var_threshold: float = 40e-6
     mag_flat_threshold: float = 10e-15
     grad_flat_threshold: float = 10e-13
-    eeg_flat_threshold: float = 40e-6
+    eeg_flat_threshold: float = 1e-6
     zscore_std_thresh: PositiveInt = 15
 
     segments_tmin: PositiveInt = 20
     segments_tmax: NegativeInt = -20
-    segments_length: PositiveInt = 10
+    segments_length: PositiveInt = 5
     segments_overlap: int = 2
 
-    save_preprocessed_data: bool = True
+    save_preprocessed_data: bool = False
 
     # autoreject
     autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
@@ -381,7 +353,7 @@ class Config(BaseModel):
     SL_conductivity: Tuple[float, ...] = (0.3,)
     SL_inverse_operator: Literal["lcmv"] = "lcmv"
 
-    bem_preflood_parameter_space: List[int] = (10, 15, 20, 30, 35)
+    bem_preflood_parameter_space: List[int] = [10, 15, 20, 30, 35]
     bem_preflood: int = 25
     bem_gcaatlas: bool = True
     bem_max_erosion_pct: float = 15.0
@@ -389,7 +361,7 @@ class Config(BaseModel):
     bem_max_fine_segmentation_iteration: int = 100
     bem_plot_orientations: Literal["coronal", "axial", "sagittal", None] = "coronal"
 
-    # the spacing to use for source space specificatin
+    # Resolution of the cortical source space.
     source_space_spacing: Literal[
         "ico3", "ico4", "ico5", "ico6", "oct5", "oct6", "all"
     ] = "ico4"
@@ -411,12 +383,12 @@ class Config(BaseModel):
     # This parameter scales the activation to correct for head-center bias.
     beamforme_depth: confloat(ge=0, le=1) = 0.8
 
-    # this is used for regularaizing the data covariance (shifting the matrix)
+    # Regularization of the data covariance matrix.
     inverse_regularization_value: confloat(ge=0, le=1) = 0.05
 
     apply_morphing: bool = False
 
-    # the pacellation to use
+    # Cortical atlas used for parcellation.
     parcellation_parc: Literal[None, "aparc.a2009s", "parac"] = "aparc.a2009s"
     parcellation_mode: Literal["mean_flip", "mean", "auto", "pca_flip", "max"] = "auto"
 
@@ -429,17 +401,17 @@ class Config(BaseModel):
     psd_n_fft: PositiveInt = 2
     psd_n_per_seg: PositiveInt = 2
 
-    parametrization_method: Literal["fooof", "irasa"] = "irasa"
-    # PYRASA
-    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
+    psd_parametrization_method: Literal["specparam", "irasa"] = "specparam"
+    # Shared by specparam and IRASA
+    psd_parametrization_freq_range_low: PositiveInt = 3
+    psd_parametrization_freq_range_high: PositiveInt = 40
+    psd_parametrization_peak_threshold: PositiveFloat = 2.0
+    psd_parametrization_peak_width_limits: Tuple[float, float] = (1.0, 12.0)
+    psd_parametrization_min_peak_height: confloat(ge=0) = 0.0
+    aperiodic_mode: Literal["knee", "fixed"] = "fixed"
 
-    # FOOOF analysis
-    fooof_freq_range_low: PositiveInt = 3
-    fooof_freq_range_high: PositiveInt = 40
-    aperiodic_mode: Literal["knee", "fixed"] = "knee"
-    fooof_peak_width_limits: List[float] = [1.0, 12.0]
-    fooof_min_peak_height: int = 0
-    fooof_peak_threshold: PositiveInt = 2
+    # IRASA only
+    irasa_hset: Tuple[float, float, float] = (1.05, 2.0, 0.05)
 
     save_source_localized_epochs: bool = False
     save_psds: bool = False
@@ -492,8 +464,93 @@ class Config(BaseModel):
         "Knee_Frequency": False,
     }
 
-    fooof_res_save_path: Optional[str] = None
+    specparam_res_save_path: Optional[str] = None
     random_state: int = 42
+
+    @field_validator("feature_categories")
+    @classmethod
+    def feature_categories_fv(cls, value):
+        required = set(cls.model_fields["feature_categories"].default)
+        missing = required - set(value)
+        unknown = set(value) - required
+        if missing or unknown:
+            raise ValueError(
+                "feature_categories must include all supported families. "
+                f"Missing: {sorted(missing)}; unknown: {sorted(unknown)}. "
+                "Copy Config().feature_categories and change the desired flags."
+            )
+        return value
+
+    @model_validator(mode="after")
+    def processing_ranges_mv(self):
+        if not 0 <= self.segments_overlap < self.segments_length:
+            raise ValueError(
+                "segments_overlap must be nonnegative and shorter than segments_length."
+            )
+        if self.digital_filter and not 0 <= self.cutoffFreqLow < self.cutoffFreqHigh:
+            raise ValueError(
+                "Bandpass cutoffs must satisfy 0 <= cutoffFreqLow < cutoffFreqHigh."
+            )
+        if self.digital_filter and self.cutoffFreqHigh >= self.resampling_rate / 2:
+            raise ValueError(
+                "cutoffFreqHigh must be below the resampled Nyquist frequency."
+            )
+        if (
+            not self.psd_parametrization_freq_range_low
+            < self.psd_parametrization_freq_range_high
+        ):
+            raise ValueError(
+                "The spectral fitting lower limit must be below the upper limit."
+            )
+        if self.psd_parametrization_freq_range_high >= self.resampling_rate / 2:
+            raise ValueError(
+                "The spectral fitting range must be below the resampled Nyquist frequency."
+            )
+        if (
+            self.psd_parametrization_method == "specparam"
+            and self.psd_method == "welch"
+        ):
+            if self.psd_n_overlap >= self.psd_n_per_seg:
+                raise ValueError("psd_n_overlap must be shorter than psd_n_per_seg.")
+            if self.psd_n_fft < self.psd_n_per_seg:
+                raise ValueError("psd_n_fft must be at least psd_n_per_seg.")
+        low, high = self.psd_parametrization_peak_width_limits
+        if not 0 < low <= high:
+            raise ValueError("Spectral peak width limits must be positive and ordered.")
+        start, stop, step = self.irasa_hset
+        if not 1 < start < stop or step <= 0:
+            raise ValueError(
+                "irasa_hset requires 1 < start < stop and a positive step."
+            )
+        if self.psd_parametrization_method == "irasa":
+            hmax = max(self.irasa_hset)
+            evaluated_low = self.psd_parametrization_freq_range_low / hmax
+            evaluated_high = self.psd_parametrization_freq_range_high * hmax
+            if evaluated_high >= self.resampling_rate / 2:
+                raise ValueError(
+                    "The IRASA resampling range must stay below the resampled Nyquist frequency."
+                )
+            if self.digital_filter and not (
+                self.cutoffFreqLow <= evaluated_low
+                and evaluated_high <= self.cutoffFreqHigh
+            ):
+                raise ValueError(
+                    "IRASA requires the bandpass to include the spectral fitting "
+                    "range expanded by irasa_hset. For the default 3-40 Hz range, "
+                    "use cutoffFreqHigh=80 or higher."
+                )
+        if self.bad_segment_removal_method == "fixed_thr":
+            sensors = {"meg": ("mag", "grad"), "opm": ("mag",)}.get(
+                self.which_sensor, (self.which_sensor,)
+            )
+            for sensor in sensors:
+                flat = getattr(self, f"{sensor}_flat_threshold")
+                reject = getattr(self, f"{sensor}_var_threshold")
+                if not 0 <= flat < reject:
+                    raise ValueError(
+                        f"{sensor}_flat_threshold must be nonnegative and below {sensor}_var_threshold."
+                    )
+        return self
 
     @field_validator("muscle_activity_thr")
     def muscle_activity_thr_fv(cls, v):
@@ -515,7 +572,7 @@ class Config(BaseModel):
     @model_validator(mode="after")
     def SL_conductivity_mv(self):
         if (
-            len(self.SL_conductivity) == 1
+            len(self.SL_conductivity) != 3
             and self.which_sensor == "eeg"
             and self.apply_source_localization
         ):
@@ -607,26 +664,6 @@ class Config(BaseModel):
             raise ValueError(err_msg)
         return self
 
-    @model_validator(mode="after")
-    def gedai_params_check(self):
-        method = self.gedai_method
-        wavelet_level = self.gedai_wavelet_level
-        duration = self.gedai_duration
-        broadband_multiplier = self.gedai_preliminary_broadband_noise_multiplier
-
-        if method == "broadband" and wavelet_level != 0:
-            raise ValueError("broadband method requires wavelet_level=0")
-        if method == "broadband" and not duration:
-            raise ValueError("broadband method requires gedai_duration")
-        if method == "spectral" and wavelet_level == 0:
-            raise ValueError("spectral method requires wavelet_level > 0")
-        if method == "both" and not broadband_multiplier:
-            raise ValueError(
-                "both method requires gedai_preliminary_broadband_noise_multiplier"
-            )
-
-        return self
-
     def save(self, save_path: str, overwrite=False):
         "save the configurations to a JSON file"
 
@@ -685,7 +722,7 @@ def _add_artemis_headshape(data, path, pos_file, logger):
     ext = str(resolved).split(".")[-1].lower()
 
     if ext == "pos":
-        digs = mne.io.artemis123.utils._read_pos(fname=resolved)
+        digs = _read_pos(fname=resolved)
         with data.info._unlock():
             data.info["dig"] = existing + digs
             data.info["dig"] = mne._fiff._digitization._format_dig_points(
@@ -722,7 +759,6 @@ def infer_device(path, device_type, which_sensor, logger):
     """Determine the acquisition device from an explicit override or the path."""
     MEG_DEVICE_BY_EXTENSION = {"ds": "CTF", "fif": "MEGIN", "bin": "ARTEMIS123"}
     if which_sensor == "eeg":
-        # TODO: was originally path[0]. Check if this correction is correct.
         return path.split(".")[-1].upper()
 
     if device_type:
@@ -730,7 +766,7 @@ def infer_device(path, device_type, which_sensor, logger):
     if "4D" in path:
         return "BTI"
 
-    extension = path.split(".")[-1]
+    extension = path.split(".")[-1].lower()
     if extension in MEG_DEVICE_BY_EXTENSION:
         return MEG_DEVICE_BY_EXTENSION[extension]
 
@@ -744,15 +780,20 @@ def load_recording(
 ):
     """Load data"""
 
+    use_empty_room = configs.apply_empty_room_recording and (
+        configs.apply_source_localization
+        or configs.apply_environmental_noise_ssp_with_eroom
+    )
+
     if device == "CTF":
         data = mne.io.read_raw_ctf(path, preload=True)
 
         if pos_file:
-            ext = pos_file.split(".")[-1]
+            ext = pos_file.split(".")[-1].lower()
             if ext == "pos":
-                digs = mne.io.artemis123.utils._read_pos(fname=pos_file)
+                digs = _read_pos(fname=pos_file)
                 with data.info._unlock():
-                    data.info["dig"] += digs
+                    data.info["dig"] = (data.info["dig"] or []) + digs
                     data.info["dig"] = mne._fiff._digitization._format_dig_points(
                         data.info["dig"]
                     )
@@ -771,18 +812,12 @@ def load_recording(
                     "no head-shape/dig info was added to the recording."
                 )
 
-        if empty_room_recording_path and (
-            configs.apply_source_localization
-            or configs.apply_environmental_noise_ssp_with_eroom
-        ):
+        if empty_room_recording_path and use_empty_room:
             empty_room_recording = mne.io.read_raw_ctf(
                 empty_room_recording_path, preload=True
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and (
-            configs.apply_source_localization
-            or configs.apply_environmental_noise_ssp_with_eroom
-        ):
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.warning("No empty room recording was found")
         else:
@@ -802,7 +837,7 @@ def load_recording(
             preload=True,
             convert=convert,
         )
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and use_empty_room:
             empty_room_recording = mne.io.read_raw_bti(
                 pdf_fname=os.path.join(empty_room_recording_path, "c,rfDC"),
                 config_fname=os.path.join(empty_room_recording_path, "config"),
@@ -811,7 +846,7 @@ def load_recording(
                 preload=True,
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.info("No empty room recording was found")
         else:
@@ -839,7 +874,7 @@ def load_recording(
                     preload=True,
                 )
 
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and use_empty_room:
             if str(empty_room_recording_path).lower().endswith(".fif"):
                 empty_room_recording = mne.io.read_raw_fif(
                     empty_room_recording_path, preload=True
@@ -850,7 +885,7 @@ def load_recording(
                     preload=True,
                 )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.info("No empty room recording was found")
         else:
@@ -858,12 +893,12 @@ def load_recording(
 
     else:
         data = mne.io.read_raw(path, preload=True)
-        if empty_room_recording_path and configs.apply_source_localization:
+        if empty_room_recording_path and use_empty_room:
             empty_room_recording = mne.io.read_raw(
                 empty_room_recording_path, preload=True
             )
             logger.info("Empty room recording was found")
-        elif not empty_room_recording_path and configs.apply_source_localization:
+        elif not empty_room_recording_path and use_empty_room:
             empty_room_recording = None
             logger.info("No empty room recording was found")
         else:
@@ -887,9 +922,8 @@ def merge_fidp_demo(
 
     Parameters
     ----------
-    datasets_paths : list
-        List of paths to the dataset directories containing demographic files
-        ('participants_bids.tsv').
+    demographic_paths : list of str
+        Paths to demographic files for the datasets.
     features_dir : str
         Path to the directory containing the extracted features ('all_features.csv').
     dataset_names : list of str
@@ -905,10 +939,10 @@ def merge_fidp_demo(
         with participants indexed as strings.
 
     Raises
-        ------
-        FileNotFoundError
-            If the 'participants_bids.tsv' file is missing in any of the dataset paths or
-            the 'all_features.csv' file is missing in the provided features directory.
+    ------
+    FileNotFoundError
+        If the 'participants_bids.tsv' file is missing in any of the dataset paths or
+        the 'all_features.csv' file is missing in the provided features directory.
     """
 
     demographic_df = pd.DataFrame()
@@ -937,7 +971,7 @@ def merge_fidp_demo(
         raise FileNotFoundError(
             f"The file 'all_features.csv' is missing in the directory: {features_dir}."
         )
-    features_df = pd.read_csv(feature_path, index_col=0)
+    features_df = pd.read_csv(feature_path, index_col=0, dtype={0: str})
     features_df.index = features_df.index.astype(str)
 
     # Merge demographic and features
@@ -958,12 +992,11 @@ def merge_datasets_with_glob(datasets):
 
     Parameters
     ----------
-    datasets : dict
-        Dictionary where each key is a dataset name, and each value is a dictionary
-        with the following keys:
-            - "base_dir" (str): Base directory containing subject subdirectories.
-            - "task" (str): Task keyword to search for in filenames.
-            - "ending" (str): File ending (e.g., '.nii.gz') to filter relevant files.
+    ddatasets : dict
+        Dataset configuration dictionary. Each dataset must define
+        ``base_dir``, ``task``, and ``ending``. Additional optional entries
+        configure recording device, line frequency, empty-room recordings,
+        source-localization inputs, and event files.
 
     Returns
     -------
@@ -1021,22 +1054,26 @@ def merge_datasets_with_glob(datasets):
             "demographic_path", os.path.join(base_dir, "participants_bids.tsv")
         )
 
-        dirs = [
+        dirs = sorted(
             d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
-        ]
+        )
 
         for subj in dirs:
 
             # resting state data
-            rs_record_paths = glob.glob(
-                f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True
+            rs_record_paths = sorted(
+                glob.glob(f"{base_dir}/{subj}/**/*{task}*{ending}", recursive=True)
             )
+            if not rs_record_paths:
+                continue
 
             # empty room record
             if empty_room_task:
-                er_record_paths = glob.glob(
-                    f"{empty_room_path}/{subj}/**/*{empty_room_task}*{empty_room_ending}",
-                    recursive=True,
+                er_record_paths = sorted(
+                    glob.glob(
+                        f"{empty_room_path}/{subj}/**/*{empty_room_task}*{empty_room_ending}",
+                        recursive=True,
+                    )
                 )
             else:
                 er_record_paths = None
@@ -1052,33 +1089,40 @@ def merge_datasets_with_glob(datasets):
 
             # event file
             if event_file_task and event_file_path:
-                event_record_paths = glob.glob(
-                    f"{event_file_path}/{subj}/**/*{event_file_task}*{event_file_ending}",
-                    recursive=True,
+                event_record_paths = sorted(
+                    glob.glob(
+                        f"{event_file_path}/{subj}/**/*{event_file_task}*{event_file_ending}",
+                        recursive=True,
+                    )
                 )
             else:
                 event_record_paths = None
 
             # trans file
             if trans_file_p:
-                trans_path = glob.glob(
-                    f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True
+                trans_path = sorted(
+                    glob.glob(f"{trans_file_p}/{subj}/**/*-trans.fif", recursive=True)
                 )
             else:
                 trans_path = None
 
             # pos file
             if pos_file_p and pos_file_ending:
-                pos_path = glob.glob(
-                    f"{pos_file_p}/{subj}/**/*{pos_file_ending}", recursive=True
+                pos_path = sorted(
+                    glob.glob(
+                        f"{pos_file_p}/{subj}/**/*{pos_file_ending}", recursive=True
+                    )
                 )
             else:
                 pos_path = None
 
             if annotation_p:
-                annotation_path = glob.glob(
-                    f"{annotation_p}/*{subj}*/**/*{annotaion_task_name}*{annotation_ending}",
-                    recursive=True,
+                # Match the full ID so sub-1 cannot reuse sub-10's annotations.
+                annotation_path = sorted(
+                    glob.glob(
+                        f"{annotation_p}/{subj}/**/*{annotaion_task_name}*{annotation_ending}",
+                        recursive=True,
+                    )
                 )
             else:
                 annotation_path = None
@@ -1109,10 +1153,13 @@ def merge_datasets_with_glob(datasets):
 def load_demographic_file(path, index_col=0):
     """Read a participants/demographic table (.tsv, .txt, .csv, .xlsx)."""
     ext = os.path.splitext(path)[1].lower()
+    index_dtype = (
+        {index_col: str} if index_col is not None and index_col is not False else None
+    )
     if ext in (".tsv", ".txt"):
-        df = pd.read_csv(path, sep="\t", index_col=index_col)
+        df = pd.read_csv(path, sep="\t", index_col=index_col, dtype=index_dtype)
     elif ext == ".csv":
-        df = pd.read_csv(path, index_col=index_col)
+        df = pd.read_csv(path, index_col=index_col, dtype=index_dtype)
     elif ext in (".xlsx", ".xls"):
         df = pd.read_excel(path, index_col=index_col)
     else:
@@ -1138,37 +1185,28 @@ def make_demo_file_bids(
         Column index containing the participant ID.
     age_col : int
         Column index containing participant age.
-    *extra_columns : dict
-        Additional column definitions. While age and participants id were defined
-        using positional arguments, extra coulmn modification (e.g., sex and eyes
-        condition) can be revised and converted to a single format across dataset
-        using this function. Each dict can contain:
-            - 'col_name': str, required name for the output column. This does not
-                necessarly match the column name before being passed to this function.
-            - 'col_id': int, index of the column that the revision should be applied to.
-            - 'single_value': value to assign to all rows if no col_id and mapping are given.
-                This can be helpful when all subjects in a dataset have the same properties
-                e.g., eyes open condition.
-            - 'mapping': dict, if single value is not defined, value mapping can be passed
-                to map the initial values to the target values.
+    *columns : dict
+        Additional column specifications. Each dictionary may define
+        ``col_name``, ``col_id``, ``single_value``, and ``mapping``.
 
     Returns
     -------
     None
     """
     for col in columns:
-        if col.get("single_value") and col.get("mapping"):
+        if col.get("single_value") is not None and col.get("mapping") is not None:
             raise ValueError(
                 "'single_value' and 'mapping' can not be both defined. One of them must be None; see the documentation!"
             )
 
     # Load input file based on extension
-    if file_dir.endswith(".xlsx"):
+    extension = os.path.splitext(file_dir)[1].lower()
+    if extension == ".xlsx":
         df = pd.read_excel(file_dir)
-    elif file_dir.endswith(".csv"):
-        df = pd.read_csv(file_dir)
-    elif file_dir.endswith(".tsv"):
-        df = pd.read_csv(file_dir, sep="\t")
+    elif extension == ".csv":
+        df = pd.read_csv(file_dir, dtype={id_col: str})
+    elif extension == ".tsv":
+        df = pd.read_csv(file_dir, sep="\t", dtype={id_col: str})
     else:
         raise ValueError(f"Unsupported file type for: {file_dir}")
 
@@ -1357,8 +1395,8 @@ def find_other_mri_session(
 
     new_paths = {}
     for subject in missing_mri_subjects:
-        mri_paths = glob.glob(
-            f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True
+        mri_paths = sorted(
+            glob.glob(f"{base_mri_path}/{subject}/**/*{str_mri_ending}", recursive=True)
         )
 
         if len(mri_paths) > which_session - 1:
@@ -1387,12 +1425,16 @@ def find_failed_meg_subjects(log_path):
     """
 
     missing_meg_subjects = []
-    paths = os.scandir(log_path)
-    paths = list(filter(lambda x: "err" in x.name, paths))
+    with os.scandir(log_path) as entries:
+        paths = [
+            entry
+            for entry in entries
+            if entry.is_file() and "err" in entry.name.lower()
+        ]
     for path in paths:
         with open(path, "r") as f:
             content = f.read()
-            if "error" in content:
+            if "error" in content.lower():
                 subject = os.path.basename(path).split(".")[0].split("_")[0]
                 missing_meg_subjects.append(subject)
 
@@ -1419,8 +1461,7 @@ def find_other_meg_session(
     str_meg_ending : str
         Filename suffix/pattern used to match MEG files (e.g. "raw.fif").
     task_name : str
-        Task identifier expected to appear in the filename (e.g. "rest").
-    which_session : int
+        Task identifier expected to appear in the filename (e.g. "rest").]
         1-based index of the session to select from each subject's matched
         file list.
 
@@ -1432,9 +1473,11 @@ def find_other_meg_session(
     """
     new_paths = {}
     for subject in missing_meg_subjects:
-        rs_record_paths = glob.glob(
-            f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
-            recursive=True,
+        rs_record_paths = sorted(
+            glob.glob(
+                f"{base_meg_path}/{subject}/**/*{task_name}*{str_meg_ending}",
+                recursive=True,
+            )
         )
         if len(rs_record_paths) > which_session - 1:
             new_paths.update({subject: rs_record_paths[which_session - 1]})

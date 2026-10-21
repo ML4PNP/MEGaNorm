@@ -20,3 +20,27 @@ exclude = '''
   | dist
 )/
 '''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "unit: fast tests of isolated MEGaNorm behavior",
+    "integration: tests of MEGaNorm interactions with scientific dependencies",
+    "slow: tests excluded from the fast pull-request suite",
+]
+
+[tool.meganorm]
+repository = "https://github.com/ML4PNP/MEGaNorm"
+documentation = "https://meganorm.readthedocs.io/"
+software-concept-doi = "10.5281/zenodo.15441319"
+paper-doi = "10.1038/s42003-026-09825-2"
+
+
+# Populate these fields when finalizing a release.
+# version must match meganorm/_version.py when set.
+[tool.meganorm.release]
+version = "0.2.2"
+date = "2026-10-07"  # YYYY-MM-DD; never inferred from today's date
+# Optional DOI reserved/issued for this exact release; never copy an older DOI.
+doi = ""

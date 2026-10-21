@@ -60,25 +60,54 @@ def run_recon_freesurfer(
     Returns
     -------
     None
+
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If FreeSurfer setup or ``recon-all`` exits with a non-zero status.
     """
     env = os.environ.copy()
     env["FREESURFER_HOME"] = freesurfer_home
     env["SUBJECTS_DIR"] = subjects_dir
     env["FS_LICENSE"] = license_path
+    env["FREESURFER_LICENSE"] = license_path
+    freesurfer_bin = os.path.join(freesurfer_home, "bin")
+    path_entries = [
+        entry
+        for entry in env.get("PATH", "").split(os.pathsep)
+        if entry and entry != freesurfer_bin
+    ]
+    env["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
 
     # Path to FreeSurfer setup script
     setup_script = os.path.join(freesurfer_home, "SetUpFreeSurfer.sh")
 
-    # Construct command
-    full_command = f"bash -c 'source {setup_script} && recon-all -i {mri_path} -s {subject_id} -all'"
+    command = [
+        "bash",
+        "-c",
+        """source "$1" || exit $?
+export FREESURFER_HOME="$4" SUBJECTS_DIR="$5" \
+    FS_LICENSE="$6" FREESURFER_LICENSE="$6"
+IFS=: read -r -a path_entries <<< "$PATH"
+clean_path=""
+for entry in "${path_entries[@]}"; do
+    [[ -z "$entry" || "$entry" == "$7" ]] && continue
+    clean_path="${clean_path:+$clean_path:}$entry"
+done
+export PATH="$7${clean_path:+:$clean_path}"
+exec recon-all -i "$2" -s "$3" -all""",
+        "bash",
+        setup_script,
+        mri_path,
+        subject_id,
+        freesurfer_home,
+        subjects_dir,
+        license_path,
+        freesurfer_bin,
+    ]
 
-    # Run the command
-    process = subprocess.run(full_command, shell=True, env=env)
-
-    if process.returncode == 0:
-        print("recon-all completed successfully.")
-    else:
-        print(f"recon-all failed with exit code {process.returncode}.")
+    subprocess.run(command, env=env, check=True)
+    print("recon-all completed successfully.")
 
 
 def set_freesurfer_paths(
@@ -105,9 +134,16 @@ def set_freesurfer_paths(
     """
 
     os.environ["FREESURFER_HOME"] = freesurfer_home
-    os.environ["PATH"] = os.environ["FREESURFER_HOME"] + "/bin:" + os.environ["PATH"]
+    freesurfer_bin = os.path.join(freesurfer_home, "bin")
+    path_entries = [
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and entry != freesurfer_bin
+    ]
+    os.environ["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
     os.environ["SUBJECTS_DIR"] = subjects_dir
     os.environ["FS_LICENSE"] = license_path
+    os.environ["FREESURFER_LICENSE"] = license_path
 
 
 def check_freesurfer():
@@ -118,9 +154,9 @@ def check_freesurfer():
     FreeSurfer by first locating the `recon-all` executable in the system PATH.
     If that fails, it checks a set of common installation directories.
 
-    If found, it verifies that a valid license file (`license.txt`) exists
-    in the expected directory and sets the necessary environment variables:
-    `FREESURFER_HOME` and `FREESURFER_LICENSE`.
+    If found, it verifies that a license file (`license.txt`) exists in the
+    expected directory and sets `FREESURFER_HOME`, `FS_LICENSE`, and the
+    backwards-compatible `FREESURFER_LICENSE` alias.
 
     Raises
     ------
@@ -136,20 +172,14 @@ def check_freesurfer():
 
     Examples
     --------
-    >>> fs_home = find_freesurfer()
+    >>> fs_home = check_freesurfer()
     >>> print(f"FreeSurfer found at: {fs_home}")
     """
-    ...
-    # Try to locate recon-all
-    env = os.environ.copy()
-    result = subprocess.run(
-        ["which", "recon-all"], capture_output=True, text=True, env=env
-    )
-    recon_path = result.stdout.strip()
+    recon_path = shutil.which("recon-all")
 
     if recon_path:
         freesurfer_home = os.path.abspath(
-            os.path.join(os.path.dirname(recon_path), "..")
+            os.path.join(os.path.dirname(os.path.realpath(recon_path)), "..")
         )
     else:
         # Try common install paths
@@ -182,9 +212,18 @@ def check_freesurfer():
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
+    os.environ["FREESURFER_HOME"] = freesurfer_home
+    os.environ["FS_LICENSE"] = license_path
     os.environ["FREESURFER_LICENSE"] = license_path
+    freesurfer_bin = os.path.join(freesurfer_home, "bin")
+    path_entries = [
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and entry != freesurfer_bin
+    ]
+    os.environ["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
 
-    return None
+    return freesurfer_home
 
 
 def max_consecutive_ratio(nums):
@@ -367,18 +406,23 @@ def corregistration(
     """
     Coregister MEG data to MRI, with optional scaling to a template MRI.
 
-    Same as before, but if `coregisteration_scale_mode` is set (e.g. "uniform"),
+    If `coregisteration_scale_mode` is set (e.g. "uniform"),
     a scale factor is estimated during fitting and a physically scaled copy of
-    the subject's MRI is written to `subjects_dir` as `{subject}_scaled`.
+    the subject's MRI is written as `{participant_id}_scaled`.
     Downstream steps (source space, parcellation) must use the returned
-    `fit_subject` name, not the original template name.
+    `fit_subject` name. When saving scaled anatomy and morphing is requested,
+    it is copied to the output directory and retained in `subjects_dir` so
+    the source and morph target remain available in one anatomical directory.
 
     Returns
     -------
     coreg : mne.coreg.Coregistration
     fit_subject : str
         The subject name to use for all subsequent anatomy-dependent steps
-        (equals `subject` if no scaling was applied, else `f"{subject}_scaled"`).
+        Equals `subject` if no scaling was applied, else
+        `f"{participant_id}_scaled"`.
+    subjects_dir : str or Path
+        Directory containing `fit_subject` for downstream anatomical steps.
     """
     coreg = mne.coreg.Coregistration(
         data.info,
@@ -426,13 +470,7 @@ def corregistration(
 
     fit_subject = subject
     if scale_mode and kwargs.get("apply_mri_template", False):
-        # scale_id = participant_id or subject
         scaled_subject = f"{participant_id}_scaled"
-        # scaled_bem_exists = os.path.exists(
-        #     os.path.join(subjects_dir, scaled_subject, "bem", "inner_skull.surf")
-        # )
-
-        # if not scaled_bem_exists:
         logger.info(f"Estimated MRI scale factor: {coreg.scale}")
         mne.scale_mri(
             subject_from=subject,
@@ -444,7 +482,7 @@ def corregistration(
             annot=True,
             skip_fiducials=True,
         )
-        # Note that scale_mri also scale labels and bem models internally
+        # scale_mri also scales labels and BEM surfaces.
         logger.info(f"Scaled MRI subject written: {scaled_subject}")
 
         if scaled_mri_save_path:
@@ -452,44 +490,23 @@ def corregistration(
             dst_root = Path(scaled_mri_save_path)
             dst = dst_root / scaled_subject
             dst_root.mkdir(parents=True, exist_ok=True)
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.move(str(src), str(dst))
-            subjects_dir = dst_root
-            logger.info(f"Scaled MRI moved to {dst}")
+            if src.resolve() != dst.resolve():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                if kwargs.get("apply_morphing", False):
+                    shutil.copytree(src, dst)
+                    logger.info(
+                        f"Scaled MRI copied to {dst}; retained beside the morph target."
+                    )
+                else:
+                    shutil.move(str(src), str(dst))
+                    subjects_dir = dst_root
+                    logger.info(f"Scaled MRI moved to {dst}")
 
         fit_subject = scaled_subject
 
-        # TODO: is it necessary to make a new watershed mode after scaling?
-        # if kwargs.get("force_new_watershed_bem", False):
-        #     pass
-        # mne.bem.make_watershed_bem(
-        #     subject=scaled_subject,
-        #     subjects_dir=subjects_dir,
-        #     overwrite=True,
-        #     gcaatlas=kwargs.get("gcaatlas", True),
-        #     volume="T1",
-        #     preflood=kwargs.get("preflood", None),
-        # )
-        # logger.info(
-        #     f"Watershed BEM regenerated for scaled subject: {scaled_subject}"
-        # )
-        # else:
-        #     logger.info(f"Using existing scaled subject: {scaled_subject}")
-
-    # TODO
-    # if kwargs.get("take_screenshot_of_coregisteration", True):
-    #     save_coreg_screenshots(
-    #         info=data.info,
-    #         trans=coreg.trans,
-    #         subject=fit_subject,
-    #         subjects_dir=subjects_dir,
-    #         out_dir=qc_out_dir,
-    #         participant_id=fit_subject,
-    #         **kwargs,
-    #     )
-
     if kwargs.get("save_transformation_FIF_file", False):
+        os.makedirs(trans_save_path, exist_ok=True)
         trans_save_path = os.path.join(trans_save_path, f"{fit_subject}-trans.fif")
         mne.write_trans(trans_save_path, coreg.trans, overwrite=True)
 
@@ -521,8 +538,8 @@ def forward_solution(
         The subject name as used in FreeSurfer.
     subjects_dir : str or Path
         Path to the FreeSurfer SUBJECTS_DIR containing all subject MRI folders.
-    data:
-        To be written
+    data : mne.io.Raw or mne.Epochs
+        Measurement data whose channel information is used for the forward model.
     transformation_matrix : str, Path, or dict
         Transformation between head and MRI coordinates, typically from coregistration.
     conductivity : tuple of float
@@ -552,6 +569,14 @@ def forward_solution(
     -------
     lead_field_matrix : mne.Forward
         The computed forward solution object, containing the lead field matrix.
+    src : mne.SourceSpaces
+        The source space retained by the completed forward model after excluding
+        points that are too close to the inner-skull surface.
+
+    Raises
+    ------
+    ValueError
+        If ``source_space`` is neither ``"surface"`` nor ``"volumetric"``.
 
     Notes
     -----
@@ -559,6 +584,12 @@ def forward_solution(
     - For volumetric source spaces, the inner skull surface must be present at:
       subjects_dir/subject/bem/inner_skull.surf
     """
+
+    if source_space not in {"surface", "volumetric"}:
+        raise ValueError(
+            "source_space must be either 'surface' or 'volumetric', "
+            f"got {source_space!r}."
+        )
 
     logger.info(f"Setting up a {source_space} source space")
     # source space
@@ -580,17 +611,44 @@ def forward_solution(
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
-    # forward model
-    bem_model = mne.make_bem_model(
-        subject=subject,
-        ico=kwargs.get("source_space_spacing_number", 6),
-        conductivity=conductivity,
-        subjects_dir=subjects_dir,
-    )
+    bem_ico = kwargs.get("source_space_spacing_number", 6)
+
+    try:
+        bem_model = mne.make_bem_model(
+            subject=subject,
+            ico=bem_ico,
+            conductivity=conductivity,
+            subjects_dir=subjects_dir,
+        )
+    except RuntimeError as err:
+        if bem_ico is None or "ordering is wrong" not in str(err):
+            raise  # a different problem: don't hide it
+        logger.warning(
+            f"{subject}: BEM surfaces are not in canonical ico order ({err}). "
+            "Falling back to ico=None (full-resolution surfaces)."
+        )
+        bem_ico = None
+        bem_model = mne.make_bem_model(
+            subject=subject,
+            ico=None,
+            conductivity=conductivity,
+            subjects_dir=subjects_dir,
+        )
+
+    # Surfaces read from FreeSurfer .surf files keep big-endian byte order when
+    # ico=None; numba in make_forward_solution only accepts native byte order.
+    if bem_ico is None:
+        for surf in bem_model:
+            if not isinstance(surf, dict):
+                continue
+            for key, value in surf.items():
+                if isinstance(value, np.ndarray) and not value.dtype.isnative:
+                    surf[key] = value.astype(value.dtype.newbyteorder("="))
 
     bem = mne.make_bem_solution(bem_model)
     logger.info(
-        f"{source_space} BEM model with {len(conductivity)} layer/s was constructed."
+        f"{source_space} BEM model with {len(conductivity)} layer/s was constructed "
+        f"(ico={bem_ico})."
     )
 
     lead_field_matrix = mne.make_forward_solution(
@@ -649,7 +707,12 @@ def inverse_solution(
     empty_room_recording : mne.io.Raw
         Empty-room MEG recording used to estimate noise covariance.
         If None, no noise covariance will be used.
-
+    kwargs : dict, optional
+        Additional keyword arguments controlling covariance estimation
+        and the LCMV beamformer. Supported options include
+        ``covariance_method``, ``inverse_regularization_value``,
+        ``beamformer_pick_ori``, ``beamformer_weight_norm``,
+        ``beamforme_depth``, and ``n_jobs``.
 
     **kwargs : dict, optional
         Optional parameters to control the inverse solution:
@@ -666,15 +729,36 @@ def inverse_solution(
 
     Returns
     -------
-    stc : mne.SourceEstimate
-        The source time course estimate resulting from the inverse solution.
+    stc : list of mne.SourceEstimate
+        Epoch-wise source estimates returned by ``apply_lcmv_epochs``.
+
+    Raises
+    ------
+    ValueError
+        If an inverse method other than ``"lcmv"`` is requested, or if a
+        volumetric source space is used without ``beamforme_depth``.
 
     Notes
     -----
     - This function currently only supports LCMV beamformer inverse methods.
-    - It assumes the forward model is already computed and passed as `fwd`.
+    - It assumes the forward model is already computed and passed as ``fwd``.
     - Noise covariance can be estimated from an empty-room recording if provided.
     """
+    if inverse_operator != "lcmv":
+        raise ValueError(
+            "inverse_solution currently only supports inverse_operator='lcmv', "
+            f"got {inverse_operator!r}."
+        )
+
+    if source_space == "volumetric" and not kwargs.get("beamforme_depth"):
+        error_msg = (
+            "If you want to use volumetric source space (interested in deeper sources),"
+            " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address"
+            " the center of head bias."
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
     # if tSSS has already been applied, return the rank in info
     if check_tsss(meg_data=data):
         data_rank = mne.compute_rank(data, rank="info")
@@ -747,7 +831,6 @@ def inverse_solution(
             data,
             method=kwargs.get("covariance_method", "empirical"),
             reject_by_annotation=True,
-            # rank=lcmv_rank,  # TODO: this should be removed
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
@@ -759,29 +842,6 @@ def inverse_solution(
             tag="dataCovariance",
             logger=logger,
         )
-
-        if not kwargs.get("beamforme_depth") and source_space == "volumetric":
-            error_msg = (
-                "If you want to use volumetric source space (interested in deeper sources),"
-                " please define beamforme_depth as positive float number, i.e., 0.8. This is used to address"
-                " the center of head bias."
-            )
-            logger.error(error_msg)
-            raise Exception(error_msg)
-
-        # rank_based_quality_control(
-        #     data_cov=data_cov,
-        #     info=data.info,
-        #     subject=subject,
-        #     figures_path=figures_path,
-        #     exclude=[], #TODO
-        #     qc_ignore=qc_ignore)
-
-        # _, cond_before, cond_after = regularized_cov_condition(data_cov.data,
-        #         shrinkage=0.05,
-        #         diag_scale='auto')
-        # logger.info(f"Condition number of data covariance before regularization: {cond_before}")
-        # logger.info(f"Condition number of data covariance After regularization: {cond_after}")
 
         filters = mne.beamformer.make_lcmv(
             segments.info,
@@ -827,8 +887,9 @@ def morph_stc(
         Name of the subject to which the source estimate should be morphed.
     subjects_dir : str
         Path to the FreeSurfer subjects directory.
-    stc : mne.SourceEstimate
-        The source estimate to be morphed, computed for `subject`.
+    stc : mne.SourceEstimate or list of mne.SourceEstimate
+        The source estimate to be morphed, computed for `subject`. A list is
+        accepted for epoch-wise estimates returned by ``apply_lcmv_epochs``.
     src_from : instance of mne.SourceSpaces
         The source space in which `stc` was computed.
     source_space : str
@@ -837,24 +898,26 @@ def morph_stc(
     plot_3d : bool, optional
         Whether to display the morphed source estimate using MNE's interactive 3D plotter.
         Default is False.
-    **kwargs : dict
-        Additional keyword arguments passed to `mne.compute_source_morph()`, allowing
-        customization of the morphing process. For example:
-            spacing : str | int
-                The spacing to use for morphing (default is 5 in this function).
-            smooth : int
-                Number of smoothing steps.
-            warn : bool
-                Whether to emit warnings during morphing.
-            etc.
+    kwargs : dict, optional
+        Additional parameters controlling source-space construction and
+        morphing, including source-space spacing, smoothing, warning behavior,
+        and the number of parallel jobs.
 
     Returns
     -------
-    stc_fsaverage : mne.SourceEstimate
-        The morphed source estimate in the space of `subject_to`.
+    stc_fsaverage : mne.SourceEstimate or list of mne.SourceEstimate
+        The morphed source estimate in the space of `subject_to`. A list is
+        returned when ``stc`` is a list.
     src_morph_to : instance of mne.SourceSpaces
         The source space constructed for `subject_to`, used as the
         morph target.
+
+    Raises
+    ------
+    ValueError
+        If ``source_space`` is neither ``"surface"`` nor ``"volumetric"``.
+        Also raised when ``plot_3d=True`` is requested for a list of epoch-wise
+        source estimates; select or aggregate one estimate before plotting.
 
     Notes
     -----
@@ -864,6 +927,17 @@ def morph_stc(
       `subject_to` is generated via `mne.bem.make_watershed_bem` if
       not already present.
     """
+    if source_space not in {"surface", "volumetric"}:
+        raise ValueError(
+            "source_space must be either 'surface' or 'volumetric', "
+            f"got {source_space!r}."
+        )
+    if plot_3d and isinstance(stc, list):
+        raise ValueError(
+            "plot_3d=True requires a single source estimate; select or aggregate "
+            "the epoch-wise estimates before plotting."
+        )
+
     logger.info("Morphing the estimated source data onto a common space")
 
     if source_space == "surface":
@@ -876,7 +950,7 @@ def morph_stc(
             n_jobs=kwargs.get("n_jobs", 1),
         )
 
-    elif source_space == "volumetric":  # TODO
+    elif source_space == "volumetric":
 
         inner_skull_path = Path(subjects_dir) / subject_to / "bem" / "inner_skull.surf"
         if not os.path.exists(inner_skull_path):
@@ -885,7 +959,7 @@ def morph_stc(
                 subjects_dir=subjects_dir,
                 overwrite=True,
                 gcaatlas=kwargs.get("gcaatlas", True),
-                volume="T1",  # TODO: this should be a data specific info.
+                volume="T1",
                 preflood=kwargs.get("preflood", None),
             )
 
@@ -910,7 +984,10 @@ def morph_stc(
 
             logger.info("Starting the morphing process")
             start_time = time.time()
-            stc_fsaverage = morph.apply(stc)
+            if isinstance(stc, list):
+                stc_fsaverage = [morph.apply(epoch_stc) for epoch_stc in stc]
+            else:
+                stc_fsaverage = morph.apply(stc)
 
     if plot_3d:
         brain = stc_fsaverage.plot(
@@ -1063,6 +1140,12 @@ def source_localization(
         Method to compute the inverse solution. Options: 'lcmv', 'dspm', 'mne', etc.
     empty_room_recording: mne.io.Raw
         empty_room_recording
+    kwargs : dict, optional
+        Additional parameters controlling covariance estimation and the LCMV
+        beamformer. Supported options include ``covariance_method``,
+        ``inverse_regularization_value``, ``beamformer_pick_ori``,
+        ``beamformer_weight_norm``, ``beamforme_depth``, and ``n_jobs``.
+
     Returns
     -------
     stc : ndarray, shape (n_labels, n_times)
@@ -1076,13 +1159,6 @@ def source_localization(
     - The BEM model is generated internally using provided conductivity values.
     """
 
-    # set_freesurfer_paths(
-    #     freesurfer_home=freesurfer_path,
-    #     subjects_dir=subjects_dir,
-    #     license_path=freesurfer_license_path,
-    # )
-
-    # check_freesurfer()
     # Set FreeSurfer environment variables so all subprocess calls can find the license
     if kwargs.get("freesurfer_home"):
         os.environ["FREESURFER_HOME"] = kwargs.get("freesurfer_home")
@@ -1092,7 +1168,11 @@ def source_localization(
     if kwargs.get("freesurfer_license"):
         os.environ["FS_LICENSE"] = kwargs.get("freesurfer_license")
 
-    if kwargs.get("which_sensor", "meg") in ["meg", "grad", "mag"]:
+    default_sensor = "eeg" if which_sensor_dict.get("eeg") else "meg"
+    if (
+        kwargs.get("which_sensor", default_sensor) in ["meg", "grad", "mag"]
+        and data.info["dig"]
+    ):
         new_dig = [d for d in data.info["dig"] if d["kind"] != FIFF.FIFFV_POINT_EEG]
         with data.info._unlock():
             data.info["dig"] = new_dig
@@ -1143,7 +1223,7 @@ def source_localization(
         logger.info(
             "A precomputed transformation matrix was loaded for corregistration"
         )
-    # This part is hardcoded and must be changed ASAP.
+    # NIMH recordings provide their coregistration coordinates in a BIDS sidecar.
     elif "sub-ON" in subject:
         matches = glob.glob(f"{Path(recording_path).parent}/*rest_run*coordsystem.json")
         if not matches:
@@ -1231,18 +1311,20 @@ def source_localization(
 
 def numpy_to_mne_epoch(stc, labels, ch_name, sampling_rate):
     """
-    Convert a parcellated source estimate into an MNE Epoch object.
+    Convert parcellated source time courses into an MNE Epochs object.
 
-    This function wraps a 2D NumPy array representing parcellated source time series
-    into an `mne.io.RawArray` using anatomical labels and sampling frequency information.
+    This function wraps a 3D NumPy array representing epoched, parcellated
+    source time series into an ``mne.EpochsArray`` using anatomical-region
+    names and sampling-frequency information.
 
     Parameters
     ----------
-    stc : ndarray, shape (n_labels, n_times)
-        The source time courses for each label (typically from `extract_label_time_course`).
-        Each row corresponds to one anatomical region, and each column to a time point.
-    labels : list of mne.Label or mne.VolumeLabel
-        The list of anatomical labels used to extract the time courses. Must match the number of rows in `stc`.
+    stc : ndarray, shape (n_epochs, n_labels, n_times)
+        Source time courses, typically returned by
+        ``extract_label_time_course`` for a list of source estimates.
+    labels : list of str
+        Anatomical-region names. Its length must match the second dimension
+        of ``stc``.
     ch_name : str
         The MNE channel type to assign to all channels (e.g., 'misc', 'eeg', 'ecog').
         Must be one of the types supported by `mne.create_info`.
@@ -1251,19 +1333,21 @@ def numpy_to_mne_epoch(stc, labels, ch_name, sampling_rate):
 
     Returns
     -------
-    raw_parc : mne.io.RawArray
-        The MNE Raw object containing the parcellated source estimate as virtual channels.
+    epochs : mne.EpochsArray
+        Epoched parcellated source activity represented as virtual channels.
 
     Notes
     -----
-    - This is commonly used to wrap parcellated source activity into a Raw object
-      so it can be saved, plotted, or processed using MNE’s standard pipeline.
+    - This is commonly used to wrap parcellated source activity so it can be
+      saved, plotted, or processed using MNE's standard epoch pipeline.
     - Ensure that `ch_name` is a valid MNE channel type, such as `'misc'` or `'eeg'`.
 
     Examples
     --------
-    >>> raw = numpy_to_mne_Epoch(parcelled_stc, labels, ch_name='misc', sampling_rate=1000)
-    >>> raw.plot()
+    >>> epochs = numpy_to_mne_epoch(
+    ...     parcelled_stc, labels, ch_name="misc", sampling_rate=1000
+    ... )
+    >>> epochs.plot()
     """
     ch_types = [ch_name] * len(labels)
     info = mne.create_info(ch_names=labels, sfreq=sampling_rate, ch_types=ch_types)
@@ -1322,7 +1406,9 @@ def check_tsss(meg_data):
     """
     Check if Maxwell filtering (tSSS) was applied to raw/epochs data.
 
-    This inspects the processing history for presence of maxfilter info.
+    This inspects the complete processing history for an SSS record with a
+    positive temporal buffer length and an available subspace-correlation
+    value. Ordinary spatial SSS records are not classified as tSSS.
 
     Parameters
     ----------
@@ -1335,11 +1421,16 @@ def check_tsss(meg_data):
         True if tSSS has been applied, False otherwise.
     """
     proc_history = meg_data.info.get("proc_history", [])
-    if not proc_history:
-        return False
-    max_info = proc_history[0].get("max_info", {})
-    sss_cal = max_info.get("sss_info", [])
-    return len(sss_cal) > 0
+    for record in proc_history:
+        max_info = record.get("max_info") or {}
+        max_st = max_info.get("max_st") or {}
+        if (
+            max_info.get("sss_info")
+            and max_st.get("buflen", 0) > 0
+            and max_st.get("subspcorr") is not None
+        ):
+            return True
+    return False
 
 
 def check_digitization_points(raw, logger):
@@ -1388,7 +1479,10 @@ def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
     None
     """
     for subject in os.listdir(save_path):
-        out_path = os.path.join(save_path, subject, "mri", "aparc.a2009s+aseg.mgz")
+        subject_path = os.path.join(save_path, subject)
+        if not os.path.isdir(subject_path):
+            continue
+        out_path = os.path.join(subject_path, "mri", "aparc.a2009s+aseg.mgz")
         if os.path.exists(out_path):
             print(f"Skipping {subject}: aparc.a2009s+aseg.mgz already exists.")
             continue
@@ -1396,7 +1490,14 @@ def produce_aparc_a2009s_aseg(save_path, freesurfer_home, freesurfer_license):
         env["FREESURFER_HOME"] = freesurfer_home
         env["SUBJECTS_DIR"] = save_path  # <-- this is the fix
         env["FS_LICENSE"] = freesurfer_license
-        env["PATH"] = freesurfer_home + "/bin:" + env["PATH"]
+        env["FREESURFER_LICENSE"] = freesurfer_license
+        freesurfer_bin = os.path.join(freesurfer_home, "bin")
+        path_entries = [
+            entry
+            for entry in env.get("PATH", "").split(os.pathsep)
+            if entry and entry != freesurfer_bin
+        ]
+        env["PATH"] = os.pathsep.join([freesurfer_bin, *path_entries])
         subprocess.run(
             ["mri_aparc2aseg", "--s", subject, "--a2009s"],
             env=env,
@@ -1426,6 +1527,8 @@ def build_template_index(subjects_dir):
     """
     index = {}
     for path in glob.glob(os.path.join(subjects_dir, "ANTS*")):
+        if not os.path.isdir(path):
+            continue
         name = os.path.basename(path)
         m = re.match(r"ANTS(\d+)-(\d+)(Month|Year)s?3T", name)
         if not m:
@@ -1466,8 +1569,9 @@ def nearest_template_dir(age_months, subjects_dir):
     if not index:
         raise FileNotFoundError(f"No ANTS templates found in {subjects_dir}")
     name = min(index, key=lambda k: abs(index[k] - age_months))
-    print(
-        f"Nearest template: {name} ({index[name]:.1f} months, requested {age_months:.1f} months)"
+    logger.info(
+        f"Nearest template: {name} ({index[name]:.1f} months, "
+        f"requested {age_months:.1f} months)"
     )
     return name, os.path.join(subjects_dir)
 
@@ -1487,9 +1591,9 @@ def prepare_template(subject, demographic_file_p, **kwargs):
     subject : str
         Subject identifier, used to look up dataset and demographic
         information.
-    project_dir : str
-        Path to the project directory containing the
-        `Configurations/runner_params.json` file.
+    demographic_file_p : str or path-like
+        Path to a demographic table containing an ``age`` column and
+        subject identifiers in its index.
     **kwargs : dict, optional
         Additional configuration options, including:
 
@@ -1514,16 +1618,6 @@ def prepare_template(subject, demographic_file_p, **kwargs):
         Path to the templates directory.
     """
 
-    if (
-        kwargs.get("SL_source_space") == "volumetric"
-        and kwargs.get("parcellation_parc") == "aparc.a2009s"
-    ):
-        produce_aparc_a2009s_aseg(
-            save_path=kwargs.get("freesurfer_template_path"),
-            freesurfer_home=kwargs.get("freesurfer_home"),
-            freesurfer_license=kwargs.get("freesurfer_license"),
-        )
-
     if not os.path.exists(demographic_file_p):
         err_msg = (
             f"Demographic file not found at {demographic_file_p}; it is required to "
@@ -1536,6 +1630,16 @@ def prepare_template(subject, demographic_file_p, **kwargs):
 
     demographic_file = load_demographic_file(demographic_file_p)
     age = demographic_file.loc[subject]["age"]
+
+    if (
+        kwargs.get("SL_source_space") == "volumetric"
+        and kwargs.get("parcellation_parc") == "aparc.a2009s"
+    ):
+        produce_aparc_a2009s_aseg(
+            save_path=kwargs.get("freesurfer_template_path"),
+            freesurfer_home=kwargs.get("freesurfer_home"),
+            freesurfer_license=kwargs.get("freesurfer_license"),
+        )
 
     age_months = age * 12
     surface_name, surface_path = nearest_template_dir(
@@ -1590,7 +1694,9 @@ def save_bem_figure(
 @contextlib.contextmanager
 def capture_mne_log(log_path, level=logging.DEBUG, mode="w"):
     """Temporarily tee MNE's logger output into `log_path`."""
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    parent_dir = os.path.dirname(log_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
 
     mne_logger = logging.getLogger("mne")
     handler = logging.FileHandler(log_path, mode=mode)
@@ -1667,6 +1773,7 @@ def make_bem_model(
         Preflood height to try first. `None` lets FreeSurfer use its default.
     preflood_parameter_space : tuple of int, default=(10, 15, 20, 30, 35)
         Fallback preflood heights, tried in order after `preflood` fails.
+        Duplicate values are tried only once.
 
     Returns
     -------
@@ -1711,7 +1818,7 @@ def make_bem_model(
         logger.info(f"Watershed BEM log saved to {bem_log_path}")
         return _parse_log()
 
-    attempts = [preflood, *preflood_parameter_space]
+    attempts = list(dict.fromkeys([preflood, *preflood_parameter_space]))
 
     for idx, pf in enumerate(attempts):
         ero, iters = _run(pf)

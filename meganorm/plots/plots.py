@@ -38,8 +38,8 @@ from meganorm.src.preprocess import (
 from meganorm.src.psdParameterize import parameterize_psds, computePsd, computePsdIrasa
 from nilearn.plotting import plot_surf_roi, plot_surf_contours
 
-_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz  
-from fooof.sim.gen import gen_aperiodic, gen_periodic
+_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+from specparam.sim.gen import gen_aperiodic, gen_periodic
 
 
 # ***
@@ -148,43 +148,29 @@ def plot_age_hist(
 # ***
 def plot_PNOCs(data: dict, age_slices: list, save_path: str | None) -> None:
     """
-    Generate and save population-level NeuroOscilloCharts (PNOCs) showing age-related changes
-    in frequency band contributions to overall neural power for males and females.
+    Plot population-level NeuroOscilloCharts across age groups.
 
-    This function creates stacked bar plots for each gender, visualizing the relative
-    contributions (as percentages) of four frequency bands across defined age bins.
-    Mean values and 95% confidence intervals (approximated as 1.96 * std) are displayed.
-    The resulting figure is saved in SVG and PNG formats if a `save_path` is provided.
+    The function creates stacked bar plots for males and females showing
+    the relative contributions of frequency bands to total neural power.
+    Mean values and approximate 95% confidence intervals are displayed.
 
     Parameters
     ----------
     data : dict
-        A nested dictionary of the form:
-        {
-            'Male': {
-                'delta': list of [mean, std],
-                'theta': list of [mean, std],
-                ...
-            },
-            'Female': {
-                ...
-            }
-        }
-        Each list should have one [mean, std] pair per age slice. This can be calculated using
-        meganorm.nm.calculate_PNOCs function.
-
+        Nested dictionary containing frequency-band means and standard
+        deviations for each sex. Each frequency band should contain one
+        ``[mean, std]`` pair per age group.
     age_slices : list of int
-        List of starting ages for each 5-year bin used as x-axis labels (e.g., [5, 10, 15, ..., 75]).
-
+        Starting ages of the age bins used for the x-axis labels.
     save_path : str or None
-        Directory path to save the generated figure. If None, the plot is not saved to disk.
+        Directory in which to save the generated figures. If ``None``,
+        figures are displayed but not saved.
 
     Returns
     -------
     None
-        Displays the plot and, if `save_path` is not None, saves the following files:
-        - 'Chrono-NeuroOscilloChart.svg'
-        - 'Chrono-NeuroOscilloChart.png'
+        The function displays the NeuroOscilloChart and optionally saves
+        it in SVG and PNG formats.
     """
 
     # Age ranges
@@ -428,7 +414,7 @@ def plot_growthcharts(
     biomarker_names : list of str
         Descriptive names matching model_indices.
     site : int, optional
-        If specified, selects only data from this site. Not yet implemented.
+        Select this site's curves, including site 0. If None, average sites.
     point_num : int, optional
         Number of synthetic X points to use (default 100).
     number_of_sexs : int, optional
@@ -456,7 +442,7 @@ def plot_growthcharts(
 
     for i, idp in enumerate(model_indices):
 
-        if not site:
+        if site is None:
             data = np.concatenate(
                 [q[b[:, 0] == 0, :, idp : idp + 1], q[b[:, 0] == 1, :, idp : idp + 1]],
                 axis=2,
@@ -465,9 +451,15 @@ def plot_growthcharts(
                 num_of_sites, point_num, len(centiles_name), number_of_sexs
             )
             data = data.mean(axis=0)
-        if site:
-            raise ValueError(f"still not implmented")
-            # TODO
+        else:
+            data = np.concatenate(
+                [
+                    q[(b[:, 0] == sex) & (b[:, 1] == site), :, idp : idp + 1]
+                    for sex in (0, 1)
+                ],
+                axis=2,
+            )
+            data = data.reshape(point_num, len(centiles_name), number_of_sexs)
 
         plot_growthchart(
             x[0:point_num].squeeze(),
@@ -861,13 +853,23 @@ def box_plot_auc(
 
     sns.set_theme(style="ticks")
     plt.figure(figsize=(6, 5))
-    ax = sns.boxplot(
-        x="variable", y="value", data=data_long, palette=palette, showfliers=False
+    ax = plt.gca()
+    # Use Matplotlib directly: Seaborn 0.13 passes the deprecated `vert` argument.
+    boxes = ax.boxplot(
+        [df.iloc[:, i].dropna().to_numpy() for i in range(len(df.columns))],
+        positions=np.arange(len(df.columns)),
+        widths=0.8,
+        orientation="vertical",
+        patch_artist=True,
+        showfliers=False,
+        manage_ticks=False,
+        medianprops={"color": "0.25", "linewidth": 1.5},
+        whiskerprops={"color": "0.25", "linewidth": 1.5},
+        capprops={"color": "0.25", "linewidth": 1.5},
     )
 
-    # Apply alpha to each PathPatch (box area)
-    num_boxes = len(df.columns)
-    for i, patch in enumerate(ax.patches[:num_boxes]):
+    # Apply the supplied colors and transparency to each box.
+    for i, patch in enumerate(boxes["boxes"]):
         patch.set_facecolor(palette[i])
         patch.set_alpha(alpha)
         patch.set_edgecolor("black")
@@ -882,6 +884,7 @@ def box_plot_auc(
         size=6,
         alpha=0.6,
         jitter=True,
+        ax=ax,
     )
 
     sns.despine(offset=0, trim=True)
@@ -1361,7 +1364,7 @@ def plot_extreme_deviation(
     y_lower_lim: float = 0,
 ):
     """
-    Computes and plots extreme deviation statistics (|Z|>2) across biomarkers.
+    Computes and plots extreme deviation statistics (``|Z| > 2``) across biomarkers.
     This is done by averaging statistics across multiple runs and comparing
     patient and healthy groups. Two separate plots are generated: one for
     positive deviations and one for negative deviations.
@@ -1395,11 +1398,11 @@ def plot_extreme_deviation(
     Returns
     -------
     df_c_pos : pandas.DataFrame
-        DataFrame of mean positive extreme deviation proportions (|Z| > 2) for healthy participants across runs.
+        DataFrame of mean positive extreme deviation proportions (``Z > 2``) for healthy participants across runs.
     df_p_pos : pandas.DataFrame
         DataFrame of mean positive extreme deviation proportions for patient participants across runs.
     df_c_neg : pandas.DataFrame
-        DataFrame of mean negative extreme deviation proportions (Z < -2) for healthy participants across runs.
+        DataFrame of mean negative extreme deviation proportions (``Z < -2``) for healthy participants across runs.
     df_p_neg : pandas.DataFrame
         DataFrame of mean negative extreme deviation proportions for patient participants across runs.
     """
@@ -1979,7 +1982,6 @@ def plot_statistics_on_brain(
             )
 
             if show_parcel_contours:
-                before = set(id(c) for c in axes[row, col].collections)
                 plotting.plot_surf_contours(
                     surf_mesh=surf_mesh,
                     roi_map=labels,  # integer label array from read_annot
@@ -1990,9 +1992,6 @@ def plot_statistics_on_brain(
                     figure=fig,
                     linewidth=4.0,
                 )
-                # for collection in axes[row, col].collections:
-                #     if id(collection) not in before:
-                #         collection.set_linewidth(4.0)
 
             ax = axes[row, col]
             ax.set_facecolor((0, 0, 0, 0))  # transparent face
@@ -2008,7 +2007,6 @@ def plot_statistics_on_brain(
     fig.suptitle(title, fontsize=14, y=1.02)
     plt.tight_layout()
     if save_fig_path:
-        # plt.savefig(f"{save_fig_path}.svg")
         plt.savefig(f"{save_fig_path}.png", dpi=500)
     plt.show()
 
@@ -2149,7 +2147,6 @@ def plot_mass_metrics(
                 x_pos,
                 0,
                 label,
-                # fontweight="bold",
                 fontsize=row_label_fontsize,
                 ha="right",
                 va="bottom",
@@ -2684,7 +2681,7 @@ def psd_stage_report(
     different absolute scale are comparable by shape. The aperiodic curve
     plotted is the actual estimated aperiodic component -- for IRASA,
     `spectral_models.aperiodic.get_data()` (the empirical resampled/
-    median-combined curve from the IRASA algorithm itself); for FOOOF,
+    median-combined curve from the IRASA algorithm itself); for specparam,
     `gen_aperiodic` evaluated at the model's own fitted parameters. Unlike
     the PSD stages (each normalized by its own area), the aperiodic curve
     is normalized using the SAME per-channel area as the PSD stage it was
@@ -2726,7 +2723,7 @@ def psd_stage_report(
     `configs.irasa_hset`) -- NOT the config's `psd_n_fft`/`psd_n_overlap`/
     `psd_n_per_seg`. This keeps every curve on the same frequency-grid and
     windowing basis as the aperiodic/periodic fits. For `parametrization_
-    method == "fooof"`, stages are computed via `computePsd` using the
+    method == "specparam"`, stages are computed via `computePsd` using the
     config's Welch settings instead.
 
     Knee frequency: this function does NOT fit its own knee model. For
@@ -2742,9 +2739,9 @@ def psd_stage_report(
     pipeline actually fit, rather than always fitting a knee model
     independently of the configured mode. The median of the finite,
     positive knee frequencies across channels is marked with a vertical
-    line. For `parametrization_method == "fooof"` with `aperiodic_mode ==
-    "knee"`, the knee is instead read directly from FOOOF's own fitted
-    `aperiodic_params` (FOOOF always fits its own knee parameter in that
+    line. For `parametrization_method == "specparam"` with `aperiodic_mode ==
+    "knee"`, the knee is instead read directly from specparam's own fitted
+    `aperiodic_params` (specparam always fits its own knee parameter in that
     mode, so there is nothing to reuse from elsewhere).
 
     Parameters
@@ -2775,24 +2772,24 @@ def psd_stage_report(
         `sl_segments` (post-preprocessing, e.g. post-resampling).
     sl_segments : mne.Epochs or None
         Source-localized epochs, if source localization was applied.
-    spectral_models : FOOOFGroup | pyrasa.irasa_mne.mne_objs.IrasaEpoched | None
+    spectral_models : specparam.SpectralGroupModel | pyrasa.irasa_mne.mne_objs.IrasaEpoched | None
         Fitted spectral model from `parameterize_psds`, used to extract and
         overlay the aperiodic and periodic components. If None, those
         curves and the knee-frequency marker are skipped.
     parametrization_method : str or None
-        Either "fooof" or "irasa"; must match how `spectral_models` was
+        Either "specparam" or "irasa"; must match how `spectral_models` was
         produced, and determines how each PSD stage and the knee frequency
         are computed (see above). Required if `spectral_models` is given.
     aperiodic_mode : str or None
         The aperiodic mode used to fit `spectral_models` (e.g. "fixed" or
-        "knee"). For FOOOF this selects how the aperiodic curve is
+        "knee"). For specparam this selects how the aperiodic curve is
         reconstructed and whether the knee is read from its params. For
         IRASA it only affects whether `aperiodic_fit_result` has a knee
         column (see above); it is not used to fit anything in this
         function directly.
     aperiodic_fit_result : pyrasa aperiodic fit result or None
         The object returned as the second element of `feature_extract`'s
-        return tuple for IRASA `spectral_models` (None for FOOOF). Reused
+        return tuple for IRASA `spectral_models` (None for specparam). Reused
         here to read the knee frequency without re-fitting. If None for an
         IRASA run, no knee marker is drawn.
     normalize : bool
@@ -2817,7 +2814,7 @@ def psd_stage_report(
     event-locked epochs, treat the raw stage as an approximate,
     fixed-length-segmented reference rather than an exact match.
 
-    For FOOOF, the periodic component is reconstructed per channel as
+    For specparam, the periodic component is reconstructed per channel as
     `10**(aperiodic_fit + peak_fit) - 10**aperiodic_fit` (i.e. full model
     minus aperiodic, in linear power units) rather than the raw log-space
     peak fit, so it sits on the same additive scale as the PSD curves.
@@ -2855,13 +2852,13 @@ def psd_stage_report(
             return computePsdIrasa(
                 segments=segments,
                 hset_info=configs.irasa_hset,
-                freq_range_low=configs.fooof_freq_range_low,
-                freq_range_high=configs.fooof_freq_range_high,
+                freq_range_low=configs.psd_parametrization_freq_range_low,
+                freq_range_high=configs.psd_parametrization_freq_range_high,
             )
         return computePsd(
             segments=segments,
-            freq_range_low=configs.fooof_freq_range_low,
-            freq_range_high=configs.fooof_freq_range_high,
+            freq_range_low=configs.psd_parametrization_freq_range_low,
+            freq_range_high=configs.psd_parametrization_freq_range_high,
             sampling_rate=int(round(segments.info["sfreq"])),
             psd_method=configs.psd_method,
             psd_n_overlap=configs.psd_n_overlap,
@@ -2909,23 +2906,25 @@ def psd_stage_report(
         This is the actual estimated curve, not a synthetic/generated one:
         for IRASA it is `spectral_models.aperiodic.get_data()`, the
         empirical resampled/median-combined curve from the IRASA algorithm
-        itself; for FOOOF it is `gen_aperiodic` evaluated at the model's
-        own fitted parameters, which reconstructs the fitted curve FOOOF
-        already estimated (FOOOF does not store the aperiodic curve as a
+        itself; for specparam it is `gen_aperiodic` evaluated at the model's
+        own fitted parameters, which reconstructs the fitted curve specparam
+        already estimated (specparam does not store the aperiodic curve as a
         standalone array the way IRASA does, only its fitted parameters).
         """
-        if parametrization_method == "fooof":
-            ap_params = spectral_models.get_params("aperiodic_params")
-            ap_freqs = spectral_models.freqs
+        if parametrization_method == "specparam":
+            ap_params = spectral_models.get_params("aperiodic")
+            ap_freqs = spectral_models.data.freqs
             ap_psds = np.array(
                 [
-                    10 ** gen_aperiodic(ap_freqs, params, aperiodic_mode)
+                    10
+                    ** gen_aperiodic(ap_freqs, spectral_models.modes.aperiodic, params)
                     for params in ap_params
                 ]
             )
             return ap_psds, ap_freqs
         elif parametrization_method == "irasa":
-            ap_psds = np.squeeze(spectral_models.aperiodic.get_data(), axis=0)
+            # average across epochs -> (n_channels, n_freqs)
+            ap_psds = spectral_models.aperiodic.get_data().mean(axis=0)
             ap_freqs = spectral_models.aperiodic.freqs
             return ap_psds, ap_freqs
         else:
@@ -2936,16 +2935,18 @@ def psd_stage_report(
 
     def _periodic_curve():
         """Extract per-channel periodic (oscillatory) PSD and its frequency axis."""
-        if parametrization_method == "fooof":
-            per_freqs = spectral_models.freqs
+        if parametrization_method == "specparam":
+            per_freqs = spectral_models.data.freqs
             periodic_psds = []
-            for result in spectral_models.group_results:
+            for result in spectral_models.results.group_results:
                 ap_fit_log = gen_aperiodic(
-                    per_freqs, result.aperiodic_params, aperiodic_mode
+                    per_freqs, spectral_models.modes.aperiodic, result.aperiodic_fit
                 )
-                if result.peak_params.size:
+                if result.peak_converted.size:
                     full_fit_log = ap_fit_log + gen_periodic(
-                        per_freqs, result.peak_params.flatten()
+                        per_freqs,
+                        spectral_models.modes.periodic,
+                        result.peak_converted.flatten(),
                     )
                 else:
                     full_fit_log = ap_fit_log.copy()
@@ -2957,7 +2958,8 @@ def psd_stage_report(
                 periodic_psds.append(periodic_linear)
             return np.array(periodic_psds), per_freqs
         elif parametrization_method == "irasa":
-            per_psds = np.squeeze(spectral_models.periodic.get_data(), axis=0)
+            # average across epochs -> (n_channels, n_freqs)
+            per_psds = spectral_models.periodic.get_data().mean(axis=0)
             per_freqs = spectral_models.periodic.freqs
             return per_psds, per_freqs
         else:
@@ -2990,10 +2992,10 @@ def psd_stage_report(
         """Knee frequency (Hz), or (None, 0) if not applicable / not available."""
         if parametrization_method == "irasa":
             return _knee_freq_from_ap(aperiodic_fit_result)
-        elif parametrization_method == "fooof" and aperiodic_mode == "knee":
+        elif parametrization_method == "specparam" and aperiodic_mode == "knee":
             knee_freqs = []
-            for result in spectral_models.group_results:
-                offset, knee, exponent = result.aperiodic_params
+            for result in spectral_models.results.group_results:
+                offset, knee, exponent = result.aperiodic_fit
                 if exponent > 0 and knee > 0:
                     knee_freqs.append(knee ** (1.0 / exponent))
             if not knee_freqs:

@@ -1,6 +1,6 @@
 import mne
 import numpy as np
-import fooof as f
+import specparam as sp
 from pyrasa.irasa import irasa
 from pyrasa.irasa_mne.mne_objs import (
     AperiodicEpochsSpectrum,
@@ -8,9 +8,7 @@ from pyrasa.irasa_mne.mne_objs import (
     PeriodicEpochsSpectrum,
 )
 import logging
-import warnings
 
-warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
 
@@ -54,17 +52,23 @@ def computePsd(
         Array of frequency values corresponding to the PSD.
     """
 
+    method_kwargs = {}
+    if psd_method == "welch":
+        method_kwargs = {
+            "average": "mean",
+            "n_overlap": psd_n_overlap * sampling_rate,
+            "n_fft": psd_n_fft * sampling_rate,
+            "n_per_seg": n_per_seg * sampling_rate,
+        }
+
     psds, freqs = (
         segments.compute_psd(
             method=psd_method,
             fmin=freq_range_low,
             fmax=freq_range_high,
             n_jobs=-1,
-            average="mean",
-            n_overlap=psd_n_overlap * sampling_rate,
-            n_fft=psd_n_fft * sampling_rate,
-            n_per_seg=n_per_seg * sampling_rate,
             verbose=False,
+            **method_kwargs,
         )
         .average()
         .get_data(return_freqs=True)
@@ -73,18 +77,18 @@ def computePsd(
     return psds, freqs
 
 
-def fooof(
+def fit_specparam(
     psds,
     freqs,
     freq_range_low=3,
     freq_range_high=40,
-    min_peak_height=0,
-    peak_threshold=2,
-    peak_width_limits=[1, 12.0],
+    min_peak_height=0.0,
+    peak_threshold=2.0,
+    peak_width_limits=(1.0, 12.0),
     aperiodic_mode="fixed",
 ):
     """
-    Fit a FOOOF model to power spectral density (PSD) data to separate
+    Fit a specparam model to power spectral density (PSD) data to separate
     periodic (oscillatory) and aperiodic (background) components.
 
     Parameters
@@ -94,22 +98,22 @@ def fooof(
     freqs : np.ndarray
         Frequency values corresponding to the PSD.
     freq_range_low : int
-        Lower frequency bound for the FOOOF model (Hz).
+        Lower frequency bound for the specparam model (Hz).
     freq_range_high : int
-        Upper frequency bound for the FOOOF model (Hz).
+        Upper frequency bound for the specparam model (Hz).
     min_peak_height : float
-        Minimum height of peaks to be considered in the FOOOF model.
+        Minimum height of peaks to be considered in the specparam model.
     peak_threshold : float
-        Threshold for peak detection in the FOOOF model.
-    peak_width_limits : list
+        Threshold for peak detection in the specparam model.
+    peak_width_limits : tuple of float
         Limits on the width of peaks (in Hz).
     aperiodic_mode : str
-        Mode for modeling the aperiodic component. Options are "fixed", "knee", or "none".
+        Mode for modeling the aperiodic component. Options are "fixed" or "knee"
 
     Returns
     -------
-    fooofModels : FOOOFGroup
-        Fitted FOOOF group model containing periodic and aperiodic components.
+    spectral_models : specparam.SpectralGroupModel
+        Fitted SpectralGroupModel containing one spectral model per channel.
     psds : np.ndarray
         Original power spectral density values.
     freqs : np.ndarray
@@ -117,15 +121,15 @@ def fooof(
     """
 
     # Fit separate models for each channel
-    fooofModels = f.FOOOFGroup(
+    spectral_models = sp.SpectralGroupModel(
         peak_width_limits=peak_width_limits,
         min_peak_height=min_peak_height,
         peak_threshold=peak_threshold,
         aperiodic_mode=aperiodic_mode,
     )
-    fooofModels.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=-1)
+    spectral_models.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=-1)
 
-    return fooofModels, psds, freqs
+    return spectral_models, psds, freqs
 
 
 def parameterize_psds(
@@ -133,54 +137,59 @@ def parameterize_psds(
     parametrization_method,
     freq_range_low=3,
     freq_range_high=40,
-    min_peak_height=0,
-    peak_threshold=2,
+    min_peak_height=0.0,
+    peak_threshold=2.0,
     sampling_rate=1000,
     psd_method="welch",
     psd_n_overlap=1,
     psd_n_fft=2,
     n_per_seg=2,
-    peak_width_limits=[1, 12.0],
+    peak_width_limits=(1.0, 12.0),
     aperiodic_mode="knee",
     irasa_hset=(1.05, 2.0, 0.05),
 ):
     """
-    Runs the complete pipeline for spectral parameterization using FOOOF.
-    This includes computing the PSD and fitting FOOOF models for each channel.
+    Run spectral parameterization using specparam or IRASA.
 
     Parameters
     ----------
     segments : mne.Epochs
         Epoched MNE object containing segmented data.
+    parametrization_method : {"specparam", "irasa"}
+        Method used to separate aperiodic and periodic components.
     freq_range_low : float
-        Lower bound of frequency range for PSD and FOOOF (Hz).
+        Lower bound of the frequency range (Hz). Used by both methods.
     freq_range_high : float
-        Upper bound of frequency range for PSD and FOOOF (Hz).
+        Upper bound of the frequency range (Hz). Used by both methods.
     min_peak_height : float
-        Minimum height of peaks to be detected by FOOOF.
+        Minimum peak height (specparam only; IRASA peaks are detected later
+        in `feature_extract`).
     peak_threshold : float
-        Threshold for peak detection relative to the aperiodic fit.
+        Peak detection threshold (specparam only; see `min_peak_height`).
     sampling_rate : int
         Sampling frequency of the signal (Hz).
     psd_method : str
-        Method used to compute PSD. Options: "welch", "multitaper".
+        Method used to compute PSD (specparam only). Options: "welch", "multitaper".
     psd_n_overlap : int
-        Overlap (in seconds) between segments in PSD computation.
+        Overlap (in seconds) between segments in PSD computation (specparam only).
     psd_n_fft : int
-        Number of FFT points (in seconds) used in PSD.
+        Number of FFT points (in seconds) used in PSD (specparam only).
     n_per_seg : int
-        Length (in seconds) of each segment used in PSD.
-    peak_width_limits : list of float, optional
-        Lower and upper bounds on peak width (Hz). Default is [1, 12.0].
+        Length (in seconds) of each segment used in PSD (specparam only).
+    peak_width_limits : tuple of float, optional
+        Lower and upper bounds on peak width (Hz) (specparam only).
     aperiodic_mode : str
         Mode of aperiodic fit. Options: "fixed" or "knee".
+    irasa_hset : tuple of float, optional
+        IRASA resampling factors as ``(start, stop, step)`` (IRASA only).
 
     Returns
     -------
-    spectral_models : FOOOFGroup | pyrasa.irasa_mne.mne_objs.IrasaEpoched
-        Fitted spectral models for each channel.
-    psds : np.ndarray
-        Power spectral densities.
+    spectral_models : specparam.SpectralGroupModel | IrasaEpoched
+        Fitted models. For IRASA, periodic/aperiodic spectra are per epoch
+        (n_epochs, n_channels, n_freqs).
+    psds : np.ndarray, shape (n_channels, n_freqs)
+        Epoch-averaged power spectral density.
     freqs : np.ndarray
         Corresponding frequency values.
 
@@ -190,6 +199,8 @@ def parameterize_psds(
         If `psd_method` is not 'welch' or 'multitaper'.
     ValueError
         If `aperiodic_mode` is not 'fixed' or 'knee'.
+    ValueError
+        If `parametrization_method` is not 'specparam' or 'irasa'.
     """
     if psd_method not in ["multitaper", "welch"]:
         raise ValueError("psd_method must be either 'welch' or 'multitaper'")
@@ -197,7 +208,10 @@ def parameterize_psds(
     if aperiodic_mode not in ["fixed", "knee"]:
         raise ValueError("aperiodic_mode must be either 'fixed' or 'knee'")
 
-    if parametrization_method == "fooof":
+    if parametrization_method not in ["specparam", "irasa"]:
+        raise ValueError("parametrization_method must be either 'specparam' or 'irasa'")
+
+    if parametrization_method == "specparam":
 
         psds, freqs = computePsd(
             segments=segments,
@@ -210,7 +224,7 @@ def parameterize_psds(
             n_per_seg=n_per_seg,
         )
 
-        spectral_models, psds, freqs = fooof(
+        spectral_models, psds, freqs = fit_specparam(
             psds=psds,
             freqs=freqs,
             freq_range_low=freq_range_low,
@@ -222,20 +236,24 @@ def parameterize_psds(
         )
 
     elif parametrization_method == "irasa":
-        psds, freqs, spectral_models = irasa_epochs(
+        psds_epochs, freqs, spectral_models = irasa_epochs(
             segments,
             band=(freq_range_low, freq_range_high),
             hset_info=irasa_hset,
         )
 
-        assert psds.shape[-1] == len(freqs), (
-            f"raw spectrum {psds.shape} vs freqs {freqs.shape}"
-        )
+        if psds_epochs.ndim != 3 or psds_epochs.shape[-1] != len(freqs):
+            raise ValueError(f"raw spectrum {psds_epochs.shape} vs freqs {freqs.shape}")
 
-        per = spectral_models.periodic.get_data().squeeze()
-        assert per.shape[-1] == len(freqs), (
-            f"periodic {per.shape} vs freqs {freqs.shape}"
-        )
+        per = spectral_models.periodic.get_data()
+        if per.shape != psds_epochs.shape:
+            raise ValueError(
+                f"periodic {per.shape} vs raw spectrum {psds_epochs.shape}"
+            )
+
+        # Epoch-averaged spectrum for downstream features (same shape as specparam);
+        # per-epoch spectra remain available in spectral_models.
+        psds = psds_epochs.mean(axis=0)
 
     return spectral_models, psds, freqs
 
@@ -244,62 +262,65 @@ def irasa_epochs(
     data: mne.Epochs,
     band: tuple[float, float] = (1.0, 100.0),
     hset_info: tuple[float, float, float] = (1.05, 2.0, 0.05),
-) -> IrasaEpoched:
+) -> tuple[np.ndarray, np.ndarray, IrasaEpoched]:
     """
-    Separate aperiodic from periodic power spectra using the IRASA algorithm for Epochs data.
+    Separate aperiodic from periodic power spectra using IRASA, per epoch.
 
-    This function applies the Irregular Resampling Auto-Spectral Analysis (IRASA) algorithm
-    as described by Wen & Liu (2016) to decompose the power spectrum of neurophysiological
-    signals into aperiodic (fractal) and periodic (oscillatory) components. It is specifically
-    designed for time-series data in `mne.Epochs` format, making it suitable for event-related
-    EEG/MEG analyses.
+    This function applies the Irregular Resampling Auto-Spectral Analysis (IRASA)
+    algorithm (Wen & Liu, 2016) to each epoch of an `mne.Epochs` object, decomposing
+    its power spectrum into aperiodic (fractal) and periodic (oscillatory) components.
+    Spectra are NOT averaged across epochs here; callers average where needed.
 
     Parameters
     ----------
     data : mne.Epochs
         The time-series data used to extract aperiodic and periodic power spectra.
-        This should be an instance of `mne.Epochs`.
     band : tuple of (float, float), optional, default: (1.0, 100.0)
-        A tuple specifying the lower and upper bounds of the frequency range (in Hz) used
-        for extracting the aperiodic and periodic spectra.
+        Lower and upper bounds of the frequency range (Hz) used for extracting
+        the aperiodic and periodic spectra.
     hset_info : tuple of (float, float, float), optional, default: (1.05, 2.0, 0.05)
-        Contains the range of up/downsampling factors used in the IRASA algorithm.
-        This should be a tuple specifying the (min, max, step) values for the resampling.
+        Range of up/downsampling factors used in IRASA as ``(min, max, step)``.
 
     Returns
     -------
-    psd_list_original: np.array
-        Original power spectrum.
-    aperiodic : AperiodicEpochsSpectrum
-        The aperiodic component of the data as an `AperiodicEpochsSpectrum` object.
-    periodic : PeriodicEpochsSpectrum
-        The periodic component of the data as a `PeriodicEpochsSpectrum` object.
+    psds_original : np.ndarray, shape (n_epochs, n_channels, n_freqs)
+        Original (raw) power spectrum of each epoch.
+    freqs : np.ndarray, shape (n_freqs,)
+        Frequencies in Hz.
+    irasa_result : IrasaEpoched
+        Per-epoch periodic (`.periodic`, a `PeriodicEpochsSpectrum`) and
+        aperiodic (`.aperiodic`, an `AperiodicEpochsSpectrum`) components,
+        carrying the epochs' events and event IDs.
 
-    Note
-    ---------
-    This code is driven and modified from PYRASA:
+    Raises
+    ------
+    TypeError
+        If `data` is not an `mne.BaseEpochs` instance.
+    ValueError
+        If `data` contains bad channels.
+
+    Notes
+    -----
+    Adapted from PYRASA:
     https://github.com/schmidtfa/pyrasa/blob/afb003444131f97d3221abb6d338384d92c12e29/pyrasa/irasa_mne/irasa_mne.py
     """
 
     # set parameters & safety checks
     # ensure that input data is in the right format
-    assert isinstance(data, mne.BaseEpochs), "Data should be of type mne.BaseEpochs"
-    assert (
-        data.info["bads"] == []
-    ), "Data should not contain bad channels as this might mess up the creation of the returned data structure"
+    if not isinstance(data, mne.BaseEpochs):
+        raise TypeError("Data should be an instance of mne.BaseEpochs")
+    if data.info["bads"]:
+        raise ValueError(
+            "Data should not contain bad channels because they can invalidate "
+            "the returned spectrum metadata"
+        )
 
     info = data.info.copy()
     fs = data.info["sfreq"]
 
     data_array = data.get_data(copy=True)
 
-    nfft = 2 ** (np.ceil(np.log2(int(data_array.shape[2] * np.max(hset_info)))))
-
-    kwargs_psd = {
-        "nperseg": None,
-        "nfft": nfft,
-        "noverlap": 0,
-    }
+    kwargs_psd = _irasa_welch_kwargs(fs, data_array.shape[2], hset_info)
 
     psd_list_aperiodic, psd_list_periodic, psd_list_original = [], [], []
     for epoch in data_array:
@@ -316,34 +337,77 @@ def irasa_epochs(
         psd_list_periodic.append(irasa_spectrum.periodic.copy())
         psd_list_original.append(irasa_spectrum.raw_spectrum.copy())
 
-    psds_aperiodic = np.array(psd_list_aperiodic).mean(axis=0)
-    psds_periodic = np.array(psd_list_periodic).mean(axis=0)
-    psd_list_original = np.array(psd_list_original).mean(axis=0)
+    psds_aperiodic = np.array(psd_list_aperiodic)  # (n_epochs, n_channels, n_freqs)
+    psds_periodic = np.array(psd_list_periodic)
+    psds_original = np.array(psd_list_original)
 
-    psds_periodic = psds_periodic[np.newaxis, :, :]
-    psds_aperiodic = psds_aperiodic[np.newaxis, :, :]
+    events = data.events.copy()
+    event_id = data.event_id
 
     return (
-        psd_list_original,
+        psds_original,
         irasa_spectrum.freqs,
         IrasaEpoched(
             periodic=PeriodicEpochsSpectrum(
                 psds_periodic,
                 info,
                 freqs=irasa_spectrum.freqs,
-                events=np.array([[0, 0, 1]] * 1),
-                event_id={"1": 1},
+                events=events,
+                event_id=event_id,
             ),
             aperiodic=AperiodicEpochsSpectrum(
                 psds_aperiodic,
                 info,
                 freqs=irasa_spectrum.freqs,
-                events=np.array([[0, 0, 1]] * 1),
-                event_id={"1": 1},
+                events=events,
+                event_id=event_id,
             ),
         ),
     )
 
+
+def _irasa_welch_kwargs(fs, n_times, hset_info):
+    """
+    Build the Welch settings shared by `irasa_epochs` and `computePsdIrasa`.
+
+    IRASA resamples each epoch by factors up to max(hset), so the Welch
+    window must fit in the shortest (most downsampled) signal. The window
+    length is 2 s, or ``n_times / max(hset)`` samples if that is shorter;
+    a warning is logged in that case, since frequency resolution drops.
+
+    Parameters
+    ----------
+    fs : float
+        Sampling frequency in Hz.
+    n_times : int
+        Number of samples per epoch.
+    hset_info : tuple of float
+        IRASA resampling factors as ``(start, stop, step)``. Only the
+        maximum value is used here.
+
+    Returns
+    -------
+    dict
+        Keyword arguments for `scipy.signal.welch`:
+
+        - ``nperseg``: ``min(2 * fs, n_times / max(hset))`` samples
+        - ``noverlap``: ``nperseg // 2`` (50% overlap)
+        - ``nfft``: ``nperseg * max(hset)`` rounded up to the next power of two
+    """
+    h_max = np.max(hset_info)
+    nperseg = min(int(2 * fs), int(n_times / h_max))
+
+    if nperseg < int(2 * fs):
+        logger.warning(
+            f"Epochs too short for 2 s windows; using {nperseg / fs:.2f} s "
+            f"({fs / nperseg:.2f} Hz resolution)"
+        )
+
+    return {
+        "nperseg": nperseg,
+        "noverlap": nperseg // 2,
+        "nfft": int(2 ** np.ceil(np.log2(nperseg * h_max))),
+    }
 
 
 def computePsdIrasa(
@@ -353,59 +417,46 @@ def computePsdIrasa(
     freq_range_high=40,
 ):
     """
-    Compute PSD using the same Welch settings IRASA uses internally, so
-    PSDs computed here are directly comparable to spectra produced by
-    `irasa_epochs` (the raw spectrum, and by extension the aperiodic and
-    periodic fits) -- unlike `computePsd`, which uses independent
-    `psd_n_fft`/`psd_n_overlap`/`psd_n_per_seg` settings and therefore is
-    not on the same footing as IRASA's own spectrum.
+    Compute an epoch-averaged Welch PSD matched to IRASA's settings.
 
-    Mirrors `irasa_epochs`'s `kwargs_psd`: a single window spanning the
-    full epoch length (no averaging over sub-segments, no overlap), with
-    `nfft` computed from the epoch length and the IRASA hset's maximum
-    resampling factor so the frequency grid matches what IRASA itself
-    would produce for the same epochs and hset.
+    Uses the same Welch parameters as `irasa_epochs` (via
+    `_irasa_welch_kwargs`), so the result can be compared directly with
+    IRASA's raw, aperiodic and periodic spectra. Pass the same `hset_info`
+    you give to IRASA.
 
     Parameters
     ----------
     segments : mne.Epochs
-        Segmented data for which PSD will be computed.
-    hset_info : tuple of (float, float, float)
-        (min, max, step) resampling factors, as passed to IRASA. Only the
-        max value is used here, to reproduce IRASA's `nfft` choice.
-    freq_range_low : float
-        Lower frequency bound to keep in the output (Hz).
-    freq_range_high : float
-        Upper frequency bound to keep in the output (Hz).
+        Epoched data. The PSD is computed per epoch and averaged across
+        epochs.
+    hset_info : tuple of float, default (1.05, 2.0, 0.05)
+        IRASA resampling factors as ``(start, stop, step)``. Must match
+        the value used for IRASA.
+    freq_range_low : float, default 3
+        Lower frequency bound in Hz (inclusive).
+    freq_range_high : float, default 40
+        Upper frequency bound in Hz (inclusive).
 
     Returns
     -------
-    psds : np.ndarray
-        Per-channel PSD, averaged across epochs, shape (n_channels, n_freqs).
-    freqs : np.ndarray
-        Frequency values corresponding to the PSD.
+    psds : ndarray, shape (n_channels, n_freqs)
+        Epoch-averaged power spectral density within the frequency range.
+    freqs : ndarray, shape (n_freqs,)
+        Frequencies in Hz matching the columns of `psds`.
 
-    Notes
-    -----
-    Uses `scipy.signal.welch` directly (rather than MNE's `compute_psd`)
-    to exactly reproduce `irasa_epochs`'s literal `kwargs_psd`
-    (`nperseg` tied to the full epoch length, `noverlap=0`, a computed
-    `nfft`). This is a different assumption than MNE's own default
-    resolution of `n_per_seg=None` (which ties it to `n_fft`), so this
-    function should not be treated as interchangeable with `computePsd`.
+    See Also
+    --------
+    _irasa_welch_kwargs : Derivation of the Welch window, overlap and nfft.
     """
     from scipy.signal import welch
 
     data_array = segments.get_data(copy=True)  # (n_epochs, n_channels, n_times)
     fs = segments.info["sfreq"]
-    n_times = data_array.shape[-1]
-    nfft = int(2 ** np.ceil(np.log2(int(n_times * np.max(hset_info)))))
+    kwargs_psd = _irasa_welch_kwargs(fs, data_array.shape[-1], hset_info)
 
     psd_list = []
     for epoch in data_array:
-        freqs, psd = welch(
-            epoch, fs=fs, nperseg=n_times, noverlap=0, nfft=nfft, axis=-1
-        )
+        freqs, psd = welch(epoch, fs=fs, axis=-1, **kwargs_psd)
         psd_list.append(psd)
     psds = np.array(psd_list).mean(axis=0)  # (n_channels, n_freqs)
 
