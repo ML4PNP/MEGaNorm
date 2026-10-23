@@ -1,293 +1,170 @@
-# Early sensor-space ERP API
+# EEG ERP analysis
 
-For a runnable example with synthetic data, plots and QC, see the
-[ERP IDP extraction tutorial](notebooks/erp_idp_extraction_tutorial.ipynb).
+Use the local API to process EEG recordings and collect amplitude and latency
+IDPs in one participant-by-feature table. For a runnable example without a data
+download, open the [ERP tutorial](notebooks/erp_idp_extraction_tutorial.ipynb).
 
-The opt-in API lives in `meganorm/src/erp.py` on `dev_erp`. It provides automatic
-EEG preprocessing and epoching, plus extraction from prepared EEG or MEG evoked
-responses. The existing spectral pipeline and SLURM runner are unchanged.
+## 1. Describe your recordings and events
 
-## Multiple components from a recording
-
-```python
-import mne
-from meganorm.src.erp import ERPComponent, ERPConfig, run_erp_pipeline
-
-raw = mne.io.read_raw_fif("subject_raw.fif", preload=True)
-# Ensure channel types and sensor locations describe this recording.
-# Existing meganorm.src.preprocess.prepare_eeg_data(raw, path) can be used
-# when its channels.tsv / montage.csv conventions match the dataset.
-
-components = {
-    "N100": ERPComponent(
-        conditions=("standard", "target"), channels=("Cz", "Pz"),
-        window=(0.08, 0.15), polarity="neg",
-    ),
-    "late_positive": ERPComponent(
-        conditions=("target",), channels=("Pz",),
-        window=(0.25, 0.5), polarity="pos",
-        metrics=("peak_amplitude", "peak_latency", "mean_amplitude"),
-    ),
-}
-config = ERPConfig(tmin=-0.2, tmax=0.8, baseline=(-0.2, 0), min_trials=10)
-result = run_erp_pipeline(
-    raw, "sub-01", components,
-    annotation_map={"standard": "Stimulus/S  5", "target": "Stimulus/S  6"},
-    config=config,
-)
-result.features.to_csv("sub-01.csv")
-result.qc.to_csv("sub-01_erp_qc.csv", index=False)
-```
-
-The windows, names and event descriptions above are illustrative protocol
-choices. Add any number of components or conditions. Each component measures
-individual sensors; sensor-group averages and condition contrasts are not yet
-implemented. All components in a run share epoch and baseline settings.
-
-Alternatively, pass `events=events, event_id={"standard": 5, "target": 6}`.
-Events must contain integer absolute sample indices at the recording's original
-sampling rate, including `raw.first_samp`. The pipeline resolves annotations
-before cleaning and jointly resamples data/events when `resample_sfreq` is set.
-Duplicate event samples, including duplicates introduced by resampling, fail
-explicitly rather than silently merging trials.
-
-## Output and missing values
-
-`result.features` has one subject row and scalar columns such as
-`ERP__target__N100__peak_amplitude_uV__Cz`. Peak latency uses milliseconds;
-amplitude stays signed, including absolute-polarity peak searches. Window means
-average samples within the inclusive window. Tied extrema select the earliest
-sample. Zero-only signals do not produce a peak.
-
-Missing conditions/sensors, marked bad sensors, nonfinite evoked windows and
-insufficient trials produce NaN with a reason in `result.qc`. Peak metrics also
-return NaN when the requested polarity is absent; a mean can still be computed.
-QC includes retained trials and, for raw processing, event/rejection counts.
-Invalid configuration or sensor-type mismatches fail explicitly.
-
-Keep QC outside the feature-response list. Use a separate ERP result directory
-when collecting subject CSVs: the existing collector replaces subject rows, so
-ERP-only reruns should not overwrite an existing spectral result table.
-
-## Prepared evoked responses
+Install MEGaNorm and its dependencies in your Python environment. Put recordings
+in participant folders under a dataset root, for example
+`/data/oddball/sub-001/sub-001_oddball_eeg.vhdr`. Use unique participant folder
+names and one intended recording per participant. The `task` text must appear
+in the filenames, and `extension` must match the recording format.
 
 ```python
-from meganorm.src.erp import extract_erp_idps
-
-features, qc = extract_erp_idps(
-    "sub-01", {"standard": standard_evoked, "target": target_evoked},
-    components, min_trials=10,
+from meganorm.API import (
+    Config, Dataset, Pipeline, ERPSettings, ERPPreprocessing, ERPEventSpec,
 )
-```
 
-For MEG, specify `sensor_type="mag"` or `"grad"` and matching channel names.
-Amplitudes are exported in T or T/m respectively; sensor types are never mixed.
-`nave` is used as the retained-trial count, so supply ordinary condition averages
-with accurate `nave`, not weighted contrasts with effective sample sizes.
-
-## Reusable tutorial helpers
-
-- `meganorm.utils.erp.make_demo_recording(seed=42)` supplies the shared synthetic
-  recording used in the notebook and tests. It is installed with MEGaNorm;
-  no tests package is needed.
-- `meganorm.plots.plot_erp.plot_erp(evokeds, components=..., channels=...)`
-  returns a Figure and an axes array. It displays condition waveforms in the
-  appropriate units and shades the configured component windows per sensor.
-  It does not show or save the plot unless requested (`show=True` or `fig.savefig`).
-- `meganorm.src.erp.extract_recording(path, subject_id, components, ...)`
-  loads a recording using MNE and delegates to `run_erp_pipeline()`. It accepts
-  either `annotation_map` or `events` plus `event_id`, and returns `ERPResult`.
-  For custom channel/montage preparation, load Raw first, use the appropriate
-  existing helper, and then call `run_erp_pipeline()`.
-
-The recording wrapper belongs beside ERP orchestration in `src/erp.py`.
-`utils/IO.py` remains unchanged: its existing `load_recording()` is coupled to
-the broader configuration and empty-room/source-localization handling. This
-placement avoids introducing an ERP pipeline dependency into that shared module.
-
-## Preprocessing and current limits
-
-- Uses a copy; input Raw and Evoked objects are not modified.
-- Configurable EEG reference and fractional filter cutoffs. ICA fits a separate
-  filtered copy, then applies the resulting exclusion to ERP-filtered data.
-- Reuses MEGaNorm's `find_ica_component()` for auxiliary-channel correlation.
-  With usable EOG/ECG channels, this shared helper selects the strongest
-  correlated component per auxiliary channel above threshold. Without them,
-  ICLabel provides automatic classification and requires sensor locations.
-  Classification/filter/reference choices still require dataset validation.
-- Automatic MNE peak-to-peak and flat thresholds plus existing BAD annotations
-  reject epochs. The default EEG peak-to-peak threshold is 150 µV; configure it
-  for the protocol. AutoReject interpolation and automatic bad-channel detection
-  are not yet wired into this ERP path.
-- Existing bad-channel metadata is respected. Nonfinite continuous EEG fails
-  before filtering. No montage is guessed and there are no interactive steps.
-- ICA exclusions and epoch drop logs are available in `preprocessing_qc`.
-  Filtering/ICA defaults are starting settings, not scientifically validated
-  defaults for every ERP protocol.
-- Raw preprocessing currently supports EEG. Prepared-evoked extraction also
-  supports MEG. No source reconstruction, bootstrap, BIDS event-table reader,
-  multi-session aggregation or SLURM dispatch is added in this first increment.
-
-## Quick synthetic checks
-
-With MEGaNorm dependencies installed, run from the repository root:
-
-```bash
-python -m pytest -q tests/src/test_erp.py
-```
-
-The tests exercise known peaks, multiple conditions/components, units, baseline,
-event alignment/resampling, rejection, missing values and CSV output. An ICA
-wiring test uses a mock; a separate real Infomax smoke test checks removal of a
-synthetic EOG mixture. These do not validate performance on real recordings or
-the ICLabel fallback.
-
-**Historical validation (not a current test result):** on 2026-09-15, nine tests passed in an isolated test
-environment based on the local `mne-dev` environment. Its missing `pingouin`
-dependency (imported by the existing normative-modeling module) was installed
-only into `/tmp/meganorm-erp-test-env`. Black and `git diff --check` also passed.
-
-The current suite contains 12 ERP test methods under `tests/src/test_erp.py`.
-They are discovered by the normal pytest command. Run the command above for
-current results; the historical run did not cover all current tests.
-
-## Configuring ERP analysis
-
-The integrated configuration now distinguishes `analysis_type="rest"` (the
-backward-compatible default) from `analysis_type="erp"`. ERP settings currently
-support EEG sensor-space components and threshold rejection. Local cohorts and
-the single-participant CLI support ERP analysis. Cluster submission remains
-unavailable for ERP.
-
-```python
-from meganorm.API import Config, Dataset, ERPSettings, ERPEventSpec
-
-config = Config(
-    analysis_type="erp",
-    which_sensor="eeg",
-    erp=ERPSettings(components={
-        "P300": {
-            "conditions": ["target"],
-            "channels": ["Pz"],
-            "window": [0.25, 0.5],
-            "polarity": "pos",
-        }
-    }),
-)
+# Adapt paths and annotation descriptions to your study.
 dataset = Dataset(
-    name="oddball", root="/data/oddball", task="oddball", extension=".fif",
+    name="oddball", root="/data/oddball", task="oddball", extension=".vhdr",
     erp_events=ERPEventSpec(
-        mode="annotations", annotation_map={"target": "Stimulus/S 2"}
+        mode="annotations",
+        annotation_map={"standard": "Stimulus/S  5", "target": "Stimulus/S  6"},
     ),
 )
-config.erp.validate_events(dataset.erp_events)
-erp_config, components = config.erp.to_runtime()
+print(dataset.discover()[["participant_id", "recording_paths"]])
 ```
 
-`annotation_map` maps logical conditions to exact annotation descriptions. For a
-stimulus channel use `mode="stim", stim_channel="STI 014",
-event_id={"target": 2}` instead. Keep each dataset's acquisition codes in its
-`erp_events` specification while sharing the component definitions. Pass the specification directly to the standalone API:
+The map connects logical condition names on the left to exact recording
+annotation descriptions on the right. Inspect a representative recording's
+`raw.annotations.description` to find the correct descriptions.
+
+If events are stored in a stimulus channel, use this instead:
 
 ```python
-result = run_erp_pipeline(
-    raw, "sub-001", components,
-    config=erp_config, event_spec=dataset.erp_events,
+erp_events = ERPEventSpec(
+    mode="stim", stim_channel="STI 014",
+    event_id={"standard": 5, "target": 6},
+)
+# Supply erp_events=erp_events when constructing Dataset.
+```
+
+Use the actual stimulus channel and codes. External BIDS `events.tsv` files are
+not read automatically.
+
+## 2. Define your ERP analysis
+
+Choose components, sensors, windows and preprocessing for your protocol. The
+following values are illustrative starting settings, not a validated protocol
+for every study. Time windows and baseline values are in seconds; rejection
+thresholds are in volts.
+
+```python
+config = Config(
+    analysis_type="erp", which_sensor="eeg",
+    erp=ERPSettings(
+        preprocessing=ERPPreprocessing(
+            tmin=-0.2, tmax=0.8, baseline=(-0.2, 0.0),
+            reference="average", l_freq=0.1, h_freq=35.0,
+            ica_mode="auto", ica_l_freq=1.0,
+            ica_corr_threshold=0.8, ica_label_threshold=0.9,
+            min_trials=10, reject={"eeg": 150e-6},
+        ),
+        components={
+            "P300": {
+                "conditions": ["target"], "channels": ["Pz"],
+                "window": [0.25, 0.5], "polarity": "pos",
+                "metrics": ["peak_amplitude", "peak_latency", "mean_amplitude"],
+            },
+        },
+    ),
 )
 ```
 
-Alternatively, `meganorm.utils.erp.resolve_erp_events(raw, dataset.erp_events)`
-returns `(events, event_id)` without changing `raw`. Choose one event source:
-`event_spec`, `annotation_map`, or explicit `events` and `event_id`.
-Annotation descriptions match exactly. Stimulus detection uses MNE onset
-semantics and the specification's `consecutive`, `shortest_event`,
-`min_duration` and `initial_event` settings. Zero is the stimulus idle state;
-zero-coded experimental conditions require explicit events and `event_id`.
-Missing declared conditions remain in the mapping and produce unavailable IDPs.
-No requested events, duplicate event samples and resampling collisions cause
-an explicit error.
+Add components to the dictionary as needed. Each sensor is measured separately;
+all components share epoch and baseline settings. Component conditions must be
+present in the dataset event specification.
 
-QC keeps `n_rejected` as the total lost trials and adds mutually exclusive
-`n_edge_dropped`, `n_annotation_rejected`, `n_amplitude_rejected` (including
-flatness rejection) and `n_other_dropped`. Their sum equals `n_rejected`;
-`n_trials + n_rejected` equals `n_events`. Categories follow MNE's recorded
-reason; an epoch dropped early is not evaluated for every possible cause.
-If a channel name duplicates an annotation description or a reserved edge-loss
-label, ambiguous drop reasons count as `n_other_dropped`.
-Peak measurements at either end of the sampled component window retain their
-values with `boundary_peak=True`. The flag is False for means and unavailable
-peaks; `status` records why a measurement is unavailable.
+Ensure channel types, bad-channel markings and electrode positions are correct.
+The worker uses embedded metadata or matching `*_channels.tsv` and a unique
+local `*_montage.csv`; it does not guess positions. Channel tables require
+`name` and `type`, with optional `status=bad`. Montage tables require
+`Channel,X,Y,Z` in head-frame metres.
 
-## Run a local cohort
+`ica_mode="auto"` uses usable EOG/ECG signals, otherwise ICLabel. ICLabel requires
+average reference and valid sensor positions; its training used a 1–100 Hz fit
+filter, so a different filter produces a QC warning. Explicit `physiological`,
+`iclabel`, and `none` modes are also available. `none` disables ICA only.
+Only `config.erp.preprocessing` controls ERP cleaning; resting-state settings
+do not apply. Review the chosen settings on representative recordings.
 
-Use the configuration and dataset above with the local API:
+## 3. Run and inspect
 
 ```python
-from meganorm.API import Pipeline
-
 result = Pipeline(
-    config=config, output_dir="results", on_error="continue"
+    config=config, output_dir="results", on_error="continue",
 ).run(dataset)
 
-features = result.to_dataframe()
+table = result.to_dataframe()
+features = table.loc[:, result.feature_names]  # IDPs only
+print(features)
 print(result.processing)
-print(result.output_dir)
-print(result.paths["qc"])
+print(result.summary)
+print("Saved results:", result.output_dir)
+
+import pandas as pd
+qc = pd.read_csv(result.paths["qc"])
+print(qc)
 ```
 
-`run` also accepts a list of datasets with different event encodings. Participant
-IDs must be unique across datasets. The existing `which_meg_session` configuration
-field selects one recording candidate per participant, including for EEG.
+The pipeline processes participants and combines their results automatically.
+For several datasets, use `.run([dataset_a, dataset_b, ...])`. Their event codes
+may differ, but logical conditions must match the shared component definitions
+and participant IDs must be unique across datasets. Optional demographics can
+be supplied through `Dataset(demographics=..., participant_id=...)`.
 
-Each invocation writes a new `results/erp/<run-id>/` directory. It contains
-configuration and dataset snapshots, the selected-recording manifest, feature
-schema, processing outcomes, run summary, cohort features, demographics and QC.
-Under `participants/<id>/`, each participant has features, QC, preprocessing
-information, provenance and a processing log. A `complete.json` record is written
-last; incomplete participant output is never collected. Prior runs are retained.
+EEG amplitudes are in µV and latencies in ms. A column such as
+`ERP__target__P300__peak_amplitude_uV__Pz` identifies the condition, component,
+measurement and sensor. Amplitudes retain their sign. Peaks are window extrema;
+tied peaks use the earliest sample.
 
-Success means all requested IDPs are available; partial means at least one is
-available and some are missing. Both enter the cohort table, with missing values
-kept as `NaN`. No usable IDPs or a processing exception means failure. QC remains
-separate from `result.feature_names`. Boundary-peak warnings alone do not make a
-participant partial. The summary reports `succeeded`, `partial`, `failed`,
-`interrupted` and `collected`; `collected` equals `succeeded + partial`.
+Missing conditions/sensors and insufficient trials produce `NaN` with a QC
+reason. Complete and partial participant rows enter the table; failures are
+recorded in `result.processing`. If no participant has usable IDPs, the run
+raises an error. `on_error="raise"` stops at the first failed participant.
+Inspect trial counts and `boundary_peak` flags before interpreting measurements.
 
-With `on_error="raise"`, the first failed participant stops the run after saving
-the processing report. Interrupts always propagate. Completed participant files
-remain available for inspection; an aborted cohort is not returned or collected.
+Outputs are saved automatically under `results/erp/<run-id>/`, with a fresh
+folder for each invocation. Each participant has feature/QC tables, a
+`preprocessing.json` report and a processing log. Earlier runs are retained.
+Keep the output directory outside your input dataset folder. QC is separate
+from `result.feature_names`.
 
-Recordings may contain channel types, bad-channel flags and electrode positions.
-Alternatively, the worker reads a matching `*_channels.tsv` and a unique local
-`*_montage.csv`. An exact recording-stem channel sidecar takes precedence over
-the existing task-name convention. Channel sidecars require `name` and `type`,
-and may supply `status=bad`; montage CSVs require `Channel,X,Y,Z` in head-frame
-metres. An embedded montage is preserved. Ambiguous matches fail before the
-run starts. No electrode positions are inferred from names.
+## Optional standalone workflow
 
-The cohort path currently supports embedded annotations or stimulus channels,
-not legacy dataset auxiliary-file options. Keep `save_preprocessed_data` and
-`save_segmented_data` disabled; the standalone API provides epochs and evoked
-objects for custom saving. Resting-state processing flags do not control ERP
-cleaning: use `config.erp.preprocessing`. A dataset's `line_freq` supplies missing
-recording metadata; this does not enable a notch filter.
+For in-memory epochs and evoked waveforms, or extraction from already-cleaned
+evoked responses, see the final sections of the
+[ERP tutorial](notebooks/erp_idp_extraction_tutorial.ipynb). The cohort API does
+not currently save raw or epoch objects; keep its raw/epoch saving flags disabled.
 
-## Run one participant from the command line
+The local raw-data workflow supports EEG and threshold epoch rejection.
+AutoReject interpolation, automatic continuous bad-channel detection, sensor-group
+averages, condition contrasts, source reconstruction and ERP SLURM execution are
+not yet supported. Multiple recordings are not automatically combined into
+sessions. Prepared-evoked extraction can also support MEG; this is separate from
+raw EEG cohort processing.
 
-Save the ERP configuration and event specification as JSON:
+## Optional single-participant command line
+
+Save the same configuration and event specification:
 
 ```python
 from pathlib import Path
-
 config.save("erp_config.json")
 Path("erp_events.json").write_text(dataset.erp_events.model_dump_json(indent=2))
 ```
 
+Then run:
+
 ```bash
 python -m meganorm.src.mainParallel \
-  /data/oddball/001/001_oddball_raw.fif results 001 erp_config.json \
+  /data/oddball/sub-001/sub-001_oddball_eeg.vhdr results sub-001 erp_config.json \
   --erp_events erp_events.json
 ```
 
-The CLI uses the same participant worker and writes a fresh `results/erp/<run-id>/`
-directory. Cluster submission remains unavailable for ERP.
+This uses the same participant worker as the local cohort API. For a cohort,
+prefer `Pipeline.run()` so that discovery, collection and processing reports
+are handled together.
