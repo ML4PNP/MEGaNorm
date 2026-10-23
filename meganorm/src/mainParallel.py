@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import glob
 from datetime import datetime
 from meganorm.src.source_localization import source_localization, numpy_to_mne_epoch
+from meganorm.utils.erp import require_rest_runner
 from meganorm.utils.IO import Config, load_recording, select_session_path, infer_device
 from meganorm.src.preprocess import (
     preprocess,
@@ -267,6 +268,8 @@ def main(args):
     """
     # parse the arguments
     args = main_argparser(args)
+    configs = Config.load(args.configs)
+    require_rest_runner(configs)
     os.makedirs(args.save_dir, exist_ok=True)
     logger = set_logger(args, ["mne", "numexpr", "dipy"])
 
@@ -288,8 +291,6 @@ def main(args):
     ]:
         if getattr(args, attr) == "None":
             setattr(args, attr, None)
-
-    configs = Config.load(args.configs)
 
     if configs.apply_source_localization and not configs.apply_mri_template:
         freesurfer_data_path = os.path.join(args.surfaces_dir, args.subject)

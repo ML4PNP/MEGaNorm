@@ -26,6 +26,7 @@ from pydantic import (
     model_validator,
 )
 from mne.io.constants import FIFF
+from meganorm.utils.erp import ERPSettings
 
 
 class BandRatio(BaseModel):
@@ -262,6 +263,9 @@ class Config(BaseModel):
     which_meg_session: int = 0  # the first session
 
     which_layout: Literal["all", "lobe", None] = "all"
+    analysis_type: Literal["rest", "erp"] = "rest"
+    erp: ERPSettings | None = None
+
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
 
     drop_noisy_flat_channel: bool = True
@@ -482,7 +486,22 @@ class Config(BaseModel):
         return value
 
     @model_validator(mode="after")
+    def analysis_settings_mv(self):
+        if self.analysis_type == "rest" and self.erp is not None:
+            raise ValueError("ERP settings require analysis_type='erp'.")
+        if self.analysis_type == "erp":
+            if self.erp is None:
+                raise ValueError("ERP analysis requires ERP settings.")
+            if self.which_sensor != "eeg" or self.apply_source_localization:
+                raise ValueError(
+                    "Integrated ERP configuration supports EEG sensor space only."
+                )
+        return self
+
+    @model_validator(mode="after")
     def processing_ranges_mv(self):
+        if self.analysis_type == "erp":
+            return self
         if not 0 <= self.segments_overlap < self.segments_length:
             raise ValueError(
                 "segments_overlap must be nonnegative and shorter than segments_length."

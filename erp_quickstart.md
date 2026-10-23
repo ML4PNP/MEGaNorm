@@ -87,8 +87,8 @@ with accurate `nave`, not weighted contrasts with effective sample sizes.
 
 ## Reusable tutorial helpers
 
-- `notebooks/_erp_demo.py:make_demo_recording(seed=42)` supplies the shared synthetic
-  recording used in the notebook and tests. Keep the helper beside the notebook;
+- `meganorm.utils.erp.make_demo_recording(seed=42)` supplies the shared synthetic
+  recording used in the notebook and tests. It is installed with MEGaNorm;
   no tests package is needed.
 - `meganorm.plots.plot_erp.plot_erp(evokeds, components=..., channels=...)`
   returns a Figure and an axes array. It displays condition waveforms in the
@@ -150,3 +150,44 @@ only into `/tmp/meganorm-erp-test-env`. Black and `git diff --check` also passed
 The current suite contains 12 ERP test methods under `tests/src/test_erp.py`.
 They are discovered by the normal pytest command. Run the command above for
 current results; the historical run did not cover all current tests.
+
+## Configuring ERP analysis (Stage 2)
+
+The integrated configuration now distinguishes `analysis_type="rest"` (the
+backward-compatible default) from `analysis_type="erp"`. ERP settings currently
+support EEG sensor-space components and threshold rejection. Integrated local,
+CLI and cluster runners reject ERP mode before writing outputs; event resolution
+and ERP dispatch will be implemented in subsequent stages.
+
+```python
+from meganorm.API import Config, Dataset, ERPSettings, ERPEventSpec
+
+config = Config(
+    analysis_type="erp",
+    which_sensor="eeg",
+    erp=ERPSettings(components={
+        "P300": {
+            "conditions": ["target"],
+            "channels": ["Pz"],
+            "window": [0.25, 0.5],
+            "polarity": "pos",
+        }
+    }),
+)
+dataset = Dataset(
+    name="oddball", root="/data/oddball", task="oddball", extension=".fif",
+    erp_events=ERPEventSpec(
+        mode="annotations", annotation_map={"target": "Stimulus/S 2"}
+    ),
+)
+config.erp.validate_events(dataset.erp_events)
+erp_config, components = config.erp.to_runtime()
+```
+
+`annotation_map` maps logical conditions to exact annotation descriptions. For a
+stimulus channel use `mode="stim", stim_channel="STI 014",
+event_id={"target": 2}` instead. Keep each dataset's acquisition codes in its
+`erp_events` specification while sharing the component definitions. These
+specifications describe future extraction; they do not yet resolve recordings
+into events. Pass `erp_config` and `components` to the standalone API as shown
+above, supplying events explicitly.

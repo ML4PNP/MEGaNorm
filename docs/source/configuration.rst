@@ -279,3 +279,27 @@ Saving a full configuration makes these choices explicit across releases.
 GEDAI is absent from the current processing pipeline. Remove ``apply_gedai``,
 ``gedai_*``, and ``sensai_method`` entries from older configuration files.
 For the full field reference, see :class:`~meganorm.utils.IO.Config`.
+
+ERP analysis settings
+---------------------
+
+``Config.analysis_type`` defaults to ``"rest"`` for existing configurations.
+For ERP analysis set ``analysis_type="erp"``, ``which_sensor="eeg"`` and
+provide ``erp=ERPSettings(...)``. Source localization is not supported in this
+mode. ``ERPSettings`` contains ``preprocessing``, named ``components`` and
+``rejection_mode="threshold"``. Component windows must lie inside the epoch;
+condition, channel and metric selections must be nonempty and unique.
+
+Each ``Dataset`` can hold an ``ERPEventSpec`` as ``erp_events``. Annotation mode
+maps logical condition names to exact annotation descriptions through
+``annotation_map``. Stimulus mode uses ``event_id`` and ``stim_channel``.
+``ERPSettings.validate_events(spec)`` checks that a dataset declares every
+condition requested by the components. Both settings groups support JSON
+serialization. Dataset discovery preserves the event specification in the
+manifest without resolving or processing events.
+
+These models are exported from ``meganorm.API``. Integrated ERP execution is
+not yet available: local, CLI and cluster runners reject ERP mode before
+creating outputs. Use ``ERPSettings.to_runtime()`` to obtain the standalone
+``ERPConfig`` and component mapping, and supply events explicitly to the
+standalone ERP API. See the repository's ``erp_quickstart.md`` for an example.

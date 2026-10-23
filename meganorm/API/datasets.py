@@ -5,6 +5,7 @@ import glob
 from collections.abc import Mapping
 import pandas as pd
 from meganorm.utils.IO import merge_datasets_with_glob
+from meganorm.utils.erp import ERPEventSpec
 
 _PATH_OPTIONS = {
     "empty_room_path",
@@ -59,6 +60,7 @@ class Dataset:
         device: str | None = None,
         line_freq: int | None = 50,
         options: Mapping[str, object] | None = None,
+        erp_events: ERPEventSpec | Mapping | None = None,
     ):
         for label, value in [
             ("name", name),
@@ -102,6 +104,11 @@ class Dataset:
             device,
             line_freq,
         )
+        self.erp_events = (
+            ERPEventSpec.model_validate(erp_events).model_copy(deep=True)
+            if erp_events is not None
+            else None
+        )
         self.options = {
             key: (
                 _path(value, self.root)
@@ -141,11 +148,17 @@ class Dataset:
             participant_id=participant_id,
             device=settings.pop("device_type", None),
             line_freq=settings.pop("line_freq", 50),
+            erp_events=settings.pop("erp_events", None),
             options=settings,
         )
 
     def _settings(self):
         return dict(
+            **(
+                {"erp_events": self.erp_events.model_dump(mode="json")}
+                if self.erp_events is not None
+                else {}
+            ),
             base_dir=str(self.root),
             task=self.task,
             ending=self.extension,
@@ -192,4 +205,7 @@ class Dataset:
                     line_freq=self.line_freq,
                 )
             )
+        if self.erp_events is not None:
+            for row in rows:
+                row["erp_events"] = self.erp_events.model_dump(mode="json")
         return pd.DataFrame(rows)

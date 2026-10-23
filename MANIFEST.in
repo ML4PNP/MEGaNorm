@@ -11,6 +11,6 @@ graft docs/source
 recursive-include tests *.py
 global-exclude *.py[cod]
 
-# Shared source-tree ERP tutorial fixture is required by the distributed tests.
+# ERP tutorial and standalone API guide.
 include notebooks/erp_idp_extraction_tutorial.ipynb
-include erp_quickstart.md erp_architecture_review.md
+include erp_quickstart.md

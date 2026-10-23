@@ -2,6 +2,9 @@
 
 import mne
 import numpy as np
+from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+
 
 
 def make_demo_recording(seed=42):
@@ -38,3 +41,236 @@ def make_demo_recording(seed=42):
     raw = mne.io.RawArray(data, info, first_samp=first_samp, verbose=False)
     raw.set_montage("standard_1020")
     return raw, np.asarray(events, dtype=int)
+
+
+def _name(value):
+    if not value or value != value.strip() or "__" in value:
+        raise ValueError(
+            "Names must be nonempty, trimmed and contain no double underscore."
+        )
+    return value
+
+
+def _names(values):
+    if not values or len(values) != len(set(values)):
+        raise ValueError("Names must be nonempty and unique.")
+    for value in values:
+        _name(value)
+
+
+class _Settings(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+
+class ERPComponentSettings(_Settings):
+    """One EEG component and its ordered condition, channel and metric selections."""
+
+    conditions: tuple[str, ...]
+    channels: tuple[str, ...]
+    window: tuple[float, float]
+    polarity: Literal["pos", "neg", "abs"]
+    metrics: tuple[Literal["peak_amplitude", "peak_latency", "mean_amplitude"], ...] = (
+        "peak_amplitude",
+        "peak_latency",
+    )
+    sensor_type: Literal["eeg"] = "eeg"
+
+    @model_validator(mode="after")
+    def validate_component(self):
+        _names(self.conditions)
+        _names(self.channels)
+        _names(self.metrics)
+        if self.window[0] >= self.window[1]:
+            raise ValueError("Component window must be increasing.")
+        return self
+
+
+class ERPPreprocessing(_Settings):
+    """Settings matching the standalone ERPConfig, with early validation."""
+
+    tmin: float = -0.2
+    tmax: float = 0.8
+    baseline: tuple[float | None, float | None] | None = (None, 0.0)
+    l_freq: float | None = Field(default=0.1, gt=0)
+    h_freq: float | None = Field(default=35.0, gt=0)
+    ica_l_freq: float = Field(default=1.0, gt=0)
+    reference: str | tuple[str, ...] | None = "average"
+    resample_sfreq: float | None = Field(default=None, gt=0)
+    apply_ica: bool = True
+    ica_n_components: StrictInt | float | None = None
+    ica_threshold: float = Field(default=0.8, gt=0, le=1)
+    random_state: StrictInt = Field(default=42, ge=0)
+    min_trials: StrictInt = Field(default=10, ge=1)
+    reject: dict[Literal["eeg"], float] | None = Field(
+        default_factory=lambda: {"eeg": 150e-6}
+    )
+    flat: dict[Literal["eeg"], float] | None = None
+
+    @model_validator(mode="after")
+    def validate_preprocessing(self):
+        if self.tmin >= self.tmax:
+            raise ValueError("tmin must be smaller than tmax.")
+        if self.baseline is not None:
+            lo, hi = self.baseline
+            lo = self.tmin if lo is None else lo
+            hi = self.tmax if hi is None else hi
+            if not self.tmin <= lo <= hi <= self.tmax:
+                raise ValueError("Baseline must lie within the epoch.")
+        if (
+            self.l_freq is not None
+            and self.h_freq is not None
+            and self.l_freq >= self.h_freq
+        ):
+            raise ValueError("l_freq must be below h_freq.")
+        if (
+            self.apply_ica
+            and self.h_freq is not None
+            and self.ica_l_freq >= self.h_freq
+        ):
+            raise ValueError("ica_l_freq must be below h_freq.")
+        n = self.ica_n_components
+        if n is not None and not (
+            type(n) is int and n > 0 or type(n) is float and 0 < n < 1
+        ):
+            raise ValueError(
+                "ICA components must be a positive integer or variance fraction in (0, 1)."
+            )
+        if isinstance(self.reference, str):
+            _name(self.reference)
+        elif self.reference is not None:
+            _names(self.reference)
+        for thresholds in (self.reject, self.flat):
+            if thresholds is not None and any(
+                value <= 0 for value in thresholds.values()
+            ):
+                raise ValueError("Rejection thresholds must be positive.")
+        if self.reject and self.flat and self.flat["eeg"] >= self.reject["eeg"]:
+            raise ValueError("Flat threshold must be below rejection threshold.")
+        if self.resample_sfreq is not None:
+            self.validate_sampling_rate(self.resample_sfreq)
+        return self
+
+    def validate_sampling_rate(self, sfreq):
+        """Validate filter limits against a recording or requested sample rate."""
+        import math
+
+        if not math.isfinite(sfreq) or sfreq <= 0:
+            raise ValueError("Sampling rate must be finite and positive.")
+        cutoffs = [self.l_freq, self.h_freq]
+        if self.apply_ica:
+            cutoffs.append(self.ica_l_freq)
+        if any(value is not None and value >= sfreq / 2 for value in cutoffs):
+            raise ValueError("Filter cutoffs must be below the Nyquist frequency.")
+
+
+class ERPEventSpec(_Settings):
+    """Dataset-specific mapping from logical conditions to acquisition events.
+
+    Annotation maps run from logical condition to exact annotation description.
+    Stimulus maps run from logical condition to integer trigger code.
+    """
+
+    mode: Literal["annotations", "stim"]
+    annotation_map: dict[str, str] | None = None
+    event_id: dict[str, StrictInt] | None = None
+    stim_channel: str | None = None
+    consecutive: bool | Literal["increasing"] = "increasing"
+    shortest_event: StrictInt = Field(default=2, ge=1)
+    min_duration: float = Field(default=0.0, ge=0)
+    initial_event: bool = False
+
+    @model_validator(mode="after")
+    def validate_mapping(self):
+        if self.mode == "annotations":
+            if (
+                not self.annotation_map
+                or self.event_id is not None
+                or self.stim_channel is not None
+            ):
+                raise ValueError("Annotation mode requires only annotation_map.")
+            if (
+                self.consecutive,
+                self.shortest_event,
+                self.min_duration,
+                self.initial_event,
+            ) != ("increasing", 2, 0.0, False):
+                raise ValueError(
+                    "Stimulus extraction options are invalid for annotations."
+                )
+            values = list(self.annotation_map.values())
+            if any(not value for value in values):
+                raise ValueError("Annotation descriptions must be nonempty.")
+            mapping = self.annotation_map
+        else:
+            if (
+                not self.event_id
+                or self.annotation_map is not None
+                or not self.stim_channel
+            ):
+                raise ValueError("Stim mode requires event_id and stim_channel only.")
+            _name(self.stim_channel)
+            mapping = self.event_id
+            values = list(mapping.values())
+            if any(value < 0 for value in values):
+                raise ValueError("Trigger codes must be nonnegative.")
+        _names(tuple(mapping))
+        if len(values) != len(set(values)):
+            raise ValueError("Each logical condition must have a unique event mapping.")
+        return self
+
+    @property
+    def conditions(self):
+        return tuple(
+            self.annotation_map if self.mode == "annotations" else self.event_id
+        )
+
+
+class ERPSettings(_Settings):
+    """ERP analysis definition independent of dataset trigger encodings."""
+
+    preprocessing: ERPPreprocessing = Field(default_factory=ERPPreprocessing)
+    components: dict[str, ERPComponentSettings]
+    rejection_mode: Literal["threshold"] = "threshold"
+
+    @model_validator(mode="after")
+    def validate_components(self):
+        _names(tuple(self.components))
+        for component in self.components.values():
+            if (
+                not self.preprocessing.tmin
+                <= component.window[0]
+                < component.window[1]
+                <= self.preprocessing.tmax
+            ):
+                raise ValueError("Component windows must lie within the epoch.")
+        return self
+
+    def validate_events(self, spec: ERPEventSpec):
+        missing = {
+            condition
+            for component in self.components.values()
+            for condition in component.conditions
+        } - set(spec.conditions)
+        if missing:
+            raise ValueError(
+                f"ERP conditions missing from dataset events: {sorted(missing)}"
+            )
+
+    def to_runtime(self):
+        """Convert validated definitions for the existing standalone ERP API."""
+        from meganorm.src.erp import ERPConfig, ERPComponent
+
+        return ERPConfig(**self.preprocessing.model_dump()), {
+            name: ERPComponent(**component.model_dump())
+            for name, component in self.components.items()
+        }
+
+
+def require_rest_runner(config):
+    """Prevent ERP settings entering a runner before ERP dispatch is implemented."""
+    if config.analysis_type == "erp":
+        raise NotImplementedError(
+            "Integrated ERP execution is not available yet. Use the standalone meganorm.src.erp API with ERPSettings.to_runtime()."
+        )
+    if config.analysis_type != "rest":
+        raise ValueError(f"Unknown analysis_type: {config.analysis_type!r}")

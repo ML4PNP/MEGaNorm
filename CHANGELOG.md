@@ -1,3 +1,9 @@
+# Unreleased
+
+- Add validated EEG ERP settings and per-dataset event specifications, with JSON persistence. Legacy configurations default to resting-state analysis.
+- Reject ERP execution in existing local and cluster runners until ERP dispatch is implemented; the standalone ERP API remains available.
+- Correct tutorial fixture references and exclude the local architecture review from source packaging.
+
 # Changelog
 
 This file provides a summary of notable changes to **MEGaNorm** across released versions.

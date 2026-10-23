@@ -24,6 +24,18 @@ from meganorm.src.erp import (
 
 from meganorm.utils.erp import make_demo_recording
 
+import json
+from dataclasses import asdict
+
+import pytest
+from pydantic import ValidationError
+from meganorm.utils.IO import Config
+from meganorm.utils.erp import (
+    ERPSettings,
+    ERPPreprocessing,
+    ERPEventSpec,
+)
+
 
 class TestERP(unittest.TestCase):
     def test_demo_fixture_reproducible(self):
@@ -307,6 +319,211 @@ class TestERP(unittest.TestCase):
             self.assertTrue(qc["ica_applied"])
             correlation.assert_called_once()
             factory.return_value.apply.assert_called_once()
+
+def settings():
+    return ERPSettings(
+        components={
+            "P300": dict(
+                conditions=["target"],
+                channels=["Pz"],
+                window=[0.25, 0.5],
+                polarity="pos",
+            )
+        }
+    )
+
+
+def test_legacy_and_roundtrip():
+    assert Config.model_validate_json("{}").analysis_type == "rest"
+    config = Config(analysis_type="erp", which_sensor="eeg", erp=settings())
+    assert Config.model_validate_json(config.model_dump_json()) == config
+    from meganorm.src.erp import ERPConfig
+
+    runtime, components = config.erp.to_runtime()
+    assert asdict(runtime) == asdict(ERPConfig())
+    assert components["P300"].conditions == ("target",)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(analysis_type="task"),
+        dict(analysis_type="erp"),
+        dict(erp={}),
+        dict(analysis_type="erp", which_sensor="meg"),
+        dict(analysis_type="erp", which_sensor="eeg", apply_source_localization=True),
+    ],
+)
+def test_invalid_mode(kwargs):
+    if kwargs.get("analysis_type") == "erp":
+        kwargs.setdefault("erp", settings())
+    with pytest.raises(ValidationError):
+        Config(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(tmin=1),
+        dict(baseline=(-1, 0)),
+        dict(min_trials=True),
+        dict(tmax=float("nan")),
+        dict(ica_n_components=0),
+        dict(ica_n_components=1.5),
+        dict(reject={"mag": 1}),
+        dict(h_freq=60, resample_sfreq=100),
+        dict(l_freq=40),
+        dict(reference=[]),
+        dict(unknown=True),
+    ],
+)
+def test_invalid_preprocessing(kwargs):
+    with pytest.raises(ValidationError):
+        ERPPreprocessing(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(mode="annotations"),
+        dict(mode="stim", event_id={"target": 1}),
+        dict(mode="stim", stim_channel="STI", event_id={"target": True}),
+        dict(mode="stim", stim_channel="STI", event_id={"target": 1, "other": 1}),
+        dict(mode="annotations", annotation_map={"target": "A"}, initial_event=True),
+    ],
+)
+def test_invalid_events(kwargs):
+    with pytest.raises(ValidationError):
+        ERPEventSpec(**kwargs)
+
+
+def test_events_components_and_dataset(tmp_path):
+    from meganorm.API import Dataset
+
+    spec = ERPEventSpec(mode="annotations", annotation_map={"target": "Stimulus/S 2"})
+    settings().validate_events(spec)
+    with pytest.raises(ValueError):
+        settings().validate_events(
+            ERPEventSpec(mode="annotations", annotation_map={"other": "A"})
+        )
+    dataset = Dataset(
+        name="test", root=tmp_path, task="oddball", extension=".fif", erp_events=spec
+    )
+    restored = Dataset.from_dict("test", json.loads(json.dumps(dataset._settings())))
+    assert restored.erp_events == spec
+    folder = tmp_path / "sub-01"
+    folder.mkdir()
+    (folder / "sub-01_oddball.fif").touch()
+    assert dataset.discover().iloc[0].erp_events == spec.model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        ERPSettings(
+            components={
+                "P300": dict(
+                    conditions=["target"],
+                    channels=["Pz"],
+                    window=[0.5, 1],
+                    polarity="pos",
+                )
+            }
+        )
+
+
+def test_local_guard_and_mutation(tmp_path):
+    from meganorm.API import Pipeline
+
+    erp = Config(analysis_type="erp", which_sensor="eeg", erp=settings())
+    with pytest.raises(NotImplementedError):
+        Pipeline(config=erp, output_dir=tmp_path / "new")
+    from meganorm.utils.erp import require_rest_runner
+
+    config = Config()
+    config.analysis_type = "task"
+    with pytest.raises(ValueError):
+        require_rest_runner(config)
+    assert not (tmp_path / "new").exists()
+
+
+def test_cli_and_cluster_guard_before_side_effects(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from meganorm.src import mainParallel as cli
+    from meganorm.utils import parallel
+
+    config = Config(analysis_type="erp", which_sensor="eeg", erp=settings())
+    path = tmp_path / "config.json"
+    path.write_text(config.model_dump_json())
+    out = tmp_path / "outputs"
+    monkeypatch.setattr(
+        cli,
+        "main_argparser",
+        lambda args: SimpleNamespace(configs=str(path), save_dir=str(out)),
+    )
+    with pytest.raises(NotImplementedError):
+        cli.main([])
+    jobs = {}
+    with pytest.raises(NotImplementedError):
+        parallel.sbatch_feature_extraction_runner(
+            str(out), {}, jobs, config_file=config
+        )
+    with pytest.raises(NotImplementedError):
+        parallel.auto_parallel_feature_extraction(
+            "worker.py", str(out), {}, jobs, str(path)
+        )
+    assert jobs == {}
+    assert not out.exists()
+
+
+def test_pipeline_rechecks_mutated_config(tmp_path):
+    from meganorm.API import Pipeline
+
+    pipeline = Pipeline(config=Config(), output_dir=tmp_path / "outputs")
+    pipeline.config.analysis_type = "erp"
+    with pytest.raises(NotImplementedError):
+        pipeline.run([])
+    assert not (tmp_path / "outputs").exists()
+
+
+def test_nondefault_stim_and_preprocessing_roundtrip():
+    spec = ERPEventSpec(
+        mode="stim",
+        event_id={"target": 0},
+        stim_channel="STI 014",
+        consecutive=False,
+        shortest_event=1,
+        min_duration=0.01,
+        initial_event=True,
+    )
+    assert ERPEventSpec.model_validate_json(spec.model_dump_json()) == spec
+    config = settings()
+    config.preprocessing = ERPPreprocessing(
+        tmin=-0.1,
+        tmax=0.7,
+        baseline=None,
+        l_freq=None,
+        h_freq=20,
+        apply_ica=False,
+        reference=("Cz",),
+        ica_n_components=0.95,
+        min_trials=4,
+        reject=None,
+        resample_sfreq=100,
+    )
+    restored = ERPSettings.model_validate_json(config.model_dump_json())
+    runtime, _ = restored.to_runtime()
+    assert asdict(runtime) == config.preprocessing.model_dump()
+    restored.validate_events(spec)
+
+
+@pytest.mark.parametrize(
+    "kwargs", [dict(l_freq=0), dict(ica_threshold=0), dict(ica_l_freq=40)]
+)
+def test_preprocessing_rejects_values_invalid_for_runtime(kwargs):
+    with pytest.raises(ValidationError):
+        ERPPreprocessing(**kwargs)
+
+
+def test_erp_requires_explicit_settings():
+    with pytest.raises(ValidationError, match="requires ERP settings"):
+        Config(analysis_type="erp", which_sensor="eeg")
 
 
 if __name__ == "__main__":

@@ -497,6 +497,7 @@ def test_collect_results_cleans_temp_after_success(tmp_path):
 @pytest.mark.unit
 def test_sbatch_feature_extraction_runner_uses_modules_and_conda_env(tmp_path):
     class FakeConfig:
+        analysis_type = "rest"
         apply_mri_template = False
 
         def save(self, save_path, overwrite=False):

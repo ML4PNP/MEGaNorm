@@ -8,6 +8,7 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import Literal
 import pandas as pd
+from meganorm.utils.erp import require_rest_runner
 from meganorm.utils.IO import Config, select_session_path
 from meganorm.utils.parallel import collect_results
 from .datasets import Dataset, _path
@@ -59,6 +60,7 @@ class Pipeline:
     ):
         if not isinstance(config, Config):
             raise TypeError("config must be an existing MEGaNorm Config.")
+        require_rest_runner(config)
         if on_error not in {"raise", "continue"}:
             raise ValueError("on_error must be 'raise' or 'continue'.")
         self.config = config.model_copy(deep=True)
@@ -253,6 +255,7 @@ class Pipeline:
 
     def run(self, dataset: Dataset | Sequence[Dataset]) -> FeatureDataset:
         """Process one or several datasets, returning a FeatureDataset."""
+        require_rest_runner(self.config)
         datasets = [dataset] if isinstance(dataset, Dataset) else list(dataset)
         if not datasets or not all(isinstance(d, Dataset) for d in datasets):
             raise ValueError(
