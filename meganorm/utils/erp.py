@@ -1,10 +1,9 @@
-"""Synthetic EEG for the ERP tutorial and tests; no file downloads."""
+"""ERP settings, event resolution and synthetic EEG tutorial helpers."""
 
 import mne
 import numpy as np
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
-
 
 
 def make_demo_recording(seed=42):
@@ -274,3 +273,54 @@ def require_rest_runner(config):
         )
     if config.analysis_type != "rest":
         raise ValueError(f"Unknown analysis_type: {config.analysis_type!r}")
+
+
+def resolve_erp_events(raw, spec):
+    """Resolve requested conditions without changing the recording.
+
+    Returns an integer MNE events array at absolute original samples and the
+    complete logical condition-to-code mapping, including absent conditions.
+    Annotation descriptions match exactly. Stimulus mode uses MNE onset
+    detection; code zero is its idle state, so zero-coded experimental events
+    must be supplied explicitly to run_erp_pipeline instead.
+    """
+    spec = ERPEventSpec.model_validate(spec)
+    if spec.mode == "annotations":
+        event_id = {name: i + 1 for i, name in enumerate(spec.annotation_map)}
+        descriptions = {
+            description: event_id[name]
+            for name, description in spec.annotation_map.items()
+        }
+        if not any(
+            description in descriptions for description in raw.annotations.description
+        ):
+            raise ValueError("No requested condition events were found.")
+        events, _ = mne.events_from_annotations(
+            raw, event_id=descriptions, regexp=None, use_rounding=True, verbose=False
+        )
+    else:
+        event_id = dict(spec.event_id)
+        if 0 in event_id.values():
+            raise ValueError(
+                "Stimulus onset detection treats code zero as idle; supply explicit events and event_id for zero-coded conditions."
+            )
+        if spec.stim_channel not in raw.ch_names:
+            raise ValueError(f"Stimulus channel {spec.stim_channel!r} is missing.")
+        events = mne.find_events(
+            raw,
+            stim_channel=spec.stim_channel,
+            output="onset",
+            consecutive=spec.consecutive,
+            shortest_event=spec.shortest_event,
+            min_duration=spec.min_duration,
+            initial_event=spec.initial_event,
+            verbose=False,
+        )
+    events = events[np.isin(events[:, 2], list(event_id.values()))]
+    if not len(events):
+        raise ValueError("No requested condition events were found.")
+    if np.any(np.diff(events[:, 0]) <= 0):
+        raise ValueError("Event samples must be strictly increasing and unique.")
+    if events[0, 0] < raw.first_samp or events[-1, 0] > raw.last_samp:
+        raise ValueError("Event samples must be within the Raw absolute sample range.")
+    return events.copy(), event_id

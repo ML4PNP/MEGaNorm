@@ -320,6 +320,7 @@ class TestERP(unittest.TestCase):
             correlation.assert_called_once()
             factory.return_value.apply.assert_called_once()
 
+
 def settings():
     return ERPSettings(
         components={
@@ -528,3 +529,404 @@ def test_erp_requires_explicit_settings():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _stage3_raw():
+    raw = mne.io.RawArray(
+        np.zeros((2, 600)),
+        mne.create_info(["Pz", "STI"], 100.0, ["eeg", "stim"]),
+        first_samp=500,
+        verbose=False,
+    )
+    raw._data[1, 100:103] = 2
+    raw._data[1, 300:303] = 7
+    return raw
+
+
+def test_event_resolver_annotations_crop_exact_and_missing():
+    from meganorm.utils.erp import resolve_erp_events
+
+    raw = _stage3_raw()
+    raw.set_annotations(
+        mne.Annotations([1.0, 3.0, 4.0], [0, 0, 0], ["A", "A/sub", "B"])
+    )
+    raw.crop(tmin=0.5, tmax=4.5)
+    before = raw.get_data().copy()
+    spec = ERPEventSpec(
+        mode="annotations",
+        annotation_map={"target": "A", "target/sub": "A/sub", "absent": "C"},
+    )
+    events, ids = resolve_erp_events(raw, spec)
+    np.testing.assert_array_equal(events[:, 0], [600, 800])
+    np.testing.assert_array_equal(events[:, 2], [ids["target"], ids["target/sub"]])
+    assert "absent" in ids
+    np.testing.assert_array_equal(raw.get_data(), before)
+
+
+def test_event_resolver_stim_and_empty():
+    from meganorm.utils.erp import resolve_erp_events
+
+    raw = _stage3_raw()
+    spec = ERPEventSpec(
+        mode="stim", stim_channel="STI", event_id={"target": 2, "missing": 9}
+    )
+    events, ids = resolve_erp_events(raw, spec)
+    np.testing.assert_array_equal(events, [[600, 0, 2]])
+    assert ids == {"target": 2, "missing": 9}
+    with pytest.raises(ValueError, match="No requested"):
+        resolve_erp_events(
+            raw, ERPEventSpec(mode="stim", stim_channel="STI", event_id={"missing": 9})
+        )
+
+
+def test_event_resolver_duplicates_and_missing_channel():
+    from meganorm.utils.erp import resolve_erp_events
+
+    raw = _stage3_raw()
+    raw.set_annotations(mne.Annotations([1, 1], [0, 0], ["A", "B"]))
+    with pytest.raises(ValueError, match="unique"):
+        resolve_erp_events(
+            raw, ERPEventSpec(mode="annotations", annotation_map={"a": "A", "b": "B"})
+        )
+    with pytest.raises(ValueError, match="channel"):
+        resolve_erp_events(
+            raw, ERPEventSpec(mode="stim", stim_channel="absent", event_id={"a": 1})
+        )
+
+
+def test_pipeline_event_spec_and_exact_conditions():
+    raw = _stage3_raw()
+    raw._data[0, 100:110] = 2e-6
+    raw._data[0, 300:310] = 8e-6
+    component = ERPComponent(
+        ("target", "target/sub", "absent"),
+        ("Pz",),
+        (0, 0.09),
+        "pos",
+        ("mean_amplitude",),
+    )
+    config = ERPConfig(
+        tmin=0,
+        tmax=0.1,
+        baseline=None,
+        l_freq=None,
+        h_freq=None,
+        reference=None,
+        apply_ica=False,
+        min_trials=1,
+        reject=None,
+    )
+    result = run_erp_pipeline(
+        raw,
+        "s",
+        {"P": component},
+        event_spec=ERPEventSpec(
+            mode="stim",
+            stim_channel="STI",
+            event_id={"target": 2, "target/sub": 7, "absent": 9},
+        ),
+        config=config,
+    )
+    np.testing.assert_allclose(result.features.iloc[0, :2], [2, 8])
+    assert np.isnan(result.features.iloc[0, 2])
+    with pytest.raises(ValueError, match="one|OR"):
+        run_erp_pipeline(
+            raw,
+            "s",
+            {"P": component},
+            event_spec=ERPEventSpec(
+                mode="stim", stim_channel="STI", event_id={"target": 2}
+            ),
+            events=np.array([[600, 0, 2]]),
+            event_id={"target": 2},
+            config=config,
+        )
+
+
+def test_boundary_peak_is_flagged_but_kept():
+    evoked = mne.EvokedArray(
+        np.array([[3.0, 1.0, 3.0]]) * 1e-6,
+        mne.create_info(["Pz"], 100.0, "eeg"),
+        tmin=0,
+        nave=10,
+        verbose=False,
+    )
+    component = ERPComponent(
+        ("a",),
+        ("Pz",),
+        (0, 0.02),
+        "pos",
+        ("peak_amplitude", "peak_latency", "mean_amplitude"),
+    )
+    before = evoked.data.copy()
+    features, qc = extract_erp_idps("s", {"a": evoked}, {"P": component})
+    np.testing.assert_allclose(features.iloc[0], [3, 0, 7 / 3])
+    assert qc.boundary_peak.tolist() == [True, True, False]
+    assert qc.status.tolist() == ["ok"] * 3
+    np.testing.assert_array_equal(evoked.data, before)
+
+
+def test_resampling_collision_fails_before_preprocessing():
+    raw = _stage3_raw()
+    config = ERPConfig(
+        tmin=0,
+        tmax=0.1,
+        baseline=None,
+        l_freq=None,
+        h_freq=None,
+        apply_ica=False,
+        resample_sfreq=10,
+    )
+    component = ERPComponent(("a",), ("Pz",), (0, 0.1), "pos")
+    with patch(
+        "meganorm.src.erp.preprocess_erp",
+        side_effect=AssertionError("must fail before cleaning"),
+    ):
+        with pytest.raises(ValueError, match="resampl"):
+            run_erp_pipeline(
+                raw,
+                "s",
+                {"P": component},
+                events=np.array([[600, 0, 0], [601, 0, 0]]),
+                event_id={"a": 0},
+                config=config,
+            )
+
+
+def test_drop_counts_partition_edge_annotation_and_amplitude():
+    raw = _stage3_raw()
+    raw._data[0, 300] = 200e-6
+    raw.set_annotations(mne.Annotations([1.9], [0.3], ["BAD_manual"]))
+    config = ERPConfig(
+        tmin=-0.1,
+        tmax=0.1,
+        baseline=None,
+        l_freq=None,
+        h_freq=None,
+        reference=None,
+        apply_ica=False,
+        min_trials=1,
+        reject={"eeg": 100e-6},
+    )
+    component = ERPComponent(("a", "missing"), ("Pz",), (0, 0.1), "pos")
+    result = run_erp_pipeline(
+        raw,
+        "s",
+        {"P": component},
+        events=np.array(
+            [[500, 0, 0], [600, 0, 0], [700, 0, 0], [800, 0, 0], [1099, 0, 0]]
+        ),
+        event_id={"a": 0, "missing": 3},
+        config=config,
+    )
+    row = result.qc.iloc[0]
+    assert (row.n_events, row.n_trials, row.n_rejected) == (5, 1, 4)
+    assert (
+        row.n_edge_dropped,
+        row.n_annotation_rejected,
+        row.n_amplitude_rejected,
+        row.n_other_dropped,
+    ) == (2, 1, 1, 0)
+    assert result.qc.iloc[-1].n_events == 0
+
+
+def test_stim_zero_requires_explicit_events_and_initial_event_options():
+    from meganorm.utils.erp import resolve_erp_events
+
+    raw = _stage3_raw()
+    with pytest.raises(ValueError, match="zero.*idle"):
+        resolve_erp_events(
+            raw, ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 0})
+        )
+    raw._data[1, :3] = 2
+    spec = ERPEventSpec(
+        mode="stim", stim_channel="STI", event_id={"a": 2}, initial_event=True
+    )
+    events, _ = resolve_erp_events(raw, spec)
+    np.testing.assert_array_equal(events[:, 0], [500, 600])
+    spec.initial_event = False
+    events, _ = resolve_erp_events(raw, spec)
+    np.testing.assert_array_equal(events[:, 0], [600])
+    spec.min_duration = 0.05
+    with pytest.raises(ValueError, match="No requested"):
+        resolve_erp_events(raw, spec)
+
+
+def test_stim_consecutive_and_shortest_event():
+    from meganorm.utils.erp import resolve_erp_events
+
+    raw = _stage3_raw()
+    raw._data[1, :] = 0
+    raw._data[1, 100:103] = 7
+    raw._data[1, 103:106] = 2
+    spec = ERPEventSpec(
+        mode="stim", stim_channel="STI", event_id={"a": 2, "b": 7}, consecutive=True
+    )
+    events, _ = resolve_erp_events(raw, spec)
+    np.testing.assert_array_equal(events[:, 0], [600, 603])
+    spec.consecutive = "increasing"
+    events, _ = resolve_erp_events(raw, spec)
+    np.testing.assert_array_equal(events[:, 0], [600])
+    raw._data[1, :] = 0
+    raw._data[1, 100] = 7
+    raw._data[1, 101:104] = 2
+    spec.consecutive = True
+    with pytest.raises(ValueError):
+        resolve_erp_events(raw, spec)
+    spec.shortest_event = 1
+    assert resolve_erp_events(raw, spec)[0][0, 0] == 600
+
+
+def test_no_requested_events_fails_before_cleaning():
+    raw = _stage3_raw()
+    component = ERPComponent(("a",), ("Pz",), (0, 0.1), "pos")
+    with patch(
+        "meganorm.src.erp.preprocess_erp",
+        side_effect=AssertionError("unexpected cleaning"),
+    ):
+        with pytest.raises(ValueError, match="No requested"):
+            run_erp_pipeline(
+                raw,
+                "s",
+                {"P": component},
+                events=np.array([[600, 0, 8]]),
+                event_id={"a": 0},
+            )
+
+
+def test_crop_resample_absolute_samples_and_input_preservation():
+    raw = _stage3_raw().crop(tmin=0.5, tmax=4.5)
+    before = raw.get_data().copy()
+    spec = ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 2, "b": 7})
+    component = ERPComponent(("a", "b"), ("Pz",), (0, 0.1), "abs")
+    config = ERPConfig(
+        tmin=0,
+        tmax=0.1,
+        baseline=None,
+        l_freq=None,
+        h_freq=None,
+        reference=None,
+        apply_ica=False,
+        min_trials=1,
+        reject=None,
+        resample_sfreq=50,
+    )
+    result = run_erp_pipeline(
+        raw, "s", {"P": component}, event_spec=spec, config=config
+    )
+    np.testing.assert_array_equal(result.epochs.events[:, 0], [300, 400])
+    assert raw.first_samp == 550 and raw.info["sfreq"] == 100
+    np.testing.assert_array_equal(raw.get_data(), before)
+
+
+@pytest.mark.parametrize(
+    "signal,status",
+    [
+        ([0, 0, 0], "no_peak_with_requested_polarity"),
+        ([np.nan, 1, 2], "nonfinite_data"),
+    ],
+)
+def test_unavailable_peak_schema_and_boundary_flag(signal, status):
+    evoked = mne.EvokedArray(
+        np.array([signal]) * 1e-6,
+        mne.create_info(["Pz"], 100, "eeg"),
+        tmin=0,
+        nave=3,
+        verbose=False,
+    )
+    component = ERPComponent(("a",), ("Pz",), (0, 0.02), "abs")
+    features, qc = extract_erp_idps("s", {"a": evoked}, {"P": component})
+    missing, missing_qc = extract_erp_idps("s", {"a": None}, {"P": component})
+    assert features.columns.tolist() == missing.columns.tolist()
+    assert features.isna().all().all()
+    assert qc.status.tolist() == [status, status]
+    assert not qc.boundary_peak.any()
+    assert not missing_qc.boundary_peak.any()
+
+
+def test_window_uses_only_inclusive_sample_times():
+    evoked = mne.EvokedArray(
+        np.array([[9, 1, 3, 9]]) * 1e-6,
+        mne.create_info(["Pz"], 100, "eeg"),
+        tmin=0,
+        nave=3,
+        verbose=False,
+    )
+    component = ERPComponent(
+        ("a",),
+        ("Pz",),
+        (0.005, 0.025),
+        "pos",
+        ("peak_amplitude", "peak_latency", "mean_amplitude"),
+    )
+    features, qc = extract_erp_idps("s", {"a": evoked}, {"P": component})
+    np.testing.assert_allclose(features.iloc[0], [3, 20, 2])
+    assert qc.boundary_peak.tolist() == [True, True, False]
+    with pytest.raises(ValueError, match="no samples"):
+        extract_erp_idps(
+            "s", {"a": evoked}, {"P": replace(component, window=(0.001, 0.002))}
+        )
+
+
+def test_ambiguous_annotation_channel_label_is_not_misclassified():
+    raw = _stage3_raw()
+    raw.rename_channels({"Pz": "BAD_sensor"})
+    raw.set_annotations(mne.Annotations([0.9], [0.3], ["BAD_sensor"]))
+    component = ERPComponent(("a",), ("BAD_sensor",), (0, 0.1), "pos")
+    config = ERPConfig(
+        tmin=0,
+        tmax=0.1,
+        baseline=None,
+        l_freq=None,
+        h_freq=None,
+        reference=None,
+        apply_ica=False,
+        min_trials=1,
+        reject=None,
+    )
+    result = run_erp_pipeline(
+        raw,
+        "s",
+        {"P": component},
+        events=np.array([[600, 0, 2], [800, 0, 2]]),
+        event_id={"a": 2},
+        config=config,
+    )
+    row = result.qc.iloc[0]
+    assert row.n_other_dropped == 1
+    assert row.n_amplitude_rejected == 0
+    assert row.n_annotation_rejected == 0
+    assert row.n_trials + row.n_rejected == row.n_events
+
+
+def test_flatness_rejection_counts_as_amplitude():
+    raw = _stage3_raw()
+    raw._data[0, 300:310] = np.arange(10) * 1e-6
+    component = ERPComponent(("a",), ("Pz",), (0, 0.1), "pos")
+    config = ERPConfig(
+        tmin=0,
+        tmax=0.1,
+        baseline=None,
+        l_freq=None,
+        h_freq=None,
+        reference=None,
+        apply_ica=False,
+        min_trials=1,
+        reject=None,
+        flat={"eeg": 1e-7},
+    )
+    result = run_erp_pipeline(
+        raw,
+        "s",
+        {"P": component},
+        events=np.array([[600, 0, 2], [800, 0, 2]]),
+        event_id={"a": 2},
+        config=config,
+    )
+    row = result.qc.iloc[0]
+    assert (
+        row.n_events,
+        row.n_trials,
+        row.n_amplitude_rejected,
+        row.n_other_dropped,
+    ) == (2, 1, 1, 0)

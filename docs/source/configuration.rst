@@ -301,5 +301,5 @@ manifest without resolving or processing events.
 These models are exported from ``meganorm.API``. Integrated ERP execution is
 not yet available: local, CLI and cluster runners reject ERP mode before
 creating outputs. Use ``ERPSettings.to_runtime()`` to obtain the standalone
-``ERPConfig`` and component mapping, and supply events explicitly to the
-standalone ERP API. See the repository's ``erp_quickstart.md`` for an example.
+``ERPConfig`` and component mapping, then pass ``event_spec=dataset.erp_events``
+to the standalone ERP API. Explicit events and annotation maps remain supported. See the repository's ``erp_quickstart.md`` for an example.

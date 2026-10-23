@@ -1,5 +1,8 @@
 # Unreleased
 
+- Resolve ERP annotation/stimulus event specifications in the standalone API, with exact condition matching and explicit timing checks.
+- Flag boundary peaks without discarding their values and separate recording-edge, annotation and amplitude/flatness trial losses in QC.
+
 - Add validated EEG ERP settings and per-dataset event specifications, with JSON persistence. Legacy configurations default to resting-state analysis.
 - Reject ERP execution in existing local and cluster runners until ERP dispatch is implemented; the standalone ERP API remains available.
 - Correct tutorial fixture references and exclude the local architecture review from source packaging.

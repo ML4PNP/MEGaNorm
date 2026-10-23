@@ -10,6 +10,7 @@ from typing import Mapping
 import mne
 import numpy as np
 import pandas as pd
+from meganorm.utils.erp import ERPEventSpec, resolve_erp_events
 
 
 def _name(value):
@@ -288,7 +289,9 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
     absent sensors, nonfinite waveforms and too few trials yield NaN with a QC
     reason. Invalid windows or sensor-type mismatches raise ValueError. Window
     means do not depend on peak polarity. No eligible signed peak yields NaN
-    for both peak metrics. Input objects are never modified.
+    for both peak metrics. Boundary peaks retain their values and have
+    boundary_peak=True in peak-metric QC rows (False for means or unavailable
+    peaks). Input objects are never modified.
     """
     if not isinstance(subject_id, str) or not subject_id:
         raise ValueError("subject_id must be a nonempty string.")
@@ -309,6 +312,7 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
             for channel in component.channels:
                 reason = "ok"
                 measures = {}
+                boundary_peak = False
                 if evoked is None:
                     reason = "missing_condition"
                 elif nave < min_trials:
@@ -353,6 +357,7 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
                             )
                         )
                         if valid:
+                            boundary_peak = peak in (0, len(signal) - 1)
                             measures.update(
                                 peak_amplitude=signal[peak] * scale,
                                 peak_latency=times[peak] * 1e3,
@@ -373,6 +378,9 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
                             "idp": column,
                             "status": status,
                             "n_trials": nave,
+                            "boundary_peak": (
+                                boundary_peak if metric.startswith("peak_") else False
+                            ),
                         }
                     )
     return pd.DataFrame([values], index=[subject_id], dtype=float), pd.DataFrame(
@@ -397,6 +405,7 @@ def extract_recording(
     components,
     *,
     annotation_map=None,
+    event_spec=None,
     events=None,
     event_id=None,
     config=None,
@@ -421,6 +430,9 @@ def extract_recording(
         Integer MNE events at the original recording sample rate.
     event_id : mapping, optional
         Condition names to integer event codes.
+    event_spec : ERPEventSpec or mapping, optional
+        Dataset annotation or stimulus specification. Mutually exclusive with
+        annotation_map and explicit events/event_id.
     config : ERPConfig, optional
         ERP preprocessing and epoch settings. Defaults to ERPConfig().
 
@@ -435,6 +447,7 @@ def extract_recording(
         subject_id,
         components,
         annotation_map=annotation_map,
+        event_spec=event_spec,
         events=events,
         event_id=event_id,
         config=config,
@@ -449,32 +462,42 @@ def run_erp_pipeline(
     events=None,
     event_id=None,
     annotation_map=None,
+    event_spec=None,
     config=None,
 ):
     """Run automatic EEG preparation, epoching and multi-component extraction.
 
-    Supply either events plus condition-to-integer event_id, or annotation_map
+    Supply event_spec, events plus condition-to-integer event_id, or annotation_map
     mapping condition names to exact annotation descriptions. Events are read
     before cleaning; optional resampling updates Raw and events together.
     Save result.features using to_csv() to retain MEGaNorm's subject-row format.
     """
     config = config or ERPConfig()
-    if annotation_map is not None:
-        if events is not None or event_id is not None or not annotation_map:
+    if event_spec is not None:
+        if annotation_map is not None or events is not None or event_id is not None:
+            raise ValueError(
+                "Supply one event source: event_spec OR annotation_map OR events and event_id."
+            )
+        events, event_id = resolve_erp_events(raw, event_spec)
+    elif annotation_map is not None:
+        if events is not None or event_id is not None:
             raise ValueError("Use annotation_map OR events and event_id.")
-        if len(set(annotation_map.values())) != len(annotation_map):
-            raise ValueError("Annotation descriptions must be unique.")
-        event_id = {condition: i + 1 for i, condition in enumerate(annotation_map)}
-        description_codes = {
-            description: event_id[condition]
-            for condition, description in annotation_map.items()
-        }
-        events, _ = mne.events_from_annotations(
-            raw, event_id=description_codes, regexp=None, verbose=False
+        events, event_id = resolve_erp_events(
+            raw, ERPEventSpec(mode="annotations", annotation_map=annotation_map)
         )
     if events is None or event_id is None:
         raise ValueError("Provide events and event_id, or annotation_map.")
     events = _validate_events(raw, events, event_id)
+    events = events[np.isin(events[:, 2], list(event_id.values()))]
+    if not len(events):
+        raise ValueError("No requested condition events were found.")
+    if config.resample_sfreq is not None:
+        ratio = config.resample_sfreq / raw.info["sfreq"]
+        projected = np.round(events[:, 0] * ratio).astype(int)
+        if np.any(np.diff(projected) <= 0):
+            raise ValueError(
+                "Requested events collide after resampling; use a higher sampling rate."
+            )
     if not components:
         raise ValueError("At least one component is required.")
     for name, component in components.items():
@@ -496,6 +519,7 @@ def run_erp_pipeline(
         cleaned, events = cleaned.resample(
             config.resample_sfreq, events=events, verbose=False
         )
+    events = _validate_events(cleaned, events, event_id)
     epochs = epoch_erp(cleaned, events, event_id, config)
     evokeds = compute_evokeds(epochs)
     features, qc = extract_erp_idps(subject_id, evokeds, components, config.min_trials)
@@ -504,6 +528,44 @@ def run_erp_pipeline(
         for condition, code in event_id.items()
     }
     qc["n_events"] = qc["condition"].map(counts)
+    # Mutually exclusive categories reflect MNE's recorded drop reason, not
+    # hypothetical additional reasons for an epoch already dropped earlier.
+    losses = {
+        name: dict(
+            n_edge_dropped=0,
+            n_annotation_rejected=0,
+            n_amplitude_rejected=0,
+            n_other_dropped=0,
+        )
+        for name in event_id
+    }
+    code_names = {code: name for name, code in event_id.items()}
+    # MNE stores annotation descriptions and rejected channel names as plain
+    # strings. Do not guess the cause when those labels are indistinguishable.
+    ambiguous_labels = set(epochs.ch_names) & (
+        set(cleaned.annotations.description) | {"NO_DATA", "TOO_SHORT"}
+    )
+    for event, reasons in zip(events, epochs.drop_log):
+        if not reasons:
+            continue
+        if any(reason in ambiguous_labels for reason in reasons):
+            category = "n_other_dropped"
+        elif any(reason in {"NO_DATA", "TOO_SHORT"} for reason in reasons):
+            category = "n_edge_dropped"
+        elif any(
+            reason.lower().startswith("bad") and reason not in epochs.ch_names
+            for reason in reasons
+        ):
+            category = "n_annotation_rejected"
+        elif any(reason in epochs.ch_names for reason in reasons):
+            category = "n_amplitude_rejected"
+        else:
+            category = "n_other_dropped"
+        losses[code_names[event[2]]][category] += 1
+    for category in next(iter(losses.values())):
+        qc[category] = qc["condition"].map(
+            {name: value[category] for name, value in losses.items()}
+        )
     qc["n_rejected"] = qc["n_events"] - qc["n_trials"]
     qc.loc[(qc.status == "missing_condition") & (qc.n_events > 0), "status"] = (
         "no_retained_trials"

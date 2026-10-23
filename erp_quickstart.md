@@ -151,13 +151,14 @@ The current suite contains 12 ERP test methods under `tests/src/test_erp.py`.
 They are discovered by the normal pytest command. Run the command above for
 current results; the historical run did not cover all current tests.
 
-## Configuring ERP analysis (Stage 2)
+## Configuring ERP analysis
 
 The integrated configuration now distinguishes `analysis_type="rest"` (the
 backward-compatible default) from `analysis_type="erp"`. ERP settings currently
 support EEG sensor-space components and threshold rejection. Integrated local,
-CLI and cluster runners reject ERP mode before writing outputs; event resolution
-and ERP dispatch will be implemented in subsequent stages.
+CLI and cluster runners reject ERP mode before writing outputs. Event
+resolution is available through the standalone ERP API; cohort dispatch is
+not yet implemented.
 
 ```python
 from meganorm.API import Config, Dataset, ERPSettings, ERPEventSpec
@@ -187,7 +188,33 @@ erp_config, components = config.erp.to_runtime()
 `annotation_map` maps logical conditions to exact annotation descriptions. For a
 stimulus channel use `mode="stim", stim_channel="STI 014",
 event_id={"target": 2}` instead. Keep each dataset's acquisition codes in its
-`erp_events` specification while sharing the component definitions. These
-specifications describe future extraction; they do not yet resolve recordings
-into events. Pass `erp_config` and `components` to the standalone API as shown
-above, supplying events explicitly.
+`erp_events` specification while sharing the component definitions. Pass the specification directly to the standalone API:
+
+```python
+result = run_erp_pipeline(
+    raw, "sub-001", components,
+    config=erp_config, event_spec=dataset.erp_events,
+)
+```
+
+Alternatively, `meganorm.utils.erp.resolve_erp_events(raw, dataset.erp_events)`
+returns `(events, event_id)` without changing `raw`. Choose one event source:
+`event_spec`, `annotation_map`, or explicit `events` and `event_id`.
+Annotation descriptions match exactly. Stimulus detection uses MNE onset
+semantics and the specification's `consecutive`, `shortest_event`,
+`min_duration` and `initial_event` settings. Zero is the stimulus idle state;
+zero-coded experimental conditions require explicit events and `event_id`.
+Missing declared conditions remain in the mapping and produce unavailable IDPs.
+No requested events, duplicate event samples and resampling collisions cause
+an explicit error.
+
+QC keeps `n_rejected` as the total lost trials and adds mutually exclusive
+`n_edge_dropped`, `n_annotation_rejected`, `n_amplitude_rejected` (including
+flatness rejection) and `n_other_dropped`. Their sum equals `n_rejected`;
+`n_trials + n_rejected` equals `n_events`. Categories follow MNE's recorded
+reason; an epoch dropped early is not evaluated for every possible cause.
+If a channel name duplicates an annotation description or a reserved edge-loss
+label, ambiguous drop reasons count as `n_other_dropped`.
+Peak measurements at either end of the sampled component window retain their
+values with `boundary_peak=True`. The flag is False for means and unavailable
+peaks; `status` records why a measurement is unavailable.
