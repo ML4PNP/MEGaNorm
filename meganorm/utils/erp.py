@@ -84,6 +84,45 @@ class ERPComponentSettings(_Settings):
         return self
 
 
+def resolve_ica_settings(config):
+    """Resolve ERP-only legacy switches and thresholds without mutating settings."""
+    import math
+
+    mode = config.ica_mode
+    if mode not in ("auto", "physiological", "iclabel", "none"):
+        raise ValueError("ica_mode must be auto, physiological, iclabel or none.")
+    if not config.apply_ica:
+        if mode not in ("auto", "none"):
+            raise ValueError("apply_ica=False conflicts with the explicit ica_mode.")
+        mode = "none"
+    for value in (
+        config.ica_threshold,
+        config.ica_corr_threshold,
+        config.ica_label_threshold,
+    ):
+        if value is not None and (not math.isfinite(value) or not 0 < value <= 1):
+            raise ValueError("ICA thresholds must be finite values in (0, 1].")
+    n = config.ica_n_components
+    if n is not None and not (
+        type(n) is int and n >= 2 or type(n) is float and 0 < n < 1
+    ):
+        raise ValueError(
+            "ICA components must be an integer >=2 or a fraction in (0, 1)."
+        )
+    return mode, {
+        "correlation": (
+            config.ica_threshold
+            if config.ica_corr_threshold is None
+            else config.ica_corr_threshold
+        ),
+        "label_probability": (
+            config.ica_threshold
+            if config.ica_label_threshold is None
+            else config.ica_label_threshold
+        ),
+    }
+
+
 class ERPPreprocessing(_Settings):
     """Settings matching the standalone ERPConfig, with early validation."""
 
@@ -105,8 +144,13 @@ class ERPPreprocessing(_Settings):
     )
     flat: dict[Literal["eeg"], float] | None = None
 
+    ica_mode: Literal["auto", "physiological", "iclabel", "none"] = "auto"
+    ica_corr_threshold: float | None = Field(default=None, gt=0, le=1)
+    ica_label_threshold: float | None = Field(default=None, gt=0, le=1)
+
     @model_validator(mode="after")
     def validate_preprocessing(self):
+        mode, _ = resolve_ica_settings(self)
         if self.tmin >= self.tmax:
             raise ValueError("tmin must be smaller than tmax.")
         if self.baseline is not None:
@@ -122,7 +166,7 @@ class ERPPreprocessing(_Settings):
         ):
             raise ValueError("l_freq must be below h_freq.")
         if (
-            self.apply_ica
+            mode != "none"
             and self.h_freq is not None
             and self.ica_l_freq >= self.h_freq
         ):
@@ -156,7 +200,7 @@ class ERPPreprocessing(_Settings):
         if not math.isfinite(sfreq) or sfreq <= 0:
             raise ValueError("Sampling rate must be finite and positive.")
         cutoffs = [self.l_freq, self.h_freq]
-        if self.apply_ica:
+        if resolve_ica_settings(self)[0] != "none":
             cutoffs.append(self.ica_l_freq)
         if any(value is not None and value >= sfreq / 2 for value in cutoffs):
             raise ValueError("Filter cutoffs must be below the Nyquist frequency.")

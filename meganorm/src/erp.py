@@ -10,7 +10,7 @@ from typing import Mapping
 import mne
 import numpy as np
 import pandas as pd
-from meganorm.utils.erp import ERPEventSpec, resolve_erp_events
+from meganorm.utils.erp import ERPEventSpec, resolve_erp_events, resolve_ica_settings
 
 
 def _name(value):
@@ -74,9 +74,12 @@ class ERPConfig:
 
     Filters are configurable protocol choices, not universal ERP defaults.
     ICA uses infomax on a separately filtered copy with the same reference and
-    channels. Without EOG/ECG channels, automatic ICLabel classification is used.
+    channels. ica_mode selects auto, physiological, iclabel or none. Auto uses
+    usable EOG/ECG channels, otherwise ICLabel with validated prerequisites.
+    The legacy ica_threshold supplies either unset mode-specific threshold.
     Rejection uses MNE peak-to-peak thresholds in SI units plus BAD annotations.
-    Set apply_ica=False only for already-clean data or controlled tests.
+    Use ica_mode="none" (or legacy apply_ica=False) for already-clean data.
+    A disabled ICA step is recorded explicitly in preprocessing QC.
     """
 
     tmin: float = -0.2
@@ -95,7 +98,12 @@ class ERPConfig:
     reject: dict[str, float] | None = field(default_factory=lambda: {"eeg": 150e-6})
     flat: dict[str, float] | None = None
 
+    ica_mode: str = "auto"
+    ica_corr_threshold: float | None = None
+    ica_label_threshold: float | None = None
+
     def __post_init__(self):
+        mode, _ = resolve_ica_settings(self)
         _window((self.tmin, self.tmax))
         if self.baseline is not None:
             if len(self.baseline) != 2:
@@ -115,7 +123,7 @@ class ERPConfig:
         if self.h_freq is not None:
             if self.l_freq is not None and self.l_freq >= self.h_freq:
                 raise ValueError("l_freq must be below h_freq.")
-            if self.apply_ica and self.ica_l_freq >= self.h_freq:
+            if mode != "none" and self.ica_l_freq >= self.h_freq:
                 raise ValueError("ica_l_freq must be below h_freq.")
         if not isinstance(self.min_trials, int) or self.min_trials < 1:
             raise ValueError("min_trials must be a positive integer.")
@@ -168,6 +176,7 @@ def preprocess_erp(raw, config=None):
     from .preprocess import find_ica_component
 
     config = config or ERPConfig()
+    mode, thresholds = resolve_ica_settings(config)
     data = raw.copy().load_data()
     eeg = mne.pick_types(data.info, meg=False, eeg=True, exclude="bads")
     if not len(eeg):
@@ -185,14 +194,100 @@ def preprocess_erp(raw, config=None):
             else config.reference
         )
         data.set_eeg_reference(reference, projection=False, verbose=False)
-    fit_data = data.copy() if config.apply_ica else None
+    fit_data = data.copy() if mode != "none" else None
     if config.l_freq is not None or config.h_freq is not None:
         data.filter(config.l_freq, config.h_freq, picks=eeg, verbose=False)
-    qc = {"ica_applied": False, "ica_excluded": [], "ica_method": None}
-    if config.apply_ica:
+    qc = {
+        "ica_applied": False,
+        "ica_excluded": [],
+        "ica_method": None,
+        "ica_mode_requested": config.ica_mode,
+        "ica_mode_effective": mode,
+        "ica_selection_reason": "disabled by configuration",
+        "ica_thresholds": thresholds,
+        "ica_auxiliary": {},
+        "ica_component_scores": [],
+        "ica_warnings": [],
+        "ica_rank": None,
+        "ica_n_components": None,
+        "ica_reference": config.reference,
+        "ica_fit_filter": None,
+        "bad_channel_detection": "not_performed",
+        "bad_channels": list(data.info["bads"]),
+    }
+    if mode != "none":
+        # Auxiliary quality and correlations use the same annotation-retained
+        # samples as ICA fitting. Do not filter nonfinite auxiliary channels.
+        auxiliary = mne.pick_types(
+            fit_data.info, meg=False, eog=True, ecg=True, exclude=[]
+        )
+        usable = []
+        for pick in auxiliary:
+            name = fit_data.ch_names[pick]
+            signal = fit_data.get_data(picks=[pick], reject_by_annotation="omit")[0]
+            if name in fit_data.info["bads"]:
+                status = "marked_bad"
+            elif len(signal) < 2:
+                status = "insufficient_samples"
+            elif not np.isfinite(signal).all():
+                status = "nonfinite"
+            elif np.ptp(signal) == 0:
+                status = "flat"
+            else:
+                status = "usable"
+                usable.append(pick)
+            qc["ica_auxiliary"][name] = status
+        if mode == "auto":
+            mode = "physiological" if usable else "iclabel"
+            reason = (
+                "usable EOG/ECG channels" if usable else "no usable EOG/ECG channels"
+            )
+        else:
+            reason = "explicit strategy"
+        qc.update(ica_mode_effective=mode, ica_selection_reason=reason)
+        if mode == "physiological" and not usable:
+            raise ValueError(
+                "Physiological ICA requires usable EOG/ECG channels; "
+                f"quality: {qc['ica_auxiliary']}."
+            )
+        if mode == "iclabel":
+            positions = np.array([fit_data.info["chs"][p]["loc"][:3] for p in eeg])
+            if (
+                fit_data.get_montage() is None
+                or not np.isfinite(positions).all()
+                or np.any(np.linalg.norm(positions, axis=1) == 0)
+            ):
+                raise ValueError(
+                    "ICLabel requires finite EEG sensor locations for every "
+                    f"usable EEG channel; auxiliary quality: {qc['ica_auxiliary']}."
+                )
+            if config.reference != "average" or config.ica_l_freq < 1:
+                raise ValueError(
+                    "ICLabel requires reference='average' and ica_l_freq >= 1 Hz."
+                )
+            if config.ica_l_freq != 1 or config.h_freq != 100:
+                qc["ica_warnings"].append(
+                    "ICLabel was trained on 1–100 Hz data; the configured ICA fit "
+                    "filter differs and classification performance may be affected."
+                )
         fit_data.filter(config.ica_l_freq, config.h_freq, picks=eeg, verbose=False)
+        qc["ica_fit_filter"] = {"l_freq": config.ica_l_freq, "h_freq": config.h_freq}
+        # Loaded samples already include active projectors. Inactive SSP must
+        # not reduce rank: ICA does not apply those projectors during fitting.
+        rank = int(
+            mne.compute_rank(fit_data.copy().pick(eeg), proj=False, verbose=False)[
+                "eeg"
+            ]
+        )
+        qc["ica_rank"] = rank
+        n_components = config.ica_n_components
+        if rank < 2 or (type(n_components) is int and n_components > rank):
+            raise ValueError(
+                f"ICA needs EEG rank >=2 and n_components <= rank; "
+                f"rank={rank}, requested={n_components}."
+            )
         ica = mne.preprocessing.ICA(
-            n_components=config.ica_n_components,
+            n_components=rank if n_components is None else n_components,
             method="infomax",
             fit_params={"extended": True},
             random_state=config.random_state,
@@ -200,40 +295,57 @@ def preprocess_erp(raw, config=None):
             verbose=False,
         )
         ica.fit(fit_data, picks=eeg, reject_by_annotation=True, verbose=False)
-        auxiliary = mne.pick_types(
-            fit_data.info, meg=False, eog=True, ecg=True, exclude="bads"
-        )
+        if ica.n_components_ > rank:
+            raise ValueError("Fitted ICA components exceed the effective EEG rank.")
+        qc["ica_n_components"] = int(ica.n_components_)
         excluded = set()
-        if len(auxiliary):
-            for signal in fit_data.get_data(picks=auxiliary):
-                indices, _ = find_ica_component(
-                    ica, fit_data, signal, config.ica_threshold
+        if mode == "physiological":
+            # The shared helper chooses the strongest correlated component per
+            # auxiliary channel. Preserve that established rest/ERP behavior.
+            retained = fit_data.get_data(reject_by_annotation="omit")
+            correlation_data = mne.io.RawArray(
+                retained, fit_data.info.copy(), verbose=False
+            )
+            for pick in usable:
+                indices, scores = find_ica_component(
+                    ica, correlation_data, retained[pick], thresholds["correlation"]
                 )
                 excluded.update(indices)
+                qc["ica_component_scores"].extend(
+                    {
+                        "channel": fit_data.ch_names[pick],
+                        "component": int(i),
+                        "correlation": float(score),
+                    }
+                    for i, score in zip(indices, scores)
+                )
             qc["ica_method"] = "physiological_correlation"
         else:
             from mne_icalabel import label_components
 
-            if fit_data.get_montage() is None:
-                raise ValueError(
-                    "Automatic ICLabel needs EEG sensor locations when auxiliary channels are absent."
-                )
             labels = label_components(fit_data, ica, method="iclabel")
-            excluded.update(
-                i
-                for i, (label, probability) in enumerate(
-                    zip(labels["labels"], labels["y_pred_proba"])
+            for i, (label, probability) in enumerate(
+                zip(labels["labels"], labels["y_pred_proba"])
+            ):
+                qc["ica_component_scores"].append(
+                    {
+                        "component": i,
+                        "label": str(label),
+                        "probability": float(probability),
+                    }
                 )
-                if label
-                in {
-                    "eye blink",
-                    "heart beat",
-                    "muscle artifact",
-                    "channel noise",
-                    "line noise",
-                }
-                and probability >= config.ica_threshold
-            )
+                if (
+                    label
+                    in {
+                        "eye blink",
+                        "heart beat",
+                        "muscle artifact",
+                        "channel noise",
+                        "line noise",
+                    }
+                    and probability >= thresholds["label_probability"]
+                ):
+                    excluded.add(i)
             qc["ica_method"] = "iclabel"
         ica.exclude = sorted(excluded)
         ica.apply(data, verbose=False)

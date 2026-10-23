@@ -297,6 +297,8 @@ class TestERP(unittest.TestCase):
 
     def test_ica_uses_shared_correlation_and_separate_fit_copy(self):
         raw, _, config = self.make_raw()
+        # Independent EEG signals are needed for an identifiable ICA fit.
+        raw._data[1] += np.sin(np.arange(6000) / 20) * 1e-6
         eog = mne.io.RawArray(
             np.sin(np.arange(6000)[None, :] / 10),
             mne.create_info(["EOG"], 1000, "eog"),
@@ -310,6 +312,7 @@ class TestERP(unittest.TestCase):
                 "meganorm.src.preprocess.find_ica_component", return_value=([0], [0.9])
             ) as correlation,
         ):
+            factory.return_value.n_components_ = 2
             cleaned, qc = preprocess_erp(
                 raw, replace(config, apply_ica=True, h_freq=35)
             )
@@ -1068,3 +1071,223 @@ def test_erp_worker_sidecar_types_and_montage(tmp_path):
     assert np.isfinite(result.features.to_numpy()).all()
     assert result.epochs.get_montage() is not None
     assert mne.io.read_raw_fif(path, verbose=False).get_channel_types()[0] == "misc"
+
+
+@pytest.mark.parametrize("factory", [ERPConfig, ERPPreprocessing])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(ica_mode="unknown"),
+        dict(ica_corr_threshold=0),
+        dict(ica_label_threshold=1.1),
+        dict(ica_corr_threshold=float("nan")),
+        dict(apply_ica=False, ica_mode="physiological"),
+        dict(ica_n_components=True),
+        dict(ica_n_components=1),
+    ],
+)
+def test_ica_settings_reject_invalid_choices(factory, kwargs):
+    with pytest.raises(ValueError):
+        factory(**kwargs)
+
+
+def test_ica_settings_roundtrip_and_legacy_thresholds():
+    definition = settings()
+    definition.preprocessing = ERPPreprocessing(
+        ica_mode="physiological",
+        ica_threshold=0.6,
+        ica_corr_threshold=0.4,
+        ica_label_threshold=0.9,
+    )
+    restored = ERPSettings.model_validate_json(definition.model_dump_json())
+    runtime, _ = restored.to_runtime()
+    assert asdict(runtime) == restored.preprocessing.model_dump()
+    assert runtime.ica_corr_threshold == 0.4
+    assert runtime.ica_label_threshold == 0.9
+
+
+def ica_raw(aux="good", montage=False):
+    rng = np.random.default_rng(12)
+    raw = mne.io.RawArray(
+        rng.normal(size=(4, 2000)) * 1e-6,
+        mne.create_info(["Fz", "Cz", "Pz", "Oz"], 200, "eeg"),
+        verbose=False,
+    )
+    if aux is not None:
+        signal = np.sin(np.arange(2000) / 10)[None, :] * 1e-4
+        if aux == "flat":
+            signal[:] = 0
+        elif aux == "nonfinite":
+            signal[0, 10] = np.nan
+        raw.add_channels(
+            [
+                mne.io.RawArray(
+                    signal, mne.create_info(["EOG"], 200, "eog"), verbose=False
+                )
+            ]
+        )
+    if montage:
+        raw.set_montage("standard_1020")
+    return raw
+
+
+@pytest.mark.parametrize("kwargs", [dict(ica_mode="none"), dict(apply_ica=False)])
+def test_ica_disabled_is_explicit_in_qc(kwargs):
+    cleaned, qc = preprocess_erp(ica_raw(aux="flat"), ERPConfig(**kwargs))
+    assert qc["ica_mode_effective"] == "none"
+    assert not qc["ica_applied"]
+    assert qc["bad_channel_detection"] == "not_performed"
+    assert np.isfinite(cleaned.get_data()).all()
+
+
+@pytest.mark.parametrize("aux", ["flat", "nonfinite", None])
+def test_physiological_requires_usable_auxiliary(aux):
+    with pytest.raises(ValueError, match="usable EOG/ECG"):
+        preprocess_erp(ica_raw(aux), ERPConfig(ica_mode="physiological"))
+
+
+@pytest.mark.parametrize("aux", ["flat", "nonfinite", None])
+def test_auto_cannot_silently_skip_ica_without_locations(aux):
+    with pytest.raises(ValueError, match="sensor locations"):
+        preprocess_erp(ica_raw(aux), ERPConfig())
+
+
+def test_ica_rank_guard_and_reference_consistency():
+    raw = ica_raw()
+    with pytest.raises(ValueError, match="rank"):
+        preprocess_erp(raw, ERPConfig(ica_n_components=4))
+    raw._data[:4] = raw._data[0]
+    with pytest.raises(ValueError, match="rank"):
+        preprocess_erp(raw, ERPConfig(reference=None))
+
+
+@pytest.mark.parametrize("kwargs", [dict(reference=None), dict(ica_l_freq=0.5)])
+def test_iclabel_requires_reference_and_fit_highpass(kwargs):
+    with pytest.raises(ValueError, match="ICLabel"):
+        preprocess_erp(ica_raw(montage=True), ERPConfig(ica_mode="iclabel", **kwargs))
+
+
+def test_auto_records_bad_auxiliary_and_label_decisions():
+    raw = ica_raw(aux="flat", montage=True)
+    before = raw.get_data().copy()
+    # Control classifier output to test routing/thresholds; ICA fit, reference,
+    # filtering, reconstruction and QC remain real.
+    with patch(
+        "mne_icalabel.label_components",
+        return_value=dict(
+            labels=["eye blink", "brain", "muscle artifact"],
+            y_pred_proba=np.array([0.85, 0.99, 0.65]),
+        ),
+    ):
+        cleaned, qc = preprocess_erp(
+            raw, ERPConfig(ica_threshold=0.6, ica_label_threshold=0.8)
+        )
+    assert qc["ica_mode_effective"] == "iclabel"
+    assert qc["ica_excluded"] == [0]
+    assert qc["ica_rank"] == 3
+    assert qc["ica_n_components"] == 3
+    assert qc["ica_auxiliary"]["EOG"] == "flat"
+    assert qc["ica_thresholds"] == dict(correlation=0.6, label_probability=0.8)
+    assert len(qc["ica_component_scores"]) == 3
+    assert qc["ica_warnings"]
+    np.testing.assert_array_equal(raw.get_data(), before)
+    np.testing.assert_allclose(cleaned.get_data()[:4].mean(axis=0), 0, atol=1e-18)
+    json.dumps(qc, allow_nan=False)
+
+
+def test_physiological_threshold_is_independent_and_recorded():
+    with patch(
+        "meganorm.src.preprocess.find_ica_component", return_value=([1], [-0.7])
+    ) as correlation:
+        _, qc = preprocess_erp(
+            ica_raw(),
+            ERPConfig(
+                ica_mode="physiological",
+                ica_threshold=0.9,
+                ica_corr_threshold=0.6,
+                ica_label_threshold=0.99,
+            ),
+        )
+    assert correlation.call_args.args[3] == 0.6
+    assert qc["ica_excluded"] == [1]
+    assert qc["ica_mode_effective"] == "physiological"
+    assert qc["ica_auxiliary"] == {"EOG": "usable"}
+    assert qc["ica_component_scores"][0]["correlation"] == -0.7
+    json.dumps(qc, allow_nan=False)
+
+
+@pytest.mark.parametrize("aux", ["nonfinite", "marked_bad"])
+def test_auto_falls_back_from_unusable_auxiliary(aux):
+    raw = ica_raw(aux, montage=True)
+    if aux == "marked_bad":
+        raw.info["bads"] = ["EOG"]
+    with patch(
+        "mne_icalabel.label_components",
+        return_value=dict(labels=["brain"] * 3, y_pred_proba=np.array([0.9] * 3)),
+    ):
+        _, qc = preprocess_erp(raw, ERPConfig(l_freq=1))
+    assert qc["ica_mode_effective"] == "iclabel"
+    assert qc["ica_auxiliary"]["EOG"] == aux
+    assert qc["ica_applied"] and qc["ica_excluded"] == []
+
+
+def test_physiological_omits_bad_annotation_samples():
+    raw = ica_raw("nonfinite")
+    raw.set_annotations(mne.Annotations([0], [0.2], ["BAD_aux"]))
+    with patch(
+        "meganorm.src.preprocess.find_ica_component", return_value=([], [])
+    ) as correlation:
+        _, qc = preprocess_erp(raw, ERPConfig(ica_mode="physiological", l_freq=1))
+    assert qc["ica_auxiliary"]["EOG"] == "usable"
+    assert correlation.call_args.args[1].n_times == 1960
+    assert len(correlation.call_args.args[2]) == 1960
+    assert np.isfinite(correlation.call_args.args[2]).all()
+
+
+def test_iclabel_checks_every_usable_sensor_location():
+    raw = ica_raw(montage=True)
+    raw.info["chs"][0]["loc"][:3] = np.nan
+    with pytest.raises(ValueError, match="sensor locations"):
+        preprocess_erp(raw, ERPConfig(ica_mode="iclabel", l_freq=1))
+
+
+def test_real_iclabel_explicit_mode_with_auxiliary():
+    # Exercise the real classifier interface; label accuracy on noise is not a benchmark.
+    _, qc = preprocess_erp(
+        ica_raw(montage=True), ERPConfig(ica_mode="iclabel", l_freq=1)
+    )
+    assert qc["ica_mode_effective"] == "iclabel"
+    assert qc["ica_selection_reason"] == "explicit strategy"
+    assert qc["ica_applied"]
+    assert len(qc["ica_component_scores"]) == 3
+    assert all(0 <= row["probability"] <= 1 for row in qc["ica_component_scores"])
+    json.dumps(qc, allow_nan=False)
+
+
+@pytest.mark.parametrize("active, expected_rank", [(False, 4), (True, 2)])
+def test_ica_rank_matches_applied_projectors(active, expected_rank):
+    raw = ica_raw()
+    projectors = [
+        mne.Projection(
+            data=dict(
+                col_names=raw.ch_names[:4],
+                row_names=None,
+                nrow=1,
+                ncol=4,
+                data=np.eye(4)[i : i + 1],
+            ),
+            desc=f"EEG SSP {i}",
+            kind=1,
+            active=False,
+        )
+        for i in range(2)
+    ]
+    raw.add_proj(projectors)
+    if active:
+        raw.apply_proj()
+    _, qc = preprocess_erp(
+        raw, ERPConfig(reference=None, l_freq=1, ica_mode="physiological")
+    )
+    assert qc["ica_rank"] == expected_rank
+    assert qc["ica_n_components"] == expected_rank
+    assert [p["active"] for p in raw.info["projs"]] == [active, active]

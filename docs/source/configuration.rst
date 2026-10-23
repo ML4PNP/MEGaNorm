@@ -321,3 +321,54 @@ For standalone use, ``ERPSettings.to_runtime()`` returns an ``ERPConfig`` and
 component mapping. Pass ``event_spec=dataset.erp_events`` to the standalone ERP
 API; explicit events and annotation maps remain supported. See the repository's
 ``erp_quickstart.md`` for local cohort and CLI examples.
+
+ERP ICA strategy
+~~~~~~~~~~~~~~~~
+
+Set ``erp.preprocessing.ica_mode`` to one of:
+
+* ``"auto"`` (default): use usable EOG/ECG channels; otherwise use ICLabel.
+  Missing ICLabel prerequisites fail the participant; cleaning is never silently
+  skipped.
+* ``"physiological"``: require at least one usable EOG/ECG channel. As in the
+  existing correlation helper, select the strongest correlated component per
+  auxiliary channel when its absolute Pearson correlation reaches the threshold.
+* ``"iclabel"``: use ICLabel even if auxiliary channels are available.
+* ``"none"``: explicitly disable ICA; referencing, filtering and epoch rejection
+  still run.
+
+``ica_corr_threshold`` and ``ica_label_threshold`` independently control
+correlation and winning-label probability (both in ``(0, 1]``). An unset value
+inherits the legacy ``ica_threshold`` (default ``0.8``). Thus existing
+configurations retain their thresholds. For example::
+
+    ERPPreprocessing(
+        ica_mode="auto",
+        ica_corr_threshold=0.8,
+        ica_label_threshold=0.9,
+    )
+
+Legacy ``apply_ica=False`` disables ``auto``; combining it with an explicit
+``physiological`` or ``iclabel`` request is an error. ``ica_mode="none"`` also
+works with the default ``apply_ica=True``.
+
+Auxiliary channels marked bad, flat, nonfinite, or with insufficient samples
+outside BAD annotations are excluded from strategy selection. Correlations use
+those same retained samples. ICA is fitted on a separately filtered EEG copy,
+with the same channels and reference as the data being cleaned. The fitted EEG
+rank must be at least two; explicit component counts cannot exceed that rank.
+The default component count uses that rank. Variance fractions remain supported.
+
+ICLabel requires ``reference="average"``, ``ica_l_freq >= 1`` Hz and finite,
+nonzero sensor locations for every usable EEG channel. Its training used a
+1–100 Hz filter. Other fit filter settings, including the current 1–35 Hz
+default, generate a QC warning because classification performance may differ.
+No filter is silently changed to meet the training conditions.
+
+Each participant's ``preprocessing.json`` records requested/effective modes,
+selection reason, resolved thresholds, auxiliary quality, fit rank/filter,
+component count, exclusions and selected correlation scores or classifier
+labels/probabilities. It also records supplied bad-channel markings and that
+automatic continuous bad-channel detection was not performed. A successful ICA
+fit with no components meeting the threshold is recorded with an empty exclusion
+list; this does not establish that the recording is artifact-free.
