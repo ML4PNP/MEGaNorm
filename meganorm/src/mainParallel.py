@@ -172,6 +172,12 @@ def main_argparser(args=None):
         "need not be named 'participants_bids.tsv' nor live inside the dataset "
         "directory. Used for template-MRI age matching.",
     )
+    parser.add_argument(
+        "--erp_events",
+        type=str,
+        default=None,
+        help="Path to an ERPEventSpec JSON file for ERP analysis.",
+    )
     return parser.parse_args(args)
 
 
@@ -269,7 +275,71 @@ def main(args):
     # parse the arguments
     args = main_argparser(args)
     configs = Config.load(args.configs)
+    if configs.analysis_type == "erp":
+        from uuid import uuid4
+        from meganorm.src.erp import process_erp_recording
+        from meganorm.utils.erp import (
+            ERPEventSpec,
+            erp_metadata_paths,
+            validate_erp_subject_id,
+            write_erp_json,
+        )
+
+        if not getattr(args, "erp_events", None):
+            raise ValueError(
+                "ERP analysis requires --erp_events pointing to an event specification JSON file."
+            )
+        if configs.save_preprocessed_data or configs.save_segmented_data:
+            raise ValueError(
+                "ERP raw/epoch saving is not supported by this runner yet."
+            )
+        for option in (
+            "empty_room_recording_path",
+            "surfaces_dir",
+            "event_record",
+            "event_of_interest",
+            "device_type",
+            "pos_file",
+            "trans_file",
+            "annotation_path",
+            "layout_path",
+            "demographic_path",
+        ):
+            if getattr(args, option, None) not in (None, "None"):
+                raise ValueError(
+                    f"--{option} is unsupported for the ERP participant runner."
+                )
+        spec = ERPEventSpec.model_validate_json(Path(args.erp_events).read_text())
+        configs.erp.validate_events(spec)
+        validate_erp_subject_id(args.subject)
+        path = Path(select_session_path(args.dir, configs.which_meg_session)).resolve()
+        if not path.exists():
+            raise FileNotFoundError(path)
+        erp_metadata_paths(path)
+        parent = (Path(args.save_dir).expanduser() / "erp").resolve()
+        if parent.is_relative_to(path.parent) or path.is_relative_to(parent):
+            raise ValueError(
+                "ERP output directory must be separate from the recording directory."
+            )
+        root = parent / uuid4().hex
+        root.mkdir(parents=True, exist_ok=False)
+        write_erp_json(root / "config.json", configs.model_dump(mode="json"))
+        result = process_erp_recording(
+            path,
+            args.subject,
+            settings=configs.erp,
+            event_spec=spec,
+            output_root=root,
+            line_freq=(
+                None if args.line_freq in (None, "None") else float(args.line_freq)
+            ),
+        )
+        if not np.isfinite(result.features.to_numpy()).any():
+            raise ValueError(f"No requested ERP IDP is usable; inspect {root}.")
+        return result
     require_rest_runner(configs)
+    if args.erp_events is not None:
+        raise ValueError("--erp_events requires analysis_type='erp'.")
     os.makedirs(args.save_dir, exist_ok=True)
     logger = set_logger(args, ["mne", "numexpr", "dipy"])
 

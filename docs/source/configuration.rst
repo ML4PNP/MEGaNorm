@@ -298,8 +298,26 @@ condition requested by the components. Both settings groups support JSON
 serialization. Dataset discovery preserves the event specification in the
 manifest without resolving or processing events.
 
-These models are exported from ``meganorm.API``. Integrated ERP execution is
-not yet available: local, CLI and cluster runners reject ERP mode before
-creating outputs. Use ``ERPSettings.to_runtime()`` to obtain the standalone
-``ERPConfig`` and component mapping, then pass ``event_spec=dataset.erp_events``
-to the standalone ERP API. Explicit events and annotation maps remain supported. See the repository's ``erp_quickstart.md`` for an example.
+These models are exported from ``meganorm.API``. Local ``Pipeline.run`` and the
+single-participant CLI support ERP analysis. Cluster submission remains guarded.
+Each local ERP invocation writes a new ``output_dir/erp/<run-id>/`` directory;
+previous ERP runs and resting-state outputs are retained. ``FeatureDataset``
+contains complete and partial participant rows, and ``paths["qc"]`` points to
+the separate cohort QC table. Partial means some requested IDPs are unavailable;
+participants with no usable IDPs are reported as failed. ``summary["succeeded"]``
+counts complete participants, ``partial`` counts partial participants and
+``collected`` is their sum. Existing ``on_error`` behavior applies to failures.
+
+Use embedded EEG metadata or supported local channel/montage sidecars.
+Ambiguous sidecars fail preflight. Sidecar channel types and bad-channel flags
+are explicit overrides; an embedded montage is preserved. Montage CSV coordinates
+must be in metres in the head frame. No montage is guessed.
+Legacy dataset options and cohort raw/epoch saving are not supported for ERP;
+use the standalone API when you need access to epochs and evoked responses.
+Only nested ERP preprocessing settings control ERP cleaning; resting-state
+filtering, segmentation and spectral settings do not apply.
+
+For standalone use, ``ERPSettings.to_runtime()`` returns an ``ERPConfig`` and
+component mapping. Pass ``event_spec=dataset.erp_events`` to the standalone ERP
+API; explicit events and annotation maps remain supported. See the repository's
+``erp_quickstart.md`` for local cohort and CLI examples.

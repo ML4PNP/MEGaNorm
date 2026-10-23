@@ -1,5 +1,8 @@
 # Unreleased
 
+- Add local EEG ERP cohort execution and single-participant CLI dispatch with validated event specifications.
+- Isolate ERP runs, persist participant features/QC/provenance atomically, and report complete, partial, failed and interrupted outcomes.
+
 - Resolve ERP annotation/stimulus event specifications in the standalone API, with exact condition matching and explicit timing checks.
 - Flag boundary peaks without discarding their values and separate recording-edge, annotation and amplitude/flatness trial losses in QC.
 

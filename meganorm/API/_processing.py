@@ -46,3 +46,17 @@ def process_participant(info, *, participant_id, config_path, temp_dir):
         root.handlers[:] = handlers
         for name, level in levels.items():
             logging.getLogger(name).setLevel(level)
+
+
+def process_erp_participant(info, *, participant_id, settings, output_root):
+    """Run the shared ERP worker using the preflight-selected recording."""
+    from meganorm.src.erp import process_erp_recording
+
+    return process_erp_recording(
+        info["selected_recording"],
+        participant_id,
+        settings=settings,
+        event_spec=info["erp_events"],
+        output_root=output_root,
+        line_freq=info.get("line_freq"),
+    )

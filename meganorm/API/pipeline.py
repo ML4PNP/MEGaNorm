@@ -8,12 +8,11 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import Literal
 import pandas as pd
-from meganorm.utils.erp import require_rest_runner
 from meganorm.utils.IO import Config, select_session_path
 from meganorm.utils.parallel import collect_results
 from .datasets import Dataset, _path
 from ._metadata import attach_metadata
-from ._processing import process_participant
+from ._processing import process_participant, process_erp_participant
 from .results import FeatureDataset
 
 _LOG = logging.getLogger("meganorm.API.pipeline")
@@ -60,7 +59,7 @@ class Pipeline:
     ):
         if not isinstance(config, Config):
             raise TypeError("config must be an existing MEGaNorm Config.")
-        require_rest_runner(config)
+        Config.model_validate(config.model_dump())
         if on_error not in {"raise", "continue"}:
             raise ValueError("on_error must be 'raise' or 'continue'.")
         self.config = config.model_copy(deep=True)
@@ -255,7 +254,7 @@ class Pipeline:
 
     def run(self, dataset: Dataset | Sequence[Dataset]) -> FeatureDataset:
         """Process one or several datasets, returning a FeatureDataset."""
-        require_rest_runner(self.config)
+        self.config = Config.model_validate(self.config.model_dump())
         datasets = [dataset] if isinstance(dataset, Dataset) else list(dataset)
         if not datasets or not all(isinstance(d, Dataset) for d in datasets):
             raise ValueError(
@@ -268,6 +267,8 @@ class Pipeline:
             raise ValueError(
                 "Duplicate participant IDs across datasets; globally unique IDs are required."
             )
+        if self.config.analysis_type == "erp":
+            return self._run_erp(datasets, manifest)
         counts = self._preflight(datasets, manifest)
         self._reset_outputs(datasets, manifest)
         root = self.output_dir
@@ -436,6 +437,256 @@ class Pipeline:
                 )
             return FeatureDataset(
                 data, feature_names, manifest, processing, summary, root, paths
+            )
+        finally:
+            report()
+
+    def _run_erp(self, datasets, manifest):
+        """Run EEG ERP participants without resetting any prior run outputs."""
+        import uuid
+        import numpy as np
+        from meganorm.src.erp import extract_erp_idps
+        from meganorm.utils.erp import (
+            ERPEventSpec,
+            erp_metadata_paths,
+            validate_erp_subject_id,
+            write_erp_json,
+            write_erp_table,
+        )
+
+        settings = self.config.erp
+        if self.config.save_preprocessed_data or self.config.save_segmented_data:
+            raise ValueError(
+                "ERP cohort raw/epoch saving is not supported yet; use the standalone API."
+            )
+        _, components = settings.to_runtime()
+        schema = tuple(extract_erp_idps("_schema", {}, components)[0].columns)
+        parent = (self.output_dir / "erp").resolve()
+        for dataset in datasets:
+            if parent.is_relative_to(dataset.root) or dataset.root.is_relative_to(
+                parent
+            ):
+                raise ValueError(
+                    "ERP output directory must be separate from input datasets."
+                )
+            if dataset.options:
+                raise ValueError(
+                    "ERP datasets currently use embedded events and local EEG sidecars; legacy dataset options are unsupported."
+                )
+            if dataset.device is not None:
+                raise ValueError(
+                    "EEG ERP readers infer format; omit the MEG device setting."
+                )
+            if dataset.erp_events is None:
+                raise ValueError(f"Dataset {dataset.name} requires erp_events.")
+            spec = ERPEventSpec.model_validate(dataset.erp_events.model_dump())
+            settings.validate_events(spec)
+        selected = []
+        for info in manifest.to_dict("records"):
+            validate_erp_subject_id(info["participant_id"])
+            try:
+                path = info["recording_paths"][self.config.which_meg_session]
+            except IndexError as error:
+                raise ValueError(
+                    f"Invalid session index for {info['participant_id']}."
+                ) from error
+            if not path.exists():
+                raise FileNotFoundError(f"Selected recording missing: {path}")
+            erp_metadata_paths(path)
+            selected.append(path)
+        manifest["selected_recording"] = selected
+        _, counts = attach_metadata(
+            pd.DataFrame(index=manifest.participant_id, columns=schema),
+            datasets,
+            manifest,
+        )
+        root = parent / uuid.uuid4().hex
+        root.mkdir(parents=True, exist_ok=False)
+        paths = {
+            name: root / filename
+            for name, filename in (
+                ("config", "config.json"),
+                ("manifest", "manifest.csv"),
+                ("processing", "processing.csv"),
+                ("summary", "run_summary.json"),
+                ("schema", "feature_schema.json"),
+                ("datasets", "datasets.json"),
+            )
+        }
+        write_erp_json(paths["config"], self.config.model_dump(mode="json"))
+        write_erp_json(paths["schema"], list(schema))
+        write_erp_json(paths["datasets"], {d.name: d._settings() for d in datasets})
+        serial = manifest.copy()
+        for column in serial:
+            serial[column] = serial[column].map(
+                lambda value: (
+                    json.dumps(value, default=str)
+                    if isinstance(value, (tuple, dict, list))
+                    else str(value) if isinstance(value, Path) else value
+                )
+            )
+        write_erp_table(paths["manifest"], serial, index=False)
+        rows, frames, quality = [], [], []
+        columns = [
+            "participant_id",
+            "dataset",
+            "status",
+            "error_type",
+            "error_message",
+            "feature_path",
+            "qc_path",
+            "log_path",
+        ]
+
+        def report():
+            processing = pd.DataFrame(rows, columns=columns).set_index("participant_id")
+            summary = dict(
+                counts,
+                analysis_type="erp",
+                discovered=len(manifest),
+                attempted=len(rows),
+                succeeded=sum(r["status"] == "success" for r in rows),
+                partial=sum(r["status"] == "partial" for r in rows),
+                failed=sum(r["status"] == "failed" for r in rows),
+                interrupted=sum(r["status"] == "interrupted" for r in rows),
+                collected=len(frames),
+            )
+            demo_names = {d.name for d in datasets if d.demographics is not None}
+            summary["matched_demographics"] = sum(
+                r["status"] in {"success", "partial"} and r["dataset"] in demo_names
+                for r in rows
+            )
+            write_erp_table(paths["processing"], processing)
+            write_erp_json(paths["summary"], summary)
+            return processing, summary
+
+        report()
+        try:
+            for info in manifest.to_dict("records"):
+                participant = info["participant_id"]
+                directory = root / "participants" / participant
+                row = dict(
+                    participant_id=participant,
+                    dataset=info["dataset"],
+                    status="interrupted",
+                    error_type=None,
+                    error_message=None,
+                    feature_path=str(directory / "features.csv"),
+                    qc_path=str(directory / "qc.csv"),
+                    log_path=str(directory / "processing.log"),
+                )
+                rows.append(row)
+                try:
+                    if self.progress:
+                        _LOG.info(
+                            "Processing ERP participant %s (%d/%d)",
+                            participant,
+                            len(rows),
+                            len(manifest),
+                        )
+                    process_erp_participant(
+                        info,
+                        participant_id=participant,
+                        settings=settings,
+                        output_root=root,
+                    )
+                    complete = json.loads((directory / "complete.json").read_text())
+                    for name in (
+                        "features.csv",
+                        "qc.csv",
+                        "preprocessing.json",
+                        "provenance.json",
+                        "processing.log",
+                    ):
+                        if not (directory / name).is_file():
+                            raise ValueError(f"Incomplete ERP output: {name}.")
+                    frame = pd.read_csv(
+                        directory / "features.csv",
+                        index_col=0,
+                        dtype={0: str},
+                        keep_default_na=False,
+                    )
+                    if (
+                        frame.index.tolist() != [participant]
+                        or tuple(frame.columns) != schema
+                        or complete.get("subject") != participant
+                        or complete.get("feature_names") != list(schema)
+                    ):
+                        raise ValueError(
+                            f"Invalid ERP feature identity/schema for {participant}."
+                        )
+                    frame = frame.apply(
+                        lambda column: pd.to_numeric(
+                            column.where(column != "", np.nan), errors="raise"
+                        )
+                    )
+                    if np.isinf(frame.to_numpy()).any():
+                        raise ValueError("ERP features must be finite or NaN.")
+                    finite = np.isfinite(frame.to_numpy())
+                    status = (
+                        "success"
+                        if finite.all()
+                        else "partial" if finite.any() else "failed"
+                    )
+                    if complete.get("status") != status:
+                        raise ValueError(
+                            "ERP completion status disagrees with feature values."
+                        )
+                    qc = pd.read_csv(
+                        directory / "qc.csv",
+                        dtype={"subject": str},
+                        keep_default_na=False,
+                    )
+                    if (
+                        not {"subject", "idp", "status"}.issubset(qc)
+                        or qc.idp.tolist() != list(schema)
+                        or not qc.subject.eq(participant).all()
+                    ):
+                        raise ValueError(
+                            "ERP QC identity/schema does not match features."
+                        )
+                    if status == "failed":
+                        raise ValueError(
+                            "No requested ERP IDP is usable; inspect participant QC."
+                        )
+                    row["status"] = status
+                    frames.append(frame)
+                    quality.append(qc)
+                except Exception as error:
+                    row.update(
+                        status="failed",
+                        error_type=type(error).__name__,
+                        error_message=str(error),
+                    )
+                    if self.on_error == "raise":
+                        raise
+                except BaseException as error:
+                    row.update(
+                        error_type=type(error).__name__, error_message=str(error)
+                    )
+                    raise
+                finally:
+                    report()
+            if not frames:
+                raise RuntimeError(
+                    "All participants failed; inspect processing.csv and participant logs."
+                )
+            features = pd.concat(frames)
+            features.index.name = "participant_id"
+            data, _ = attach_metadata(features, datasets, manifest)
+            paths.update(
+                features=root / "features.csv",
+                data=root / "features_with_demographics.csv",
+                qc=root / "qc.csv",
+            )
+            write_erp_table(paths["features"], features)
+            write_erp_table(paths["data"], data)
+            write_erp_table(
+                paths["qc"], pd.concat(quality, ignore_index=True), index=False
+            )
+            processing, summary = report()
+            return FeatureDataset(
+                data, schema, manifest, processing, summary, root, paths
             )
         finally:
             report()

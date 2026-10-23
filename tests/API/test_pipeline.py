@@ -584,3 +584,243 @@ def test_wrong_participant_annotations_fail_before_rerun_cleanup(
     with pytest.raises(FileNotFoundError, match="annotation.*cohort.*001"):
         pipeline.Pipeline(config=Config(), output_dir=out).run(dataset)
     assert previous.read_text() == "previous features"
+
+
+@pytest.fixture
+def erp_cohort(tmp_path):
+    import mne
+    import numpy as np
+    from meganorm.utils.erp import ERPSettings, ERPEventSpec
+
+    root = tmp_path / "erp_data"
+    for subject, codes in [("001", [1, 2]), ("002", [1]), ("003", [])]:
+        folder = root / subject
+        folder.mkdir(parents=True)
+        if not codes:
+            (folder / f"{subject}_oddball_raw.fif").write_text("invalid recording")
+            continue
+        data = np.zeros((2, 400))
+        for index, code in enumerate(codes):
+            start = 100 + index * 100
+            data[1, start : start + 3] = code
+            data[0, start : start + 11] = np.arange(11) * 1e-6
+        raw = mne.io.RawArray(
+            data, mne.create_info(["Pz", "STI"], 100, ["eeg", "stim"]), verbose=False
+        )
+        raw.save(folder / f"{subject}_oddball_raw.fif", overwrite=True, verbose=False)
+    (root / "participants.tsv").write_text(
+        "participant_id\tage\n001\t20\n002\t30\n003\t40\n"
+    )
+    dataset = Dataset(
+        name="erp",
+        root=root,
+        task="oddball",
+        extension=".fif",
+        demographics="participants.tsv",
+        erp_events=ERPEventSpec(
+            mode="stim", stim_channel="STI", event_id={"a": 1, "b": 2}
+        ),
+    )
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=ERPSettings(
+            preprocessing=dict(
+                tmin=0,
+                tmax=0.1,
+                baseline=None,
+                l_freq=None,
+                h_freq=None,
+                reference=None,
+                apply_ica=False,
+                min_trials=1,
+                reject=None,
+            ),
+            components={
+                "P": dict(
+                    conditions=["a", "b"],
+                    channels=["Pz"],
+                    window=[0, 0.1],
+                    polarity="pos",
+                )
+            },
+        ),
+    )
+    return dataset, config
+
+
+def test_erp_cohort_outcomes_schema_and_isolated_reruns(
+    tmp_path, erp_cohort, monkeypatch
+):
+    from meganorm.API import pipeline
+
+    dataset, config = erp_cohort
+    output = tmp_path / "out"
+    (output / "Features").mkdir(parents=True)
+    sentinel = output / "Features" / "all_features.csv"
+    sentinel.write_text("existing rest results")
+    monkeypatch.setattr(
+        pipeline,
+        "process_participant",
+        lambda *a, **k: pytest.fail("rest worker entered"),
+    )
+    run = pipeline.Pipeline(config=config, output_dir=output, progress=False)
+    result = run.run(dataset)
+    assert result.data.index.tolist() == ["001", "002"]
+    assert result.data.age.tolist() == [20, 30]
+    assert len(result.feature_names) == 4
+    assert result.processing.status.tolist() == ["success", "partial", "failed"]
+    assert result.summary["succeeded"] == 1 and result.summary["partial"] == 1
+    assert result.summary["failed"] == 1 and result.summary["collected"] == 2
+    assert result.output_dir.parent == output / "erp"
+    assert all(path.exists() for path in result.paths.values())
+    assert sentinel.read_text() == "existing rest results"
+    assert pd.read_csv(
+        result.paths["qc"], dtype={"subject": str}
+    ).subject.unique().tolist() == ["001", "002"]
+    repeated = run.run(dataset)
+    assert repeated.output_dir != result.output_dir
+    assert result.paths["data"].exists()
+    assert repeated.feature_names == result.feature_names
+    run.config.erp.components["P"].metrics = ("mean_amplitude",)
+    changed = run.run(dataset)
+    assert len(changed.feature_names) == 2
+    assert changed.output_dir != repeated.output_dir
+
+
+def test_erp_preflight_fails_without_outputs(tmp_path, erp_cohort):
+    from meganorm.API import Pipeline
+
+    dataset, config = erp_cohort
+    dataset.erp_events = None
+    with pytest.raises(ValueError, match="erp_events"):
+        Pipeline(config=config, output_dir=tmp_path / "out").run(dataset)
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("error", [RuntimeError, KeyboardInterrupt, SystemExit])
+def test_erp_failure_and_interrupt_reports(tmp_path, erp_cohort, monkeypatch, error):
+    from meganorm.API import pipeline
+
+    dataset, config = erp_cohort
+
+    def fail(*args, **kwargs):
+        raise error("stop")
+
+    monkeypatch.setattr(pipeline, "process_erp_participant", fail)
+    with pytest.raises(error):
+        pipeline.Pipeline(
+            config=config, output_dir=tmp_path / "out", on_error="raise"
+        ).run(dataset)
+    root = next((tmp_path / "out" / "erp").iterdir())
+    table = pd.read_csv(root / "processing.csv")
+    assert table.status.iloc[0] == (
+        "failed" if error is RuntimeError else "interrupted"
+    )
+    assert not (root / "features.csv").exists()
+
+
+def test_erp_rejects_corrupt_completion(tmp_path, erp_cohort, monkeypatch):
+    from meganorm.API import pipeline
+
+    dataset, config = erp_cohort
+    original = pipeline.process_erp_participant
+
+    def corrupt(info, **kwargs):
+        result = original(info, **kwargs)
+        (
+            kwargs["output_root"]
+            / "participants"
+            / kwargs["participant_id"]
+            / "complete.json"
+        ).unlink()
+        return result
+
+    monkeypatch.setattr(pipeline, "process_erp_participant", corrupt)
+    with pytest.raises(RuntimeError, match="All participants failed"):
+        pipeline.Pipeline(config=config, output_dir=tmp_path / "out").run(dataset)
+    assert not list((tmp_path / "out").rglob("features_with_demographics.csv"))
+
+
+def test_erp_cli_uses_shared_worker(tmp_path, erp_cohort):
+    from meganorm.src.mainParallel import main
+
+    dataset, config = erp_cohort
+    cfg = tmp_path / "config.json"
+    cfg.write_text(config.model_dump_json())
+    spec = tmp_path / "events.json"
+    spec.write_text(dataset.erp_events.model_dump_json())
+    raw = dataset.root / "001" / "001_oddball_raw.fif"
+    output = tmp_path / "cli"
+    result = main([str(raw), str(output), "001", str(cfg), "--erp_events", str(spec)])
+    assert result.features.index.tolist() == ["001"]
+    assert len(list(output.rglob("complete.json"))) == 1
+
+
+def test_erp_preflight_rejects_ambiguous_metadata_and_overlapping_outputs(
+    tmp_path, erp_cohort
+):
+    from meganorm.API import Pipeline
+
+    dataset, config = erp_cohort
+    with pytest.raises(ValueError, match="separate"):
+        Pipeline(config=config, output_dir=dataset.root / "out").run(dataset)
+    folder = dataset.root / "001"
+    (folder / "a_montage.csv").write_text("Channel,X,Y,Z\n")
+    (folder / "b_montage.csv").write_text("Channel,X,Y,Z\n")
+    with pytest.raises(ValueError, match="Ambiguous"):
+        Pipeline(config=config, output_dir=tmp_path / "out").run(dataset)
+    assert not (tmp_path / "out").exists()
+
+
+def test_erp_multiple_datasets_different_event_encodings(tmp_path, erp_cohort):
+    import mne
+    from meganorm.API import Pipeline
+    from meganorm.utils.erp import ERPEventSpec
+
+    dataset, config = erp_cohort
+    source = dataset.root / "001" / "001_oddball_raw.fif"
+    root = tmp_path / "annotations"
+    (root / "004").mkdir(parents=True)
+    raw = mne.io.read_raw_fif(source, preload=True, verbose=False)
+    raw.set_annotations(mne.Annotations([1, 2], [0, 0], ["A", "B"]))
+    raw.save(root / "004" / "004_oddball_raw.fif", overwrite=True, verbose=False)
+    other = Dataset(
+        name="other",
+        root=root,
+        task="oddball",
+        extension=".fif",
+        erp_events=ERPEventSpec(
+            mode="annotations", annotation_map={"a": "A", "b": "B"}
+        ),
+    )
+    result = Pipeline(config=config, output_dir=tmp_path / "out").run([dataset, other])
+    assert result.data.index.tolist() == ["001", "002", "004"]
+    assert result.data.dataset.tolist() == ["erp", "erp", "other"]
+    assert (
+        result.data.loc["001", list(result.feature_names)]
+        .astype(float)
+        .equals(result.data.loc["004", list(result.feature_names)].astype(float))
+    )
+    manifest = pd.read_csv(result.paths["manifest"])
+    assert json.loads(manifest.erp_events.iloc[-1])["annotation_map"] == {
+        "a": "A",
+        "b": "B",
+    }
+
+
+def test_erp_rejects_unsupported_outputs_and_mutated_settings_before_writing(
+    tmp_path, erp_cohort
+):
+    from meganorm.API import Pipeline
+
+    dataset, config = erp_cohort
+    config.save_preprocessed_data = True
+    with pytest.raises(ValueError, match="saving"):
+        Pipeline(config=config, output_dir=tmp_path / "out").run(dataset)
+    config.save_preprocessed_data = False
+    runner = Pipeline(config=config, output_dir=tmp_path / "out")
+    runner.config.erp.preprocessing.tmax = -0.3
+    with pytest.raises(ValueError):
+        runner.run(dataset)
+    assert not (tmp_path / "out").exists()

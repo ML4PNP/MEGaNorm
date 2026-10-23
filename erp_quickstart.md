@@ -155,10 +155,9 @@ current results; the historical run did not cover all current tests.
 
 The integrated configuration now distinguishes `analysis_type="rest"` (the
 backward-compatible default) from `analysis_type="erp"`. ERP settings currently
-support EEG sensor-space components and threshold rejection. Integrated local,
-CLI and cluster runners reject ERP mode before writing outputs. Event
-resolution is available through the standalone ERP API; cohort dispatch is
-not yet implemented.
+support EEG sensor-space components and threshold rejection. Local cohorts and
+the single-participant CLI support ERP analysis. Cluster submission remains
+unavailable for ERP.
 
 ```python
 from meganorm.API import Config, Dataset, ERPSettings, ERPEventSpec
@@ -218,3 +217,77 @@ label, ambiguous drop reasons count as `n_other_dropped`.
 Peak measurements at either end of the sampled component window retain their
 values with `boundary_peak=True`. The flag is False for means and unavailable
 peaks; `status` records why a measurement is unavailable.
+
+## Run a local cohort
+
+Use the configuration and dataset above with the local API:
+
+```python
+from meganorm.API import Pipeline
+
+result = Pipeline(
+    config=config, output_dir="results", on_error="continue"
+).run(dataset)
+
+features = result.to_dataframe()
+print(result.processing)
+print(result.output_dir)
+print(result.paths["qc"])
+```
+
+`run` also accepts a list of datasets with different event encodings. Participant
+IDs must be unique across datasets. The existing `which_meg_session` configuration
+field selects one recording candidate per participant, including for EEG.
+
+Each invocation writes a new `results/erp/<run-id>/` directory. It contains
+configuration and dataset snapshots, the selected-recording manifest, feature
+schema, processing outcomes, run summary, cohort features, demographics and QC.
+Under `participants/<id>/`, each participant has features, QC, preprocessing
+information, provenance and a processing log. A `complete.json` record is written
+last; incomplete participant output is never collected. Prior runs are retained.
+
+Success means all requested IDPs are available; partial means at least one is
+available and some are missing. Both enter the cohort table, with missing values
+kept as `NaN`. No usable IDPs or a processing exception means failure. QC remains
+separate from `result.feature_names`. Boundary-peak warnings alone do not make a
+participant partial. The summary reports `succeeded`, `partial`, `failed`,
+`interrupted` and `collected`; `collected` equals `succeeded + partial`.
+
+With `on_error="raise"`, the first failed participant stops the run after saving
+the processing report. Interrupts always propagate. Completed participant files
+remain available for inspection; an aborted cohort is not returned or collected.
+
+Recordings may contain channel types, bad-channel flags and electrode positions.
+Alternatively, the worker reads a matching `*_channels.tsv` and a unique local
+`*_montage.csv`. An exact recording-stem channel sidecar takes precedence over
+the existing task-name convention. Channel sidecars require `name` and `type`,
+and may supply `status=bad`; montage CSVs require `Channel,X,Y,Z` in head-frame
+metres. An embedded montage is preserved. Ambiguous matches fail before the
+run starts. No electrode positions are inferred from names.
+
+The cohort path currently supports embedded annotations or stimulus channels,
+not legacy dataset auxiliary-file options. Keep `save_preprocessed_data` and
+`save_segmented_data` disabled; the standalone API provides epochs and evoked
+objects for custom saving. Resting-state processing flags do not control ERP
+cleaning: use `config.erp.preprocessing`. A dataset's `line_freq` supplies missing
+recording metadata; this does not enable a notch filter.
+
+## Run one participant from the command line
+
+Save the ERP configuration and event specification as JSON:
+
+```python
+from pathlib import Path
+
+config.save("erp_config.json")
+Path("erp_events.json").write_text(dataset.erp_events.model_dump_json(indent=2))
+```
+
+```bash
+python -m meganorm.src.mainParallel \
+  /data/oddball/001/001_oddball_raw.fif results 001 erp_config.json \
+  --erp_events erp_events.json
+```
+
+The CLI uses the same participant worker and writes a fresh `results/erp/<run-id>/`
+directory. Cluster submission remains unavailable for ERP.

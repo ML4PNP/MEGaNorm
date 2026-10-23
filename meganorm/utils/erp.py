@@ -269,7 +269,7 @@ def require_rest_runner(config):
     """Prevent ERP settings entering a runner before ERP dispatch is implemented."""
     if config.analysis_type == "erp":
         raise NotImplementedError(
-            "Integrated ERP execution is not available yet. Use the standalone meganorm.src.erp API with ERPSettings.to_runtime()."
+            "This runner does not support ERP execution. Use the local Pipeline API or the single-participant CLI with --erp_events."
         )
     if config.analysis_type != "rest":
         raise ValueError(f"Unknown analysis_type: {config.analysis_type!r}")
@@ -324,3 +324,90 @@ def resolve_erp_events(raw, spec):
     if events[0, 0] < raw.first_samp or events[-1, 0] > raw.last_samp:
         raise ValueError("Event samples must be within the Raw absolute sample range.")
     return events.copy(), event_id
+
+
+def validate_erp_subject_id(subject_id):
+    """Require a literal participant identifier safe for a single directory."""
+    if (
+        not isinstance(subject_id, str)
+        or not subject_id.strip()
+        or subject_id != subject_id.strip()
+        or subject_id in {".", ".."}
+        or any(c in subject_id for c in "/\\\x00")
+    ):
+        raise ValueError("Participant ID must be a nonempty literal directory name.")
+    return subject_id
+
+
+def erp_metadata_paths(recording_path):
+    """Find unambiguous local sidecars using the existing EEG conventions."""
+    from pathlib import Path
+
+    path = Path(recording_path)
+    stem = path.stem
+    for suffix in ("_raw", "_eeg"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    exact = path.with_name(stem + "_channels.tsv")
+    channels = (
+        [exact]
+        if exact.is_file()
+        else sorted(path.parent.glob(f'*_{stem.split("_")[-1]}_channels.tsv'))
+    )
+    montages = sorted(path.parent.glob("*_montage.csv"))
+    if len(channels) > 1 or len(montages) > 1:
+        raise ValueError(f"Ambiguous EEG metadata sidecars for {path}.")
+    return {
+        "channels": channels[0] if channels else None,
+        "montage": montages[0] if montages else None,
+    }
+
+
+def write_erp_json(path, value):
+    """Publish strict JSON atomically, including NumPy QC values."""
+    import json
+
+    def encode(value):
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        raise TypeError(f"Cannot serialize {type(value).__name__} to ERP JSON.")
+
+    _write_erp_atomic(
+        path,
+        lambda handle: json.dump(
+            value, handle, indent=2, allow_nan=False, default=encode
+        ),
+    )
+
+
+def write_erp_table(path, table, *, index=True):
+    """Publish a CSV atomically."""
+    _write_erp_atomic(path, lambda handle: table.to_csv(handle, index=index))
+
+
+def _write_erp_atomic(path, writer):
+    import os
+    import tempfile
+    from pathlib import Path
+
+    path = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            prefix="." + path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            writer(handle)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)

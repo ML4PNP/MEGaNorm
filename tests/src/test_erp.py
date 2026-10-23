@@ -433,8 +433,7 @@ def test_local_guard_and_mutation(tmp_path):
     from meganorm.API import Pipeline
 
     erp = Config(analysis_type="erp", which_sensor="eeg", erp=settings())
-    with pytest.raises(NotImplementedError):
-        Pipeline(config=erp, output_dir=tmp_path / "new")
+    Pipeline(config=erp, output_dir=tmp_path / "new")
     from meganorm.utils.erp import require_rest_runner
 
     config = Config()
@@ -458,7 +457,7 @@ def test_cli_and_cluster_guard_before_side_effects(tmp_path, monkeypatch):
         "main_argparser",
         lambda args: SimpleNamespace(configs=str(path), save_dir=str(out)),
     )
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match="erp_events"):
         cli.main([])
     jobs = {}
     with pytest.raises(NotImplementedError):
@@ -478,7 +477,7 @@ def test_pipeline_rechecks_mutated_config(tmp_path):
 
     pipeline = Pipeline(config=Config(), output_dir=tmp_path / "outputs")
     pipeline.config.analysis_type = "erp"
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         pipeline.run([])
     assert not (tmp_path / "outputs").exists()
 
@@ -930,3 +929,142 @@ def test_flatness_rejection_counts_as_amplitude():
         row.n_amplitude_rejected,
         row.n_other_dropped,
     ) == (2, 1, 1, 0)
+
+
+def test_erp_worker_failed_idps_and_atomic_write_failure(tmp_path, monkeypatch):
+    from meganorm.src.erp import process_erp_recording
+    from meganorm.utils import erp as utils
+
+    raw = _stage3_raw()
+    path = tmp_path / "input_raw.fif"
+    raw.save(path, overwrite=True, verbose=False)
+    definition = settings()
+    definition.preprocessing = ERPPreprocessing(
+        tmin=0,
+        tmax=0.6,
+        baseline=None,
+        l_freq=None,
+        h_freq=None,
+        reference=None,
+        apply_ica=False,
+        min_trials=1,
+        reject=None,
+    )
+    spec = ERPEventSpec(mode="stim", stim_channel="STI", event_id={"target": 2})
+    result = process_erp_recording(
+        path,
+        "001",
+        settings=definition,
+        event_spec=spec,
+        output_root=tmp_path / "first",
+    )
+    directory = tmp_path / "first" / "participants" / "001"
+    assert result.features.isna().all().all()
+    assert json.loads((directory / "complete.json").read_text())["status"] == "failed"
+    assert (directory / "qc.csv").exists()
+    with pytest.raises(FileExistsError):
+        process_erp_recording(
+            path,
+            "001",
+            settings=definition,
+            event_spec=spec,
+            output_root=tmp_path / "first",
+        )
+    original = utils.write_erp_table
+
+    def fail_qc(path, table, **kwargs):
+        if path.name == "qc.csv":
+            raise OSError("disk error")
+        original(path, table, **kwargs)
+
+    monkeypatch.setattr(utils, "write_erp_table", fail_qc)
+    with pytest.raises(OSError, match="disk error"):
+        process_erp_recording(
+            path,
+            "001",
+            settings=definition,
+            event_spec=spec,
+            output_root=tmp_path / "second",
+        )
+    assert not (tmp_path / "second" / "participants" / "001" / "complete.json").exists()
+    with pytest.raises(ValueError, match="Participant ID"):
+        process_erp_recording(
+            path,
+            "../escape",
+            settings=definition,
+            event_spec=spec,
+            output_root=tmp_path / "third",
+        )
+    assert not (tmp_path / "third").exists()
+
+
+def test_atomic_json_failure_keeps_previous_file(tmp_path):
+    from meganorm.utils.erp import write_erp_json
+
+    path = tmp_path / "state.json"
+    path.write_text('{"old": true}')
+    with pytest.raises(ValueError):
+        write_erp_json(path, {"invalid": float("nan")})
+    assert json.loads(path.read_text()) == {"old": True}
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_erp_json_supports_numpy_qc_scalars(tmp_path):
+    from meganorm.utils.erp import write_erp_json
+
+    path = tmp_path / "qc.json"
+    write_erp_json(
+        path,
+        {
+            "ica_excluded": [np.int64(1)],
+            "value": np.float64(0.5),
+            "samples": np.array([1, 2]),
+        },
+    )
+    assert json.loads(path.read_text()) == {
+        "ica_excluded": [1],
+        "value": 0.5,
+        "samples": [1, 2],
+    }
+
+
+def test_erp_worker_sidecar_types_and_montage(tmp_path):
+    from meganorm.src.erp import process_erp_recording
+
+    raw = _stage3_raw()
+    raw.set_channel_types({"Pz": "misc"})
+    raw._data[0, 100:111] = np.arange(11) * 1e-6
+    path = tmp_path / "s_task_raw.fif"
+    raw.save(path, overwrite=True, verbose=False)
+    (tmp_path / "s_task_channels.tsv").write_text(
+        "name\ttype\tstatus\nPz\tEEG\tgood\nSTI\tSTIM\tgood\n"
+    )
+    (tmp_path / "s_montage.csv").write_text("Channel,X,Y,Z\nPz,0,-0.05,0.08\n")
+    definition = ERPSettings(
+        preprocessing=dict(
+            tmin=0,
+            tmax=0.1,
+            baseline=None,
+            l_freq=None,
+            h_freq=None,
+            reference=None,
+            apply_ica=False,
+            min_trials=1,
+            reject=None,
+        ),
+        components={
+            "P": dict(
+                conditions=["a"], channels=["Pz"], window=[0, 0.1], polarity="pos"
+            )
+        },
+    )
+    result = process_erp_recording(
+        path,
+        "s",
+        settings=definition,
+        event_spec=ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 2}),
+        output_root=tmp_path / "out",
+    )
+    assert np.isfinite(result.features.to_numpy()).all()
+    assert result.epochs.get_montage() is not None
+    assert mne.io.read_raw_fif(path, verbose=False).get_channel_types()[0] == "misc"
