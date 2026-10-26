@@ -268,15 +268,54 @@ class ERPEventSpec(_Settings):
         )
 
 
+class ERPAutoRejectSettings(_Settings):
+    """Participant-level cross-validation choices for EEG epoch repair."""
+
+    cv: StrictInt = Field(default=5, ge=2)
+    n_interpolate: tuple[StrictInt, ...] | None = None
+    consensus: tuple[float, ...] = (0.2, 0.4, 0.6, 0.8, 1.0)
+
+    @model_validator(mode="after")
+    def validate_candidates(self):
+        if self.n_interpolate is not None and (
+            not self.n_interpolate
+            or min(self.n_interpolate) < 0
+            or len(set(self.n_interpolate)) != len(self.n_interpolate)
+        ):
+            raise ValueError("n_interpolate must contain unique nonnegative integers.")
+        if (
+            not self.consensus
+            or len(set(self.consensus)) != len(self.consensus)
+            or any(not 0 < value <= 1 for value in self.consensus)
+        ):
+            raise ValueError(
+                "consensus must contain unique finite fractions in (0, 1]."
+            )
+        return self
+
+
+def resolve_rejection_settings(mode, options):
+    """Validate the shared standalone/cohort epoch-rejection contract."""
+    if mode not in ("threshold", "autoreject"):
+        raise ValueError("rejection_mode must be threshold or autoreject.")
+    if mode == "threshold":
+        if options is not None:
+            raise ValueError("autoreject settings require rejection_mode='autoreject'.")
+        return None
+    return ERPAutoRejectSettings.model_validate({} if options is None else options)
+
+
 class ERPSettings(_Settings):
     """ERP analysis definition independent of dataset trigger encodings."""
 
     preprocessing: ERPPreprocessing = Field(default_factory=ERPPreprocessing)
     components: dict[str, ERPComponentSettings]
-    rejection_mode: Literal["threshold"] = "threshold"
+    rejection_mode: Literal["threshold", "autoreject"] = "threshold"
+    autoreject: ERPAutoRejectSettings | None = None
 
     @model_validator(mode="after")
     def validate_components(self):
+        resolve_rejection_settings(self.rejection_mode, self.autoreject)
         _names(tuple(self.components))
         for component in self.components.values():
             if (
@@ -303,7 +342,13 @@ class ERPSettings(_Settings):
         """Convert validated definitions for the existing standalone ERP API."""
         from meganorm.src.erp import ERPConfig, ERPComponent
 
-        return ERPConfig(**self.preprocessing.model_dump()), {
+        return ERPConfig(
+            **self.preprocessing.model_dump(),
+            rejection_mode=self.rejection_mode,
+            autoreject=(
+                None if self.autoreject is None else self.autoreject.model_dump()
+            ),
+        ), {
             name: ERPComponent(**component.model_dump())
             for name, component in self.components.items()
         }

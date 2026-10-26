@@ -512,7 +512,11 @@ def test_nondefault_stim_and_preprocessing_roundtrip():
     )
     restored = ERPSettings.model_validate_json(config.model_dump_json())
     runtime, _ = restored.to_runtime()
-    assert asdict(runtime) == config.preprocessing.model_dump()
+    assert {
+        k: v
+        for k, v in asdict(runtime).items()
+        if k not in ("rejection_mode", "autoreject")
+    } == config.preprocessing.model_dump()
     restored.validate_events(spec)
 
 
@@ -1101,7 +1105,11 @@ def test_ica_settings_roundtrip_and_legacy_thresholds():
     )
     restored = ERPSettings.model_validate_json(definition.model_dump_json())
     runtime, _ = restored.to_runtime()
-    assert asdict(runtime) == restored.preprocessing.model_dump()
+    assert {
+        k: v
+        for k, v in asdict(runtime).items()
+        if k not in ("rejection_mode", "autoreject")
+    } == restored.preprocessing.model_dump()
     assert runtime.ica_corr_threshold == 0.4
     assert runtime.ica_label_threshold == 0.9
 
@@ -1291,3 +1299,344 @@ def test_ica_rank_matches_applied_projectors(active, expected_rank):
     assert qc["ica_rank"] == expected_rank
     assert qc["ica_n_components"] == expected_rank
     assert [p["active"] for p in raw.info["projs"]] == [active, active]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(cv=1),
+        dict(cv=True),
+        dict(n_interpolate=[]),
+        dict(n_interpolate=[-1]),
+        dict(n_interpolate=[1, 1]),
+        dict(consensus=[0]),
+        dict(consensus=[1.1]),
+        dict(consensus=[float("nan")]),
+    ],
+)
+def test_autoreject_settings_invalid(kwargs):
+    from meganorm.utils.erp import ERPAutoRejectSettings
+
+    with pytest.raises(ValueError):
+        ERPAutoRejectSettings(**kwargs)
+
+
+def test_autoreject_settings_runtime_roundtrip():
+    definition = ERPSettings(
+        **{
+            **settings().model_dump(),
+            "rejection_mode": "autoreject",
+            "autoreject": dict(cv=3, n_interpolate=[1], consensus=[0.5, 1.0]),
+        }
+    )
+    config, _ = ERPSettings.model_validate_json(
+        definition.model_dump_json()
+    ).to_runtime()
+    assert config.rejection_mode == "autoreject"
+    assert config.autoreject == dict(cv=3, n_interpolate=(1,), consensus=(0.5, 1.0))
+    with pytest.raises(ValueError, match="autoreject"):
+        ERPConfig(rejection_mode="threshold", autoreject=dict(cv=3))
+
+
+def ar_epochs(n_epochs=12, n_channels=6, montage=True):
+    names = ["Fz", "Cz", "Pz", "Oz", "C3", "C4"][:n_channels]
+    rng = np.random.default_rng(21)
+    data = rng.normal(size=(n_epochs, n_channels, 101)) * 1e-6
+    events = np.column_stack(
+        [
+            500 + np.arange(n_epochs) * 200,
+            np.zeros(n_epochs, int),
+            1 + np.arange(n_epochs) % 2,
+        ]
+    )
+    epochs = mne.EpochsArray(
+        data,
+        mne.create_info(names, 100, "eeg"),
+        events=events,
+        event_id={"standard": 1, "target": 2},
+        tmin=-0.2,
+        baseline=(-0.2, 0),
+        metadata=pd.DataFrame({"trial": np.arange(n_epochs)}),
+        verbose=False,
+    )
+    if montage:
+        epochs.set_montage("standard_1020")
+    return epochs
+
+
+@pytest.mark.parametrize(
+    "case,match",
+    [
+        ("few_trials", "epochs"),
+        ("few_channels", "channels"),
+        ("no_montage", "locations"),
+        ("nonfinite", "finite"),
+        ("duplicate_locations", "locations"),
+        ("bad_grid", "n_interpolate"),
+    ],
+)
+def test_autoreject_prerequisites(case, match):
+    from meganorm.src.erp import reject_erp_epochs
+
+    epochs = ar_epochs(
+        n_epochs=3 if case == "few_trials" else 12,
+        n_channels=3 if case == "few_channels" else 6,
+        montage=case != "no_montage",
+    )
+    if case == "nonfinite":
+        epochs._data[0, 0, 0] = np.nan
+    if case == "duplicate_locations":
+        epochs.info["chs"][0]["loc"][:3] = epochs.info["chs"][1]["loc"][:3]
+    options = dict(n_interpolate=[6]) if case == "bad_grid" else None
+    with pytest.raises(ValueError, match=match):
+        reject_erp_epochs(
+            epochs, ERPConfig(rejection_mode="autoreject", autoreject=options)
+        )
+
+
+def test_threshold_helper_preserves_epochs_and_metadata():
+    from meganorm.src.erp import reject_erp_epochs
+
+    epochs = ar_epochs()
+    epochs._data[2, 0, 50] = 200e-6
+    before = epochs.get_data().copy()
+    cleaned, qc = reject_erp_epochs(epochs, ERPConfig())
+    assert len(cleaned) == 11 and cleaned.drop_log[2] == ("Fz",)
+    assert cleaned.metadata["trial"].tolist() == [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    assert cleaned.tmin == -0.2 and cleaned.baseline == epochs.baseline
+    np.testing.assert_array_equal(epochs.get_data(), before)
+    assert qc["mode"] == "threshold"
+
+
+def test_real_autoreject_epochs_reproducible_and_aligned():
+    from meganorm.src.erp import reject_erp_epochs
+
+    epochs = ar_epochs()
+    epochs._data[0, 0, 40:50] += 200e-6
+    config = ERPConfig(
+        rejection_mode="autoreject",
+        autoreject=dict(cv=3, n_interpolate=[1], consensus=[0.5, 1.0]),
+    )
+    before = epochs.get_data().copy()
+    cleaned, qc = reject_erp_epochs(epochs, config)
+    again, qc_again = reject_erp_epochs(epochs, config)
+    np.testing.assert_allclose(cleaned.get_data(), again.get_data())
+    assert qc == qc_again
+    np.testing.assert_array_equal(epochs.get_data(), before)
+    np.testing.assert_array_equal(cleaned.times, epochs.times)
+    np.testing.assert_array_equal(cleaned.events, epochs.events[cleaned.selection])
+    assert cleaned.metadata["trial"].tolist() == cleaned.selection.tolist()
+    assert cleaned.baseline == epochs.baseline
+    assert qc["n_input_epochs"] == 12 and qc["n_retained_epochs"] == len(cleaned)
+    assert qc["trials"][0]["interpolated_channels"] or not qc["trials"][0]["retained"]
+    json.dumps(qc, allow_nan=False)
+
+
+def controlled_ar(monkeypatch, all_bad=False):
+    """Control fitted decisions; retain AutoReject's real MNE transformation."""
+    from autoreject import AutoReject, RejectLog
+
+    def fit(self, epochs):
+        self.picks_ = np.asarray(self.picks)
+        self.n_interpolate_ = {"eeg": 1}
+        self.consensus_ = {"eeg": 0.5}
+        self.loss_ = {"eeg": np.zeros((1, 1, 3))}
+        self.threshes_ = {epochs.ch_names[p]: 1e-4 for p in self.picks_}
+        self.dots = None
+        return self
+
+    def log(self, epochs):
+        labels = np.full((len(epochs), len(epochs.ch_names)), np.nan)
+        labels[:, self.picks_] = 0
+        bad = np.zeros(len(epochs), bool)
+        bad[0] = True
+        if all_bad:
+            bad[:] = True
+        labels[0, self.picks_] = 1
+        if len(epochs) > 1:
+            labels[1, self.picks_[0]] = 2
+        return RejectLog(bad_epochs=bad, labels=labels, ch_names=epochs.ch_names)
+
+    monkeypatch.setattr(AutoReject, "fit", fit)
+    monkeypatch.setattr(AutoReject, "get_reject_log", log)
+
+
+def ar_pipeline_raw():
+    rng = np.random.default_rng(20)
+    raw = mne.io.RawArray(
+        rng.normal(size=(6, 5000)) * 1e-6,
+        mne.create_info(["Fz", "Cz", "Pz", "Oz", "C3", "C4"], 100, "eeg"),
+        verbose=False,
+    )
+    raw.set_montage("standard_1020")
+    events = np.column_stack(
+        [np.arange(9) * 500, np.zeros(9, int), 1 + np.arange(9) % 2]
+    )
+    raw.set_annotations(mne.Annotations([4.8], [0.5], ["BAD_motion"]))
+    return raw, events
+
+
+@pytest.mark.parametrize("all_bad", [False, True])
+def test_autoreject_pipeline_trial_accounting_and_all_rejected(monkeypatch, all_bad):
+    controlled_ar(monkeypatch, all_bad)
+    raw, events = ar_pipeline_raw()
+    components = {
+        "response": ERPComponent(
+            ("standard", "target"), ("Fz",), (0.1, 0.4), "pos", ("mean_amplitude",)
+        )
+    }
+    result = run_erp_pipeline(
+        raw,
+        "s",
+        components,
+        events=events,
+        event_id={"standard": 1, "target": 2},
+        config=ERPConfig(
+            ica_mode="none",
+            reference=None,
+            l_freq=None,
+            h_freq=None,
+            min_trials=1,
+            rejection_mode="autoreject",
+        ),
+    )
+    report = result.preprocessing_qc["epoch_rejection"]
+    assert report["autoreject_rejected_event_indices"] == (
+        list(range(2, 9)) if all_bad else [2]
+    )
+    assert result.epochs.tmin == -0.2
+    assert report["n_interpolated_trials"] == (0 if all_bad else 1)
+    assert result.qc["n_autoreject_rejected"].sum() == (7 if all_bad else 1)
+    assert result.qc["n_annotation_rejected"].sum() == 1
+    assert result.qc["n_edge_dropped"].sum() == 1
+    assert result.qc["n_amplitude_rejected"].sum() == 0
+    columns = [
+        "n_edge_dropped",
+        "n_annotation_rejected",
+        "n_amplitude_rejected",
+        "n_autoreject_rejected",
+        "n_other_dropped",
+    ]
+    np.testing.assert_array_equal(result.qc[columns].sum(axis=1), result.qc.n_rejected)
+    np.testing.assert_array_equal(
+        result.qc.n_trials + result.qc.n_rejected, result.qc.n_events
+    )
+    if all_bad:
+        assert result.features.isna().all().all()
+        assert result.qc.status.eq("no_retained_trials").all()
+    else:
+        np.testing.assert_array_equal(result.epochs.selection, np.arange(3, 9))
+        assert report["trials"][1]["interpolated_channels"] == ["Fz"]
+    json.dumps(result.preprocessing_qc, allow_nan=False)
+
+
+def test_autoreject_flat_precheck_bad_channel_and_copy(monkeypatch):
+    from meganorm.src.erp import reject_erp_epochs
+
+    controlled_ar(monkeypatch)
+    epochs = ar_epochs()
+    epochs._data[3, 0, :] = 0
+    epochs.info["bads"] = ["C4"]
+    epochs._data[4, 1, 40] = 200e-6  # fixed reject cutoff must not remove this epoch
+    before = epochs.get_data().copy()
+    clean, qc = reject_erp_epochs(
+        epochs, ERPConfig(rejection_mode="autoreject", flat={"eeg": 1e-12})
+    )
+    assert qc["n_prefit_flat_rejected"] == 1
+    assert 3 not in clean.selection and 4 in clean.selection
+    assert "C4" not in qc["fitted_channels"] and clean.info["bads"] == ["C4"]
+    np.testing.assert_array_equal(epochs.get_data(), before)
+    assert epochs.drop_log[3] == ()
+
+
+def test_autoreject_failures_do_not_fallback(monkeypatch):
+    from meganorm.src.erp import reject_erp_epochs
+    from autoreject import AutoReject
+
+    def broken(self, epochs):
+        raise RuntimeError("backend failure")
+
+    monkeypatch.setattr(AutoReject, "fit", broken)
+    with pytest.raises(RuntimeError, match="backend failure"):
+        reject_erp_epochs(ar_epochs(), ERPConfig(rejection_mode="autoreject"))
+
+
+def test_autoreject_rejects_infeasible_and_nonfinite_fit(monkeypatch):
+    from meganorm.src.erp import reject_erp_epochs
+    from autoreject import AutoReject
+
+    with pytest.raises(ValueError, match="combination"):
+        reject_erp_epochs(
+            ar_epochs(),
+            ERPConfig(
+                rejection_mode="autoreject",
+                autoreject=dict(n_interpolate=[4], consensus=[0.2]),
+            ),
+        )
+
+    def no_solution(self, epochs):
+        self.loss_ = {"eeg": np.full((1, 1, 3), np.inf)}
+        return self
+
+    monkeypatch.setattr(AutoReject, "fit", no_solution)
+    with pytest.raises(ValueError, match="finite cross-validation"):
+        reject_erp_epochs(ar_epochs(), ERPConfig(rejection_mode="autoreject"))
+
+
+def test_autoreject_local_api_persists_rejection_settings_and_qc(tmp_path):
+    from meganorm.API import Dataset, Pipeline, ERPAutoRejectSettings
+
+    raw, events = ar_pipeline_raw()
+    raw.set_annotations(
+        mne.annotations_from_events(
+            events[1:],
+            100,
+            event_desc={1: "standard", 2: "target"},
+            first_samp=raw.first_samp,
+        )
+    )
+    folder = tmp_path / "input" / "001"
+    folder.mkdir(parents=True)
+    raw.save(folder / "001_oddball_raw.fif", verbose=False)
+    definition = ERPSettings(
+        rejection_mode="autoreject",
+        autoreject=ERPAutoRejectSettings(cv=3, n_interpolate=[1], consensus=[0.5, 1.0]),
+        preprocessing=ERPPreprocessing(
+            ica_mode="none", reference=None, l_freq=None, h_freq=None, min_trials=1
+        ),
+        components={
+            "response": dict(
+                conditions=["standard", "target"],
+                channels=["Fz"],
+                window=[0.1, 0.4],
+                polarity="pos",
+                metrics=["mean_amplitude"],
+            )
+        },
+    )
+    dataset = Dataset(
+        name="demo",
+        root=tmp_path / "input",
+        task="oddball",
+        extension=".fif",
+        erp_events=ERPEventSpec(
+            mode="annotations",
+            annotation_map={"standard": "standard", "target": "target"},
+        ),
+    )
+    result = Pipeline(
+        config=Config(analysis_type="erp", which_sensor="eeg", erp=definition),
+        output_dir=tmp_path / "output",
+        on_error="raise",
+        progress=False,
+    ).run(dataset)
+    report = json.loads(
+        (result.output_dir / "participants" / "001" / "preprocessing.json").read_text()
+    )
+    assert report["epoch_rejection"]["mode"] == "autoreject"
+    assert report["epoch_rejection"]["cv"] == 3
+    assert report["epoch_rejection"]["n_input_epochs"] == 8
+    assert len(result.feature_names) == 2
+    assert result.summary["collected"] == 1
+    qc = pd.read_csv(result.paths["qc"])
+    assert "n_autoreject_rejected" in qc and "n_interpolated_trials" in qc

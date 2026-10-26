@@ -133,6 +133,37 @@ folder for each invocation. Each participant has feature/QC tables, a
 Keep the output directory outside your input dataset folder. QC is separate
 from `result.feature_names`.
 
+## Optional AutoReject epoch cleaning
+
+Threshold rejection remains the default. To learn channel thresholds and repair
+or reject epochs with AutoReject, update the ERP definition before running:
+
+```python
+config.erp = ERPSettings(
+    preprocessing=config.erp.preprocessing,
+    components=config.erp.components,
+    rejection_mode="autoreject",
+    autoreject={"cv": 5},
+)
+```
+
+AutoReject replaces `preprocessing.reject`; that fixed amplitude cutoff is not
+applied first. BAD annotations, recording edges and any `preprocessing.flat`
+threshold still exclude epochs. It fits each participant's conditions together
+and preserves the existing epoch times and baseline.
+
+At least four usable EEG channels with valid distinct sensor positions and
+`max(5, cv)` retained epochs are required. These are computational minimums,
+not evidence that a small dataset is adequate for reliable cleaning. Unmet
+requirements cause a participant failure; there is no silent fallback.
+The two-channel synthetic tutorial therefore keeps threshold rejection.
+
+Inspect `n_autoreject_rejected` and `n_interpolated_trials` in QC. The participant's
+`preprocessing.json` also records learned settings, channel thresholds and
+per-trial interpolation decisions. Interpolation counts refer to retained trials.
+All-rejected recordings have unavailable IDPs and are reported as failed.
+Validate cleaning and ERP measurements on representative real recordings.
+
 ## Optional standalone workflow
 
 For in-memory epochs and evoked waveforms, or extraction from already-cleaned
@@ -140,8 +171,8 @@ evoked responses, see the final sections of the
 [ERP tutorial](notebooks/erp_idp_extraction_tutorial.ipynb). The cohort API does
 not currently save raw or epoch objects; keep its raw/epoch saving flags disabled.
 
-The local raw-data workflow supports EEG and threshold epoch rejection.
-AutoReject interpolation, automatic continuous bad-channel detection, sensor-group
+The local raw-data workflow supports EEG with threshold rejection or AutoReject.
+Automatic continuous bad-channel detection, sensor-group
 averages, condition contrasts, source reconstruction and ERP SLURM execution are
 not yet supported. Multiple recordings are not automatically combined into
 sessions. Prepared-evoked extraction can also support MEG; this is separate from

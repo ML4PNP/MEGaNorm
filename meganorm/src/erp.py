@@ -10,7 +10,12 @@ from typing import Mapping
 import mne
 import numpy as np
 import pandas as pd
-from meganorm.utils.erp import ERPEventSpec, resolve_erp_events, resolve_ica_settings
+from meganorm.utils.erp import (
+    ERPEventSpec,
+    resolve_erp_events,
+    resolve_ica_settings,
+    resolve_rejection_settings,
+)
 
 
 def _name(value):
@@ -101,9 +106,12 @@ class ERPConfig:
     ica_mode: str = "auto"
     ica_corr_threshold: float | None = None
     ica_label_threshold: float | None = None
+    rejection_mode: str = "threshold"
+    autoreject: dict | None = None
 
     def __post_init__(self):
         mode, _ = resolve_ica_settings(self)
+        resolve_rejection_settings(self.rejection_mode, self.autoreject)
         _window((self.tmin, self.tmax))
         if self.baseline is not None:
             if len(self.baseline) != 2:
@@ -353,17 +361,155 @@ def preprocess_erp(raw, config=None):
     return data, qc
 
 
-def epoch_erp(raw, events, event_id, config=None):
-    """Build EEG event-locked epochs with automatic threshold/annotation rejection.
+def reject_erp_epochs(epochs, config=None):
+    """Clean a copy of existing event-locked epochs and return rejection QC.
 
-    Events use absolute samples at raw.info['sfreq'], including raw.first_samp.
-    Missing conditions are allowed and become unavailable IDPs downstream.
+    Times, baseline, events, metadata and original selection indices are kept.
+    AutoReject replaces fixed amplitude rejection; flat thresholds still apply
+    before fitting. Inputs already dropped by a caller cannot be recovered.
+    """
+    config = config or ERPConfig()
+    options = resolve_rejection_settings(config.rejection_mode, config.autoreject)
+    cleaned = epochs.copy().load_data()
+    n_input = len(cleaned)
+    report = dict(
+        mode=config.rejection_mode,
+        n_input_epochs=n_input,
+        n_retained_epochs=n_input,
+        n_prefit_flat_rejected=0,
+        autoreject_rejected_event_indices=[],
+        n_interpolated_trials=0,
+        n_interpolated_channel_epochs=0,
+        trials=[],
+    )
+    if options is None:
+        cleaned.drop_bad(reject=config.reject, flat=config.flat, verbose=False)
+        report["n_retained_epochs"] = len(cleaned)
+        return cleaned, report
+
+    # Preserve annotations/edge exclusions made by Epochs construction. Do not
+    # apply the fixed amplitude cutoff before a repair-capable algorithm.
+    cleaned.drop_bad(reject=None, flat=config.flat, verbose=False)
+    report["n_prefit_flat_rejected"] = n_input - len(cleaned)
+    minimum = max(5, options.cv)
+    if len(cleaned) < minimum:
+        raise ValueError(
+            f"AutoReject requires at least {minimum} retained epochs "
+            "after annotation/edge/flat rejection; no fallback is applied."
+        )
+    picks = mne.pick_types(cleaned.info, meg=False, eeg=True, exclude="bads")
+    if len(picks) < 4:
+        raise ValueError("AutoReject requires at least 4 usable EEG channels.")
+    values = cleaned.get_data(picks=picks)
+    if not np.isfinite(values).all():
+        raise ValueError("AutoReject requires finite EEG epoch samples.")
+    positions = np.array([cleaned.info["chs"][p]["loc"][:3] for p in picks])
+    if (
+        not np.isfinite(positions).all()
+        or np.any(np.linalg.norm(positions, axis=1) == 0)
+        or len(np.unique(positions, axis=0)) != len(picks)
+    ):
+        raise ValueError(
+            "AutoReject requires distinct finite nonzero EEG sensor locations."
+        )
+    candidates = (
+        tuple(value for value in (1, 2, 4) if value < len(picks))
+        if options.n_interpolate is None
+        else options.n_interpolate
+    )
+    if any(value >= len(picks) for value in candidates):
+        raise ValueError(
+            "AutoReject n_interpolate must be below the usable EEG channel count."
+        )
+    if not any(
+        fraction * len(picks) > count
+        for fraction in options.consensus
+        for count in candidates
+    ):
+        raise ValueError(
+            "AutoReject consensus and n_interpolate have no valid combination."
+        )
+    from autoreject import AutoReject
+
+    model = AutoReject(
+        n_interpolate=list(candidates),
+        consensus=list(options.consensus),
+        cv=options.cv,
+        random_state=config.random_state,
+        picks=picks,
+        n_jobs=1,
+        verbose=False,
+    )
+    model.fit(cleaned)
+    if not np.isfinite(np.mean(model.loss_["eeg"], axis=-1)).any():
+        raise ValueError(
+            "AutoReject could not find a finite cross-validation loss; "
+            "inspect the epochs and candidate settings."
+        )
+    log = model.get_reject_log(cleaned)
+    bad = np.asarray(log.bad_epochs, dtype=bool)
+    labels = np.asarray(log.labels)
+    if bad.shape != (len(cleaned),) or labels.shape != (
+        len(cleaned),
+        len(cleaned.ch_names),
+    ):
+        raise ValueError(
+            "AutoReject returned a rejection log with an unexpected shape."
+        )
+    for i, (selection, event) in enumerate(zip(cleaned.selection, cleaned.events)):
+        interpolated = (
+            [] if bad[i] else [cleaned.ch_names[p] for p in picks if labels[i, p] == 2]
+        )
+        report["trials"].append(
+            dict(
+                event_index=int(selection),
+                event_sample=int(event[0]),
+                event_code=int(event[2]),
+                retained=not bool(bad[i]),
+                bad_channels=[
+                    cleaned.ch_names[p] for p in picks if labels[i, p] in (1, 2)
+                ],
+                interpolated_channels=interpolated,
+            )
+        )
+    report.update(
+        autoreject_rejected_event_indices=cleaned.selection[bad].astype(int).tolist(),
+        n_interpolated_trials=sum(
+            bool(t["interpolated_channels"]) for t in report["trials"]
+        ),
+        n_interpolated_channel_epochs=sum(
+            len(t["interpolated_channels"]) for t in report["trials"]
+        ),
+        cv=options.cv,
+        random_state=config.random_state,
+        n_interpolate_candidates=list(candidates),
+        consensus_candidates=list(options.consensus),
+        n_interpolate=int(model.n_interpolate_["eeg"]),
+        consensus=float(model.consensus_["eeg"]),
+        thresholds={name: float(value) for name, value in model.threshes_.items()},
+        fitted_channels=[cleaned.ch_names[p] for p in picks],
+    )
+    if bad.all():
+        # Keep normal all-rejected IDP/QC reporting; there are no retained
+        # channels to repair, and no need to interpolate discarded data.
+        cleaned.drop(np.arange(len(cleaned)), reason="AUTOREJECT", verbose=False)
+    else:
+        cleaned = model.transform(cleaned, reject_log=log)
+    report["n_retained_epochs"] = len(cleaned)
+    return cleaned, report
+
+
+def epoch_erp(raw, events, event_id, config=None, *, return_qc=False):
+    """Build and clean EEG event-locked epochs at absolute event samples.
+
+    Return Epochs by default, or (Epochs, rejection QC) with return_qc=True.
+    Missing conditions remain in the event mapping for downstream IDP reporting.
     """
     config = config or ERPConfig()
     events = _validate_events(raw, events, event_id)
     if not np.isin(events[:, 2], list(event_id.values())).any():
         raise ValueError("No requested condition events were found.")
-    return mne.Epochs(
+    epochs = mne.Epochs(
         raw,
         events,
         event_id=dict(event_id),
@@ -371,14 +517,16 @@ def epoch_erp(raw, events, event_id, config=None):
         tmax=config.tmax,
         baseline=config.baseline,
         picks="eeg",
-        reject=config.reject,
-        flat=config.flat,
+        reject=None,
+        flat=None,
         reject_by_annotation=True,
         preload=True,
         on_missing="ignore",
         event_repeated="error",
         verbose=False,
     )
+    epochs, report = reject_erp_epochs(epochs, config)
+    return (epochs, report) if return_qc else epochs
 
 
 def compute_evokeds(epochs):
@@ -632,7 +780,8 @@ def run_erp_pipeline(
             config.resample_sfreq, events=events, verbose=False
         )
     events = _validate_events(cleaned, events, event_id)
-    epochs = epoch_erp(cleaned, events, event_id, config)
+    epochs, rejection_qc = epoch_erp(cleaned, events, event_id, config, return_qc=True)
+    preprocessing_qc["epoch_rejection"] = rejection_qc
     evokeds = compute_evokeds(epochs)
     features, qc = extract_erp_idps(subject_id, evokeds, components, config.min_trials)
     counts = {
@@ -647,6 +796,7 @@ def run_erp_pipeline(
             n_edge_dropped=0,
             n_annotation_rejected=0,
             n_amplitude_rejected=0,
+            n_autoreject_rejected=0,
             n_other_dropped=0,
         )
         for name in event_id
@@ -657,10 +807,13 @@ def run_erp_pipeline(
     ambiguous_labels = set(epochs.ch_names) & (
         set(cleaned.annotations.description) | {"NO_DATA", "TOO_SHORT"}
     )
-    for event, reasons in zip(events, epochs.drop_log):
+    ar_dropped = set(rejection_qc["autoreject_rejected_event_indices"])
+    for event_index, (event, reasons) in enumerate(zip(events, epochs.drop_log)):
         if not reasons:
             continue
-        if any(reason in ambiguous_labels for reason in reasons):
+        if event_index in ar_dropped:
+            category = "n_autoreject_rejected"
+        elif any(reason in ambiguous_labels for reason in reasons):
             category = "n_other_dropped"
         elif any(reason in {"NO_DATA", "TOO_SHORT"} for reason in reasons):
             category = "n_edge_dropped"
@@ -678,6 +831,14 @@ def run_erp_pipeline(
         qc[category] = qc["condition"].map(
             {name: value[category] for name, value in losses.items()}
         )
+    interpolated = {
+        name: sum(
+            trial["event_code"] == code and bool(trial["interpolated_channels"])
+            for trial in rejection_qc["trials"]
+        )
+        for name, code in event_id.items()
+    }
+    qc["n_interpolated_trials"] = qc["condition"].map(interpolated)
     qc["n_rejected"] = qc["n_events"] - qc["n_trials"]
     qc.loc[(qc.status == "missing_condition") & (qc.n_events > 0), "status"] = (
         "no_retained_trials"

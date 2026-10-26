@@ -287,7 +287,7 @@ ERP analysis settings
 For ERP analysis set ``analysis_type="erp"``, ``which_sensor="eeg"`` and
 provide ``erp=ERPSettings(...)``. Source localization is not supported in this
 mode. ``ERPSettings`` contains ``preprocessing``, named ``components`` and
-``rejection_mode="threshold"``. Component windows must lie inside the epoch;
+``rejection_mode`` (``"threshold"`` by default, or ``"autoreject"``). Component windows must lie inside the epoch;
 condition, channel and metric selections must be nonempty and unique.
 
 Each ``Dataset`` can hold an ``ERPEventSpec`` as ``erp_events``. Annotation mode
@@ -372,3 +372,53 @@ labels/probabilities. It also records supplied bad-channel markings and that
 automatic continuous bad-channel detection was not performed. A successful ICA
 fit with no components meeting the threshold is recorded with an empty exclusion
 list; this does not establish that the recording is artifact-free.
+
+ERP epoch rejection
+~~~~~~~~~~~~~~~~~~~
+
+``erp.rejection_mode="threshold"`` remains the default and uses the existing
+MNE peak-to-peak/flat rejection. Set ``"autoreject"`` to learn EEG channel
+thresholds and cross-validate interpolation/rejection choices on each
+participant's pooled conditions. The existing event-locked epochs, baseline,
+metadata and original trial indices are preserved. Only retained trials are
+averaged for IDPs.
+
+AutoReject replaces ``erp.preprocessing.reject``; it does not first discard
+trials using that fixed amplitude cutoff. Recording-edge loss, BAD annotation
+rejection and any ``erp.preprocessing.flat`` threshold still apply before
+fitting. Fewer than ``max(5, cv)`` retained epochs, fewer than four usable EEG
+channels, nonfinite EEG samples or missing/duplicate sensor locations cause an
+error. Explicit candidates that interpolate all usable channels or have no
+valid consensus/interpolation combination also fail. These checks are minimum
+computational requirements; real-data validation remains necessary. There is no
+fallback to another method when fitting fails.
+
+Optional ``erp.autoreject`` settings (also exported as ``ERPAutoRejectSettings``):
+
+* ``cv``: cross-validation folds, integer >= 2; default 5.
+* ``n_interpolate``: unique nonnegative integer candidates. Each must be below
+  the number of usable EEG channels. By default, use 1, 2 and 4, omitting values
+  at or above that channel count. Zero allows rejection without interpolation.
+* ``consensus``: unique fractions in (0, 1]; default 0.2, 0.4, 0.6, 0.8, 1.0.
+
+``erp.preprocessing.random_state`` supplies the seed. Fitting uses one worker.
+Only unmarked EEG channels participate in fitting/interpolation; pre-existing
+bad channels remain marked. AutoReject options supplied with threshold mode
+are rejected as conflicting settings. The standalone ``ERPConfig`` accepts the
+same ``rejection_mode`` and ``autoreject`` dictionary.
+
+``preprocessing.json`` contains ``epoch_rejection`` with resolved candidates,
+selected values, learned channel thresholds and per-trial decisions. Each trial
+entry identifies its original event index, sample, code, retained status,
+detected bad channels and channels interpolated in retained data. Trial entries
+cover epochs reaching AutoReject after annotation/edge/flat exclusion;
+``drop_log`` retains the complete rejection history. The report's
+``n_input_epochs`` counts epochs entering the rejection helper, after
+annotation/edge exclusion; ``n_prefit_flat_rejected`` counts subsequent flatness
+losses. Interpolation counts describe retained trials only.
+
+The IDP QC table adds ``n_autoreject_rejected`` and ``n_interpolated_trials`` per
+condition. Edge, annotation, amplitude/flat, AutoReject and other loss categories
+sum to ``n_rejected``; interpolated trials remain in ``n_trials``. If AutoReject
+drops every epoch, IDPs are NaN with ``no_retained_trials`` and the participant
+worker publishes a failed outcome with QC, as with threshold all-rejected data.
