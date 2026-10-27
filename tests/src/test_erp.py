@@ -1640,3 +1640,144 @@ def test_autoreject_local_api_persists_rejection_settings_and_qc(tmp_path):
     assert result.summary["collected"] == 1
     qc = pd.read_csv(result.paths["qc"])
     assert "n_autoreject_rejected" in qc and "n_interpolated_trials" in qc
+
+
+def test_independent_ica_fit_preserves_analysis_samples_and_input():
+    raw = ica_raw()
+    before = raw.get_data().copy()
+    config = ERPConfig(
+        ica_h_freq=80,
+        ica_resample_sfreq=180,
+        h_freq=30,
+        resample_sfreq=100,
+        ica_corr_threshold=1,
+    )
+    cleaned, qc = preprocess_erp(raw, config)
+    expected, _ = preprocess_erp(raw, ERPConfig(apply_ica=False, h_freq=30))
+    assert cleaned.info["sfreq"] == raw.info["sfreq"]
+    np.testing.assert_allclose(cleaned.get_data(), expected.get_data(), atol=1e-18)
+    np.testing.assert_array_equal(raw.get_data(), before)
+    assert qc["ica_fit_filter"] == {"l_freq": 1, "h_freq": 80}
+    assert qc["ica_fit_sfreq"] == 180
+    assert qc["ica_n_components"] == 3
+
+
+def test_average_reference_caps_overestimated_numerical_rank():
+    # Reproduce numerical rank overestimation without making it BLAS-dependent.
+    with patch("mne.compute_rank", return_value={"eeg": 4}):
+        _, qc = preprocess_erp(ica_raw(), ERPConfig())
+        assert qc["ica_rank"] == 3
+        assert qc["ica_rank_estimated"] == 4
+        with pytest.raises(ValueError, match="rank"):
+            preprocess_erp(ica_raw(), ERPConfig(ica_n_components=4))
+
+
+def test_average_reference_rank_bound_excludes_bad_channels():
+    raw = ica_raw()
+    raw.info["bads"] = ["Oz"]
+    with patch("mne.compute_rank", return_value={"eeg": 3}):
+        _, qc = preprocess_erp(raw, ERPConfig())
+    assert qc["ica_rank"] == 2
+    assert qc["ica_n_components"] == 2
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(ica_h_freq=-1),
+        dict(ica_resample_sfreq=float("nan")),
+        dict(ica_l_freq=80, ica_h_freq=70),
+        dict(ica_h_freq=80, ica_resample_sfreq=160),
+    ],
+)
+def test_independent_ica_fit_invalid_settings(kwargs):
+    from meganorm.utils.erp import ERPPreprocessing
+
+    for cls in (ERPConfig, ERPPreprocessing):
+        with pytest.raises(ValueError):
+            cls(**kwargs)
+
+
+def test_independent_ica_fit_settings_roundtrip_and_nyquist():
+    from meganorm.utils.erp import ERPPreprocessing
+
+    settings = ERPPreprocessing(
+        ica_h_freq=80, ica_resample_sfreq=180, h_freq=30, resample_sfreq=100
+    )
+    config = ERPConfig(**settings.model_dump())
+    assert config.ica_h_freq == 80
+    settings.validate_sampling_rate(200)
+    with pytest.raises(ValueError, match="Nyquist"):
+        settings.validate_sampling_rate(160)
+    with pytest.raises(ValueError, match="Nyquist"):
+        preprocess_erp(ica_raw(), ERPConfig(ica_h_freq=100))
+
+
+def test_ica_fit_resampling_does_not_move_analysis_events():
+    raw = ica_raw()
+    raw.set_annotations(mne.Annotations([1.125, 3.375, 6.125], [0, 0, 0], ["A"] * 3))
+    components = {"P300": ERPComponent(("target",), ("Pz",), (0.25, 0.6), "pos")}
+    common = dict(l_freq=1, h_freq=30, resample_sfreq=100, min_trials=1, reject=None)
+    result = run_erp_pipeline(
+        raw,
+        "sub-01",
+        components,
+        annotation_map={"target": "A"},
+        config=ERPConfig(
+            **common, ica_h_freq=80, ica_resample_sfreq=180, ica_corr_threshold=1
+        ),
+    )
+    expected = run_erp_pipeline(
+        raw,
+        "sub-01",
+        components,
+        annotation_map={"target": "A"},
+        config=ERPConfig(**common, apply_ica=False),
+    )
+    np.testing.assert_array_equal(result.epochs.events, expected.epochs.events)
+    np.testing.assert_allclose(
+        result.epochs.get_data(), expected.epochs.get_data(), atol=1e-18
+    )
+
+
+def test_ica_fit_defaults_inherit_existing_filter_and_sample_rate():
+    raw = ica_raw()
+    _, qc = preprocess_erp(raw, ERPConfig(l_freq=1, h_freq=30))
+    assert qc["ica_fit_filter"] == dict(l_freq=1, h_freq=30)
+    assert qc["ica_fit_sfreq"] == raw.info["sfreq"]
+
+
+def test_ica_fit_resampling_cannot_silently_disable_auxiliary_rejection():
+    raw = ica_raw()
+    raw._data[-1, :40] = np.nan
+    raw.set_annotations(mne.Annotations([0], [0.2], ["BAD_aux"]))
+    with pytest.raises(ValueError, match="nonfinite.*resampling"):
+        preprocess_erp(
+            raw, ERPConfig(l_freq=1, ica_mode="physiological", ica_resample_sfreq=100)
+        )
+
+
+def test_iclabel_uses_independent_fit_copy():
+    raw = ica_raw(montage=True).resample(500, verbose=False)
+
+    def classify(fit_data, ica, method):
+        assert method == "iclabel"
+        assert fit_data.info["sfreq"] == 250
+        assert fit_data.info["highpass"] == 1
+        assert fit_data.info["lowpass"] == 100
+        return dict(labels=["brain"] * 3, y_pred_proba=np.ones(3))
+
+    with patch("mne_icalabel.label_components", side_effect=classify):
+        cleaned, qc = preprocess_erp(
+            raw,
+            ERPConfig(
+                ica_mode="iclabel",
+                l_freq=1,
+                h_freq=30,
+                ica_h_freq=100,
+                ica_resample_sfreq=250,
+            ),
+        )
+    assert cleaned.info["sfreq"] == 500
+    assert cleaned.info["lowpass"] == 30
+    assert qc["ica_warnings"] == []

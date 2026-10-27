@@ -14,6 +14,7 @@ from meganorm.utils.erp import (
     ERPEventSpec,
     resolve_erp_events,
     resolve_ica_settings,
+    resolve_ica_fit_settings,
     resolve_rejection_settings,
 )
 
@@ -93,6 +94,8 @@ class ERPConfig:
     l_freq: float | None = 0.1
     h_freq: float | None = 35.0
     ica_l_freq: float = 1.0
+    ica_h_freq: float | None = None
+    ica_resample_sfreq: float | None = None
     reference: str | tuple[str, ...] | None = "average"
     resample_sfreq: float | None = None
     apply_ica: bool = True
@@ -131,8 +134,7 @@ class ERPConfig:
         if self.h_freq is not None:
             if self.l_freq is not None and self.l_freq >= self.h_freq:
                 raise ValueError("l_freq must be below h_freq.")
-            if mode != "none" and self.ica_l_freq >= self.h_freq:
-                raise ValueError("ica_l_freq must be below h_freq.")
+        resolve_ica_fit_settings(self)
         if not isinstance(self.min_trials, int) or self.min_trials < 1:
             raise ValueError("min_trials must be a positive integer.")
         if not np.isfinite(self.ica_threshold) or not 0 < self.ica_threshold <= 1:
@@ -185,6 +187,7 @@ def preprocess_erp(raw, config=None):
 
     config = config or ERPConfig()
     mode, thresholds = resolve_ica_settings(config)
+    fit_h_freq = resolve_ica_fit_settings(config, raw.info["sfreq"])
     data = raw.copy().load_data()
     eeg = mne.pick_types(data.info, meg=False, eeg=True, exclude="bads")
     if not len(eeg):
@@ -217,6 +220,8 @@ def preprocess_erp(raw, config=None):
         "ica_component_scores": [],
         "ica_warnings": [],
         "ica_rank": None,
+        "ica_rank_estimated": None,
+        "ica_fit_sfreq": None,
         "ica_n_components": None,
         "ica_reference": config.reference,
         "ica_fit_filter": None,
@@ -273,13 +278,27 @@ def preprocess_erp(raw, config=None):
                 raise ValueError(
                     "ICLabel requires reference='average' and ica_l_freq >= 1 Hz."
                 )
-            if config.ica_l_freq != 1 or config.h_freq != 100:
+            if config.ica_l_freq != 1 or fit_h_freq != 100:
                 qc["ica_warnings"].append(
                     "ICLabel was trained on 1–100 Hz data; the configured ICA fit "
                     "filter differs and classification performance may be affected."
                 )
-        fit_data.filter(config.ica_l_freq, config.h_freq, picks=eeg, verbose=False)
-        qc["ica_fit_filter"] = {"l_freq": config.ica_l_freq, "h_freq": config.h_freq}
+        fit_data.filter(config.ica_l_freq, fit_h_freq, picks=eeg, verbose=False)
+        if config.ica_resample_sfreq is not None:
+            fit_data.resample(config.ica_resample_sfreq, verbose=False)
+            if mode == "physiological":
+                for pick in usable:
+                    signal = fit_data.get_data(
+                        picks=[pick], reject_by_annotation="omit"
+                    )[0]
+                    if not np.isfinite(signal).all() or np.ptp(signal) == 0:
+                        raise ValueError(
+                            f"Auxiliary {fit_data.ch_names[pick]!r} became nonfinite "
+                            "or flat after ICA fit resampling; repair the auxiliary "
+                            "signal or leave ica_resample_sfreq=None."
+                        )
+        qc["ica_fit_filter"] = {"l_freq": config.ica_l_freq, "h_freq": fit_h_freq}
+        qc["ica_fit_sfreq"] = float(fit_data.info["sfreq"])
         # Loaded samples already include active projectors. Inactive SSP must
         # not reduce rank: ICA does not apply those projectors during fitting.
         rank = int(
@@ -287,6 +306,11 @@ def preprocess_erp(raw, config=None):
                 "eeg"
             ]
         )
+        qc["ica_rank_estimated"] = rank
+        # Average referencing imposes an exact dependency on the usable EEG
+        # channels, even when numerical rank estimation misses that dependency.
+        if config.reference == "average":
+            rank = min(rank, len(eeg) - 1)
         qc["ica_rank"] = rank
         n_components = config.ica_n_components
         if rank < 2 or (type(n_components) is int and n_components > rank):

@@ -91,6 +91,20 @@ filter, so a different filter produces a QC warning. Explicit `physiological`,
 Only `config.erp.preprocessing` controls ERP cleaning; resting-state settings
 do not apply. Review the chosen settings on representative recordings.
 
+To fit ICA independently of the ERP analysis filter, set these fields in
+`ERPPreprocessing` (the recording must have a sample rate above 200 Hz):
+
+```python
+ERPPreprocessing(
+    l_freq=0.1, h_freq=30, resample_sfreq=250,
+    ica_l_freq=1, ica_h_freq=100, ica_resample_sfreq=250,
+)
+```
+
+This fits ICA on a 1–100 Hz copy and applies the cleaning to the 0.1–30 Hz
+ERP data. Event timing follows the analysis sample rate. Omitting the two new
+settings retains the previous fit filter and original fit sample rate.
+
 ## 3. Run and inspect
 
 ```python

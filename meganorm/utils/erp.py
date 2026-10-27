@@ -123,6 +123,30 @@ def resolve_ica_settings(config):
     }
 
 
+def resolve_ica_fit_settings(config, sfreq=None):
+    """Validate the ERP-only fit copy, independently of analysis resampling.
+
+    A missing ICA low-pass inherits the analysis low-pass for compatibility.
+    A missing fit sample rate leaves the copy at the recording's sample rate.
+    """
+    import math
+
+    high = config.h_freq if config.ica_h_freq is None else config.ica_h_freq
+    for value in (config.ica_h_freq, config.ica_resample_sfreq):
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            raise ValueError("ICA fit frequencies must be positive and finite.")
+    if resolve_ica_settings(config)[0] != "none":
+        if high is not None and config.ica_l_freq >= high:
+            raise ValueError("ica_l_freq must be below the ICA fit h_freq.")
+        for rate in (sfreq, config.ica_resample_sfreq):
+            if rate is not None and any(
+                cutoff is not None and cutoff >= rate / 2
+                for cutoff in (config.ica_l_freq, high)
+            ):
+                raise ValueError("ICA fit cutoffs must be below the Nyquist frequency.")
+    return high
+
+
 class ERPPreprocessing(_Settings):
     """Settings matching the standalone ERPConfig, with early validation."""
 
@@ -132,6 +156,8 @@ class ERPPreprocessing(_Settings):
     l_freq: float | None = Field(default=0.1, gt=0)
     h_freq: float | None = Field(default=35.0, gt=0)
     ica_l_freq: float = Field(default=1.0, gt=0)
+    ica_h_freq: float | None = Field(default=None, gt=0)
+    ica_resample_sfreq: float | None = Field(default=None, gt=0)
     reference: str | tuple[str, ...] | None = "average"
     resample_sfreq: float | None = Field(default=None, gt=0)
     apply_ica: bool = True
@@ -165,12 +191,7 @@ class ERPPreprocessing(_Settings):
             and self.l_freq >= self.h_freq
         ):
             raise ValueError("l_freq must be below h_freq.")
-        if (
-            mode != "none"
-            and self.h_freq is not None
-            and self.ica_l_freq >= self.h_freq
-        ):
-            raise ValueError("ica_l_freq must be below h_freq.")
+        resolve_ica_fit_settings(self)
         n = self.ica_n_components
         if n is not None and not (
             type(n) is int and n > 0 or type(n) is float and 0 < n < 1
@@ -190,18 +211,18 @@ class ERPPreprocessing(_Settings):
         if self.reject and self.flat and self.flat["eeg"] >= self.reject["eeg"]:
             raise ValueError("Flat threshold must be below rejection threshold.")
         if self.resample_sfreq is not None:
-            self.validate_sampling_rate(self.resample_sfreq)
+            self.validate_sampling_rate(self.resample_sfreq, include_ica=False)
         return self
 
-    def validate_sampling_rate(self, sfreq):
+    def validate_sampling_rate(self, sfreq, *, include_ica=True):
         """Validate filter limits against a recording or requested sample rate."""
         import math
 
         if not math.isfinite(sfreq) or sfreq <= 0:
             raise ValueError("Sampling rate must be finite and positive.")
         cutoffs = [self.l_freq, self.h_freq]
-        if resolve_ica_settings(self)[0] != "none":
-            cutoffs.append(self.ica_l_freq)
+        if include_ica:
+            resolve_ica_fit_settings(self, sfreq)
         if any(value is not None and value >= sfreq / 2 for value in cutoffs):
             raise ValueError("Filter cutoffs must be below the Nyquist frequency.")
 

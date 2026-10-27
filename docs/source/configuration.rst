@@ -365,8 +365,24 @@ nonzero sensor locations for every usable EEG channel. Its training used a
 default, generate a QC warning because classification performance may differ.
 No filter is silently changed to meet the training conditions.
 
+Set ``ica_h_freq`` and ``ica_resample_sfreq`` to control only the ICA fit
+copy. For example, ``l_freq=0.1, h_freq=30, resample_sfreq=250,
+ica_l_freq=1, ica_h_freq=100, ica_resample_sfreq=250`` fits ICA on 1–100 Hz
+data while preserving the 0.1–30 Hz ERP analysis filter. Both fit cutoffs must
+be below the original and requested ICA-fit Nyquist frequencies. Analysis
+resampling still updates the recording and events together after ICA cleaning.
+
+By default, ``ica_h_freq=None`` inherits ``h_freq`` and
+``ica_resample_sfreq=None`` keeps the original recording sample rate for
+fitting. Existing configurations therefore retain their fit settings.
+If fit resampling makes a usable EOG/ECG signal nonfinite or flat, processing
+stops with an error; repair that signal or retain the original fit sample rate.
+Average-referenced fits are bounded by the number of usable EEG channels minus
+one, even if numerical rank estimation reports a higher value. Lower estimated
+ranks are preserved; bad EEG channels are excluded from the bound.
+
 Each participant's ``preprocessing.json`` records requested/effective modes,
-selection reason, resolved thresholds, auxiliary quality, fit rank/filter,
+selection reason, resolved thresholds, auxiliary quality, estimated/effective fit rank, fit filter/sample rate,
 component count, exclusions and selected correlation scores or classifier
 labels/probabilities. It also records supplied bad-channel markings and that
 automatic continuous bad-channel detection was not performed. A successful ICA
