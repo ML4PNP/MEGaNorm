@@ -889,13 +889,20 @@ def _read_channel_sidecar(path, **kwargs):
 
 
 def process_erp_recording(
-    recording_path, subject_id, *, settings, event_spec, output_root, line_freq=None
+    recording_path,
+    subject_id,
+    *,
+    settings,
+    event_spec,
+    output_root,
+    line_freq=None,
+    montage_settings=None,
 ):
     """Process and publish one EEG participant in a fresh run directory.
 
     Sidecar channel types/status are explicit overrides; an embedded montage
     is preserved. Montage CSV coordinates follow the existing head/metre
-    convention (Channel, X, Y, Z). No montage is inferred from channel names.
+    convention (Channel, X, Y, Z). Optional template assignment is recorded in QC.
     Features and QC are published before complete.json. A failed or interrupted
     write never has a completion record. Existing participant outputs are never
     overwritten. No-usable-IDP results are saved with status='failed' for audit.
@@ -904,6 +911,7 @@ def process_erp_recording(
     import traceback
     from meganorm.utils.erp import (
         ERPSettings,
+        prepare_erp_montage,
         erp_metadata_paths,
         validate_erp_subject_id,
         write_erp_json,
@@ -950,28 +958,26 @@ def process_erp_recording(
                         channels.status.str.lower() == "bad", "name"
                     ].tolist()
                     raw.info["bads"] = list(dict.fromkeys(raw.info["bads"] + bad))
-            if raw.get_montage() is None and metadata["montage"] is not None:
-                montage = pd.read_csv(metadata["montage"], dtype={"Channel": str})
-                if (
-                    not {"Channel", "X", "Y", "Z"}.issubset(montage)
-                    or montage.Channel.isna().any()
-                    or montage.Channel.duplicated().any()
-                ):
-                    raise ValueError(
-                        "Montage CSV requires unique Channel and X/Y/Z columns."
-                    )
-                coordinates = montage[["X", "Y", "Z"]].to_numpy(dtype=float)
-                if not np.isfinite(coordinates).all():
-                    raise ValueError(
-                        "Montage coordinates must be finite head coordinates in metres."
-                    )
-                raw.set_montage(
-                    mne.channels.make_dig_montage(
-                        ch_pos=dict(zip(montage.Channel, coordinates)),
-                        coord_frame="head",
-                    ),
-                    on_missing="ignore"
-                )
+
+            def notify_montage(message):
+                import warnings
+
+                with log.open("a", encoding="utf-8") as handle:
+                    handle.write(message + "\n")
+                warnings.warn(f"{subject_id}: {message}", UserWarning, stacklevel=2)
+
+            montage_qc = prepare_erp_montage(
+                raw,
+                metadata,
+                montage_settings,
+                required_channels=[
+                    channel
+                    for component in settings.components.values()
+                    for channel in component.channels
+                ],
+                notify=notify_montage,
+            )
+            write_erp_json(directory / "montage.json", montage_qc)
             if raw.info.get("line_freq") is None and line_freq is not None:
                 raw.info["line_freq"] = float(line_freq)
             settings.preprocessing.validate_sampling_rate(raw.info["sfreq"])
@@ -979,6 +985,7 @@ def process_erp_recording(
             result = run_erp_pipeline(
                 raw, subject_id, components, event_spec=event_spec, config=config
             )
+        result.preprocessing_qc["montage"] = montage_qc
         finite = np.isfinite(result.features.to_numpy())
         status = "success" if finite.all() else "partial" if finite.any() else "failed"
         result.features.index.name = "participant_id"
@@ -989,6 +996,7 @@ def process_erp_recording(
             directory / "provenance.json",
             dict(
                 recording=str(path),
+                montage=montage_qc,
                 settings=settings.model_dump(mode="json"),
                 event_spec=event_spec.model_dump(mode="json"),
                 metadata={k: str(v) if v else None for k, v in metadata.items()},

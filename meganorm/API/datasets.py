@@ -5,7 +5,7 @@ import glob
 from collections.abc import Mapping
 import pandas as pd
 from meganorm.utils.IO import merge_datasets_with_glob
-from meganorm.utils.erp import ERPEventSpec
+from meganorm.utils.erp import ERPEventSpec, ERPMontageSettings
 
 _PATH_OPTIONS = {
     "empty_room_path",
@@ -61,6 +61,7 @@ class Dataset:
         line_freq: int | None = 50,
         options: Mapping[str, object] | None = None,
         erp_events: ERPEventSpec | Mapping | None = None,
+        erp_montage: ERPMontageSettings | Mapping | None = None,
     ):
         for label, value in [
             ("name", name),
@@ -109,6 +110,11 @@ class Dataset:
             if erp_events is not None
             else None
         )
+        self.erp_montage = (
+            ERPMontageSettings.model_validate(erp_montage).model_copy(deep=True)
+            if erp_montage is not None
+            else None
+        )
         self.options = {
             key: (
                 _path(value, self.root)
@@ -149,11 +155,17 @@ class Dataset:
             device=settings.pop("device_type", None),
             line_freq=settings.pop("line_freq", 50),
             erp_events=settings.pop("erp_events", None),
+            erp_montage=settings.pop("erp_montage", None),
             options=settings,
         )
 
     def _settings(self):
         return dict(
+            **(
+                {"erp_montage": self.erp_montage.model_dump(mode="json")}
+                if self.erp_montage is not None
+                else {}
+            ),
             **(
                 {"erp_events": self.erp_events.model_dump(mode="json")}
                 if self.erp_events is not None
@@ -208,4 +220,7 @@ class Dataset:
         if self.erp_events is not None:
             for row in rows:
                 row["erp_events"] = self.erp_events.model_dump(mode="json")
+        if self.erp_montage is not None:
+            for row in rows:
+                row["erp_montage"] = self.erp_montage.model_dump(mode="json")
         return pd.DataFrame(rows)

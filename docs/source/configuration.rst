@@ -311,7 +311,8 @@ counts complete participants, ``partial`` counts partial participants and
 Use embedded EEG metadata or supported local channel/montage sidecars.
 Ambiguous sidecars fail preflight. Sidecar channel types and bad-channel flags
 are explicit overrides; an embedded montage is preserved. Montage CSV coordinates
-must be in metres in the head frame. No montage is guessed.
+must be in metres in the head frame. Optional template fallback is configured
+per dataset as described below.
 Legacy dataset options and cohort raw/epoch saving are not supported for ERP;
 use the standalone API when you need access to epochs and evoked responses.
 Only nested ERP preprocessing settings control ERP cleaning; resting-state
@@ -438,3 +439,35 @@ condition. Edge, annotation, amplitude/flat, AutoReject and other loss categorie
 sum to ``n_rejected``; interpolated trials remain in ``n_trials``. If AutoReject
 drops every epoch, IDPs are NaN with ``no_retained_trials`` and the participant
 worker publishes a failed outcome with QC, as with threshold all-rejected data.
+
+
+ERP electrode positions
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``Dataset(erp_montage=ERPMontageSettings(...))`` accepts these settings;
+the equivalent dictionary is also supported:
+
+* ``template=None``: use supplied positions only. ``"auto"`` selects the 1005
+  template when positions are absent, or choose an MNE built-in template name.
+* ``exclude_channels=()``: explicit EEG channels excluded in memory. They must
+  not be requested IDP channels. Use ``["O9", "O10"]`` for the tutorial cap
+  only if those unmatched channels should be excluded.
+* ``supplied_kind="unknown"``: provenance for embedded/sidecar positions.
+  Choose ``"template"`` for generated template CSVs or ``"measured"`` for
+  known measured positions. Measurement provenance is never inferred.
+
+Valid embedded head positions take priority over adjacent BIDS electrode files,
+then CSV positions. The matching recording-specific CSV takes priority over a
+single unambiguous local CSV. BIDS support covers adjacent ``*_electrodes.tsv``
+and matching ``*_coordsystem.json`` in CapTrak head coordinates, with units
+``m``, ``cm`` or ``mm``. Other frames require an explicit transformation; full
+BIDS inheritance is not implemented. Incomplete supplied EEG positions are
+rejected rather than mixed with template coordinates.
+
+Templates are transformed to head coordinates in metres. Ear aliases
+``TP9 LEFT EAR`` and ``TP10 RIGHT EAR`` retain their original recording names.
+A warning reports template use and explicit exclusions. The participant's
+``montage.json``, ``preprocessing.json`` and ``provenance.json`` record source,
+provenance kind, actual template, aliases, matched channels and bad channels;
+``processing.log`` retains the notification. Input files and resting-state
+processing are unchanged.

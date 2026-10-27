@@ -79,8 +79,8 @@ all components share epoch and baseline settings. Component conditions must be
 present in the dataset event specification.
 
 Ensure channel types, bad-channel markings and electrode positions are correct.
-The worker uses embedded metadata or matching `*_channels.tsv` and a unique
-local `*_montage.csv`; it does not guess positions. Channel tables require
+The worker uses embedded metadata or matching `*_channels.tsv` and supported
+position sidecars. Channel tables require
 `name` and `type`, with optional `status=bad`. Montage tables require
 `Channel,X,Y,Z` in head-frame metres.
 
@@ -104,6 +104,40 @@ ERPPreprocessing(
 This fits ICA on a 1–100 Hz copy and applies the cleaning to the 0.1–30 Hz
 ERP data. Event timing follows the analysis sample rate. Omitting the two new
 settings retains the previous fit filter and original fit sample rate.
+
+### Electrode positions
+
+Valid embedded positions take priority, followed by adjacent BIDS electrode
+files and then montage CSV files. If positions are absent, select a template
+once in `Dataset`; no preparation script or generated sidecars are needed:
+
+```python
+# Add this argument to Dataset(...).
+erp_montage={
+    "template": "auto",  # 1005 template; does not infer the actual cap geometry.
+    "exclude_channels": ["O9", "O10"],  # Only if these should be excluded.
+}
+```
+
+You can select an MNE built-in template name instead of `auto`. Omit this
+argument to use supplied positions only. Templates are approximations, not
+participant measurements. Ear labels `TP9 LEFT EAR` and `TP10 RIGHT EAR` map
+to TP9 and TP10 while preserving the original recording names. Unmatched
+channels produce an error; explicit exclusions cannot include requested IDP
+channels. The input files remain untouched.
+
+Template use is announced and recorded in `processing.log`, `montage.json`,
+`preprocessing.json`, and `provenance.json`. If an existing CSV came from a
+template, add `"supplied_kind": "template"`; use `"measured"` only for known
+measured positions. Otherwise, the origin of supplied positions is recorded
+as unknown.
+
+Adjacent BIDS `*_electrodes.tsv` and matching `*_coordsystem.json` support
+**CapTrak head coordinates** in `m`, `cm`, or `mm`. Other coordinate systems
+require an explicit transformation before loading; full BIDS inheritance is
+not implemented. CSV files require `Channel,X,Y,Z` in head-frame metres.
+A recording-specific CSV takes priority over a single unambiguous local CSV.
+Incomplete supplied positions are never mixed with template coordinates.
 
 ## 3. Run and inspect
 

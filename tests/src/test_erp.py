@@ -1781,3 +1781,223 @@ def test_iclabel_uses_independent_fit_copy():
     assert cleaned.info["sfreq"] == 500
     assert cleaned.info["lowpass"] == 30
     assert qc["ica_warnings"] == []
+
+
+def test_template_montage_fallback_and_exclusions():
+    from meganorm.utils.erp import prepare_erp_montage
+
+    names = ["Pz", "Cz", "TP9 LEFT EAR", "TP10 RIGHT EAR", "O9"]
+    raw = mne.io.RawArray(
+        np.zeros((5, 100)), mne.create_info(names, 250, "eeg"), verbose=False
+    )
+    messages = []
+    qc = prepare_erp_montage(
+        raw,
+        {},
+        dict(template="auto", exclude_channels=["O9"]),
+        required_channels=["Pz"],
+        notify=messages.append,
+    )
+    assert qc["source"] == "template" and qc["excluded_channels"] == ["O9"]
+    assert raw.info["bads"] == ["O9"] and raw.ch_names == names
+    assert np.isfinite(raw.info["chs"][2]["loc"][:3]).all()
+    assert messages and "template" in messages[0]
+
+
+def test_template_requires_explicit_exclusion_and_protects_idps():
+    from meganorm.utils.erp import prepare_erp_montage
+
+    raw = mne.io.RawArray(
+        np.zeros((2, 100)),
+        mne.create_info(["Pz", "Unknown"], 250, "eeg"),
+        verbose=False,
+    )
+    with pytest.raises(ValueError, match="Unknown"):
+        prepare_erp_montage(raw.copy(), {}, dict(template="auto"))
+    with pytest.raises(ValueError, match="requested"):
+        prepare_erp_montage(
+            raw.copy(),
+            {},
+            dict(template="auto", exclude_channels=["Pz", "Unknown"]),
+            required_channels=["Pz"],
+        )
+
+
+def test_template_preserves_embedded_and_rejects_partial_mixing():
+    from meganorm.utils.erp import prepare_erp_montage
+
+    raw = ica_raw(montage=True)
+    before = raw.info["chs"][0]["loc"].copy()
+    qc = prepare_erp_montage(raw, {}, dict(template="auto"))
+    assert qc["source"] == "embedded"
+    np.testing.assert_array_equal(before, raw.info["chs"][0]["loc"])
+    raw.info["chs"][0]["loc"][:3] = np.nan
+    with pytest.raises(ValueError, match="incomplete"):
+        prepare_erp_montage(raw, {}, dict(template="auto"))
+
+
+def test_embedded_montage_requires_head_frame():
+    from meganorm.utils.erp import prepare_erp_montage
+    from mne._fiff.constants import FIFF
+
+    raw = ica_raw(montage=True)
+    raw.info["chs"][0]["coord_frame"] = FIFF.FIFFV_COORD_MRI
+    with pytest.raises(ValueError, match="head"):
+        prepare_erp_montage(raw, {}, dict(template="auto"))
+
+
+def test_montage_sidecar_prefers_matching_task(tmp_path):
+    from meganorm.utils.erp import erp_metadata_paths
+
+    exact = tmp_path / "sub-01_task-oddball_montage.csv"
+    exact.touch()
+    (tmp_path / "sub-01_task-rest_montage.csv").touch()
+    assert (
+        erp_metadata_paths(tmp_path / "sub-01_task-oddball_eeg.vhdr")["montage"]
+        == exact
+    )
+
+
+def test_dataset_montage_settings_roundtrip(tmp_path):
+    from meganorm.API import Dataset
+
+    ds = Dataset(
+        name="x",
+        root=tmp_path,
+        task="oddball",
+        extension=".vhdr",
+        erp_montage=dict(template="auto", exclude_channels=["O9", "O10"]),
+    )
+    assert Dataset.from_dict("x", ds._settings()).erp_montage == ds.erp_montage
+
+
+def test_bids_head_montage_units(tmp_path):
+    from meganorm.utils.erp import prepare_erp_montage, erp_metadata_paths
+
+    (tmp_path / "sub-01_electrodes.tsv").write_text("name\tx\ty\tz\nPz\t0\t-50\t80\n")
+    (tmp_path / "sub-01_coordsystem.json").write_text(
+        json.dumps(dict(EEGCoordinateSystem="CapTrak", EEGCoordinateUnits="mm"))
+    )
+    raw = mne.io.RawArray(
+        np.zeros((1, 100)), mne.create_info(["Pz"], 250, "eeg"), verbose=False
+    )
+    qc = prepare_erp_montage(
+        raw, erp_metadata_paths(tmp_path / "sub-01_task-oddball_eeg.vhdr"), None
+    )
+    assert qc["source"] == "bids"
+    np.testing.assert_allclose(raw.info["chs"][0]["loc"][:3], [0, -0.05, 0.08])
+
+
+@pytest.mark.parametrize("frame,units", [("Other", "m"), ("CapTrak", "unknown")])
+def test_bids_montage_rejects_unknown_frame_or_units(tmp_path, frame, units):
+    from meganorm.utils.erp import prepare_erp_montage
+
+    electrodes = tmp_path / "electrodes.tsv"
+    coords = tmp_path / "coordsystem.json"
+    electrodes.write_text("name\tx\ty\tz\nPz\t0\t-.05\t.08\n")
+    coords.write_text(
+        json.dumps(dict(EEGCoordinateSystem=frame, EEGCoordinateUnits=units))
+    )
+    with pytest.raises(ValueError, match="coordinate"):
+        prepare_erp_montage(
+            ica_raw(),
+            dict(electrodes=electrodes, coordsystem=coords),
+            dict(template="auto"),
+        )
+
+
+def test_montage_csv_origin_not_assumed_measured(tmp_path):
+    from meganorm.utils.erp import prepare_erp_montage
+
+    raw = ica_raw(montage=True)
+    positions = raw.get_montage().get_positions()["ch_pos"]
+    csv = tmp_path / "montage.csv"
+    pd.DataFrame(
+        [[n, *p] for n, p in positions.items()], columns=["Channel", "X", "Y", "Z"]
+    ).to_csv(csv, index=False)
+    raw.set_montage(None)
+    qc = prepare_erp_montage(raw, dict(montage=csv), dict(template="auto"))
+    assert qc["source"] == "sidecar" and qc["kind"] == "unknown"
+    with pytest.warns(UserWarning, match="template"):
+        qc = prepare_erp_montage(raw, {}, dict(supplied_kind="template"))
+    assert qc["kind"] == "template"
+
+
+def test_montage_local_api_records_fallback_without_modifying_inputs(tmp_path):
+    from meganorm.API import Dataset, Pipeline, ERPMontageSettings
+
+    raw, events = make_demo_recording()
+    raw.set_montage(None)
+    raw.set_annotations(
+        mne.annotations_from_events(
+            events,
+            raw.info["sfreq"],
+            event_desc={1: "standard", 2: "target"},
+            first_samp=raw.first_samp,
+        )
+    )
+    folder = tmp_path / "input" / "001"
+    folder.mkdir(parents=True)
+    path = folder / "001_oddball_raw.fif"
+    raw.save(path, verbose=False)
+    before = path.read_bytes()
+    ds = Dataset(
+        name="demo",
+        root=tmp_path / "input",
+        task="oddball",
+        extension=".fif",
+        erp_montage=ERPMontageSettings(template="auto"),
+        erp_events=ERPEventSpec(
+            mode="annotations",
+            annotation_map={"standard": "standard", "target": "target"},
+        ),
+    )
+    definition = ERPSettings(
+        preprocessing=dict(apply_ica=False, l_freq=None, h_freq=None),
+        components={
+            "P": dict(
+                conditions=["target"],
+                channels=["Pz"],
+                window=[0.25, 0.5],
+                polarity="pos",
+            )
+        },
+    )
+    with pytest.warns(UserWarning, match="template"):
+        result = Pipeline(
+            config=Config(analysis_type="erp", which_sensor="eeg", erp=definition),
+            output_dir=tmp_path / "out",
+            on_error="raise",
+            progress=False,
+        ).run(ds)
+    directory = result.output_dir / "participants" / "001"
+    qc = json.loads((directory / "preprocessing.json").read_text())
+    assert qc["montage"]["source"] == "template"
+    assert (
+        json.loads((directory / "provenance.json").read_text())["montage"]
+        == qc["montage"]
+    )
+    assert "template" in (directory / "processing.log").read_text()
+    assert (
+        json.loads((result.output_dir / "datasets.json").read_text())["demo"][
+            "erp_montage"
+        ]["template"]
+        == "auto"
+    )
+    assert path.read_bytes() == before and list(folder.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_embedded_positions_take_priority_over_unused_bids_errors(tmp_path, ambiguous):
+    from meganorm.utils.erp import erp_metadata_paths, prepare_erp_montage
+
+    path = tmp_path / "sub-01_task-oddball_eeg.vhdr"
+    if ambiguous:
+        (tmp_path / "sub-01_space-A_electrodes.tsv").touch()
+        (tmp_path / "sub-01_space-B_electrodes.tsv").touch()
+    else:
+        (tmp_path / "sub-01_electrodes.tsv").touch()
+    metadata = erp_metadata_paths(path)
+    assert prepare_erp_montage(ica_raw(montage=True), metadata)["source"] == "embedded"
+    with pytest.raises(ValueError, match="coordinate|Ambiguous"):
+        prepare_erp_montage(ica_raw(), metadata, dict(template="auto"))

@@ -61,6 +61,29 @@ class _Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
+class ERPMontageSettings(_Settings):
+    """Dataset-level position fallback; inputs are never rewritten."""
+
+    template: str | None = None
+    exclude_channels: tuple[str, ...] = ()
+    supplied_kind: Literal["unknown", "measured", "template"] = "unknown"
+
+    @model_validator(mode="after")
+    def validate_montage(self):
+        if self.template is not None:
+            available = mne.channels.get_builtin_montages()
+            if self.template not in {
+                *available,
+                "auto",
+                "standard_1005",
+                "colin27_1005",
+            }:
+                raise ValueError(f"Unknown EEG template: {self.template!r}.")
+        if self.exclude_channels:
+            _names(self.exclude_channels)
+        return self
+
+
 class ERPComponentSettings(_Settings):
     """One EEG component and its ordered condition, channel and metric selections."""
 
@@ -465,12 +488,47 @@ def erp_metadata_paths(recording_path):
         if exact.is_file()
         else sorted(path.parent.glob(f'*_{stem.split("_")[-1]}_channels.tsv'))
     )
-    montages = sorted(path.parent.glob("*_montage.csv"))
+    exact_montage = path.with_name(stem + "_montage.csv")
+    montages = (
+        [exact_montage]
+        if exact_montage.is_file()
+        else sorted(path.parent.glob("*_montage.csv"))
+    )
+    # Match adjacent BIDS entities; do not choose an arbitrary coordinate space.
+    entities = dict(token.split("-", 1) for token in stem.split("_") if "-" in token)
+    electrodes = []
+    bids_error = None
+    for candidate in path.parent.glob("*_electrodes.tsv"):
+        tags = dict(
+            token.split("-", 1) for token in candidate.stem.split("_") if "-" in token
+        )
+        if all(
+            key == "space" or entities.get(key) == value for key, value in tags.items()
+        ):
+            electrodes.append((len(tags), candidate))
+    if electrodes:
+        specificity = max(n for n, _ in electrodes)
+        electrodes = [p for n, p in electrodes if n == specificity]
+        if len(electrodes) != 1:
+            bids_error = f"Ambiguous BIDS electrode sidecars for {path}."
+    electrode = electrodes[0] if len(electrodes) == 1 else None
+    coordsystem = (
+        electrode.with_name(
+            electrode.name.replace("_electrodes.tsv", "_coordsystem.json")
+        )
+        if electrode
+        else None
+    )
+    if coordsystem is not None and not coordsystem.is_file():
+        bids_error = f"Missing coordinate-system JSON for {electrode}."
     if len(channels) > 1 or len(montages) > 1:
         raise ValueError(f"Ambiguous EEG metadata sidecars for {path}.")
     return {
         "channels": channels[0] if channels else None,
         "montage": montages[0] if montages else None,
+        "electrodes": electrode,
+        "coordsystem": coordsystem,
+        "bids_error": bids_error,
     }
 
 
@@ -521,3 +579,174 @@ def _write_erp_atomic(path, writer):
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def prepare_erp_montage(
+    raw, metadata, settings=None, *, required_channels=(), notify=None
+):
+    """Apply supplied or explicitly selected template positions, in memory.
+
+    BIDS support covers adjacent electrode/coordinate-system pairs in CapTrak
+    head coordinates. Other frames require an explicit external transformation.
+    """
+    import json
+    import warnings
+    import pandas as pd
+
+    settings = ERPMontageSettings.model_validate(settings or {})
+    notify = notify or (
+        lambda message: warnings.warn(message, UserWarning, stacklevel=2)
+    )
+    eeg = [
+        raw.ch_names[p]
+        for p in mne.pick_types(raw.info, meg=False, eeg=True, exclude=[])
+    ]
+    excluded = [name for name in settings.exclude_channels if name in eeg]
+    if set(excluded) & set(required_channels):
+        raise ValueError(
+            "Montage exclusions include requested IDP channels: "
+            f"{sorted(set(excluded) & set(required_channels))}."
+        )
+    raw.info["bads"] = list(dict.fromkeys(raw.info["bads"] + excluded))
+    usable = [name for name in eeg if name not in raw.info["bads"]]
+    qc = dict(
+        source="none",
+        kind="unknown",
+        template=None,
+        aliases={},
+        excluded_channels=excluded,
+        matched_channels=[],
+        coordinate_frame=None,
+        units=None,
+    )
+
+    def valid_names():
+        return [
+            name
+            for name in usable
+            if np.isfinite(raw.info["chs"][raw.ch_names.index(name)]["loc"][:3]).all()
+            and np.linalg.norm(raw.info["chs"][raw.ch_names.index(name)]["loc"][:3]) > 0
+        ]
+
+    embedded = valid_names()
+    # Defer unused BIDS metadata errors until embedded positions are ruled out.
+    if not embedded and metadata.get("bids_error"):
+        raise ValueError(metadata["bids_error"])
+    if embedded:
+        if len(embedded) != len(usable):
+            raise ValueError(
+                "Embedded EEG positions are incomplete; supply a complete montage rather than mixing measured and template coordinates."
+            )
+        from mne._fiff.constants import FIFF
+
+        if any(
+            raw.info["chs"][raw.ch_names.index(name)]["coord_frame"]
+            != FIFF.FIFFV_COORD_HEAD
+            for name in embedded
+        ):
+            raise ValueError(
+                "Embedded EEG positions must be in head coordinates; transform them explicitly before loading."
+            )
+        qc.update(
+            source="embedded", kind=settings.supplied_kind, matched_channels=embedded
+        )
+    elif metadata.get("electrodes") is not None:
+        spec = json.loads(metadata["coordsystem"].read_text(encoding="utf-8-sig"))
+        if spec.get("EEGCoordinateSystem") != "CapTrak":
+            raise ValueError(
+                "BIDS EEG positions must use CapTrak head coordinates; transform other coordinate systems explicitly before loading."
+            )
+        scale = {"m": 1.0, "cm": 0.01, "mm": 0.001}.get(spec.get("EEGCoordinateUnits"))
+        if scale is None:
+            raise ValueError(
+                "Unsupported BIDS EEG coordinate units; expected m, cm or mm."
+            )
+        table = pd.read_csv(metadata["electrodes"], sep="\t", dtype={"name": str})
+        if (
+            not {"name", "x", "y", "z"}.issubset(table)
+            or table["name"].isna().any()
+            or table["name"].duplicated().any()
+        ):
+            raise ValueError("BIDS electrodes require unique name and x/y/z columns.")
+        coordinates = table[["x", "y", "z"]].to_numpy(dtype=float) * scale
+        raw.set_montage(
+            mne.channels.make_dig_montage(
+                ch_pos=dict(zip(table["name"], coordinates)), coord_frame="head"
+            ),
+            on_missing="ignore",
+        )
+        qc.update(
+            source="bids",
+            kind=settings.supplied_kind,
+            input_coordinate_system=spec["EEGCoordinateSystem"],
+            input_units=spec["EEGCoordinateUnits"],
+        )
+    elif metadata.get("montage") is not None:
+        table = pd.read_csv(metadata["montage"], dtype={"Channel": str})
+        if (
+            not {"Channel", "X", "Y", "Z"}.issubset(table)
+            or table.Channel.isna().any()
+            or table.Channel.duplicated().any()
+        ):
+            raise ValueError("Montage CSV requires unique Channel and X/Y/Z columns.")
+        coordinates = table[["X", "Y", "Z"]].to_numpy(dtype=float)
+        if not np.isfinite(coordinates).all():
+            raise ValueError(
+                "Montage coordinates must be finite head coordinates in metres."
+            )
+        raw.set_montage(
+            mne.channels.make_dig_montage(
+                ch_pos=dict(zip(table.Channel, coordinates)), coord_frame="head"
+            ),
+            on_missing="ignore",
+        )
+        qc.update(source="sidecar", kind=settings.supplied_kind)
+    elif settings.template is not None and usable:
+        template = settings.template
+        available = mne.channels.get_builtin_montages()
+        if template in {"auto", "standard_1005", "colin27_1005"}:
+            template = (
+                "colin27_1005" if "colin27_1005" in available else "standard_1005"
+            )
+        montage = mne.channels.make_standard_montage(template)
+        montage.apply_trans(mne.channels.compute_native_head_t(montage))
+        positions = montage.get_positions()["ch_pos"]
+        aliases = {"TP9 LEFT EAR": "TP9", "TP10 RIGHT EAR": "TP10"}
+        mapped = {name: aliases.get(name, name) for name in usable}
+        missing = [name for name, target in mapped.items() if target not in positions]
+        if missing:
+            raise ValueError(
+                f"Template {template!r} has no positions for {missing}; supply positions or explicitly list non-IDP channels in exclude_channels."
+            )
+        if len(set(mapped.values())) != len(mapped):
+            raise ValueError(
+                "Multiple EEG channels map to the same template electrode."
+            )
+        raw.set_montage(
+            mne.channels.make_dig_montage(
+                ch_pos={name: positions[target] for name, target in mapped.items()},
+                coord_frame="head",
+            ),
+            on_missing="ignore",
+        )
+        qc.update(
+            source="template",
+            kind="template",
+            template=template,
+            aliases={name: target for name, target in mapped.items() if name != target},
+        )
+    if qc["source"] != "none":
+        qc["matched_channels"] = valid_names()
+        missing = sorted(set(usable) - set(qc["matched_channels"]))
+        if missing:
+            raise ValueError(
+                f"Supplied EEG positions are incomplete or invalid for usable channels: {missing}."
+            )
+        qc.update(coordinate_frame="head", units="m")
+    if qc["kind"] == "template" or excluded:
+        notify(
+            f"EEG montage source={qc['source']}, kind={qc['kind']}, template={qc['template']}; "
+            f"{len(qc['matched_channels'])} usable EEG positions; excluded channels={excluded}."
+        )
+    qc["bad_channels"] = list(raw.info["bads"])
+    return qc

@@ -57,6 +57,11 @@ def process_erp_participant(info, *, participant_id, settings, output_root):
         participant_id,
         settings=settings,
         event_spec=info["erp_events"],
+        montage_settings=(
+            info.get("erp_montage")
+            if isinstance(info.get("erp_montage"), dict)
+            else None
+        ),
         output_root=output_root,
         line_freq=info.get("line_freq"),
     )

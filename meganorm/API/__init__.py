@@ -7,6 +7,7 @@ from meganorm.utils.erp import (
     ERPPreprocessing,
     ERPComponentSettings,
     ERPEventSpec,
+    ERPMontageSettings,
 )
 from .datasets import Dataset
 from .pipeline import Pipeline
@@ -20,6 +21,7 @@ __all__ = [
     "ERPPreprocessing",
     "ERPComponentSettings",
     "ERPEventSpec",
+    "ERPMontageSettings",
     "Dataset",
     "Pipeline",
     "NormativeModel",
