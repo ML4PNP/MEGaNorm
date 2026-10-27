@@ -130,7 +130,7 @@ def preprocess_erp(raw, config=None):
     Stimulus events must be resolved before this step by the caller; resampling
     is performed jointly with events by run_erp_pipeline().
     """
-    from .preprocess import find_ica_component
+    from .preprocess import find_ica_component, _fit_ica, _select_iclabel_components
 
     config = _validate_erp_config(config)
     mode, thresholds = resolve_ica_settings(config)
@@ -277,19 +277,15 @@ def preprocess_erp(raw, config=None):
                 f"ICA needs EEG rank >=2 and n_components <= rank; "
                 f"rank={rank}, requested={n_components}."
             )
-        ica = mne.preprocessing.ICA(
+        ica = _fit_ica(
+            fit_data,
             n_components=rank if n_components is None else n_components,
             method=config.ica_method,
             fit_params={"extended": True} if config.ica_method == "infomax" else None,
             random_state=config.random_state,
             max_iter=config.ica_max_iter,
-            verbose=False,
-        )
-        ica.fit(
-            fit_data,
             picks=eeg,
             reject_by_annotation=config.ica_if_reject_by_annotation,
-            verbose=False,
         )
         if ica.n_components_ > rank:
             raise ValueError("Fitted ICA components exceed the effective EEG rank.")
@@ -330,18 +326,20 @@ def preprocess_erp(raw, config=None):
                         "probability": float(probability),
                     }
                 )
-                if (
-                    label
-                    in {
+            excluded.update(
+                _select_iclabel_components(
+                    labels,
+                    {
                         "eye blink",
                         "heart beat",
                         "muscle artifact",
                         "channel noise",
                         "line noise",
-                    }
-                    and probability >= thresholds["label_probability"]
-                ):
-                    excluded.add(i)
+                    },
+                    thresholds["label_probability"],
+                    inclusive=True,
+                )
+            )
             qc["ica_method"] = "iclabel"
         ica.exclude = sorted(excluded)
         ica.apply(data, verbose=False)

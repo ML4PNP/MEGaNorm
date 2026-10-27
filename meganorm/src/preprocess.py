@@ -28,6 +28,45 @@ _FRAME = {1: "meg", 4: "head"}
 _REQUIRED = ("origin", "int_order", "ext_order", "frame")
 
 
+def _fit_ica(
+    data,
+    *,
+    n_components,
+    max_iter,
+    method,
+    random_state,
+    picks,
+    fit_params=None,
+    reject_by_annotation=True,
+):
+    """Fit ICA without changing the caller's signal or selecting exclusions.
+
+    Workflow owners supply picks, algorithm and fit-copy policy. The default
+    annotation policy is MNE's existing default used by resting-state routes.
+    """
+    ica = mne.preprocessing.ICA(
+        n_components=n_components,
+        max_iter=max_iter,
+        method=method,
+        random_state=random_state,
+        fit_params=fit_params,
+        verbose=False,
+    )
+    ica.fit(data, picks=picks, reject_by_annotation=reject_by_annotation, verbose=False)
+    return ica
+
+
+def _select_iclabel_components(labels, artifact_labels, threshold, *, inclusive):
+    """Select winning ICLabel classes using the workflow's threshold boundary."""
+    selected = []
+    for index, label in enumerate(labels["labels"]):
+        probability = labels["y_pred_proba"][index]
+        above = probability >= threshold if inclusive else probability > threshold
+        if label in artifact_labels and above:
+            selected.append(index)
+    return selected
+
+
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
     """
     Identifies independent components that their correlation with physiological
@@ -125,14 +164,14 @@ def auto_ica_with_corr(
     )
 
     # ICA initialization
-    ica = mne.preprocessing.ICA(
+    ica = _fit_ica(
+        data,
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
         random_state=random_state,
-        verbose=False,
+        picks=["eeg", "meg", "grad", "mag"],
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg", "grad", "mag"])
 
     # Detect components correlated with physiological signal
     bad_components = []
@@ -214,14 +253,14 @@ def auto_ica_with_mean(
         ecg=True,
     )
 
-    ica = mne.preprocessing.ICA(
+    ica = _fit_ica(
+        data,
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
         random_state=random_state,
-        verbose=False,
+        picks=["eeg", "meg", "mag", "grad"],
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg", "mag", "grad"])
 
     ecg_indices, ecg_scores = ica.find_bads_ecg(
         data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
@@ -272,31 +311,30 @@ def AutoIca_with_IcaLabel(
         physiological_noise_type = "eye blink"
 
     # fit ICA
-    ica = mne.preprocessing.ICA(
+    ica = _fit_ica(
+        data,
         n_components=n_components,
         max_iter=ica_max_iter,
         method="infomax",
         random_state=random_state,
+        picks=["eeg"],
         fit_params=dict(extended=True),
-        verbose=False,
     )
-    ica.fit(data, verbose=False, picks=["eeg"])
 
     # apply ICLabel
     labels = label_components(data, ica, method="iclabel")
 
     # Identify and exclude artifact components based on probability threshold of being an artifact
-    bad_components = []
-    for idx, label in enumerate(labels["labels"]):
-        probability = labels["y_pred_proba"][idx]
-        if label == physiological_noise_type and probability > iclabel_thr:
-            bad_components.append(idx)
-            logger.info(
-                "Component %d identified as %s with probability %.3f",
-                idx,
-                label,
-                probability,
-            )
+    bad_components = _select_iclabel_components(
+        labels, {physiological_noise_type}, iclabel_thr, inclusive=False
+    )
+    for idx in bad_components:
+        logger.info(
+            "Component %d identified as %s with probability %.3f",
+            idx,
+            labels["labels"][idx],
+            labels["y_pred_proba"][idx],
+        )
 
     logger.info(
         f"Number of bad Components identified by ICALabel: {len(bad_components)}"
