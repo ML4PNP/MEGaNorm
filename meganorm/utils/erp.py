@@ -108,56 +108,21 @@ class ERPComponentSettings(_Settings):
 
 
 def resolve_ica_settings(config):
-    """Resolve ERP-only legacy switches and thresholds without mutating settings."""
-    import math
-
+    """Return the validated canonical ICA mode and scientific QC thresholds."""
     mode = config.ica_mode
-    if mode not in ("auto", "physiological", "iclabel", "none"):
-        raise ValueError("ica_mode must be auto, physiological, iclabel or none.")
     if not config.apply_ica:
         if mode not in ("auto", "none"):
             raise ValueError("apply_ica=False conflicts with the explicit ica_mode.")
         mode = "none"
-    for value in (
-        config.ica_threshold,
-        config.ica_corr_threshold,
-        config.ica_label_threshold,
-    ):
-        if value is not None and (not math.isfinite(value) or not 0 < value <= 1):
-            raise ValueError("ICA thresholds must be finite values in (0, 1].")
-    n = config.ica_n_components
-    if n is not None and not (
-        type(n) is int and n >= 2 or type(n) is float and 0 < n < 1
-    ):
-        raise ValueError(
-            "ICA components must be an integer >=2 or a fraction in (0, 1)."
-        )
     return mode, {
-        "correlation": (
-            config.ica_threshold
-            if config.ica_corr_threshold is None
-            else config.ica_corr_threshold
-        ),
-        "label_probability": (
-            config.ica_threshold
-            if config.ica_label_threshold is None
-            else config.ica_label_threshold
-        ),
+        "correlation": config.auto_ica_corr_thr,
+        "label_probability": config.ica_label_threshold,
     }
 
 
 def resolve_ica_fit_settings(config, sfreq=None):
-    """Validate the ERP-only fit copy, independently of analysis resampling.
-
-    A missing ICA low-pass inherits the analysis low-pass for compatibility.
-    A missing fit sample rate leaves the copy at the recording's sample rate.
-    """
-    import math
-
-    high = config.h_freq if config.ica_h_freq is None else config.ica_h_freq
-    for value in (config.ica_h_freq, config.ica_resample_sfreq):
-        if value is not None and (not math.isfinite(value) or value <= 0):
-            raise ValueError("ICA fit frequencies must be positive and finite.")
+    """Validate the ICA fit copy independently of analysis resampling."""
+    high = config.ica_h_freq
     if resolve_ica_settings(config)[0] != "none":
         if high is not None and config.ica_l_freq >= high:
             raise ValueError("ica_l_freq must be below the ICA fit h_freq.")
@@ -168,86 +133,6 @@ def resolve_ica_fit_settings(config, sfreq=None):
             ):
                 raise ValueError("ICA fit cutoffs must be below the Nyquist frequency.")
     return high
-
-
-class ERPPreprocessing(_Settings):
-    """Settings matching the standalone ERPConfig, with early validation."""
-
-    tmin: float = -0.2
-    tmax: float = 0.8
-    baseline: tuple[float | None, float | None] | None = (None, 0.0)
-    l_freq: float | None = Field(default=0.1, gt=0)
-    h_freq: float | None = Field(default=35.0, gt=0)
-    ica_l_freq: float = Field(default=1.0, gt=0)
-    ica_h_freq: float | None = Field(default=None, gt=0)
-    ica_resample_sfreq: float | None = Field(default=None, gt=0)
-    reference: str | tuple[str, ...] | None = "average"
-    resample_sfreq: float | None = Field(default=None, gt=0)
-    apply_ica: bool = True
-    ica_n_components: StrictInt | float | None = None
-    ica_threshold: float = Field(default=0.8, gt=0, le=1)
-    random_state: StrictInt = Field(default=42, ge=0)
-    min_trials: StrictInt = Field(default=10, ge=1)
-    reject: dict[Literal["eeg"], float] | None = Field(
-        default_factory=lambda: {"eeg": 150e-6}
-    )
-    flat: dict[Literal["eeg"], float] | None = None
-
-    ica_mode: Literal["auto", "physiological", "iclabel", "none"] = "auto"
-    ica_corr_threshold: float | None = Field(default=None, gt=0, le=1)
-    ica_label_threshold: float | None = Field(default=None, gt=0, le=1)
-
-    @model_validator(mode="after")
-    def validate_preprocessing(self):
-        mode, _ = resolve_ica_settings(self)
-        if self.tmin >= self.tmax:
-            raise ValueError("tmin must be smaller than tmax.")
-        if self.baseline is not None:
-            lo, hi = self.baseline
-            lo = self.tmin if lo is None else lo
-            hi = self.tmax if hi is None else hi
-            if not self.tmin <= lo <= hi <= self.tmax:
-                raise ValueError("Baseline must lie within the epoch.")
-        if (
-            self.l_freq is not None
-            and self.h_freq is not None
-            and self.l_freq >= self.h_freq
-        ):
-            raise ValueError("l_freq must be below h_freq.")
-        resolve_ica_fit_settings(self)
-        n = self.ica_n_components
-        if n is not None and not (
-            type(n) is int and n > 0 or type(n) is float and 0 < n < 1
-        ):
-            raise ValueError(
-                "ICA components must be a positive integer or variance fraction in (0, 1)."
-            )
-        if isinstance(self.reference, str):
-            _name(self.reference)
-        elif self.reference is not None:
-            _names(self.reference)
-        for thresholds in (self.reject, self.flat):
-            if thresholds is not None and any(
-                value <= 0 for value in thresholds.values()
-            ):
-                raise ValueError("Rejection thresholds must be positive.")
-        if self.reject and self.flat and self.flat["eeg"] >= self.reject["eeg"]:
-            raise ValueError("Flat threshold must be below rejection threshold.")
-        if self.resample_sfreq is not None:
-            self.validate_sampling_rate(self.resample_sfreq, include_ica=False)
-        return self
-
-    def validate_sampling_rate(self, sfreq, *, include_ica=True):
-        """Validate filter limits against a recording or requested sample rate."""
-        import math
-
-        if not math.isfinite(sfreq) or sfreq <= 0:
-            raise ValueError("Sampling rate must be finite and positive.")
-        cutoffs = [self.l_freq, self.h_freq]
-        if include_ica:
-            resolve_ica_fit_settings(self, sfreq)
-        if any(value is not None and value >= sfreq / 2 for value in cutoffs):
-            raise ValueError("Filter cutoffs must be below the Nyquist frequency.")
 
 
 class ERPEventSpec(_Settings):
@@ -312,62 +197,29 @@ class ERPEventSpec(_Settings):
         )
 
 
-class ERPAutoRejectSettings(_Settings):
-    """Participant-level cross-validation choices for EEG epoch repair."""
+class _ERPTaskSettings(_Settings):
+    """Private ERP epoch and measurement schema; processing belongs to Config."""
 
-    cv: StrictInt = Field(default=5, ge=2)
-    n_interpolate: tuple[StrictInt, ...] | None = None
-    consensus: tuple[float, ...] = (0.2, 0.4, 0.6, 0.8, 1.0)
-
-    @model_validator(mode="after")
-    def validate_candidates(self):
-        if self.n_interpolate is not None and (
-            not self.n_interpolate
-            or min(self.n_interpolate) < 0
-            or len(set(self.n_interpolate)) != len(self.n_interpolate)
-        ):
-            raise ValueError("n_interpolate must contain unique nonnegative integers.")
-        if (
-            not self.consensus
-            or len(set(self.consensus)) != len(self.consensus)
-            or any(not 0 < value <= 1 for value in self.consensus)
-        ):
-            raise ValueError(
-                "consensus must contain unique finite fractions in (0, 1]."
-            )
-        return self
-
-
-def resolve_rejection_settings(mode, options):
-    """Validate the shared standalone/cohort epoch-rejection contract."""
-    if mode not in ("threshold", "autoreject"):
-        raise ValueError("rejection_mode must be threshold or autoreject.")
-    if mode == "threshold":
-        if options is not None:
-            raise ValueError("autoreject settings require rejection_mode='autoreject'.")
-        return None
-    return ERPAutoRejectSettings.model_validate({} if options is None else options)
-
-
-class ERPSettings(_Settings):
-    """ERP analysis definition independent of dataset trigger encodings."""
-
-    preprocessing: ERPPreprocessing = Field(default_factory=ERPPreprocessing)
-    components: dict[str, ERPComponentSettings]
-    rejection_mode: Literal["threshold", "autoreject"] = "threshold"
-    autoreject: ERPAutoRejectSettings | None = None
+    tmin: float = -0.2
+    tmax: float = 0.8
+    baseline: tuple[float | None, float | None] | None = (None, 0.0)
+    min_trials: StrictInt = Field(default=10, ge=1)
+    components: dict[str, ERPComponentSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_components(self):
-        resolve_rejection_settings(self.rejection_mode, self.autoreject)
-        _names(tuple(self.components))
+    def validate_task(self):
+        if self.tmin >= self.tmax:
+            raise ValueError("tmin must be smaller than tmax.")
+        if self.baseline is not None:
+            lo, hi = self.baseline
+            lo = self.tmin if lo is None else lo
+            hi = self.tmax if hi is None else hi
+            if not self.tmin <= lo <= hi <= self.tmax:
+                raise ValueError("Baseline must lie within the epoch.")
+        if self.components:
+            _names(tuple(self.components))
         for component in self.components.values():
-            if (
-                not self.preprocessing.tmin
-                <= component.window[0]
-                < component.window[1]
-                <= self.preprocessing.tmax
-            ):
+            if not self.tmin <= component.window[0] < component.window[1] <= self.tmax:
                 raise ValueError("Component windows must lie within the epoch.")
         return self
 
@@ -381,21 +233,6 @@ class ERPSettings(_Settings):
             raise ValueError(
                 f"ERP conditions missing from dataset events: {sorted(missing)}"
             )
-
-    def to_runtime(self):
-        """Convert validated definitions for the existing standalone ERP API."""
-        from meganorm.src.erp import ERPConfig, ERPComponent
-
-        return ERPConfig(
-            **self.preprocessing.model_dump(),
-            rejection_mode=self.rejection_mode,
-            autoreject=(
-                None if self.autoreject is None else self.autoreject.model_dump()
-            ),
-        ), {
-            name: ERPComponent(**component.model_dump())
-            for name, component in self.components.items()
-        }
 
 
 def require_rest_runner(config):

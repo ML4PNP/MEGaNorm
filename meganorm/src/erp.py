@@ -4,7 +4,7 @@ Time settings are in seconds. EEG amplitudes are exported in microvolts, magneto
 in tesla, gradiometer amplitudes in tesla/metre, and latencies in milliseconds.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Mapping
 
 import mne
@@ -15,7 +15,6 @@ from meganorm.utils.erp import (
     resolve_erp_events,
     resolve_ica_settings,
     resolve_ica_fit_settings,
-    resolve_rejection_settings,
 )
 
 
@@ -74,79 +73,27 @@ class ERPComponent:
             raise ValueError("Unknown ERP metric.")
 
 
-@dataclass(frozen=True)
-class ERPConfig:
-    """Settings for the automatic EEG raw-data pipeline.
+def _validate_erp_config(config):
+    """Use the same canonical validation for standalone, CLI and cohort calls."""
+    from meganorm.utils.IO import Config
 
-    Filters are configurable protocol choices, not universal ERP defaults.
-    ICA uses infomax on a separately filtered copy with the same reference and
-    channels. ica_mode selects auto, physiological, iclabel or none. Auto uses
-    usable EOG/ECG channels, otherwise ICLabel with validated prerequisites.
-    The legacy ica_threshold supplies either unset mode-specific threshold.
-    Rejection uses MNE peak-to-peak thresholds in SI units plus BAD annotations.
-    Use ica_mode="none" (or legacy apply_ica=False) for already-clean data.
-    A disabled ICA step is recorded explicitly in preprocessing QC.
-    """
+    if config is None:
+        config = Config(analysis_type="erp", which_sensor="eeg", erp={})
+    else:
+        config = Config.model_validate(
+            config.model_dump() if isinstance(config, Config) else config
+        )
+    if config.analysis_type != "erp":
+        raise ValueError("ERP processing requires analysis_type='erp'.")
+    return config
 
-    tmin: float = -0.2
-    tmax: float = 0.8
-    baseline: tuple[float | None, float | None] | None = (None, 0.0)
-    l_freq: float | None = 0.1
-    h_freq: float | None = 35.0
-    ica_l_freq: float = 1.0
-    ica_h_freq: float | None = None
-    ica_resample_sfreq: float | None = None
-    reference: str | tuple[str, ...] | None = "average"
-    resample_sfreq: float | None = None
-    apply_ica: bool = True
-    ica_n_components: int | float | None = None
-    ica_threshold: float = 0.8
-    random_state: int = 42
-    min_trials: int = 10
-    reject: dict[str, float] | None = field(default_factory=lambda: {"eeg": 150e-6})
-    flat: dict[str, float] | None = None
 
-    ica_mode: str = "auto"
-    ica_corr_threshold: float | None = None
-    ica_label_threshold: float | None = None
-    rejection_mode: str = "threshold"
-    autoreject: dict | None = None
-
-    def __post_init__(self):
-        mode, _ = resolve_ica_settings(self)
-        resolve_rejection_settings(self.rejection_mode, self.autoreject)
-        _window((self.tmin, self.tmax))
-        if self.baseline is not None:
-            if len(self.baseline) != 2:
-                raise ValueError("baseline must contain two times.")
-            lo = self.tmin if self.baseline[0] is None else self.baseline[0]
-            hi = self.tmax if self.baseline[1] is None else self.baseline[1]
-            if (
-                not np.all(np.isfinite([lo, hi]))
-                or not self.tmin <= lo <= hi <= self.tmax
-            ):
-                raise ValueError("baseline must lie inside the epoch.")
-        for value in (self.l_freq, self.h_freq, self.resample_sfreq, self.ica_l_freq):
-            if value is not None and (not np.isfinite(value) or value <= 0):
-                raise ValueError(
-                    "Filter and sampling frequencies must be positive and finite."
-                )
-        if self.h_freq is not None:
-            if self.l_freq is not None and self.l_freq >= self.h_freq:
-                raise ValueError("l_freq must be below h_freq.")
-        resolve_ica_fit_settings(self)
-        if not isinstance(self.min_trials, int) or self.min_trials < 1:
-            raise ValueError("min_trials must be a positive integer.")
-        if not np.isfinite(self.ica_threshold) or not 0 < self.ica_threshold <= 1:
-            raise ValueError("ica_threshold must be in (0, 1].")
-        for thresholds in (self.reject, self.flat):
-            if thresholds is not None and any(
-                key != "eeg" or not np.isfinite(value) or value <= 0
-                for key, value in thresholds.items()
-            ):
-                raise ValueError(
-                    "EEG rejection thresholds must be positive, finite EEG values."
-                )
+def _erp_components(config):
+    """Materialize measurement objects from canonical task definitions."""
+    return {
+        name: ERPComponent(**component.model_dump())
+        for name, component in config.erp.components.items()
+    }
 
 
 def _validate_events(raw, events, event_id):
@@ -185,7 +132,7 @@ def preprocess_erp(raw, config=None):
     """
     from .preprocess import find_ica_component
 
-    config = config or ERPConfig()
+    config = _validate_erp_config(config)
     mode, thresholds = resolve_ica_settings(config)
     fit_h_freq = resolve_ica_fit_settings(config, raw.info["sfreq"])
     data = raw.copy().load_data()
@@ -198,16 +145,20 @@ def preprocess_erp(raw, config=None):
         raise ValueError(
             "Nonfinite EEG samples: repair or annotate/handle these before ERP processing."
         )
-    if config.reference is not None:
+    if config.rereference_method is not None:
         reference = (
-            list(config.reference)
-            if isinstance(config.reference, tuple)
-            else config.reference
+            list(config.rereference_method)
+            if isinstance(config.rereference_method, tuple)
+            else config.rereference_method
         )
         data.set_eeg_reference(reference, projection=False, verbose=False)
     fit_data = data.copy() if mode != "none" else None
-    if config.l_freq is not None or config.h_freq is not None:
-        data.filter(config.l_freq, config.h_freq, picks=eeg, verbose=False)
+    if config.digital_filter and (
+        config.cutoffFreqLow is not None or config.cutoffFreqHigh is not None
+    ):
+        data.filter(
+            config.cutoffFreqLow, config.cutoffFreqHigh, picks=eeg, verbose=False
+        )
     qc = {
         "ica_applied": False,
         "ica_excluded": [],
@@ -223,12 +174,13 @@ def preprocess_erp(raw, config=None):
         "ica_rank_estimated": None,
         "ica_fit_sfreq": None,
         "ica_n_components": None,
-        "ica_reference": config.reference,
+        "ica_reference": config.rereference_method,
         "ica_fit_filter": None,
         "bad_channel_detection": "not_performed",
         "bad_channels": list(data.info["bads"]),
     }
     if mode != "none":
+        annotation_selection = "omit" if config.ica_if_reject_by_annotation else None
         # Auxiliary quality and correlations use the same annotation-retained
         # samples as ICA fitting. Do not filter nonfinite auxiliary channels.
         auxiliary = mne.pick_types(
@@ -237,7 +189,9 @@ def preprocess_erp(raw, config=None):
         usable = []
         for pick in auxiliary:
             name = fit_data.ch_names[pick]
-            signal = fit_data.get_data(picks=[pick], reject_by_annotation="omit")[0]
+            signal = fit_data.get_data(
+                picks=[pick], reject_by_annotation=annotation_selection
+            )[0]
             if name in fit_data.info["bads"]:
                 status = "marked_bad"
             elif len(signal) < 2:
@@ -274,9 +228,14 @@ def preprocess_erp(raw, config=None):
                     "ICLabel requires finite EEG sensor locations for every "
                     f"usable EEG channel; auxiliary quality: {qc['ica_auxiliary']}."
                 )
-            if config.reference != "average" or config.ica_l_freq < 1:
+            if config.rereference_method != "average" or config.ica_l_freq < 1:
                 raise ValueError(
                     "ICLabel requires reference='average' and ica_l_freq >= 1 Hz."
+                )
+            if config.ica_method != "infomax":
+                qc["ica_warnings"].append(
+                    "ICLabel was trained using extended Infomax ICA; the configured "
+                    "ICA method differs and classification performance may be affected."
                 )
             if config.ica_l_freq != 1 or fit_h_freq != 100:
                 qc["ica_warnings"].append(
@@ -289,7 +248,7 @@ def preprocess_erp(raw, config=None):
             if mode == "physiological":
                 for pick in usable:
                     signal = fit_data.get_data(
-                        picks=[pick], reject_by_annotation="omit"
+                        picks=[pick], reject_by_annotation=annotation_selection
                     )[0]
                     if not np.isfinite(signal).all() or np.ptp(signal) == 0:
                         raise ValueError(
@@ -309,10 +268,10 @@ def preprocess_erp(raw, config=None):
         qc["ica_rank_estimated"] = rank
         # Average referencing imposes an exact dependency on the usable EEG
         # channels, even when numerical rank estimation misses that dependency.
-        if config.reference == "average":
+        if config.rereference_method == "average":
             rank = min(rank, len(eeg) - 1)
         qc["ica_rank"] = rank
-        n_components = config.ica_n_components
+        n_components = config.ica_n_component
         if rank < 2 or (type(n_components) is int and n_components > rank):
             raise ValueError(
                 f"ICA needs EEG rank >=2 and n_components <= rank; "
@@ -320,13 +279,18 @@ def preprocess_erp(raw, config=None):
             )
         ica = mne.preprocessing.ICA(
             n_components=rank if n_components is None else n_components,
-            method="infomax",
-            fit_params={"extended": True},
+            method=config.ica_method,
+            fit_params={"extended": True} if config.ica_method == "infomax" else None,
             random_state=config.random_state,
-            max_iter=800,
+            max_iter=config.ica_max_iter,
             verbose=False,
         )
-        ica.fit(fit_data, picks=eeg, reject_by_annotation=True, verbose=False)
+        ica.fit(
+            fit_data,
+            picks=eeg,
+            reject_by_annotation=config.ica_if_reject_by_annotation,
+            verbose=False,
+        )
         if ica.n_components_ > rank:
             raise ValueError("Fitted ICA components exceed the effective EEG rank.")
         qc["ica_n_components"] = int(ica.n_components_)
@@ -334,7 +298,7 @@ def preprocess_erp(raw, config=None):
         if mode == "physiological":
             # The shared helper chooses the strongest correlated component per
             # auxiliary channel. Preserve that established rest/ERP behavior.
-            retained = fit_data.get_data(reject_by_annotation="omit")
+            retained = fit_data.get_data(reject_by_annotation=annotation_selection)
             correlation_data = mne.io.RawArray(
                 retained, fit_data.info.copy(), verbose=False
             )
@@ -392,12 +356,24 @@ def reject_erp_epochs(epochs, config=None):
     AutoReject replaces fixed amplitude rejection; flat thresholds still apply
     before fitting. Inputs already dropped by a caller cannot be recovered.
     """
-    config = config or ERPConfig()
-    options = resolve_rejection_settings(config.rejection_mode, config.autoreject)
+    config = _validate_erp_config(config)
+    use_autoreject = config.bad_segment_removal_method == "autoreject"
+    reject = (
+        {"eeg": config.eeg_var_threshold}
+        if config.eeg_var_threshold is not None
+        else None
+    )
+    flat = (
+        {"eeg": config.eeg_flat_threshold}
+        if config.eeg_flat_threshold is not None
+        else None
+    )
     cleaned = epochs.copy().load_data()
     n_input = len(cleaned)
     report = dict(
-        mode=config.rejection_mode,
+        mode={None: "none", "fixed_thr": "threshold", "autoreject": "autoreject"}[
+            config.bad_segment_removal_method
+        ],
         n_input_epochs=n_input,
         n_retained_epochs=n_input,
         n_prefit_flat_rejected=0,
@@ -406,16 +382,20 @@ def reject_erp_epochs(epochs, config=None):
         n_interpolated_channel_epochs=0,
         trials=[],
     )
-    if options is None:
-        cleaned.drop_bad(reject=config.reject, flat=config.flat, verbose=False)
+    if not use_autoreject:
+        cleaned.drop_bad(
+            reject=reject if config.bad_segment_removal_method == "fixed_thr" else None,
+            flat=flat if config.bad_segment_removal_method is not None else None,
+            verbose=False,
+        )
         report["n_retained_epochs"] = len(cleaned)
         return cleaned, report
 
     # Preserve annotations/edge exclusions made by Epochs construction. Do not
     # apply the fixed amplitude cutoff before a repair-capable algorithm.
-    cleaned.drop_bad(reject=None, flat=config.flat, verbose=False)
+    cleaned.drop_bad(reject=None, flat=flat, verbose=False)
     report["n_prefit_flat_rejected"] = n_input - len(cleaned)
-    minimum = max(5, options.cv)
+    minimum = max(5, config.autoreject_cv)
     if len(cleaned) < minimum:
         raise ValueError(
             f"AutoReject requires at least {minimum} retained epochs "
@@ -438,8 +418,8 @@ def reject_erp_epochs(epochs, config=None):
         )
     candidates = (
         tuple(value for value in (1, 2, 4) if value < len(picks))
-        if options.n_interpolate is None
-        else options.n_interpolate
+        if config.autoreject_n_interpolates is None
+        else config.autoreject_n_interpolates
     )
     if any(value >= len(picks) for value in candidates):
         raise ValueError(
@@ -447,7 +427,7 @@ def reject_erp_epochs(epochs, config=None):
         )
     if not any(
         fraction * len(picks) > count
-        for fraction in options.consensus
+        for fraction in config.autoreject_consensus_percs
         for count in candidates
     ):
         raise ValueError(
@@ -457,8 +437,9 @@ def reject_erp_epochs(epochs, config=None):
 
     model = AutoReject(
         n_interpolate=list(candidates),
-        consensus=list(options.consensus),
-        cv=options.cv,
+        consensus=list(config.autoreject_consensus_percs),
+        cv=config.autoreject_cv,
+        thresh_method=config.autoreject_thresh_method,
         random_state=config.random_state,
         picks=picks,
         n_jobs=1,
@@ -504,10 +485,11 @@ def reject_erp_epochs(epochs, config=None):
         n_interpolated_channel_epochs=sum(
             len(t["interpolated_channels"]) for t in report["trials"]
         ),
-        cv=options.cv,
+        cv=config.autoreject_cv,
+        thresh_method=config.autoreject_thresh_method,
         random_state=config.random_state,
         n_interpolate_candidates=list(candidates),
-        consensus_candidates=list(options.consensus),
+        consensus_candidates=list(config.autoreject_consensus_percs),
         n_interpolate=int(model.n_interpolate_["eeg"]),
         consensus=float(model.consensus_["eeg"]),
         thresholds={name: float(value) for name, value in model.threshes_.items()},
@@ -529,7 +511,7 @@ def epoch_erp(raw, events, event_id, config=None, *, return_qc=False):
     Return Epochs by default, or (Epochs, rejection QC) with return_qc=True.
     Missing conditions remain in the event mapping for downstream IDP reporting.
     """
-    config = config or ERPConfig()
+    config = _validate_erp_config(config)
     events = _validate_events(raw, events, event_id)
     if not np.isin(events[:, 2], list(event_id.values())).any():
         raise ValueError("No requested condition events were found.")
@@ -537,9 +519,9 @@ def epoch_erp(raw, events, event_id, config=None, *, return_qc=False):
         raw,
         events,
         event_id=dict(event_id),
-        tmin=config.tmin,
-        tmax=config.tmax,
-        baseline=config.baseline,
+        tmin=config.erp.tmin,
+        tmax=config.erp.tmax,
+        baseline=config.erp.baseline,
         picks="eeg",
         reject=None,
         flat=None,
@@ -686,7 +668,7 @@ class ERPResult:
 def extract_recording(
     recording_path,
     subject_id,
-    components,
+    components=None,
     *,
     annotation_map=None,
     event_spec=None,
@@ -717,8 +699,8 @@ def extract_recording(
     event_spec : ERPEventSpec or mapping, optional
         Dataset annotation or stimulus specification. Mutually exclusive with
         annotation_map and explicit events/event_id.
-    config : ERPConfig, optional
-        ERP preprocessing and epoch settings. Defaults to ERPConfig().
+    config : Config, optional
+        Canonical configuration with analysis_type="erp". Defaults to ERP mode defaults.
 
     Returns
     -------
@@ -741,7 +723,7 @@ def extract_recording(
 def run_erp_pipeline(
     raw,
     subject_id,
-    components,
+    components=None,
     *,
     events=None,
     event_id=None,
@@ -756,7 +738,9 @@ def run_erp_pipeline(
     before cleaning; optional resampling updates Raw and events together.
     Save result.features using to_csv() to retain MEGaNorm's subject-row format.
     """
-    config = config or ERPConfig()
+    config = _validate_erp_config(config)
+    if components is None:
+        components = _erp_components(config)
     if event_spec is not None:
         if annotation_map is not None or events is not None or event_id is not None:
             raise ValueError(
@@ -775,8 +759,8 @@ def run_erp_pipeline(
     events = events[np.isin(events[:, 2], list(event_id.values()))]
     if not len(events):
         raise ValueError("No requested condition events were found.")
-    if config.resample_sfreq is not None:
-        ratio = config.resample_sfreq / raw.info["sfreq"]
+    if config.resampling_rate is not None:
+        ratio = config.resampling_rate / raw.info["sfreq"]
         projected = np.round(events[:, 0] * ratio).astype(int)
         if np.any(np.diff(projected) <= 0):
             raise ValueError(
@@ -788,7 +772,10 @@ def run_erp_pipeline(
         _name(name)
         if not isinstance(component, ERPComponent):
             raise TypeError("Each component must be an ERPComponent.")
-        if component.window[0] < config.tmin or component.window[1] > config.tmax:
+        if (
+            component.window[0] < config.erp.tmin
+            or component.window[1] > config.erp.tmax
+        ):
             raise ValueError(f"Window for {name} lies outside the epoch.")
         if set(component.conditions) - set(event_id):
             raise ValueError(
@@ -799,15 +786,17 @@ def run_erp_pipeline(
                 "Raw pipeline supports EEG; use extract_erp_idps for prepared MEG evokeds."
             )
     cleaned, preprocessing_qc = preprocess_erp(raw, config)
-    if config.resample_sfreq is not None:
+    if config.resampling_rate is not None:
         cleaned, events = cleaned.resample(
-            config.resample_sfreq, events=events, verbose=False
+            config.resampling_rate, events=events, verbose=False
         )
     events = _validate_events(cleaned, events, event_id)
     epochs, rejection_qc = epoch_erp(cleaned, events, event_id, config, return_qc=True)
     preprocessing_qc["epoch_rejection"] = rejection_qc
     evokeds = compute_evokeds(epochs)
-    features, qc = extract_erp_idps(subject_id, evokeds, components, config.min_trials)
+    features, qc = extract_erp_idps(
+        subject_id, evokeds, components, config.erp.min_trials
+    )
     counts = {
         condition: int(np.sum(events[:, 2] == code))
         for condition, code in event_id.items()
@@ -892,7 +881,7 @@ def process_erp_recording(
     recording_path,
     subject_id,
     *,
-    settings,
+    config,
     event_spec,
     output_root,
     line_freq=None,
@@ -910,7 +899,6 @@ def process_erp_recording(
     from pathlib import Path
     import traceback
     from meganorm.utils.erp import (
-        ERPSettings,
         prepare_erp_montage,
         erp_metadata_paths,
         validate_erp_subject_id,
@@ -919,9 +907,8 @@ def process_erp_recording(
     )
 
     validate_erp_subject_id(subject_id)
-    settings = ERPSettings.model_validate(
-        settings.model_dump() if isinstance(settings, ERPSettings) else settings
-    )
+    config = _validate_erp_config(config)
+    settings = config.erp
     event_spec = ERPEventSpec.model_validate(
         event_spec.model_dump() if isinstance(event_spec, ERPEventSpec) else event_spec
     )
@@ -980,8 +967,8 @@ def process_erp_recording(
             write_erp_json(directory / "montage.json", montage_qc)
             if raw.info.get("line_freq") is None and line_freq is not None:
                 raw.info["line_freq"] = float(line_freq)
-            settings.preprocessing.validate_sampling_rate(raw.info["sfreq"])
-            config, components = settings.to_runtime()
+            config.validate_sampling_rate(raw.info["sfreq"])
+            components = _erp_components(config)
             result = run_erp_pipeline(
                 raw, subject_id, components, event_spec=event_spec, config=config
             )
@@ -997,7 +984,7 @@ def process_erp_recording(
             dict(
                 recording=str(path),
                 montage=montage_qc,
-                settings=settings.model_dump(mode="json"),
+                settings=config.model_dump(mode="json"),
                 event_spec=event_spec.model_dump(mode="json"),
                 metadata={k: str(v) if v else None for k, v in metadata.items()},
                 line_freq=line_freq,

@@ -327,7 +327,7 @@ def main(args):
         result = process_erp_recording(
             path,
             args.subject,
-            settings=configs.erp,
+            config=configs,
             event_spec=spec,
             output_root=root,
             line_freq=(

@@ -284,16 +284,31 @@ ERP analysis settings
 ---------------------
 
 ``Config.analysis_type`` defaults to ``"rest"`` for existing configurations.
-For ERP analysis set ``analysis_type="erp"``, ``which_sensor="eeg"`` and
-provide ``erp=ERPSettings(...)``. Source localization is not supported in this
-mode. ``ERPSettings`` contains ``preprocessing``, named ``components`` and
-``rejection_mode`` (``"threshold"`` by default, or ``"autoreject"``). Component windows must lie inside the epoch;
-condition, channel and metric selections must be nonempty and unique.
+For ERP analysis set ``analysis_type="erp"`` and ``which_sensor="eeg"``.
+Use the same top-level preprocessing fields as resting-state analysis:
+``cutoffFreqLow``, ``cutoffFreqHigh``, ``resampling_rate``,
+``rereference_method``, ``apply_ica``, ``ica_method`` and rejection options.
+``erp`` accepts a dictionary containing only ``tmin``, ``tmax``, ``baseline``,
+``min_trials`` and named ``components``. Component windows must lie inside the
+epoch; condition, channel and metric selections must be nonempty and unique.
+Source localization is not supported for ERP.
+
+Defaults depend on the analysis type. Existing resting-state defaults are
+unchanged. ERP defaults are a 0.1–35 Hz analysis filter, no resampling, average
+reference, Infomax ICA, and a 150 µV peak-to-peak rejection threshold with no
+flatness threshold. Explicit shared settings override these defaults.
+``Config.save()`` records resolved values for reproducibility.
+``digital_filter=False`` disables analysis filtering;
+``bad_segment_removal_method=None`` disables amplitude and flatness rejection.
+ERP notch filtering, automatic continuous bad-channel detection, and ICA elbow
+selection are not implemented: ``notch_filter``, ``drop_noisy_flat_channel``
+and ``apply_ica_elbow_detection`` default to ``False`` in ERP and reject an
+explicit ``True``. Existing resting-state behavior for these fields is unchanged.
 
 Each ``Dataset`` can hold an ``ERPEventSpec`` as ``erp_events``. Annotation mode
 maps logical condition names to exact annotation descriptions through
 ``annotation_map``. Stimulus mode uses ``event_id`` and ``stim_channel``.
-``ERPSettings.validate_events(spec)`` checks that a dataset declares every
+``config.erp.validate_events(spec)`` checks that a dataset declares every
 condition requested by the components. Both settings groups support JSON
 serialization. Dataset discovery preserves the event specification in the
 manifest without resolving or processing events.
@@ -315,18 +330,17 @@ must be in metres in the head frame. Optional template fallback is configured
 per dataset as described below.
 Legacy dataset options and cohort raw/epoch saving are not supported for ERP;
 use the standalone API when you need access to epochs and evoked responses.
-Only nested ERP preprocessing settings control ERP cleaning; resting-state
-filtering, segmentation and spectral settings do not apply.
-
-For standalone use, ``ERPSettings.to_runtime()`` returns an ``ERPConfig`` and
-component mapping. Pass ``event_spec=dataset.erp_events`` to the standalone ERP
-API; explicit events and annotation maps remain supported. See the repository's
-``erp_quickstart.md`` for local cohort and CLI examples.
+The same ``Config`` is passed to standalone processing and the cohort pipeline.
+Standalone extraction can read component definitions directly from
+``config.erp.components``; no runtime configuration conversion is required.
+Pass ``event_spec=dataset.erp_events`` to the standalone ERP API; explicit
+events and annotation maps remain supported. See :doc:`erp_quickstart` for
+local cohort and CLI examples.
 
 ERP ICA strategy
 ~~~~~~~~~~~~~~~~
 
-Set ``erp.preprocessing.ica_mode`` to one of:
+Set ``ica_mode`` to one of:
 
 * ``"auto"`` (default): use usable EOG/ECG channels; otherwise use ICLabel.
   Missing ICLabel prerequisites fail the participant; cleaning is never silently
@@ -338,44 +352,46 @@ Set ``erp.preprocessing.ica_mode`` to one of:
 * ``"none"``: explicitly disable ICA; referencing, filtering and epoch rejection
   still run.
 
-``ica_corr_threshold`` and ``ica_label_threshold`` independently control
-correlation and winning-label probability (both in ``(0, 1]``). An unset value
-inherits the legacy ``ica_threshold`` (default ``0.8``). Thus existing
-configurations retain their thresholds. For example::
+``auto_ica_corr_thr`` and ``ica_label_threshold`` independently control
+physiological correlation and winning-label probability. Both default to 0.8
+in ERP mode. For example::
 
-    ERPPreprocessing(
-        ica_mode="auto",
-        ica_corr_threshold=0.8,
-        ica_label_threshold=0.9,
+    Config(
+        analysis_type="erp", which_sensor="eeg",
+        ica_mode="auto", auto_ica_corr_thr=0.8, ica_label_threshold=0.9,
     )
 
-Legacy ``apply_ica=False`` disables ``auto``; combining it with an explicit
+``apply_ica=False`` disables ``auto``; combining it with an explicit
 ``physiological`` or ``iclabel`` request is an error. ``ica_mode="none"`` also
 works with the default ``apply_ica=True``.
 
 Auxiliary channels marked bad, flat, nonfinite, or with insufficient samples
-outside BAD annotations are excluded from strategy selection. Correlations use
-those same retained samples. ICA is fitted on a separately filtered EEG copy,
+are excluded from strategy selection. By default, BAD-annotated samples are
+excluded from ICA fitting, auxiliary checks, and correlation scoring. Set
+``ica_if_reject_by_annotation=False`` to include those samples consistently in
+all three operations. Epoch rejection still respects BAD annotations. ICA is fitted on a separately filtered EEG copy,
 with the same channels and reference as the data being cleaned. The fitted EEG
 rank must be at least two; explicit component counts cannot exceed that rank.
 The default component count uses that rank. Variance fractions remain supported.
 
-ICLabel requires ``reference="average"``, ``ica_l_freq >= 1`` Hz and finite,
+ICLabel requires ``rereference_method="average"``, ``ica_l_freq >= 1`` Hz and finite,
 nonzero sensor locations for every usable EEG channel. Its training used a
 1–100 Hz filter. Other fit filter settings, including the current 1–35 Hz
 default, generate a QC warning because classification performance may differ.
-No filter is silently changed to meet the training conditions.
+No filter is silently changed to meet the training conditions. ERP defaults to
+extended Infomax (``ica_method="infomax"``); an explicitly selected alternative
+method is honored and adds a QC warning when ICLabel is used.
 
 Set ``ica_h_freq`` and ``ica_resample_sfreq`` to control only the ICA fit
-copy. For example, ``l_freq=0.1, h_freq=30, resample_sfreq=250,
+copy. For example, ``cutoffFreqLow=0.1, cutoffFreqHigh=30, resampling_rate=250,
 ica_l_freq=1, ica_h_freq=100, ica_resample_sfreq=250`` fits ICA on 1–100 Hz
 data while preserving the 0.1–30 Hz ERP analysis filter. Both fit cutoffs must
 be below the original and requested ICA-fit Nyquist frequencies. Analysis
 resampling still updates the recording and events together after ICA cleaning.
 
-By default, ``ica_h_freq=None`` inherits ``h_freq`` and
+By default, ``ica_h_freq=None`` inherits ``cutoffFreqHigh`` and
 ``ica_resample_sfreq=None`` keeps the original recording sample rate for
-fitting. Existing configurations therefore retain their fit settings.
+fitting. The ICA fit filter remains distinct from the analysis filter.
 If fit resampling makes a usable EOG/ECG signal nonfinite or flat, processing
 stops with an error; repair that signal or retain the original fit sample rate.
 Average-referenced fits are bounded by the number of usable EEG channels minus
@@ -393,16 +409,16 @@ list; this does not establish that the recording is artifact-free.
 ERP epoch rejection
 ~~~~~~~~~~~~~~~~~~~
 
-``erp.rejection_mode="threshold"`` remains the default and uses the existing
+``bad_segment_removal_method="fixed_thr"`` remains the default and uses the existing
 MNE peak-to-peak/flat rejection. Set ``"autoreject"`` to learn EEG channel
 thresholds and cross-validate interpolation/rejection choices on each
 participant's pooled conditions. The existing event-locked epochs, baseline,
 metadata and original trial indices are preserved. Only retained trials are
 averaged for IDPs.
 
-AutoReject replaces ``erp.preprocessing.reject``; it does not first discard
+AutoReject replaces ``eeg_var_threshold``; it does not first discard
 trials using that fixed amplitude cutoff. Recording-edge loss, BAD annotation
-rejection and any ``erp.preprocessing.flat`` threshold still apply before
+rejection and any ``eeg_flat_threshold`` threshold still apply before
 fitting. Fewer than ``max(5, cv)`` retained epochs, fewer than four usable EEG
 channels, nonfinite EEG samples or missing/duplicate sensor locations cause an
 error. Explicit candidates that interpolate all usable channels or have no
@@ -410,19 +426,20 @@ valid consensus/interpolation combination also fail. These checks are minimum
 computational requirements; real-data validation remains necessary. There is no
 fallback to another method when fitting fails.
 
-Optional ``erp.autoreject`` settings (also exported as ``ERPAutoRejectSettings``):
+AutoReject uses the existing top-level configuration fields:
 
-* ``cv``: cross-validation folds, integer >= 2; default 5.
-* ``n_interpolate``: unique nonnegative integer candidates. Each must be below
-  the number of usable EEG channels. By default, use 1, 2 and 4, omitting values
-  at or above that channel count. Zero allows rejection without interpolation.
-* ``consensus``: unique fractions in (0, 1]; default 0.2, 0.4, 0.6, 0.8, 1.0.
+* ``autoreject_cv``: cross-validation folds, integer >= 2; ERP default 5.
+* ``autoreject_n_interpolates``: unique nonnegative integer candidates. Each
+  must be below the number of usable EEG channels. ERP default ``None`` uses
+  1, 2 and 4, omitting values at or above that channel count. Zero allows
+  rejection without interpolation.
+* ``autoreject_consensus_percs``: unique fractions in (0, 1]; ERP default
+  0.2, 0.4, 0.6, 0.8, 1.0.
+* ``autoreject_thresh_method``: the threshold estimator.
 
-``erp.preprocessing.random_state`` supplies the seed. Fitting uses one worker.
-Only unmarked EEG channels participate in fitting/interpolation; pre-existing
-bad channels remain marked. AutoReject options supplied with threshold mode
-are rejected as conflicting settings. The standalone ``ERPConfig`` accepts the
-same ``rejection_mode`` and ``autoreject`` dictionary.
+``random_state`` supplies the seed. Fitting uses one worker. Only unmarked EEG
+channels participate in fitting/interpolation; pre-existing bad channels remain
+marked. These options have the same names in standalone and cohort processing.
 
 ``preprocessing.json`` contains ``epoch_rejection`` with resolved candidates,
 selected values, learned channel thresholds and per-trial decisions. Each trial

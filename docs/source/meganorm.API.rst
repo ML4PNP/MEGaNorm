@@ -7,7 +7,8 @@ are also available at the package root. Local extraction is sequential and
 continues after participant failures by default; use ``on_error="raise"`` to
 stop at the first processing failure. See :doc:`getting_started` for
 multi-dataset examples, result interpretation, and rerun cleanup behavior.
-See :doc:`configuration` for processing settings and JSON configuration files.
+See :doc:`configuration` for processing settings and JSON configuration files,
+and :doc:`erp_quickstart` for EEG ERP extraction.
 
 The local API and the SLURM runner share the processing configuration. Use the
 local API for sequential cohort processing; use the cluster notebook for the

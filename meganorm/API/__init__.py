@@ -2,9 +2,6 @@
 
 from meganorm.utils.IO import Config
 from meganorm.utils.erp import (
-    ERPSettings,
-    ERPAutoRejectSettings,
-    ERPPreprocessing,
     ERPComponentSettings,
     ERPEventSpec,
     ERPMontageSettings,
@@ -16,9 +13,6 @@ from .results import FeatureDataset, NormativeResults
 
 __all__ = [
     "Config",
-    "ERPSettings",
-    "ERPAutoRejectSettings",
-    "ERPPreprocessing",
     "ERPComponentSettings",
     "ERPEventSpec",
     "ERPMontageSettings",

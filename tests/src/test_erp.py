@@ -6,14 +6,11 @@ import tempfile
 from pathlib import Path
 from dataclasses import replace
 from unittest.mock import patch
-
 import mne
 import numpy as np
 import pandas as pd
-
 from meganorm.src.erp import (
     ERPComponent,
-    ERPConfig,
     compute_evokeds,
     epoch_erp,
     extract_erp_idps,
@@ -21,23 +18,16 @@ from meganorm.src.erp import (
     run_erp_pipeline,
     extract_recording,
 )
-
 from meganorm.utils.erp import make_demo_recording
-
 import json
-from dataclasses import asdict
-
 import pytest
 from pydantic import ValidationError
 from meganorm.utils.IO import Config
-from meganorm.utils.erp import (
-    ERPSettings,
-    ERPPreprocessing,
-    ERPEventSpec,
-)
+from meganorm.utils.erp import ERPEventSpec
 
 
 class TestERP(unittest.TestCase):
+
     def test_demo_fixture_reproducible(self):
         raw, events = make_demo_recording()
         other, other_events = make_demo_recording()
@@ -176,9 +166,17 @@ class TestERP(unittest.TestCase):
         with self.assertRaises(ValueError):
             ERPComponent(("target",), ("Pz",), (0.2, 0.1), "pos")
         with self.assertRaises(ValueError):
-            ERPConfig(baseline=(-0.3, 0))
+            Config(
+                analysis_type="erp", which_sensor="eeg", erp=dict(baseline=(-0.3, 0))
+            )
         with self.assertRaises(ValueError):
-            ERPConfig(l_freq=35, h_freq=10)
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                cutoffFreqLow=35,
+                cutoffFreqHigh=10,
+            )
         with self.assertRaises(ValueError):
             extract_erp_idps(
                 "s",
@@ -193,16 +191,22 @@ class TestERP(unittest.TestCase):
             )
 
     def make_raw(self):
-        data = np.full((2, 6000), 2e-6)
-        for sample, amplitude in [(1000, 5e-6), (2500, 7e-6), (4000, 5e-6)]:
+        data = np.full((2, 6000), 2e-06)
+        for sample, amplitude in [(1000, 5e-06), (2500, 7e-06), (4000, 5e-06)]:
             data[:, sample + 300] += amplitude
-            data[:, sample + 100] -= 3e-6
+            data[:, sample + 100] -= 3e-06
         raw = mne.io.RawArray(data, self.info, first_samp=500, verbose=False)
         events = np.array([[1500, 0, 1], [3000, 0, 2], [4500, 0, 1]])
-        config = ERPConfig(
-            apply_ica=False, reference=None, l_freq=None, h_freq=None, min_trials=1
+        config = Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(min_trials=1),
+            apply_ica=False,
+            rereference_method=None,
+            cutoffFreqLow=None,
+            cutoffFreqHigh=None,
         )
-        return raw, events, config
+        return (raw, events, config)
 
     def test_raw_pipeline_baseline_conditions_and_no_mutation(self):
         raw, events, config = self.make_raw()
@@ -235,7 +239,9 @@ class TestERP(unittest.TestCase):
             "s",
             self.components,
             annotation_map={"target": "A", "standard": "B"},
-            config=replace(config, resample_sfreq=500),
+            config=Config.model_validate(
+                {**config.model_dump(), **dict(resampling_rate=500)}
+            ),
         )
         np.testing.assert_array_equal(result.epochs.events[:, 0], [750, 1500, 2250])
         self.assertEqual(result.epochs.info["sfreq"], 500)
@@ -248,7 +254,9 @@ class TestERP(unittest.TestCase):
             raw,
             events,
             {"target": 1, "standard": 2},
-            replace(config, reject={"eeg": 1e-6}),
+            Config.model_validate(
+                {**config.model_dump(), **dict(eeg_var_threshold=1e-06)}
+            ),
         )
         self.assertEqual(len(epochs), 0)
         features, qc = extract_erp_idps("s", compute_evokeds(epochs), self.components)
@@ -265,27 +273,30 @@ class TestERP(unittest.TestCase):
         rng = np.random.default_rng(42)
         times = np.arange(6000) / 200
         blink = sum(
-            np.exp(-(((times - center) / 0.12) ** 2)) for center in range(2, 29, 3)
+            (np.exp(-(((times - center) / 0.12) ** 2)) for center in range(2, 29, 3))
         )
         sources = np.array(
             [blink, np.sin(2 * np.pi * 10 * times), rng.laplace(size=len(times))]
         )
         mixture = (
-            np.array([[4, 1, 0.3], [2, -1, 0.7], [1, 0.5, -0.5]]) @ sources * 10e-6
+            np.array([[4, 1, 0.3], [2, -1, 0.7], [1, 0.5, -0.5]]) @ sources * 1e-05
         )
         raw = mne.io.RawArray(
-            np.vstack([mixture, blink * 100e-6]),
+            np.vstack([mixture, blink * 0.0001]),
             mne.create_info(["Fz", "Cz", "Pz", "EOG"], 200, ["eeg"] * 3 + ["eog"]),
             verbose=False,
         )
         cleaned, qc = preprocess_erp(
             raw,
-            ERPConfig(
-                reference=None,
-                l_freq=0.5,
-                h_freq=35,
-                ica_n_components=3,
-                ica_threshold=0.5,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                rereference_method=None,
+                cutoffFreqLow=0.5,
+                cutoffFreqHigh=35,
+                ica_n_component=3,
+                auto_ica_corr_thr=0.5,
             ),
         )
         self.assertTrue(qc["ica_excluded"])
@@ -297,8 +308,7 @@ class TestERP(unittest.TestCase):
 
     def test_ica_uses_shared_correlation_and_separate_fit_copy(self):
         raw, _, config = self.make_raw()
-        # Independent EEG signals are needed for an identifiable ICA fit.
-        raw._data[1] += np.sin(np.arange(6000) / 20) * 1e-6
+        raw._data[1] += np.sin(np.arange(6000) / 20) * 1e-06
         eog = mne.io.RawArray(
             np.sin(np.arange(6000)[None, :] / 10),
             mne.create_info(["EOG"], 1000, "eog"),
@@ -314,7 +324,10 @@ class TestERP(unittest.TestCase):
         ):
             factory.return_value.n_components_ = 2
             cleaned, qc = preprocess_erp(
-                raw, replace(config, apply_ica=True, h_freq=35)
+                raw,
+                Config.model_validate(
+                    {**config.model_dump(), **dict(apply_ica=True, cutoffFreqHigh=35)}
+                ),
             )
             fitted = factory.return_value.fit.call_args.args[0]
             self.assertIsNot(fitted, cleaned)
@@ -325,27 +338,28 @@ class TestERP(unittest.TestCase):
 
 
 def settings():
-    return ERPSettings(
-        components={
-            "P300": dict(
-                conditions=["target"],
-                channels=["Pz"],
-                window=[0.25, 0.5],
-                polarity="pos",
-            )
-        }
+    return Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(
+            components={
+                "P300": dict(
+                    conditions=["target"],
+                    channels=["Pz"],
+                    window=[0.25, 0.5],
+                    polarity="pos",
+                )
+            }
+        ),
     )
 
 
-def test_legacy_and_roundtrip():
+def test_rest_and_erp_roundtrip():
     assert Config.model_validate_json("{}").analysis_type == "rest"
-    config = Config(analysis_type="erp", which_sensor="eeg", erp=settings())
+    config = Config(analysis_type="erp", which_sensor="eeg", erp=settings().erp)
     assert Config.model_validate_json(config.model_dump_json()) == config
-    from meganorm.src.erp import ERPConfig
-
-    runtime, components = config.erp.to_runtime()
-    assert asdict(runtime) == asdict(ERPConfig())
-    assert components["P300"].conditions == ("target",)
+    assert config.erp.components["P300"].conditions == ("target",)
+    assert config.ica_h_freq == config.cutoffFreqHigh
 
 
 @pytest.mark.parametrize(
@@ -360,30 +374,32 @@ def test_legacy_and_roundtrip():
 )
 def test_invalid_mode(kwargs):
     if kwargs.get("analysis_type") == "erp":
-        kwargs.setdefault("erp", settings())
+        kwargs.setdefault("erp", settings().erp)
     with pytest.raises(ValidationError):
-        Config(**kwargs)
+        Config(**{**kwargs})
 
 
 @pytest.mark.parametrize(
     "kwargs",
     [
-        dict(tmin=1),
-        dict(baseline=(-1, 0)),
-        dict(min_trials=True),
-        dict(tmax=float("nan")),
-        dict(ica_n_components=0),
-        dict(ica_n_components=1.5),
+        dict(erp=dict(tmin=1)),
+        dict(erp=dict(baseline=(-1, 0))),
+        dict(erp=dict(min_trials=True)),
+        dict(erp=dict(tmax=float("nan"))),
+        dict(ica_n_component=0),
+        dict(ica_n_component=1.5),
         dict(reject={"mag": 1}),
-        dict(h_freq=60, resample_sfreq=100),
-        dict(l_freq=40),
-        dict(reference=[]),
+        dict(cutoffFreqHigh=60, resampling_rate=100),
+        dict(cutoffFreqLow=40),
+        dict(rereference_method=[]),
         dict(unknown=True),
     ],
 )
 def test_invalid_preprocessing(kwargs):
     with pytest.raises(ValidationError):
-        ERPPreprocessing(**kwargs)
+        Config(
+            **{"analysis_type": "erp", "which_sensor": "eeg", "erp": dict(), **kwargs}
+        )
 
 
 @pytest.mark.parametrize(
@@ -405,9 +421,9 @@ def test_events_components_and_dataset(tmp_path):
     from meganorm.API import Dataset
 
     spec = ERPEventSpec(mode="annotations", annotation_map={"target": "Stimulus/S 2"})
-    settings().validate_events(spec)
+    settings().erp.validate_events(spec)
     with pytest.raises(ValueError):
-        settings().validate_events(
+        settings().erp.validate_events(
             ERPEventSpec(mode="annotations", annotation_map={"other": "A"})
         )
     dataset = Dataset(
@@ -420,22 +436,26 @@ def test_events_components_and_dataset(tmp_path):
     (folder / "sub-01_oddball.fif").touch()
     assert dataset.discover().iloc[0].erp_events == spec.model_dump(mode="json")
     with pytest.raises(ValidationError):
-        ERPSettings(
-            components={
-                "P300": dict(
-                    conditions=["target"],
-                    channels=["Pz"],
-                    window=[0.5, 1],
-                    polarity="pos",
-                )
-            }
+        Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(
+                components={
+                    "P300": dict(
+                        conditions=["target"],
+                        channels=["Pz"],
+                        window=[0.5, 1],
+                        polarity="pos",
+                    )
+                }
+            ),
         )
 
 
 def test_local_guard_and_mutation(tmp_path):
     from meganorm.API import Pipeline
 
-    erp = Config(analysis_type="erp", which_sensor="eeg", erp=settings())
+    erp = Config(analysis_type="erp", which_sensor="eeg", erp=settings().erp)
     Pipeline(config=erp, output_dir=tmp_path / "new")
     from meganorm.utils.erp import require_rest_runner
 
@@ -451,7 +471,7 @@ def test_cli_and_cluster_guard_before_side_effects(tmp_path, monkeypatch):
     from meganorm.src import mainParallel as cli
     from meganorm.utils import parallel
 
-    config = Config(analysis_type="erp", which_sensor="eeg", erp=settings())
+    config = Config(analysis_type="erp", which_sensor="eeg", erp=settings().erp)
     path = tmp_path / "config.json"
     path.write_text(config.model_dump_json())
     out = tmp_path / "outputs"
@@ -497,40 +517,42 @@ def test_nondefault_stim_and_preprocessing_roundtrip():
     )
     assert ERPEventSpec.model_validate_json(spec.model_dump_json()) == spec
     config = settings()
-    config.preprocessing = ERPPreprocessing(
-        tmin=-0.1,
-        tmax=0.7,
-        baseline=None,
-        l_freq=None,
-        h_freq=20,
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(
+            tmin=-0.1,
+            tmax=0.7,
+            baseline=None,
+            min_trials=4,
+            components=config.erp.components,
+        ),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=20,
         apply_ica=False,
-        reference=("Cz",),
-        ica_n_components=0.95,
-        min_trials=4,
-        reject=None,
-        resample_sfreq=100,
+        rereference_method=("Cz",),
+        ica_n_component=0.95,
+        eeg_var_threshold=None,
+        resampling_rate=100,
     )
-    restored = ERPSettings.model_validate_json(config.model_dump_json())
-    runtime, _ = restored.to_runtime()
-    assert {
-        k: v
-        for k, v in asdict(runtime).items()
-        if k not in ("rejection_mode", "autoreject")
-    } == config.preprocessing.model_dump()
-    restored.validate_events(spec)
+    restored = Config.model_validate_json(config.model_dump_json())
+    assert restored == config
+    restored.erp.validate_events(spec)
 
 
 @pytest.mark.parametrize(
-    "kwargs", [dict(l_freq=0), dict(ica_threshold=0), dict(ica_l_freq=40)]
+    "kwargs", [dict(cutoffFreqLow=0), dict(auto_ica_corr_thr=0), dict(ica_l_freq=40)]
 )
 def test_preprocessing_rejects_values_invalid_for_runtime(kwargs):
     with pytest.raises(ValidationError):
-        ERPPreprocessing(**kwargs)
+        Config(
+            **{"analysis_type": "erp", "which_sensor": "eeg", "erp": dict(), **kwargs}
+        )
 
 
-def test_erp_requires_explicit_settings():
-    with pytest.raises(ValidationError, match="requires ERP settings"):
-        Config(analysis_type="erp", which_sensor="eeg")
+def test_erp_default_task_supports_standalone_preprocessing():
+    config = Config(analysis_type="erp", which_sensor="eeg")
+    assert config.erp.components == {}
 
 
 if __name__ == "__main__":
@@ -602,8 +624,8 @@ def test_event_resolver_duplicates_and_missing_channel():
 
 def test_pipeline_event_spec_and_exact_conditions():
     raw = _stage3_raw()
-    raw._data[0, 100:110] = 2e-6
-    raw._data[0, 300:310] = 8e-6
+    raw._data[0, 100:110] = 2e-06
+    raw._data[0, 300:310] = 8e-06
     component = ERPComponent(
         ("target", "target/sub", "absent"),
         ("Pz",),
@@ -611,16 +633,15 @@ def test_pipeline_event_spec_and_exact_conditions():
         "pos",
         ("mean_amplitude",),
     )
-    config = ERPConfig(
-        tmin=0,
-        tmax=0.1,
-        baseline=None,
-        l_freq=None,
-        h_freq=None,
-        reference=None,
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(tmin=0, tmax=0.1, baseline=None, min_trials=1),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
         apply_ica=False,
-        min_trials=1,
-        reject=None,
+        eeg_var_threshold=None,
     )
     result = run_erp_pipeline(
         raw,
@@ -674,14 +695,14 @@ def test_boundary_peak_is_flagged_but_kept():
 
 def test_resampling_collision_fails_before_preprocessing():
     raw = _stage3_raw()
-    config = ERPConfig(
-        tmin=0,
-        tmax=0.1,
-        baseline=None,
-        l_freq=None,
-        h_freq=None,
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(tmin=0, tmax=0.1, baseline=None),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
         apply_ica=False,
-        resample_sfreq=10,
+        resampling_rate=10,
     )
     component = ERPComponent(("a",), ("Pz",), (0, 0.1), "pos")
     with patch(
@@ -701,18 +722,17 @@ def test_resampling_collision_fails_before_preprocessing():
 
 def test_drop_counts_partition_edge_annotation_and_amplitude():
     raw = _stage3_raw()
-    raw._data[0, 300] = 200e-6
+    raw._data[0, 300] = 0.0002
     raw.set_annotations(mne.Annotations([1.9], [0.3], ["BAD_manual"]))
-    config = ERPConfig(
-        tmin=-0.1,
-        tmax=0.1,
-        baseline=None,
-        l_freq=None,
-        h_freq=None,
-        reference=None,
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(tmin=-0.1, tmax=0.1, baseline=None, min_trials=1),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
         apply_ica=False,
-        min_trials=1,
-        reject={"eeg": 100e-6},
+        eeg_var_threshold=0.0001,
     )
     component = ERPComponent(("a", "missing"), ("Pz",), (0, 0.1), "pos")
     result = run_erp_pipeline(
@@ -805,17 +825,16 @@ def test_crop_resample_absolute_samples_and_input_preservation():
     before = raw.get_data().copy()
     spec = ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 2, "b": 7})
     component = ERPComponent(("a", "b"), ("Pz",), (0, 0.1), "abs")
-    config = ERPConfig(
-        tmin=0,
-        tmax=0.1,
-        baseline=None,
-        l_freq=None,
-        h_freq=None,
-        reference=None,
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(tmin=0, tmax=0.1, baseline=None, min_trials=1),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
         apply_ica=False,
-        min_trials=1,
-        reject=None,
-        resample_sfreq=50,
+        eeg_var_threshold=None,
+        resampling_rate=50,
     )
     result = run_erp_pipeline(
         raw, "s", {"P": component}, event_spec=spec, config=config
@@ -879,16 +898,15 @@ def test_ambiguous_annotation_channel_label_is_not_misclassified():
     raw.rename_channels({"Pz": "BAD_sensor"})
     raw.set_annotations(mne.Annotations([0.9], [0.3], ["BAD_sensor"]))
     component = ERPComponent(("a",), ("BAD_sensor",), (0, 0.1), "pos")
-    config = ERPConfig(
-        tmin=0,
-        tmax=0.1,
-        baseline=None,
-        l_freq=None,
-        h_freq=None,
-        reference=None,
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(tmin=0, tmax=0.1, baseline=None, min_trials=1),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
         apply_ica=False,
-        min_trials=1,
-        reject=None,
+        eeg_var_threshold=None,
     )
     result = run_erp_pipeline(
         raw,
@@ -907,19 +925,18 @@ def test_ambiguous_annotation_channel_label_is_not_misclassified():
 
 def test_flatness_rejection_counts_as_amplitude():
     raw = _stage3_raw()
-    raw._data[0, 300:310] = np.arange(10) * 1e-6
+    raw._data[0, 300:310] = np.arange(10) * 1e-06
     component = ERPComponent(("a",), ("Pz",), (0, 0.1), "pos")
-    config = ERPConfig(
-        tmin=0,
-        tmax=0.1,
-        baseline=None,
-        l_freq=None,
-        h_freq=None,
-        reference=None,
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(tmin=0, tmax=0.1, baseline=None, min_trials=1),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
         apply_ica=False,
-        min_trials=1,
-        reject=None,
-        flat={"eeg": 1e-7},
+        eeg_var_threshold=None,
+        eeg_flat_threshold=1e-07,
     )
     result = run_erp_pipeline(
         raw,
@@ -946,24 +963,25 @@ def test_erp_worker_failed_idps_and_atomic_write_failure(tmp_path, monkeypatch):
     path = tmp_path / "input_raw.fif"
     raw.save(path, overwrite=True, verbose=False)
     definition = settings()
-    definition.preprocessing = ERPPreprocessing(
-        tmin=0,
-        tmax=0.6,
-        baseline=None,
-        l_freq=None,
-        h_freq=None,
-        reference=None,
+    definition = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(
+            tmin=0,
+            tmax=0.6,
+            baseline=None,
+            min_trials=1,
+            components=definition.erp.components,
+        ),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
         apply_ica=False,
-        min_trials=1,
-        reject=None,
+        eeg_var_threshold=None,
     )
     spec = ERPEventSpec(mode="stim", stim_channel="STI", event_id={"target": 2})
     result = process_erp_recording(
-        path,
-        "001",
-        settings=definition,
-        event_spec=spec,
-        output_root=tmp_path / "first",
+        path, "001", config=definition, event_spec=spec, output_root=tmp_path / "first"
     )
     directory = tmp_path / "first" / "participants" / "001"
     assert result.features.isna().all().all()
@@ -973,7 +991,7 @@ def test_erp_worker_failed_idps_and_atomic_write_failure(tmp_path, monkeypatch):
         process_erp_recording(
             path,
             "001",
-            settings=definition,
+            config=definition,
             event_spec=spec,
             output_root=tmp_path / "first",
         )
@@ -989,7 +1007,7 @@ def test_erp_worker_failed_idps_and_atomic_write_failure(tmp_path, monkeypatch):
         process_erp_recording(
             path,
             "001",
-            settings=definition,
+            config=definition,
             event_spec=spec,
             output_root=tmp_path / "second",
         )
@@ -998,7 +1016,7 @@ def test_erp_worker_failed_idps_and_atomic_write_failure(tmp_path, monkeypatch):
         process_erp_recording(
             path,
             "../escape",
-            settings=definition,
+            config=definition,
             event_spec=spec,
             output_root=tmp_path / "third",
         )
@@ -1040,35 +1058,37 @@ def test_erp_worker_sidecar_types_and_montage(tmp_path):
 
     raw = _stage3_raw()
     raw.set_channel_types({"Pz": "misc"})
-    raw._data[0, 100:111] = np.arange(11) * 1e-6
+    raw._data[0, 100:111] = np.arange(11) * 1e-06
     path = tmp_path / "s_task_raw.fif"
     raw.save(path, overwrite=True, verbose=False)
     (tmp_path / "s_task_channels.tsv").write_text(
         "name\ttype\tstatus\nPz\tEEG\tgood\nSTI\tSTIM\tgood\n"
     )
     (tmp_path / "s_montage.csv").write_text("Channel,X,Y,Z\nPz,0,-0.05,0.08\n")
-    definition = ERPSettings(
-        preprocessing=dict(
+    definition = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(
             tmin=0,
             tmax=0.1,
             baseline=None,
-            l_freq=None,
-            h_freq=None,
-            reference=None,
-            apply_ica=False,
             min_trials=1,
-            reject=None,
+            components={
+                "P": dict(
+                    conditions=["a"], channels=["Pz"], window=[0, 0.1], polarity="pos"
+                )
+            },
         ),
-        components={
-            "P": dict(
-                conditions=["a"], channels=["Pz"], window=[0, 0.1], polarity="pos"
-            )
-        },
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
+        apply_ica=False,
+        eeg_var_threshold=None,
     )
     result = process_erp_recording(
         path,
         "s",
-        settings=definition,
+        config=definition,
         event_spec=ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 2}),
         output_root=tmp_path / "out",
     )
@@ -1077,41 +1097,37 @@ def test_erp_worker_sidecar_types_and_montage(tmp_path):
     assert mne.io.read_raw_fif(path, verbose=False).get_channel_types()[0] == "misc"
 
 
-@pytest.mark.parametrize("factory", [ERPConfig, ERPPreprocessing])
 @pytest.mark.parametrize(
     "kwargs",
     [
         dict(ica_mode="unknown"),
-        dict(ica_corr_threshold=0),
+        dict(auto_ica_corr_thr=0),
         dict(ica_label_threshold=1.1),
-        dict(ica_corr_threshold=float("nan")),
+        dict(auto_ica_corr_thr=float("nan")),
         dict(apply_ica=False, ica_mode="physiological"),
-        dict(ica_n_components=True),
-        dict(ica_n_components=1),
+        dict(ica_n_component=True),
+        dict(ica_n_component=1),
     ],
 )
-def test_ica_settings_reject_invalid_choices(factory, kwargs):
+def test_ica_settings_reject_invalid_choices(kwargs):
     with pytest.raises(ValueError):
-        factory(**kwargs)
+        Config(**{**dict(analysis_type="erp", which_sensor="eeg", **kwargs)})
 
 
-def test_ica_settings_roundtrip_and_legacy_thresholds():
+def test_ica_settings_roundtrip_with_distinct_thresholds():
     definition = settings()
-    definition.preprocessing = ERPPreprocessing(
+    definition = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(components=definition.erp.components),
         ica_mode="physiological",
-        ica_threshold=0.6,
-        ica_corr_threshold=0.4,
+        auto_ica_corr_thr=0.4,
         ica_label_threshold=0.9,
     )
-    restored = ERPSettings.model_validate_json(definition.model_dump_json())
-    runtime, _ = restored.to_runtime()
-    assert {
-        k: v
-        for k, v in asdict(runtime).items()
-        if k not in ("rejection_mode", "autoreject")
-    } == restored.preprocessing.model_dump()
-    assert runtime.ica_corr_threshold == 0.4
-    assert runtime.ica_label_threshold == 0.9
+    restored = Config.model_validate_json(definition.model_dump_json())
+    assert restored == definition
+    assert restored.auto_ica_corr_thr == 0.4
+    assert restored.ica_label_threshold == 0.9
 
 
 def ica_raw(aux="good", montage=False):
@@ -1141,7 +1157,12 @@ def ica_raw(aux="good", montage=False):
 
 @pytest.mark.parametrize("kwargs", [dict(ica_mode="none"), dict(apply_ica=False)])
 def test_ica_disabled_is_explicit_in_qc(kwargs):
-    cleaned, qc = preprocess_erp(ica_raw(aux="flat"), ERPConfig(**kwargs))
+    cleaned, qc = preprocess_erp(
+        ica_raw(aux="flat"),
+        Config(
+            **{"analysis_type": "erp", "which_sensor": "eeg", "erp": dict(), **kwargs}
+        ),
+    )
     assert qc["ica_mode_effective"] == "none"
     assert not qc["ica_applied"]
     assert qc["bad_channel_detection"] == "not_performed"
@@ -1151,35 +1172,69 @@ def test_ica_disabled_is_explicit_in_qc(kwargs):
 @pytest.mark.parametrize("aux", ["flat", "nonfinite", None])
 def test_physiological_requires_usable_auxiliary(aux):
     with pytest.raises(ValueError, match="usable EOG/ECG"):
-        preprocess_erp(ica_raw(aux), ERPConfig(ica_mode="physiological"))
+        preprocess_erp(
+            ica_raw(aux),
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                ica_mode="physiological",
+            ),
+        )
 
 
 @pytest.mark.parametrize("aux", ["flat", "nonfinite", None])
 def test_auto_cannot_silently_skip_ica_without_locations(aux):
     with pytest.raises(ValueError, match="sensor locations"):
-        preprocess_erp(ica_raw(aux), ERPConfig())
+        preprocess_erp(
+            ica_raw(aux), Config(analysis_type="erp", which_sensor="eeg", erp=dict())
+        )
 
 
 def test_ica_rank_guard_and_reference_consistency():
     raw = ica_raw()
     with pytest.raises(ValueError, match="rank"):
-        preprocess_erp(raw, ERPConfig(ica_n_components=4))
+        preprocess_erp(
+            raw,
+            Config(
+                analysis_type="erp", which_sensor="eeg", erp=dict(), ica_n_component=4
+            ),
+        )
     raw._data[:4] = raw._data[0]
     with pytest.raises(ValueError, match="rank"):
-        preprocess_erp(raw, ERPConfig(reference=None))
+        preprocess_erp(
+            raw,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                rereference_method=None,
+            ),
+        )
 
 
-@pytest.mark.parametrize("kwargs", [dict(reference=None), dict(ica_l_freq=0.5)])
+@pytest.mark.parametrize(
+    "kwargs", [dict(rereference_method=None), dict(ica_l_freq=0.5)]
+)
 def test_iclabel_requires_reference_and_fit_highpass(kwargs):
     with pytest.raises(ValueError, match="ICLabel"):
-        preprocess_erp(ica_raw(montage=True), ERPConfig(ica_mode="iclabel", **kwargs))
+        preprocess_erp(
+            ica_raw(montage=True),
+            Config(
+                **{
+                    "analysis_type": "erp",
+                    "which_sensor": "eeg",
+                    "erp": dict(),
+                    "ica_mode": "iclabel",
+                    **kwargs,
+                }
+            ),
+        )
 
 
 def test_auto_records_bad_auxiliary_and_label_decisions():
     raw = ica_raw(aux="flat", montage=True)
     before = raw.get_data().copy()
-    # Control classifier output to test routing/thresholds; ICA fit, reference,
-    # filtering, reconstruction and QC remain real.
     with patch(
         "mne_icalabel.label_components",
         return_value=dict(
@@ -1188,7 +1243,14 @@ def test_auto_records_bad_auxiliary_and_label_decisions():
         ),
     ):
         cleaned, qc = preprocess_erp(
-            raw, ERPConfig(ica_threshold=0.6, ica_label_threshold=0.8)
+            raw,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                auto_ica_corr_thr=0.6,
+                ica_label_threshold=0.8,
+            ),
         )
     assert qc["ica_mode_effective"] == "iclabel"
     assert qc["ica_excluded"] == [0]
@@ -1209,10 +1271,12 @@ def test_physiological_threshold_is_independent_and_recorded():
     ) as correlation:
         _, qc = preprocess_erp(
             ica_raw(),
-            ERPConfig(
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
                 ica_mode="physiological",
-                ica_threshold=0.9,
-                ica_corr_threshold=0.6,
+                auto_ica_corr_thr=0.6,
                 ica_label_threshold=0.99,
             ),
         )
@@ -1233,7 +1297,12 @@ def test_auto_falls_back_from_unusable_auxiliary(aux):
         "mne_icalabel.label_components",
         return_value=dict(labels=["brain"] * 3, y_pred_proba=np.array([0.9] * 3)),
     ):
-        _, qc = preprocess_erp(raw, ERPConfig(l_freq=1))
+        _, qc = preprocess_erp(
+            raw,
+            Config(
+                analysis_type="erp", which_sensor="eeg", erp=dict(), cutoffFreqLow=1
+            ),
+        )
     assert qc["ica_mode_effective"] == "iclabel"
     assert qc["ica_auxiliary"]["EOG"] == aux
     assert qc["ica_applied"] and qc["ica_excluded"] == []
@@ -1245,7 +1314,16 @@ def test_physiological_omits_bad_annotation_samples():
     with patch(
         "meganorm.src.preprocess.find_ica_component", return_value=([], [])
     ) as correlation:
-        _, qc = preprocess_erp(raw, ERPConfig(ica_mode="physiological", l_freq=1))
+        _, qc = preprocess_erp(
+            raw,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                ica_mode="physiological",
+                cutoffFreqLow=1,
+            ),
+        )
     assert qc["ica_auxiliary"]["EOG"] == "usable"
     assert correlation.call_args.args[1].n_times == 1960
     assert len(correlation.call_args.args[2]) == 1960
@@ -1256,19 +1334,34 @@ def test_iclabel_checks_every_usable_sensor_location():
     raw = ica_raw(montage=True)
     raw.info["chs"][0]["loc"][:3] = np.nan
     with pytest.raises(ValueError, match="sensor locations"):
-        preprocess_erp(raw, ERPConfig(ica_mode="iclabel", l_freq=1))
+        preprocess_erp(
+            raw,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                ica_mode="iclabel",
+                cutoffFreqLow=1,
+            ),
+        )
 
 
 def test_real_iclabel_explicit_mode_with_auxiliary():
-    # Exercise the real classifier interface; label accuracy on noise is not a benchmark.
     _, qc = preprocess_erp(
-        ica_raw(montage=True), ERPConfig(ica_mode="iclabel", l_freq=1)
+        ica_raw(montage=True),
+        Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(),
+            ica_mode="iclabel",
+            cutoffFreqLow=1,
+        ),
     )
     assert qc["ica_mode_effective"] == "iclabel"
     assert qc["ica_selection_reason"] == "explicit strategy"
     assert qc["ica_applied"]
     assert len(qc["ica_component_scores"]) == 3
-    assert all(0 <= row["probability"] <= 1 for row in qc["ica_component_scores"])
+    assert all((0 <= row["probability"] <= 1 for row in qc["ica_component_scores"]))
     json.dumps(qc, allow_nan=False)
 
 
@@ -1294,7 +1387,15 @@ def test_ica_rank_matches_applied_projectors(active, expected_rank):
     if active:
         raw.apply_proj()
     _, qc = preprocess_erp(
-        raw, ERPConfig(reference=None, l_freq=1, ica_mode="physiological")
+        raw,
+        Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(),
+            rereference_method=None,
+            cutoffFreqLow=1,
+            ica_mode="physiological",
+        ),
     )
     assert qc["ica_rank"] == expected_rank
     assert qc["ica_n_components"] == expected_rank
@@ -1304,38 +1405,47 @@ def test_ica_rank_matches_applied_projectors(active, expected_rank):
 @pytest.mark.parametrize(
     "kwargs",
     [
-        dict(cv=1),
-        dict(cv=True),
-        dict(n_interpolate=[]),
-        dict(n_interpolate=[-1]),
-        dict(n_interpolate=[1, 1]),
-        dict(consensus=[0]),
-        dict(consensus=[1.1]),
-        dict(consensus=[float("nan")]),
+        dict(autoreject_cv=1),
+        dict(autoreject_cv=True),
+        dict(autoreject_n_interpolates=[]),
+        dict(autoreject_n_interpolates=[-1]),
+        dict(autoreject_n_interpolates=[1, 1]),
+        dict(autoreject_consensus_percs=[0]),
+        dict(autoreject_consensus_percs=[1.1]),
+        dict(autoreject_consensus_percs=[float("nan")]),
     ],
 )
 def test_autoreject_settings_invalid(kwargs):
-    from meganorm.utils.erp import ERPAutoRejectSettings
-
     with pytest.raises(ValueError):
-        ERPAutoRejectSettings(**kwargs)
+        Config(
+            **{
+                **dict(
+                    analysis_type="erp",
+                    which_sensor="eeg",
+                    bad_segment_removal_method="autoreject",
+                    **kwargs,
+                )
+            }
+        )
 
 
 def test_autoreject_settings_runtime_roundtrip():
-    definition = ERPSettings(
-        **{
-            **settings().model_dump(),
-            "rejection_mode": "autoreject",
-            "autoreject": dict(cv=3, n_interpolate=[1], consensus=[0.5, 1.0]),
-        }
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=settings().erp,
+        bad_segment_removal_method="autoreject",
+        autoreject_cv=3,
+        autoreject_n_interpolates=[1],
+        autoreject_consensus_percs=[0.5, 1.0],
     )
-    config, _ = ERPSettings.model_validate_json(
-        definition.model_dump_json()
-    ).to_runtime()
-    assert config.rejection_mode == "autoreject"
-    assert config.autoreject == dict(cv=3, n_interpolate=(1,), consensus=(0.5, 1.0))
-    with pytest.raises(ValueError, match="autoreject"):
-        ERPConfig(rejection_mode="threshold", autoreject=dict(cv=3))
+    assert Config.model_validate_json(config.model_dump_json()) == config
+    assert config.bad_segment_removal_method == "autoreject"
+    assert config.autoreject_cv == 3
+    assert config.autoreject_n_interpolates == [1]
+    assert config.autoreject_consensus_percs == [0.5, 1.0]
+    with pytest.raises(ValueError, match="rejection_mode"):
+        Config(analysis_type="erp", which_sensor="eeg", rejection_mode="threshold")
 
 
 def ar_epochs(n_epochs=12, n_channels=6, montage=True):
@@ -1387,10 +1497,19 @@ def test_autoreject_prerequisites(case, match):
         epochs._data[0, 0, 0] = np.nan
     if case == "duplicate_locations":
         epochs.info["chs"][0]["loc"][:3] = epochs.info["chs"][1]["loc"][:3]
-    options = dict(n_interpolate=[6]) if case == "bad_grid" else None
+    options = dict(autoreject_n_interpolates=[6]) if case == "bad_grid" else None
     with pytest.raises(ValueError, match=match):
         reject_erp_epochs(
-            epochs, ERPConfig(rejection_mode="autoreject", autoreject=options)
+            epochs,
+            Config(
+                **{
+                    "analysis_type": "erp",
+                    "which_sensor": "eeg",
+                    "erp": dict(),
+                    "bad_segment_removal_method": "autoreject",
+                    **(options or {}),
+                }
+            ),
         )
 
 
@@ -1398,9 +1517,11 @@ def test_threshold_helper_preserves_epochs_and_metadata():
     from meganorm.src.erp import reject_erp_epochs
 
     epochs = ar_epochs()
-    epochs._data[2, 0, 50] = 200e-6
+    epochs._data[2, 0, 50] = 0.0002
     before = epochs.get_data().copy()
-    cleaned, qc = reject_erp_epochs(epochs, ERPConfig())
+    cleaned, qc = reject_erp_epochs(
+        epochs, Config(analysis_type="erp", which_sensor="eeg", erp=dict())
+    )
     assert len(cleaned) == 11 and cleaned.drop_log[2] == ("Fz",)
     assert cleaned.metadata["trial"].tolist() == [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     assert cleaned.tmin == -0.2 and cleaned.baseline == epochs.baseline
@@ -1412,10 +1533,15 @@ def test_real_autoreject_epochs_reproducible_and_aligned():
     from meganorm.src.erp import reject_erp_epochs
 
     epochs = ar_epochs()
-    epochs._data[0, 0, 40:50] += 200e-6
-    config = ERPConfig(
-        rejection_mode="autoreject",
-        autoreject=dict(cv=3, n_interpolate=[1], consensus=[0.5, 1.0]),
+    epochs._data[0, 0, 40:50] += 0.0002
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(),
+        bad_segment_removal_method="autoreject",
+        autoreject_cv=3,
+        autoreject_n_interpolates=[1],
+        autoreject_consensus_percs=[0.5, 1.0],
     )
     before = epochs.get_data().copy()
     cleaned, qc = reject_erp_epochs(epochs, config)
@@ -1491,13 +1617,15 @@ def test_autoreject_pipeline_trial_accounting_and_all_rejected(monkeypatch, all_
         components,
         events=events,
         event_id={"standard": 1, "target": 2},
-        config=ERPConfig(
+        config=Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(min_trials=1),
             ica_mode="none",
-            reference=None,
-            l_freq=None,
-            h_freq=None,
-            min_trials=1,
-            rejection_mode="autoreject",
+            rereference_method=None,
+            cutoffFreqLow=None,
+            cutoffFreqHigh=None,
+            bad_segment_removal_method="autoreject",
         ),
     )
     report = result.preprocessing_qc["epoch_rejection"]
@@ -1537,10 +1665,17 @@ def test_autoreject_flat_precheck_bad_channel_and_copy(monkeypatch):
     epochs = ar_epochs()
     epochs._data[3, 0, :] = 0
     epochs.info["bads"] = ["C4"]
-    epochs._data[4, 1, 40] = 200e-6  # fixed reject cutoff must not remove this epoch
+    epochs._data[4, 1, 40] = 0.0002
     before = epochs.get_data().copy()
     clean, qc = reject_erp_epochs(
-        epochs, ERPConfig(rejection_mode="autoreject", flat={"eeg": 1e-12})
+        epochs,
+        Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(),
+            bad_segment_removal_method="autoreject",
+            eeg_flat_threshold=1e-12,
+        ),
     )
     assert qc["n_prefit_flat_rejected"] == 1
     assert 3 not in clean.selection and 4 in clean.selection
@@ -1558,7 +1693,15 @@ def test_autoreject_failures_do_not_fallback(monkeypatch):
 
     monkeypatch.setattr(AutoReject, "fit", broken)
     with pytest.raises(RuntimeError, match="backend failure"):
-        reject_erp_epochs(ar_epochs(), ERPConfig(rejection_mode="autoreject"))
+        reject_erp_epochs(
+            ar_epochs(),
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                bad_segment_removal_method="autoreject",
+            ),
+        )
 
 
 def test_autoreject_rejects_infeasible_and_nonfinite_fit(monkeypatch):
@@ -1568,9 +1711,13 @@ def test_autoreject_rejects_infeasible_and_nonfinite_fit(monkeypatch):
     with pytest.raises(ValueError, match="combination"):
         reject_erp_epochs(
             ar_epochs(),
-            ERPConfig(
-                rejection_mode="autoreject",
-                autoreject=dict(n_interpolate=[4], consensus=[0.2]),
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                bad_segment_removal_method="autoreject",
+                autoreject_n_interpolates=[4],
+                autoreject_consensus_percs=[0.2],
             ),
         )
 
@@ -1580,11 +1727,19 @@ def test_autoreject_rejects_infeasible_and_nonfinite_fit(monkeypatch):
 
     monkeypatch.setattr(AutoReject, "fit", no_solution)
     with pytest.raises(ValueError, match="finite cross-validation"):
-        reject_erp_epochs(ar_epochs(), ERPConfig(rejection_mode="autoreject"))
+        reject_erp_epochs(
+            ar_epochs(),
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                bad_segment_removal_method="autoreject",
+            ),
+        )
 
 
 def test_autoreject_local_api_persists_rejection_settings_and_qc(tmp_path):
-    from meganorm.API import Dataset, Pipeline, ERPAutoRejectSettings
+    from meganorm.API import Dataset, Pipeline
 
     raw, events = ar_pipeline_raw()
     raw.set_annotations(
@@ -1598,21 +1753,29 @@ def test_autoreject_local_api_persists_rejection_settings_and_qc(tmp_path):
     folder = tmp_path / "input" / "001"
     folder.mkdir(parents=True)
     raw.save(folder / "001_oddball_raw.fif", verbose=False)
-    definition = ERPSettings(
-        rejection_mode="autoreject",
-        autoreject=ERPAutoRejectSettings(cv=3, n_interpolate=[1], consensus=[0.5, 1.0]),
-        preprocessing=ERPPreprocessing(
-            ica_mode="none", reference=None, l_freq=None, h_freq=None, min_trials=1
+    definition = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(
+            min_trials=1,
+            components={
+                "response": dict(
+                    conditions=["standard", "target"],
+                    channels=["Fz"],
+                    window=[0.1, 0.4],
+                    polarity="pos",
+                    metrics=["mean_amplitude"],
+                )
+            },
         ),
-        components={
-            "response": dict(
-                conditions=["standard", "target"],
-                channels=["Fz"],
-                window=[0.1, 0.4],
-                polarity="pos",
-                metrics=["mean_amplitude"],
-            )
-        },
+        bad_segment_removal_method="autoreject",
+        autoreject_cv=3,
+        autoreject_n_interpolates=[1],
+        autoreject_consensus_percs=[0.5, 1.0],
+        ica_mode="none",
+        rereference_method=None,
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
     )
     dataset = Dataset(
         name="demo",
@@ -1625,7 +1788,7 @@ def test_autoreject_local_api_persists_rejection_settings_and_qc(tmp_path):
         ),
     )
     result = Pipeline(
-        config=Config(analysis_type="erp", which_sensor="eeg", erp=definition),
+        config=definition,
         output_dir=tmp_path / "output",
         on_error="raise",
         progress=False,
@@ -1645,15 +1808,27 @@ def test_autoreject_local_api_persists_rejection_settings_and_qc(tmp_path):
 def test_independent_ica_fit_preserves_analysis_samples_and_input():
     raw = ica_raw()
     before = raw.get_data().copy()
-    config = ERPConfig(
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(),
         ica_h_freq=80,
         ica_resample_sfreq=180,
-        h_freq=30,
-        resample_sfreq=100,
-        ica_corr_threshold=1,
+        cutoffFreqHigh=30,
+        resampling_rate=100,
+        auto_ica_corr_thr=1,
     )
     cleaned, qc = preprocess_erp(raw, config)
-    expected, _ = preprocess_erp(raw, ERPConfig(apply_ica=False, h_freq=30))
+    expected, _ = preprocess_erp(
+        raw,
+        Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(),
+            apply_ica=False,
+            cutoffFreqHigh=30,
+        ),
+    )
     assert cleaned.info["sfreq"] == raw.info["sfreq"]
     np.testing.assert_allclose(cleaned.get_data(), expected.get_data(), atol=1e-18)
     np.testing.assert_array_equal(raw.get_data(), before)
@@ -1663,20 +1838,31 @@ def test_independent_ica_fit_preserves_analysis_samples_and_input():
 
 
 def test_average_reference_caps_overestimated_numerical_rank():
-    # Reproduce numerical rank overestimation without making it BLAS-dependent.
     with patch("mne.compute_rank", return_value={"eeg": 4}):
-        _, qc = preprocess_erp(ica_raw(), ERPConfig())
+        _, qc = preprocess_erp(
+            ica_raw(), Config(analysis_type="erp", which_sensor="eeg", erp=dict())
+        )
         assert qc["ica_rank"] == 3
         assert qc["ica_rank_estimated"] == 4
         with pytest.raises(ValueError, match="rank"):
-            preprocess_erp(ica_raw(), ERPConfig(ica_n_components=4))
+            preprocess_erp(
+                ica_raw(),
+                Config(
+                    analysis_type="erp",
+                    which_sensor="eeg",
+                    erp=dict(),
+                    ica_n_component=4,
+                ),
+            )
 
 
 def test_average_reference_rank_bound_excludes_bad_channels():
     raw = ica_raw()
     raw.info["bads"] = ["Oz"]
     with patch("mne.compute_rank", return_value={"eeg": 3}):
-        _, qc = preprocess_erp(raw, ERPConfig())
+        _, qc = preprocess_erp(
+            raw, Config(analysis_type="erp", which_sensor="eeg", erp=dict())
+        )
     assert qc["ica_rank"] == 2
     assert qc["ica_n_components"] == 2
 
@@ -1691,40 +1877,58 @@ def test_average_reference_rank_bound_excludes_bad_channels():
     ],
 )
 def test_independent_ica_fit_invalid_settings(kwargs):
-    from meganorm.utils.erp import ERPPreprocessing
-
-    for cls in (ERPConfig, ERPPreprocessing):
-        with pytest.raises(ValueError):
-            cls(**kwargs)
+    with pytest.raises(ValueError):
+        Config(**{**dict(analysis_type="erp", which_sensor="eeg", **kwargs)})
 
 
 def test_independent_ica_fit_settings_roundtrip_and_nyquist():
-    from meganorm.utils.erp import ERPPreprocessing
-
-    settings = ERPPreprocessing(
-        ica_h_freq=80, ica_resample_sfreq=180, h_freq=30, resample_sfreq=100
+    settings = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(),
+        ica_h_freq=80,
+        ica_resample_sfreq=180,
+        cutoffFreqHigh=30,
+        resampling_rate=100,
     )
-    config = ERPConfig(**settings.model_dump())
+    config = Config.model_validate_json(settings.model_dump_json())
     assert config.ica_h_freq == 80
     settings.validate_sampling_rate(200)
     with pytest.raises(ValueError, match="Nyquist"):
         settings.validate_sampling_rate(160)
     with pytest.raises(ValueError, match="Nyquist"):
-        preprocess_erp(ica_raw(), ERPConfig(ica_h_freq=100))
+        preprocess_erp(
+            ica_raw(),
+            Config(analysis_type="erp", which_sensor="eeg", erp=dict(), ica_h_freq=100),
+        )
 
 
 def test_ica_fit_resampling_does_not_move_analysis_events():
     raw = ica_raw()
     raw.set_annotations(mne.Annotations([1.125, 3.375, 6.125], [0, 0, 0], ["A"] * 3))
     components = {"P300": ERPComponent(("target",), ("Pz",), (0.25, 0.6), "pos")}
-    common = dict(l_freq=1, h_freq=30, resample_sfreq=100, min_trials=1, reject=None)
+    common = dict(
+        erp=dict(min_trials=1),
+        cutoffFreqLow=1,
+        cutoffFreqHigh=30,
+        resampling_rate=100,
+        eeg_var_threshold=None,
+    )
     result = run_erp_pipeline(
         raw,
         "sub-01",
         components,
         annotation_map={"target": "A"},
-        config=ERPConfig(
-            **common, ica_h_freq=80, ica_resample_sfreq=180, ica_corr_threshold=1
+        config=Config(
+            **{
+                "analysis_type": "erp",
+                "which_sensor": "eeg",
+                "erp": dict(),
+                **common,
+                "ica_h_freq": 80,
+                "ica_resample_sfreq": 180,
+                "auto_ica_corr_thr": 1,
+            }
         ),
     )
     expected = run_erp_pipeline(
@@ -1732,7 +1936,15 @@ def test_ica_fit_resampling_does_not_move_analysis_events():
         "sub-01",
         components,
         annotation_map={"target": "A"},
-        config=ERPConfig(**common, apply_ica=False),
+        config=Config(
+            **{
+                "analysis_type": "erp",
+                "which_sensor": "eeg",
+                "erp": dict(),
+                **common,
+                "apply_ica": False,
+            }
+        ),
     )
     np.testing.assert_array_equal(result.epochs.events, expected.epochs.events)
     np.testing.assert_allclose(
@@ -1742,7 +1954,16 @@ def test_ica_fit_resampling_does_not_move_analysis_events():
 
 def test_ica_fit_defaults_inherit_existing_filter_and_sample_rate():
     raw = ica_raw()
-    _, qc = preprocess_erp(raw, ERPConfig(l_freq=1, h_freq=30))
+    _, qc = preprocess_erp(
+        raw,
+        Config(
+            analysis_type="erp",
+            which_sensor="eeg",
+            erp=dict(),
+            cutoffFreqLow=1,
+            cutoffFreqHigh=30,
+        ),
+    )
     assert qc["ica_fit_filter"] == dict(l_freq=1, h_freq=30)
     assert qc["ica_fit_sfreq"] == raw.info["sfreq"]
 
@@ -1753,7 +1974,15 @@ def test_ica_fit_resampling_cannot_silently_disable_auxiliary_rejection():
     raw.set_annotations(mne.Annotations([0], [0.2], ["BAD_aux"]))
     with pytest.raises(ValueError, match="nonfinite.*resampling"):
         preprocess_erp(
-            raw, ERPConfig(l_freq=1, ica_mode="physiological", ica_resample_sfreq=100)
+            raw,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
+                cutoffFreqLow=1,
+                ica_mode="physiological",
+                ica_resample_sfreq=100,
+            ),
         )
 
 
@@ -1770,10 +1999,13 @@ def test_iclabel_uses_independent_fit_copy():
     with patch("mne_icalabel.label_components", side_effect=classify):
         cleaned, qc = preprocess_erp(
             raw,
-            ERPConfig(
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp=dict(),
                 ica_mode="iclabel",
-                l_freq=1,
-                h_freq=30,
+                cutoffFreqLow=1,
+                cutoffFreqHigh=30,
                 ica_h_freq=100,
                 ica_resample_sfreq=250,
             ),
@@ -1952,20 +2184,26 @@ def test_montage_local_api_records_fallback_without_modifying_inputs(tmp_path):
             annotation_map={"standard": "standard", "target": "target"},
         ),
     )
-    definition = ERPSettings(
-        preprocessing=dict(apply_ica=False, l_freq=None, h_freq=None),
-        components={
-            "P": dict(
-                conditions=["target"],
-                channels=["Pz"],
-                window=[0.25, 0.5],
-                polarity="pos",
-            )
-        },
+    definition = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp=dict(
+            components={
+                "P": dict(
+                    conditions=["target"],
+                    channels=["Pz"],
+                    window=[0.25, 0.5],
+                    polarity="pos",
+                )
+            }
+        ),
+        apply_ica=False,
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
     )
     with pytest.warns(UserWarning, match="template"):
         result = Pipeline(
-            config=Config(analysis_type="erp", which_sensor="eeg", erp=definition),
+            config=definition,
             output_dir=tmp_path / "out",
             on_error="raise",
             progress=False,
@@ -2001,3 +2239,226 @@ def test_embedded_positions_take_priority_over_unused_bids_errors(tmp_path, ambi
     assert prepare_erp_montage(ica_raw(montage=True), metadata)["source"] == "embedded"
     with pytest.raises(ValueError, match="coordinate|Ambiguous"):
         prepare_erp_montage(ica_raw(), metadata, dict(template="auto"))
+
+
+def test_unified_config_defaults_and_serialization():
+    config = Config(analysis_type="erp", which_sensor="eeg", erp={})
+    assert config.cutoffFreqLow == 0.1
+    assert config.cutoffFreqHigh == 35.0
+    assert config.resampling_rate is None
+    assert config.ica_method == "infomax"
+    assert config.auto_ica_corr_thr == 0.8
+    assert config.bad_segment_removal_method == "fixed_thr"
+    assert config.eeg_var_threshold == 0.00015
+    assert config.eeg_flat_threshold is None
+    assert set(type(config.erp).model_fields) == {
+        "tmin",
+        "tmax",
+        "baseline",
+        "min_trials",
+        "components",
+    }
+    assert Config.model_validate_json(config.model_dump_json()) == config
+
+
+def test_rest_config_defaults_regression():
+    config = Config()
+    assert (config.cutoffFreqLow, config.cutoffFreqHigh, config.resampling_rate) == (
+        1,
+        40,
+        300,
+    )
+    assert config.ica_method == "fastica"
+    assert config.auto_ica_corr_thr == 0.5
+    assert config.bad_segment_removal_method == "autoreject"
+    assert (config.eeg_var_threshold, config.eeg_flat_threshold) == (4e-05, 1e-06)
+    assert config.autoreject_cv == "auto"
+    assert config.autoreject_n_interpolates == [1, 4, 8, 16, 32]
+    assert config.autoreject_consensus_percs == list(np.linspace(0, 1, 11))
+
+
+@pytest.mark.parametrize(
+    "name", ["cutoffFreqHigh", "resampling_rate", "ica_n_component"]
+)
+@pytest.mark.parametrize("value", [100, 100.0, "100", True])
+def test_rest_shared_integer_fields_keep_original_coercion(name, value):
+    overrides = {name: value, "digital_filter": False}
+    if name == "resampling_rate" and value is True:
+        # Integer coercion remains valid, but the unchanged REST spectral
+        # constraints prohibit a 1 Hz sample rate.
+        with pytest.raises(ValueError, match="Nyquist"):
+            Config(**overrides)
+        return
+    config = Config(**overrides)
+    assert type(getattr(config, name)) is int
+    assert type(config.model_dump()[name]) is int
+    assert (
+        type(Config.model_validate_json(config.model_dump_json()).model_dump()[name])
+        is int
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"resampling_rate": 300.5},
+        {"cutoffFreqHigh": 40.5},
+        {"ica_n_component": 0.95},
+        {"resampling_rate": None},
+        {"cutoffFreqHigh": None},
+        {"rereference_method": ("Cz",)},
+        {"eeg_var_threshold": None},
+        {"eeg_flat_threshold": None},
+    ],
+)
+def test_rest_shared_fields_keep_original_rejections(kwargs):
+    with pytest.raises(ValueError):
+        Config(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"ica_threshold": 0.8},
+        {"ica_n_components": 3},
+        {"erp": {"preprocessing": {"l_freq": 1}}},
+        {"erp": {"rejection_mode": "threshold"}},
+        {"notch_filter": True},
+        {"drop_noisy_flat_channel": True},
+    ],
+)
+def test_unified_config_rejects_removed_or_unsupported_settings(kwargs):
+    with pytest.raises(ValueError):
+        Config(analysis_type="erp", which_sensor="eeg", **kwargs)
+
+
+def test_components_default_to_config_for_raw_and_file(tmp_path):
+    raw, events = make_demo_recording()
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        apply_ica=False,
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        erp=settings().erp,
+    )
+    explicit = {"P300": ERPComponent(**config.erp.components["P300"].model_dump())}
+    expected = run_erp_pipeline(
+        raw,
+        "s",
+        explicit,
+        events=events,
+        event_id={"standard": 1, "target": 2},
+        config=config,
+    )
+    actual = run_erp_pipeline(
+        raw, "s", events=events, event_id={"standard": 1, "target": 2}, config=config
+    )
+    pd.testing.assert_frame_equal(actual.features, expected.features)
+    path = tmp_path / "raw.fif"
+    raw.save(path, verbose=False)
+    loaded = extract_recording(
+        path, "s", events=events, event_id={"standard": 1, "target": 2}, config=config
+    )
+    np.testing.assert_allclose(loaded.features, expected.features, rtol=1e-6)
+    pd.testing.assert_frame_equal(actual.qc, expected.qc)
+
+
+def test_standalone_revalidates_mutated_canonical_config():
+    config = Config(analysis_type="erp", which_sensor="eeg", apply_ica=False)
+    config.erp.baseline = (-1, 0)
+    with pytest.raises(ValueError, match="Baseline"):
+        preprocess_erp(ica_raw(), config)
+    with pytest.raises(ValueError, match="analysis_type"):
+        preprocess_erp(ica_raw(), Config())
+
+
+def test_erp_rejects_unsupported_ica_elbow_detection():
+    with pytest.raises(ValueError, match="apply_ica_elbow_detection"):
+        Config(analysis_type="erp", which_sensor="eeg", apply_ica_elbow_detection=True)
+    assert Config(apply_ica_elbow_detection=True).apply_ica_elbow_detection
+
+
+@pytest.mark.parametrize("fit_sfreq", [None, 100])
+def test_physiological_ica_annotation_flag_uses_same_samples_for_fit_and_scoring(
+    fit_sfreq,
+):
+    raw = ica_raw()
+    raw._data[-1] = 0
+    raw._data[-1, 200:600] = np.sin(np.arange(400) / 10) * 1e-4
+    raw.set_annotations(mne.Annotations([1], [2], ["BAD_blink"]))
+    with pytest.raises(ValueError, match="usable EOG/ECG"):
+        preprocess_erp(
+            raw,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                ica_mode="physiological",
+                ica_resample_sfreq=fit_sfreq,
+            ),
+        )
+    with (
+        patch("mne.preprocessing.ICA") as factory,
+        patch(
+            "meganorm.src.preprocess.find_ica_component", return_value=([], [])
+        ) as correlation,
+    ):
+        factory.return_value.n_components_ = 3
+        _, qc = preprocess_erp(
+            raw,
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                ica_mode="physiological",
+                ica_resample_sfreq=fit_sfreq,
+                ica_if_reject_by_annotation=False,
+            ),
+        )
+        assert (
+            factory.return_value.fit.call_args.kwargs["reject_by_annotation"] is False
+        )
+        samples = raw.n_times if fit_sfreq is None else raw.n_times // 2
+        assert correlation.call_args.args[1].n_times == samples
+        assert len(correlation.call_args.args[2]) == samples
+        assert np.ptp(correlation.call_args.args[2]) > 0
+        assert qc["ica_auxiliary"]["EOG"] == "usable"
+
+
+def test_disabled_rejection_preserves_amplitudes_and_reports_none():
+    from meganorm.src.erp import reject_erp_epochs
+
+    epochs = ar_epochs()
+    epochs._data[2, 0, 50] = 200e-6
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        bad_segment_removal_method=None,
+        eeg_var_threshold=1e-6,
+        eeg_flat_threshold=1e-12,
+    )
+    cleaned, qc = reject_erp_epochs(epochs, config)
+    np.testing.assert_array_equal(cleaned.get_data(), epochs.get_data())
+    assert qc["mode"] == "none"
+    assert qc["n_retained_epochs"] == len(epochs)
+
+
+def test_iclabel_alternative_ica_method_records_training_warning():
+    with (
+        patch("mne.preprocessing.ICA") as factory,
+        patch(
+            "mne_icalabel.label_components",
+            return_value={"labels": [], "y_pred_proba": []},
+        ),
+    ):
+        factory.return_value.n_components_ = 3
+        _, qc = preprocess_erp(
+            ica_raw(aux=None, montage=True),
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                ica_mode="iclabel",
+                ica_method="fastica",
+            ),
+        )
+        assert factory.call_args.kwargs["method"] == "fastica"
+        assert any("extended Infomax" in warning for warning in qc["ica_warnings"])

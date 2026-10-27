@@ -13,4 +13,3 @@ global-exclude *.py[cod]
 
 # ERP tutorial and standalone API guide.
 include notebooks/erp_idp_extraction_tutorial.ipynb
-include erp_quickstart.md

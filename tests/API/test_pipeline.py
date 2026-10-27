@@ -590,7 +590,7 @@ def test_wrong_participant_annotations_fail_before_rerun_cleanup(
 def erp_cohort(tmp_path):
     import mne
     import numpy as np
-    from meganorm.utils.erp import ERPSettings, ERPEventSpec
+    from meganorm.utils.erp import ERPEventSpec
 
     root = tmp_path / "erp_data"
     for subject, codes in [("001", [1, 2]), ("002", [1]), ("003", [])]:
@@ -624,18 +624,11 @@ def erp_cohort(tmp_path):
     config = Config(
         analysis_type="erp",
         which_sensor="eeg",
-        erp=ERPSettings(
-            preprocessing=dict(
-                tmin=0,
-                tmax=0.1,
-                baseline=None,
-                l_freq=None,
-                h_freq=None,
-                reference=None,
-                apply_ica=False,
-                min_trials=1,
-                reject=None,
-            ),
+        erp=dict(
+            tmin=0,
+            tmax=0.1,
+            baseline=None,
+            min_trials=1,
             components={
                 "P": dict(
                     conditions=["a", "b"],
@@ -645,6 +638,11 @@ def erp_cohort(tmp_path):
                 )
             },
         ),
+        cutoffFreqLow=None,
+        cutoffFreqHigh=None,
+        rereference_method=None,
+        apply_ica=False,
+        eeg_var_threshold=None,
     )
     return dataset, config
 
@@ -820,7 +818,7 @@ def test_erp_rejects_unsupported_outputs_and_mutated_settings_before_writing(
         Pipeline(config=config, output_dir=tmp_path / "out").run(dataset)
     config.save_preprocessed_data = False
     runner = Pipeline(config=config, output_dir=tmp_path / "out")
-    runner.config.erp.preprocessing.tmax = -0.3
+    runner.config.erp.tmax = -0.3
     with pytest.raises(ValueError):
         runner.run(dataset)
     assert not (tmp_path / "out").exists()

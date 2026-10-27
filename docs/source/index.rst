@@ -115,6 +115,7 @@ Documentation
 
    getting_started
    configuration
+   erp_quickstart
    meganorm.API
    whats_new
 

@@ -445,7 +445,7 @@ class Pipeline:
         """Run EEG ERP participants without resetting any prior run outputs."""
         import uuid
         import numpy as np
-        from meganorm.src.erp import extract_erp_idps
+        from meganorm.src.erp import extract_erp_idps, _erp_components
         from meganorm.utils.erp import (
             ERPEventSpec,
             erp_metadata_paths,
@@ -459,7 +459,7 @@ class Pipeline:
             raise ValueError(
                 "ERP cohort raw/epoch saving is not supported yet; use the standalone API."
             )
-        _, components = settings.to_runtime()
+        components = _erp_components(self.config)
         schema = tuple(extract_erp_idps("_schema", {}, components)[0].columns)
         parent = (self.output_dir / "erp").resolve()
         for dataset in datasets:
@@ -587,7 +587,7 @@ class Pipeline:
                     process_erp_participant(
                         info,
                         participant_id=participant,
-                        settings=settings,
+                        config=self.config,
                         output_root=root,
                     )
                     complete = json.loads((directory / "complete.json").read_text())
