@@ -423,6 +423,14 @@ def prepare_eeg_data(data, path):
     mne.io.Raw
         The EEG data with updated channel types and montage (if available).
     """
+    from meganorm.utils.eeg import (
+        read_channel_table,
+        apply_channel_table,
+        read_montage_positions,
+        set_head_montage,
+    )
+
+    # Preserve the legacy REST discovery and permissive montage policy.
     task = path.split("/")[-1].split("_")[-2]
     base_dir = os.path.dirname(path)
 
@@ -430,9 +438,8 @@ def prepare_eeg_data(data, path):
     search_pattern = os.path.join(base_dir, f"**_{task}_channels.tsv")
     channel_files = glob.glob(search_pattern, recursive=True)
     if channel_files:
-        channels_df = pd.read_csv(channel_files[0], sep="\t")
-        channels_types = channels_df.set_index("name")["type"].str.lower().to_dict()
-        data.set_channel_types(channels_types)
+        channels_df = read_channel_table(channel_files[0], legacy=True)
+        apply_channel_table(data, channels_df, strict=False, apply_status=False)
 
     # Set montage if not already set
     montage = data.get_montage()
@@ -444,15 +451,8 @@ def prepare_eeg_data(data, path):
             if not montage_files:
                 raise FileNotFoundError("No montage CSV file found!")
 
-            montage_df = pd.read_csv(montage_files[0])
-            ch_positions = {
-                row["Channel"]: [row["X"], row["Y"], row["Z"]]
-                for _, row in montage_df.iterrows()
-            }
-            eeg_montage = mne.channels.make_dig_montage(
-                ch_pos=ch_positions, coord_frame="head"
-            )
-            data.set_montage(eeg_montage)
+            ch_positions = read_montage_positions(montage_files[0], strict=False)
+            set_head_montage(data, ch_positions, allow_missing=False)
 
             logger.info(
                 "EEG montage set from %s with %d channel positions",

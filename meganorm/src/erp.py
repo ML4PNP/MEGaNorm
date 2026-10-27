@@ -860,23 +860,6 @@ def run_erp_pipeline(
     return ERPResult(features, qc, epochs, evokeds, preprocessing_qc)
 
 
-def _read_channel_sidecar(path, **kwargs):
-    """Read UTF-8 channel tables, with a strict Windows-1252 fallback."""
-    import warnings
-
-    try:
-        return pd.read_csv(path, encoding="utf-8-sig", **kwargs)
-    except UnicodeDecodeError:
-        channels = pd.read_csv(path, encoding="cp1252", **kwargs)
-        warnings.warn(
-            f"Channel sidecar {path} is not UTF-8; read using Windows-1252. "
-            "Consider exporting future channel tables as UTF-8.",
-            UserWarning,
-            stacklevel=2,
-        )
-        return channels
-
-
 def process_erp_recording(
     recording_path,
     subject_id,
@@ -898,6 +881,7 @@ def process_erp_recording(
     """
     from pathlib import Path
     import traceback
+    from meganorm.utils.eeg import read_channel_table, apply_channel_table
     from meganorm.utils.erp import (
         prepare_erp_montage,
         erp_metadata_paths,
@@ -923,28 +907,12 @@ def process_erp_recording(
         raw = mne.io.read_raw(str(path), preload=True, verbose=False)
         with raw:
             if metadata["channels"] is not None:
-                channels = _read_channel_sidecar(
-                    metadata["channels"], sep="\t", dtype={"name": str}
+                apply_channel_table(
+                    raw,
+                    read_channel_table(metadata["channels"]),
+                    strict=True,
+                    apply_status=True,
                 )
-                if (
-                    not {"name", "type"}.issubset(channels)
-                    or channels.name.isna().any()
-                    or channels.name.duplicated().any()
-                ):
-                    raise ValueError(
-                        "Channel sidecar requires unique name and type columns."
-                    )
-                mapping = channels.set_index("name")["type"].str.lower().to_dict()
-                if set(mapping) - set(raw.ch_names):
-                    raise ValueError(
-                        "Channel sidecar names do not match recording channels."
-                    )
-                raw.set_channel_types(mapping)
-                if "status" in channels:
-                    bad = channels.loc[
-                        channels.status.str.lower() == "bad", "name"
-                    ].tolist()
-                    raw.info["bads"] = list(dict.fromkeys(raw.info["bads"] + bad))
 
             def notify_montage(message):
                 import warnings

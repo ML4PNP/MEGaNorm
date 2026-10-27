@@ -20,6 +20,13 @@ meganorm.utils.data_specific_utils module
    :show-inheritance:
    :undoc-members:
 
+meganorm.utils.eeg module
+--------------------------
+
+.. automodule:: meganorm.utils.eeg
+   :members:
+   :show-inheritance:
+
 meganorm.utils.freesurfer module
 --------------------------------
 
