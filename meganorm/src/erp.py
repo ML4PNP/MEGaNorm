@@ -871,6 +871,23 @@ def run_erp_pipeline(
     return ERPResult(features, qc, epochs, evokeds, preprocessing_qc)
 
 
+def _read_channel_sidecar(path, **kwargs):
+    """Read UTF-8 channel tables, with a strict Windows-1252 fallback."""
+    import warnings
+
+    try:
+        return pd.read_csv(path, encoding="utf-8-sig", **kwargs)
+    except UnicodeDecodeError:
+        channels = pd.read_csv(path, encoding="cp1252", **kwargs)
+        warnings.warn(
+            f"Channel sidecar {path} is not UTF-8; read using Windows-1252. "
+            "Consider exporting future channel tables as UTF-8.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return channels
+
+
 def process_erp_recording(
     recording_path, subject_id, *, settings, event_spec, output_root, line_freq=None
 ):
@@ -911,7 +928,7 @@ def process_erp_recording(
         raw = mne.io.read_raw(str(path), preload=True, verbose=False)
         with raw:
             if metadata["channels"] is not None:
-                channels = pd.read_csv(
+                channels = _read_channel_sidecar(
                     metadata["channels"], sep="\t", dtype={"name": str}
                 )
                 if (
@@ -952,7 +969,8 @@ def process_erp_recording(
                     mne.channels.make_dig_montage(
                         ch_pos=dict(zip(montage.Channel, coordinates)),
                         coord_frame="head",
-                    )
+                    ),
+                    on_missing="ignore"
                 )
             if raw.info.get("line_freq") is None and line_freq is not None:
                 raw.info["line_freq"] = float(line_freq)
