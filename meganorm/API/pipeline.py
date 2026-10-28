@@ -14,6 +14,7 @@ from .datasets import Dataset, _path
 from ._metadata import attach_metadata
 from ._processing import process_participant, process_erp_participant
 from .results import FeatureDataset
+from ._reporting import serialize_manifest, processing_row, build_run_report
 
 _LOG = logging.getLogger("meganorm.API.pipeline")
 _METADATA = {"subject", "scanner", "if_eroom", "number_of_epochs"}
@@ -297,32 +298,17 @@ class Pipeline:
             "processing": root / "processing.csv",
             "summary": root / "run_summary.json",
         }
-        serial_manifest = manifest.copy()
-        for column in serial_manifest:
-            serial_manifest[column] = serial_manifest[column].map(
-                lambda value: (
-                    json.dumps([str(p) for p in value])
-                    if isinstance(value, tuple)
-                    else str(value) if isinstance(value, Path) else value
-                )
-            )
+        serial_manifest = serialize_manifest(manifest)
         serial_manifest.to_csv(paths["manifest"], index=False)
 
         def report():
-            table = pd.DataFrame(
-                rows, columns=["participant_id", *processing_columns]
-            ).set_index("participant_id")
-            summary = dict(
-                counts,
+            table, summary = build_run_report(
+                rows,
+                columns=["participant_id", *processing_columns],
+                counts=counts,
                 discovered=len(manifest),
-                attempted=len(rows),
                 succeeded=len(successful),
-                failed=sum(r["status"] == "failed" for r in rows),
-                interrupted=sum(r["status"] == "interrupted" for r in rows),
-            )
-            demo_names = {d.name for d in datasets if d.demographics is not None}
-            summary["matched_demographics"] = sum(
-                r["status"] == "success" and r["dataset"] in demo_names for r in rows
+                demo_names={d.name for d in datasets if d.demographics is not None},
             )
             table.to_csv(paths["processing"])
             paths["summary"].write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -341,15 +327,7 @@ class Pipeline:
                     / "log_summary"
                     / f"subject_{participant}_report.log"
                 )
-                row = dict(
-                    participant_id=participant,
-                    dataset=info["dataset"],
-                    status="interrupted",
-                    error_type=None,
-                    error_message=None,
-                    feature_path=str(path),
-                    log_path=str(log),
-                )
+                row = processing_row(info, feature_path=path, log_path=log)
                 rows.append(row)
                 try:
                     if self.progress:
@@ -516,15 +494,7 @@ class Pipeline:
         write_erp_json(paths["config"], self.config.model_dump(mode="json"))
         write_erp_json(paths["schema"], list(schema))
         write_erp_json(paths["datasets"], {d.name: d._settings() for d in datasets})
-        serial = manifest.copy()
-        for column in serial:
-            serial[column] = serial[column].map(
-                lambda value: (
-                    json.dumps(value, default=str)
-                    if isinstance(value, (tuple, dict, list))
-                    else str(value) if isinstance(value, Path) else value
-                )
-            )
+        serial = serialize_manifest(manifest, structured=True)
         write_erp_table(paths["manifest"], serial, index=False)
         rows, frames, quality = [], [], []
         columns = [
@@ -539,22 +509,15 @@ class Pipeline:
         ]
 
         def report():
-            processing = pd.DataFrame(rows, columns=columns).set_index("participant_id")
-            summary = dict(
-                counts,
+            processing, summary = build_run_report(
+                rows,
+                columns=columns,
+                counts=counts,
                 analysis_type="erp",
                 discovered=len(manifest),
-                attempted=len(rows),
                 succeeded=sum(r["status"] == "success" for r in rows),
-                partial=sum(r["status"] == "partial" for r in rows),
-                failed=sum(r["status"] == "failed" for r in rows),
-                interrupted=sum(r["status"] == "interrupted" for r in rows),
                 collected=len(frames),
-            )
-            demo_names = {d.name for d in datasets if d.demographics is not None}
-            summary["matched_demographics"] = sum(
-                r["status"] in {"success", "partial"} and r["dataset"] in demo_names
-                for r in rows
+                demo_names={d.name for d in datasets if d.demographics is not None},
             )
             write_erp_table(paths["processing"], processing)
             write_erp_json(paths["summary"], summary)
@@ -565,15 +528,11 @@ class Pipeline:
             for info in manifest.to_dict("records"):
                 participant = info["participant_id"]
                 directory = root / "participants" / participant
-                row = dict(
-                    participant_id=participant,
-                    dataset=info["dataset"],
-                    status="interrupted",
-                    error_type=None,
-                    error_message=None,
-                    feature_path=str(directory / "features.csv"),
-                    qc_path=str(directory / "qc.csv"),
-                    log_path=str(directory / "processing.log"),
+                row = processing_row(
+                    info,
+                    feature_path=directory / "features.csv",
+                    qc_path=directory / "qc.csv",
+                    log_path=directory / "processing.log",
                 )
                 rows.append(row)
                 try:
