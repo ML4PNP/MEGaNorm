@@ -2229,6 +2229,20 @@ def _detect_bad_channels_ransac(
     return bads, bad_logs
 
 
+def _fit_autoreject_epochs(epochs, *, estimator, load_data=False, **parameters):
+    """Fit AutoReject to existing epochs using the caller's exact policy.
+
+    The estimator binding and constructor parameters come from the workflow.
+    Optional loading preserves REST's constructor/load/fit order. Epoch creation,
+    validation, transformation, annotations and reporting remain with the caller.
+    """
+    model = estimator(**parameters)
+    if load_data:
+        epochs.load_data()
+    model.fit(epochs)
+    return model
+
+
 def auto_reject_segmentation(
     raw,
     sampling_rate: float,
@@ -2380,7 +2394,10 @@ def auto_reject_segmentation(
         cv = max(2, min(10, len(epochs)))  # clamp between 2 and 10
         logger.info(f"The number of CV in autoreject was set to {cv} .")
 
-    ar = AutoReject(
+    ar = _fit_autoreject_epochs(
+        epochs,
+        estimator=AutoReject,
+        load_data=True,
         n_interpolate=n_interpolates,
         consensus=consensus_percs,
         cv=cv,
@@ -2390,9 +2407,6 @@ def auto_reject_segmentation(
         verbose=True,
     )
 
-    epochs.load_data()
-
-    ar.fit(epochs)
     logger.info(
         "AutoReject selected parameters: consensus = %s, n_interpolate = %s",
         {k: float(v) for k, v in ar.consensus_.items()},

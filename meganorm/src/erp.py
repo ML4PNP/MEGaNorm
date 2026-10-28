@@ -432,8 +432,11 @@ def reject_erp_epochs(epochs, config=None):
             "AutoReject consensus and n_interpolate have no valid combination."
         )
     from autoreject import AutoReject
+    from .preprocess import _fit_autoreject_epochs
 
-    model = AutoReject(
+    model = _fit_autoreject_epochs(
+        cleaned,
+        estimator=AutoReject,
         n_interpolate=list(candidates),
         consensus=list(config.autoreject_consensus_percs),
         cv=config.autoreject_cv,
@@ -443,7 +446,6 @@ def reject_erp_epochs(epochs, config=None):
         n_jobs=1,
         verbose=False,
     )
-    model.fit(cleaned)
     if not np.isfinite(np.mean(model.loss_["eeg"], axis=-1)).any():
         raise ValueError(
             "AutoReject could not find a finite cross-validation loss; "
