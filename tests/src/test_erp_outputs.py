@@ -260,3 +260,114 @@ def test_index_escapes_labels_and_encodes_links(tmp_path):
     page = write_erp_index(tmp_path, table).read_text()
     assert "<script>" not in page and "&lt;script&gt;" in page
     assert "participants/sub%20%3C41%3E/report.html" in page
+
+
+def _progress_events(directory):
+    return [
+        json.loads(line)
+        for line in (directory / "processing_events.jsonl").read_text().splitlines()
+    ]
+
+
+def test_worker_progress_is_detailed_and_numerically_observational(recording, tmp_path):
+    path, config, ds = recording
+    config.erp.save_report = False
+    expected = ds.extract_erp("sub-41", config=config)
+    actual = erp.process_erp_recording(
+        path,
+        "sub-41",
+        config=config,
+        event_spec=ds.erp_events,
+        montage_settings=ds.erp_montage,
+        line_freq=ds.line_freq,
+        output_root=tmp_path / "out",
+    )
+    pd.testing.assert_frame_equal(actual.features, expected.features, check_names=False)
+    pd.testing.assert_frame_equal(actual.qc, expected.qc)
+    assert actual.preprocessing_qc == expected.preprocessing_qc
+    for condition, evoked in expected.evokeds.items():
+        if evoked is not None:
+            np.testing.assert_array_equal(actual.evokeds[condition].data, evoked.data)
+    directory = tmp_path / "out/participants/sub-41"
+    events = _progress_events(directory)
+    completed = {e["stage"]: e for e in events if e["status"] == "completed"}
+    assert {
+        "load_recording",
+        "prepare_metadata",
+        "resolve_events",
+        "preprocessing",
+        "epoching",
+        "epoch_cleaning",
+        "average_conditions",
+        "extract_idps",
+        "save_tables",
+        "save_evokeds",
+        "publish_completion",
+        "run",
+    } <= completed.keys()
+    assert completed["load_recording"]["details"]["n_channels"] == 2
+    assert completed["prepare_metadata"]["details"]["montage"]["source"] == "template"
+    assert completed["resolve_events"]["details"]["condition_counts"] == {
+        "standard": 20,
+        "target": 20,
+        "missing": 0,
+    }
+    skips = {e["stage"] for e in events if e["status"] == "skipped"}
+    assert {"reference", "analysis_filter", "ica", "resample", "report"} <= skips
+    summary = next(e["details"] for e in events if e["stage"] == "erp_summary")
+    assert summary["conditions"]["missing"]["n_trials"] == 0
+    assert summary["idps"]["valid"] == int(actual.features.notna().sum().sum())
+    assert events[-1]["details"]["processing_outcome"] == "partial"
+    assert "Outcome: partial" in (directory / "processing.log").read_text()
+    assert all(e["duration_seconds"] >= 0 for e in events if "duration_seconds" in e)
+
+
+def test_live_load_start_and_interrupt(recording, tmp_path, monkeypatch):
+    path, config, ds = recording
+    directory = tmp_path / "out/participants/sub-41"
+    interrupt = KeyboardInterrupt()
+
+    def reader(*args, **kwargs):
+        assert _progress_events(directory)[-1]["stage"] == "load_recording"
+        assert _progress_events(directory)[-1]["status"] == "started"
+        raise interrupt
+
+    monkeypatch.setattr(mne.io, "read_raw", reader)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        erp.process_erp_recording(
+            path,
+            "sub-41",
+            config=config,
+            event_spec=ds.erp_events,
+            output_root=tmp_path / "out",
+        )
+    assert caught.value is interrupt
+    assert _progress_events(directory)[-1]["status"] == "interrupted"
+    assert not (directory / "complete.json").exists()
+
+
+def test_optional_report_error_logged_without_failing_run(
+    recording, tmp_path, monkeypatch
+):
+    import meganorm.plots.erp_report as report_module
+
+    path, config, ds = recording
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("figure error")
+
+    monkeypatch.setattr(report_module, "write_erp_report", fail)
+    erp.process_erp_recording(
+        path,
+        "sub-41",
+        config=config,
+        event_spec=ds.erp_events,
+        montage_settings=ds.erp_montage,
+        output_root=tmp_path / "out",
+    )
+    events = _progress_events(tmp_path / "out/participants/sub-41")
+    failed = [e for e in events if e["status"] == "failed"]
+    assert len(failed) == 1 and failed[0]["stage"] == "report"
+    assert failed[0]["details"]["error"] == "figure error"
+    assert events[-1]["status"] == "completed"
+    assert events[-1]["details"]["artifacts"]["report"]["status"] == "failed"

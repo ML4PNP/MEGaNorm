@@ -6,6 +6,13 @@ in tesla, gradiometer amplitudes in tesla/metre, and latencies in milliseconds.
 
 from dataclasses import dataclass, field
 from typing import Mapping
+from meganorm.utils.erp_logging import (
+    ERPProgress,
+    stage,
+    event as progress_event,
+    skipped,
+    runtime_versions,
+)
 
 import mne
 import numpy as np
@@ -151,13 +158,26 @@ def preprocess_erp(raw, config=None):
             if isinstance(config.rereference_method, tuple)
             else config.rereference_method
         )
-        data.set_eeg_reference(reference, projection=False, verbose=False)
+        with stage("reference", reference=reference):
+            data.set_eeg_reference(reference, projection=False, verbose=False)
+    else:
+        skipped("reference", reason="rereference_method is None")
     fit_data = data.copy() if mode != "none" else None
     if config.digital_filter and (
         config.cutoffFreqLow is not None or config.cutoffFreqHigh is not None
     ):
-        data.filter(
-            config.cutoffFreqLow, config.cutoffFreqHigh, picks=eeg, verbose=False
+        with stage(
+            "analysis_filter",
+            l_freq=config.cutoffFreqLow,
+            h_freq=config.cutoffFreqHigh,
+            n_eeg_channels=len(eeg),
+        ):
+            data.filter(
+                config.cutoffFreqLow, config.cutoffFreqHigh, picks=eeg, verbose=False
+            )
+    else:
+        skipped(
+            "analysis_filter", reason="digital_filter disabled or both cutoffs unset"
         )
     qc = {
         "ica_applied": False,
@@ -180,170 +200,212 @@ def preprocess_erp(raw, config=None):
         "bad_channels": list(data.info["bads"]),
     }
     if mode != "none":
-        annotation_selection = "omit" if config.ica_if_reject_by_annotation else None
-        # Auxiliary quality and correlations use the same annotation-retained
-        # samples as ICA fitting. Do not filter nonfinite auxiliary channels.
-        auxiliary = mne.pick_types(
-            fit_data.info, meg=False, eog=True, ecg=True, exclude=[]
-        )
-        usable = []
-        for pick in auxiliary:
-            name = fit_data.ch_names[pick]
-            signal = fit_data.get_data(
-                picks=[pick], reject_by_annotation=annotation_selection
-            )[0]
-            if name in fit_data.info["bads"]:
-                status = "marked_bad"
-            elif len(signal) < 2:
-                status = "insufficient_samples"
-            elif not np.isfinite(signal).all():
-                status = "nonfinite"
-            elif np.ptp(signal) == 0:
-                status = "flat"
+        with stage("ica_strategy", requested_mode=config.ica_mode) as detail:
+            annotation_selection = (
+                "omit" if config.ica_if_reject_by_annotation else None
+            )
+            # Auxiliary quality and correlations use the same annotation-retained
+            # samples as ICA fitting. Do not filter nonfinite auxiliary channels.
+            auxiliary = mne.pick_types(
+                fit_data.info, meg=False, eog=True, ecg=True, exclude=[]
+            )
+            usable = []
+            for pick in auxiliary:
+                name = fit_data.ch_names[pick]
+                signal = fit_data.get_data(
+                    picks=[pick], reject_by_annotation=annotation_selection
+                )[0]
+                if name in fit_data.info["bads"]:
+                    status = "marked_bad"
+                elif len(signal) < 2:
+                    status = "insufficient_samples"
+                elif not np.isfinite(signal).all():
+                    status = "nonfinite"
+                elif np.ptp(signal) == 0:
+                    status = "flat"
+                else:
+                    status = "usable"
+                    usable.append(pick)
+                qc["ica_auxiliary"][name] = status
+            if mode == "auto":
+                mode = "physiological" if usable else "iclabel"
+                reason = (
+                    "usable EOG/ECG channels"
+                    if usable
+                    else "no usable EOG/ECG channels"
+                )
             else:
-                status = "usable"
-                usable.append(pick)
-            qc["ica_auxiliary"][name] = status
-        if mode == "auto":
-            mode = "physiological" if usable else "iclabel"
-            reason = (
-                "usable EOG/ECG channels" if usable else "no usable EOG/ECG channels"
-            )
-        else:
-            reason = "explicit strategy"
-        qc.update(ica_mode_effective=mode, ica_selection_reason=reason)
-        if mode == "physiological" and not usable:
-            raise ValueError(
-                "Physiological ICA requires usable EOG/ECG channels; "
-                f"quality: {qc['ica_auxiliary']}."
-            )
-        if mode == "iclabel":
-            positions = np.array([fit_data.info["chs"][p]["loc"][:3] for p in eeg])
-            if (
-                fit_data.get_montage() is None
-                or not np.isfinite(positions).all()
-                or np.any(np.linalg.norm(positions, axis=1) == 0)
-            ):
+                reason = "explicit strategy"
+            qc.update(ica_mode_effective=mode, ica_selection_reason=reason)
+            if mode == "physiological" and not usable:
                 raise ValueError(
-                    "ICLabel requires finite EEG sensor locations for every "
-                    f"usable EEG channel; auxiliary quality: {qc['ica_auxiliary']}."
+                    "Physiological ICA requires usable EOG/ECG channels; "
+                    f"quality: {qc['ica_auxiliary']}."
                 )
-            if config.rereference_method != "average" or config.ica_l_freq < 1:
-                raise ValueError(
-                    "ICLabel requires reference='average' and ica_l_freq >= 1 Hz."
-                )
-            if config.ica_method != "infomax":
-                qc["ica_warnings"].append(
-                    "ICLabel was trained using extended Infomax ICA; the configured "
-                    "ICA method differs and classification performance may be affected."
-                )
-            if config.ica_l_freq != 1 or fit_h_freq != 100:
-                qc["ica_warnings"].append(
-                    "ICLabel was trained on 1–100 Hz data; the configured ICA fit "
-                    "filter differs and classification performance may be affected."
-                )
-        fit_data.filter(config.ica_l_freq, fit_h_freq, picks=eeg, verbose=False)
-        if config.ica_resample_sfreq is not None:
-            fit_data.resample(config.ica_resample_sfreq, verbose=False)
-            if mode == "physiological":
-                for pick in usable:
-                    signal = fit_data.get_data(
-                        picks=[pick], reject_by_annotation=annotation_selection
-                    )[0]
-                    if not np.isfinite(signal).all() or np.ptp(signal) == 0:
-                        raise ValueError(
-                            f"Auxiliary {fit_data.ch_names[pick]!r} became nonfinite "
-                            "or flat after ICA fit resampling; repair the auxiliary "
-                            "signal or leave ica_resample_sfreq=None."
-                        )
-        qc["ica_fit_filter"] = {"l_freq": config.ica_l_freq, "h_freq": fit_h_freq}
-        qc["ica_fit_sfreq"] = float(fit_data.info["sfreq"])
-        # Loaded samples already include active projectors. Inactive SSP must
-        # not reduce rank: ICA does not apply those projectors during fitting.
-        rank = int(
-            mne.compute_rank(fit_data.copy().pick(eeg), proj=False, verbose=False)[
-                "eeg"
-            ]
-        )
-        qc["ica_rank_estimated"] = rank
-        # Average referencing imposes an exact dependency on the usable EEG
-        # channels, even when numerical rank estimation misses that dependency.
-        if config.rereference_method == "average":
-            rank = min(rank, len(eeg) - 1)
-        qc["ica_rank"] = rank
-        n_components = config.ica_n_component
-        if rank < 2 or (type(n_components) is int and n_components > rank):
-            raise ValueError(
-                f"ICA needs EEG rank >=2 and n_components <= rank; "
-                f"rank={rank}, requested={n_components}."
+            if mode == "iclabel":
+                positions = np.array([fit_data.info["chs"][p]["loc"][:3] for p in eeg])
+                if (
+                    fit_data.get_montage() is None
+                    or not np.isfinite(positions).all()
+                    or np.any(np.linalg.norm(positions, axis=1) == 0)
+                ):
+                    raise ValueError(
+                        "ICLabel requires finite EEG sensor locations for every "
+                        f"usable EEG channel; auxiliary quality: {qc['ica_auxiliary']}."
+                    )
+                if config.rereference_method != "average" or config.ica_l_freq < 1:
+                    raise ValueError(
+                        "ICLabel requires reference='average' and ica_l_freq >= 1 Hz."
+                    )
+                if config.ica_method != "infomax":
+                    qc["ica_warnings"].append(
+                        "ICLabel was trained using extended Infomax ICA; the configured "
+                        "ICA method differs and classification performance may be affected."
+                    )
+                if config.ica_l_freq != 1 or fit_h_freq != 100:
+                    qc["ica_warnings"].append(
+                        "ICLabel was trained on 1–100 Hz data; the configured ICA fit "
+                        "filter differs and classification performance may be affected."
+                    )
+            detail.update(
+                effective_mode=mode, reason=reason, auxiliary=qc["ica_auxiliary"]
             )
-        ica = _fit_ica(
-            fit_data,
-            n_components=rank if n_components is None else n_components,
+        with stage(
+            "ica_fit_preparation",
+            l_freq=config.ica_l_freq,
+            h_freq=fit_h_freq,
+            resample_sfreq=config.ica_resample_sfreq,
+        ) as detail:
+            fit_data.filter(config.ica_l_freq, fit_h_freq, picks=eeg, verbose=False)
+            if config.ica_resample_sfreq is not None:
+                fit_data.resample(config.ica_resample_sfreq, verbose=False)
+                if mode == "physiological":
+                    for pick in usable:
+                        signal = fit_data.get_data(
+                            picks=[pick], reject_by_annotation=annotation_selection
+                        )[0]
+                        if not np.isfinite(signal).all() or np.ptp(signal) == 0:
+                            raise ValueError(
+                                f"Auxiliary {fit_data.ch_names[pick]!r} became nonfinite "
+                                "or flat after ICA fit resampling; repair the auxiliary "
+                                "signal or leave ica_resample_sfreq=None."
+                            )
+            qc["ica_fit_filter"] = {"l_freq": config.ica_l_freq, "h_freq": fit_h_freq}
+            qc["ica_fit_sfreq"] = float(fit_data.info["sfreq"])
+            # Loaded samples already include active projectors. Inactive SSP must
+            # not reduce rank: ICA does not apply those projectors during fitting.
+            rank = int(
+                mne.compute_rank(fit_data.copy().pick(eeg), proj=False, verbose=False)[
+                    "eeg"
+                ]
+            )
+            qc["ica_rank_estimated"] = rank
+            # Average referencing imposes an exact dependency on the usable EEG
+            # channels, even when numerical rank estimation misses that dependency.
+            if config.rereference_method == "average":
+                rank = min(rank, len(eeg) - 1)
+            qc["ica_rank"] = rank
+            n_components = config.ica_n_component
+            if rank < 2 or (type(n_components) is int and n_components > rank):
+                raise ValueError(
+                    f"ICA needs EEG rank >=2 and n_components <= rank; "
+                    f"rank={rank}, requested={n_components}."
+                )
+            detail.update(
+                rank=rank,
+                rank_estimated=qc["ica_rank_estimated"],
+                fit_sfreq=qc["ica_fit_sfreq"],
+            )
+        with stage(
+            "ica_fit",
             method=config.ica_method,
-            fit_params={"extended": True} if config.ica_method == "infomax" else None,
+            n_components=rank if n_components is None else n_components,
             random_state=config.random_state,
             max_iter=config.ica_max_iter,
-            picks=eeg,
             reject_by_annotation=config.ica_if_reject_by_annotation,
-        )
-        if ica.n_components_ > rank:
-            raise ValueError("Fitted ICA components exceed the effective EEG rank.")
-        qc["ica_n_components"] = int(ica.n_components_)
-        excluded = set()
-        if mode == "physiological":
-            # The shared helper chooses the strongest correlated component per
-            # auxiliary channel. Preserve that established rest/ERP behavior.
-            retained = fit_data.get_data(reject_by_annotation=annotation_selection)
-            correlation_data = mne.io.RawArray(
-                retained, fit_data.info.copy(), verbose=False
+        ) as detail:
+            ica = _fit_ica(
+                fit_data,
+                n_components=rank if n_components is None else n_components,
+                method=config.ica_method,
+                fit_params=(
+                    {"extended": True} if config.ica_method == "infomax" else None
+                ),
+                random_state=config.random_state,
+                max_iter=config.ica_max_iter,
+                picks=eeg,
+                reject_by_annotation=config.ica_if_reject_by_annotation,
             )
-            for pick in usable:
-                indices, scores = find_ica_component(
-                    ica, correlation_data, retained[pick], thresholds["correlation"]
+            if ica.n_components_ > rank:
+                raise ValueError("Fitted ICA components exceed the effective EEG rank.")
+            qc["ica_n_components"] = int(ica.n_components_)
+            detail["n_components_fitted"] = qc["ica_n_components"]
+        with stage(
+            "ica_classification", effective_mode=mode, thresholds=thresholds
+        ) as detail:
+            excluded = set()
+            if mode == "physiological":
+                # The shared helper chooses the strongest correlated component per
+                # auxiliary channel. Preserve that established rest/ERP behavior.
+                retained = fit_data.get_data(reject_by_annotation=annotation_selection)
+                correlation_data = mne.io.RawArray(
+                    retained, fit_data.info.copy(), verbose=False
                 )
-                excluded.update(indices)
-                qc["ica_component_scores"].extend(
-                    {
-                        "channel": fit_data.ch_names[pick],
-                        "component": int(i),
-                        "correlation": float(score),
-                    }
-                    for i, score in zip(indices, scores)
-                )
-            qc["ica_method"] = "physiological_correlation"
-        else:
-            from mne_icalabel import label_components
+                for pick in usable:
+                    indices, scores = find_ica_component(
+                        ica, correlation_data, retained[pick], thresholds["correlation"]
+                    )
+                    excluded.update(indices)
+                    qc["ica_component_scores"].extend(
+                        {
+                            "channel": fit_data.ch_names[pick],
+                            "component": int(i),
+                            "correlation": float(score),
+                        }
+                        for i, score in zip(indices, scores)
+                    )
+                qc["ica_method"] = "physiological_correlation"
+            else:
+                from mne_icalabel import label_components
 
-            labels = label_components(fit_data, ica, method="iclabel")
-            for i, (label, probability) in enumerate(
-                zip(labels["labels"], labels["y_pred_proba"])
-            ):
-                qc["ica_component_scores"].append(
-                    {
-                        "component": i,
-                        "label": str(label),
-                        "probability": float(probability),
-                    }
+                labels = label_components(fit_data, ica, method="iclabel")
+                for i, (label, probability) in enumerate(
+                    zip(labels["labels"], labels["y_pred_proba"])
+                ):
+                    qc["ica_component_scores"].append(
+                        {
+                            "component": i,
+                            "label": str(label),
+                            "probability": float(probability),
+                        }
+                    )
+                excluded.update(
+                    _select_iclabel_components(
+                        labels,
+                        {
+                            "eye blink",
+                            "heart beat",
+                            "muscle artifact",
+                            "channel noise",
+                            "line noise",
+                        },
+                        thresholds["label_probability"],
+                        inclusive=True,
+                    )
                 )
-            excluded.update(
-                _select_iclabel_components(
-                    labels,
-                    {
-                        "eye blink",
-                        "heart beat",
-                        "muscle artifact",
-                        "channel noise",
-                        "line noise",
-                    },
-                    thresholds["label_probability"],
-                    inclusive=True,
-                )
+                qc["ica_method"] = "iclabel"
+            detail.update(
+                excluded_components=sorted(excluded),
+                component_scores=qc["ica_component_scores"],
+                warnings=qc["ica_warnings"],
             )
-            qc["ica_method"] = "iclabel"
-        ica.exclude = sorted(excluded)
-        ica.apply(data, verbose=False)
-        qc.update(ica_applied=True, ica_excluded=ica.exclude.copy())
+        with stage("ica_apply", excluded_components=sorted(excluded)):
+            ica.exclude = sorted(excluded)
+            ica.apply(data, verbose=False)
+            qc.update(ica_applied=True, ica_excluded=ica.exclude.copy())
+    else:
+        skipped("ica", reason="disabled by configuration")
+    progress_event("preprocessing_summary", **qc)
     return data, qc
 
 
@@ -434,18 +496,28 @@ def reject_erp_epochs(epochs, config=None):
     from autoreject import AutoReject
     from .preprocess import _fit_autoreject_epochs
 
-    model = _fit_autoreject_epochs(
-        cleaned,
-        estimator=AutoReject,
+    with stage(
+        "autoreject_fit",
+        cv=config.autoreject_cv,
+        n_epochs=len(cleaned),
+        n_channels=len(picks),
         n_interpolate=list(candidates),
         consensus=list(config.autoreject_consensus_percs),
-        cv=config.autoreject_cv,
         thresh_method=config.autoreject_thresh_method,
         random_state=config.random_state,
-        picks=picks,
-        n_jobs=1,
-        verbose=False,
-    )
+    ):
+        model = _fit_autoreject_epochs(
+            cleaned,
+            estimator=AutoReject,
+            n_interpolate=list(candidates),
+            consensus=list(config.autoreject_consensus_percs),
+            cv=config.autoreject_cv,
+            thresh_method=config.autoreject_thresh_method,
+            random_state=config.random_state,
+            picks=picks,
+            n_jobs=1,
+            verbose=False,
+        )
     if not np.isfinite(np.mean(model.loss_["eeg"], axis=-1)).any():
         raise ValueError(
             "AutoReject could not find a finite cross-validation loss; "
@@ -500,7 +572,8 @@ def reject_erp_epochs(epochs, config=None):
         # channels to repair, and no need to interpolate discarded data.
         cleaned.drop(np.arange(len(cleaned)), reason="AUTOREJECT", verbose=False)
     else:
-        cleaned = model.transform(cleaned, reject_log=log)
+        with stage("autoreject_transform", n_rejected=int(bad.sum())):
+            cleaned = model.transform(cleaned, reject_log=log)
     report["n_retained_epochs"] = len(cleaned)
     return cleaned, report
 
@@ -515,23 +588,53 @@ def epoch_erp(raw, events, event_id, config=None, *, return_qc=False):
     events = _validate_events(raw, events, event_id)
     if not np.isin(events[:, 2], list(event_id.values())).any():
         raise ValueError("No requested condition events were found.")
-    epochs = mne.Epochs(
-        raw,
-        events,
-        event_id=dict(event_id),
+    with stage(
+        "epoching",
         tmin=config.erp.tmin,
         tmax=config.erp.tmax,
         baseline=config.erp.baseline,
-        picks="eeg",
-        reject=None,
-        flat=None,
         reject_by_annotation=True,
-        preload=True,
-        on_missing="ignore",
-        event_repeated="error",
-        verbose=False,
-    )
-    epochs, report = reject_erp_epochs(epochs, config)
+        n_events=len(events),
+    ) as detail:
+        epochs = mne.Epochs(
+            raw,
+            events,
+            event_id=dict(event_id),
+            tmin=config.erp.tmin,
+            tmax=config.erp.tmax,
+            baseline=config.erp.baseline,
+            picks="eeg",
+            reject=None,
+            flat=None,
+            reject_by_annotation=True,
+            preload=True,
+            on_missing="ignore",
+            event_repeated="error",
+            verbose=False,
+        )
+        detail["n_epochs_after_annotation_and_edge_rejection"] = len(epochs)
+    with stage(
+        "epoch_cleaning",
+        method=config.bad_segment_removal_method,
+        amplitude_threshold=(
+            config.eeg_var_threshold
+            if config.bad_segment_removal_method == "fixed_thr"
+            else None
+        ),
+        flat_threshold=(
+            config.eeg_flat_threshold
+            if config.bad_segment_removal_method is not None
+            else None
+        ),
+    ) as detail:
+        epochs, report = reject_erp_epochs(epochs, config)
+        detail.update(
+            {
+                key: value
+                for key, value in report.items()
+                if key not in {"trials", "autoreject_rejected_event_indices"}
+            }
+        )
     return (epochs, report) if return_qc else epochs
 
 
@@ -788,24 +891,28 @@ def run_erp_pipeline(
     config = _validate_erp_config(config)
     if components is None:
         components = _erp_components(config)
-    if event_spec is not None:
-        if annotation_map is not None or events is not None or event_id is not None:
-            raise ValueError(
-                "Supply one event source: event_spec OR annotation_map OR events and event_id."
+    with stage("resolve_events") as detail:
+        if event_spec is not None:
+            if annotation_map is not None or events is not None or event_id is not None:
+                raise ValueError(
+                    "Supply one event source: event_spec OR annotation_map OR events and event_id."
+                )
+            events, event_id = resolve_erp_events(raw, event_spec)
+        elif annotation_map is not None:
+            if events is not None or event_id is not None:
+                raise ValueError("Use annotation_map OR events and event_id.")
+            events, event_id = resolve_erp_events(
+                raw, ERPEventSpec(mode="annotations", annotation_map=annotation_map)
             )
-        events, event_id = resolve_erp_events(raw, event_spec)
-    elif annotation_map is not None:
-        if events is not None or event_id is not None:
-            raise ValueError("Use annotation_map OR events and event_id.")
-        events, event_id = resolve_erp_events(
-            raw, ERPEventSpec(mode="annotations", annotation_map=annotation_map)
-        )
-    if events is None or event_id is None:
-        raise ValueError("Provide events and event_id, or annotation_map.")
-    events = _validate_events(raw, events, event_id)
-    events = events[np.isin(events[:, 2], list(event_id.values()))]
-    if not len(events):
-        raise ValueError("No requested condition events were found.")
+        if events is None or event_id is None:
+            raise ValueError("Provide events and event_id, or annotation_map.")
+        events = _validate_events(raw, events, event_id)
+        events = events[np.isin(events[:, 2], list(event_id.values()))]
+        if not len(events):
+            raise ValueError("No requested condition events were found.")
+        detail["condition_counts"] = {
+            name: int(np.sum(events[:, 2] == code)) for name, code in event_id.items()
+        }
     if config.resampling_rate is not None:
         ratio = config.resampling_rate / raw.info["sfreq"]
         projected = np.round(events[:, 0] * ratio).astype(int)
@@ -832,18 +939,46 @@ def run_erp_pipeline(
             raise ValueError(
                 "Raw pipeline supports EEG; use extract_erp_idps for prepared MEG evokeds."
             )
-    cleaned, preprocessing_qc = preprocess_erp(raw, config)
+    with stage("preprocessing"):
+        cleaned, preprocessing_qc = preprocess_erp(raw, config)
     if config.resampling_rate is not None:
-        cleaned, events = cleaned.resample(
-            config.resampling_rate, events=events, verbose=False
-        )
+        with stage(
+            "resample",
+            from_sfreq=cleaned.info["sfreq"],
+            to_sfreq=config.resampling_rate,
+        ):
+            cleaned, events = cleaned.resample(
+                config.resampling_rate, events=events, verbose=False
+            )
+    else:
+        skipped("resample", reason="resampling_rate is None")
     events = _validate_events(cleaned, events, event_id)
     epochs, rejection_qc = epoch_erp(cleaned, events, event_id, config, return_qc=True)
     preprocessing_qc["epoch_rejection"] = rejection_qc
-    evokeds = compute_evokeds(epochs)
-    features, qc = extract_erp_idps(
-        subject_id, evokeds, components, config.erp.min_trials
-    )
+    with stage("average_conditions") as detail:
+        evokeds = compute_evokeds(epochs)
+        detail["n_trials"] = {
+            name: 0 if evoked is None else evoked.nave
+            for name, evoked in evokeds.items()
+        }
+    with stage(
+        "extract_idps",
+        min_trials=config.erp.min_trials,
+        components={
+            name: dict(
+                conditions=spec.conditions,
+                channels=spec.channels,
+                window_seconds=spec.window,
+                metrics=spec.metrics,
+                polarity=spec.polarity,
+                sensor_type=spec.sensor_type,
+            )
+            for name, spec in components.items()
+        },
+    ):
+        features, qc = extract_erp_idps(
+            subject_id, evokeds, components, config.erp.min_trials
+        )
     counts = {
         condition: int(np.sum(events[:, 2] == code))
         for condition, code in event_id.items()
@@ -903,6 +1038,23 @@ def run_erp_pipeline(
     qc.loc[(qc.status == "missing_condition") & (qc.n_events > 0), "status"] = (
         "no_retained_trials"
     )
+    progress_event(
+        "erp_summary",
+        conditions={
+            name: dict(
+                n_events=counts[name],
+                n_trials=0 if evokeds[name] is None else evokeds[name].nave,
+                **losses[name],
+                n_interpolated_trials=interpolated[name],
+            )
+            for name in event_id
+        },
+        idps=dict(
+            total=features.size,
+            valid=int(np.isfinite(features.to_numpy()).sum()),
+            statuses=qc.status.value_counts().to_dict(),
+        ),
+    )
     preprocessing_qc["drop_log"] = epochs.drop_log
     return ERPResult(features, qc, epochs, evokeds, preprocessing_qc, dict(components))
 
@@ -927,7 +1079,6 @@ def process_erp_recording(
     overwritten. No-usable-IDP results are saved with status='failed' for audit.
     """
     from pathlib import Path
-    import traceback
     from meganorm.utils.erp import (
         prepare_erp_montage,
         erp_metadata_paths,
@@ -947,30 +1098,58 @@ def process_erp_recording(
     metadata = erp_metadata_paths(path)
     directory = Path(output_root) / "participants" / subject_id
     directory.mkdir(parents=True, exist_ok=False)
-    log = directory / "processing.log"
-    log.write_text(f"Participant: {subject_id}\nRecording: {path}\n", encoding="utf-8")
-    try:
-        raw = mne.io.read_raw(str(path), preload=True, verbose=False)
+    with ERPProgress(
+        directory,
+        subject_id,
+        recording=str(path),
+        versions=runtime_versions(),
+        settings_file="provenance.json",
+        analysis_type="erp",
+    ) as progress:
+        with stage("load_recording", recording=str(path)) as detail:
+            raw = mne.io.read_raw(str(path), preload=True, verbose=False)
+            from collections import Counter
+
+            detail.update(
+                sfreq=raw.info["sfreq"],
+                n_samples=raw.n_times,
+                duration_seconds=raw.n_times / raw.info["sfreq"],
+                n_channels=len(raw.ch_names),
+                channel_types=dict(Counter(raw.get_channel_types())),
+                bad_channels=list(raw.info["bads"]),
+            )
         with raw:
 
             def notify_montage(message):
                 import warnings
 
-                with log.open("a", encoding="utf-8") as handle:
-                    handle.write(message + "\n")
+                progress_event("montage_notice", message=message)
                 warnings.warn(f"{subject_id}: {message}", UserWarning, stacklevel=2)
 
             components = _erp_components(config)
-            montage_qc = _prepare_erp_raw(
-                raw,
-                metadata,
-                components,
-                config,
-                montage_settings=montage_settings,
-                line_freq=line_freq,
-                notify=notify_montage,
-            )
-            write_erp_json(directory / "montage.json", montage_qc)
+            with stage(
+                "prepare_metadata",
+                sidecars={
+                    key: str(value) if value else None
+                    for key, value in metadata.items()
+                },
+            ) as detail:
+                montage_qc = _prepare_erp_raw(
+                    raw,
+                    metadata,
+                    components,
+                    config,
+                    montage_settings=montage_settings,
+                    line_freq=line_freq,
+                    notify=notify_montage,
+                )
+                write_erp_json(directory / "montage.json", montage_qc)
+                detail.update(
+                    montage=montage_qc,
+                    bad_channels=list(raw.info["bads"]),
+                    channel_types=dict(zip(raw.ch_names, raw.get_channel_types())),
+                    line_freq=raw.info.get("line_freq"),
+                )
             result = run_erp_pipeline(
                 raw, subject_id, components, event_spec=event_spec, config=config
             )
@@ -978,41 +1157,43 @@ def process_erp_recording(
         finite = np.isfinite(result.features.to_numpy())
         status = "success" if finite.all() else "partial" if finite.any() else "failed"
         result.features.index.name = "participant_id"
-        write_erp_table(directory / "features.csv", result.features)
-        write_erp_table(directory / "qc.csv", result.qc, index=False)
-        write_erp_json(directory / "preprocessing.json", result.preprocessing_qc)
-        write_erp_json(
-            directory / "provenance.json",
-            dict(
-                recording=str(path),
-                montage=montage_qc,
-                settings=config.model_dump(mode="json"),
-                event_spec=event_spec.model_dump(mode="json"),
-                metadata={k: str(v) if v else None for k, v in metadata.items()},
-                line_freq=line_freq,
-            ),
-        )
+        with stage(
+            "save_tables",
+            files=["features.csv", "qc.csv", "preprocessing.json", "provenance.json"],
+        ):
+            write_erp_table(directory / "features.csv", result.features)
+            write_erp_table(directory / "qc.csv", result.qc, index=False)
+            write_erp_json(directory / "preprocessing.json", result.preprocessing_qc)
+            write_erp_json(
+                directory / "provenance.json",
+                dict(
+                    recording=str(path),
+                    montage=montage_qc,
+                    settings=config.model_dump(mode="json"),
+                    event_spec=event_spec.model_dump(mode="json"),
+                    metadata={k: str(v) if v else None for k, v in metadata.items()},
+                    line_freq=line_freq,
+                ),
+            )
         from meganorm.utils.erp_outputs import save_erp_artifacts
 
-        save_erp_artifacts(
+        outputs = save_erp_artifacts(
             result,
             directory,
             save_evokeds=settings.save_evokeds,
             save_report=settings.save_report,
             save_figures=settings.save_figures,
         )
-        with log.open("a", encoding="utf-8") as handle:
-            handle.write(f"Outcome: {status}\n")
-        write_erp_json(
-            directory / "complete.json",
-            dict(
-                subject=subject_id,
-                status=status,
-                feature_names=list(result.features.columns),
-            ),
-        )
+        with stage(
+            "publish_completion", file="complete.json", processing_outcome=status
+        ):
+            write_erp_json(
+                directory / "complete.json",
+                dict(
+                    subject=subject_id,
+                    status=status,
+                    feature_names=list(result.features.columns),
+                ),
+            )
+        progress.details.update(processing_outcome=status, artifacts=outputs)
         return result
-    except BaseException:
-        with log.open("a", encoding="utf-8") as handle:
-            handle.write(traceback.format_exc())
-        raise

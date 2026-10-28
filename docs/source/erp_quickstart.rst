@@ -349,3 +349,50 @@ Then run:
 This uses the same participant worker as the local cohort API. For a
 cohort, prefer ``Pipeline.run()`` so that discovery, collection and
 processing reports are handled together.
+
+Live participant progress and timing
+---------------------------------------
+
+ERP participant workers now write two files in each participant directory:
+
+* ``processing.log``: readable progress, applied settings, QC summaries and failures.
+* ``processing_events.jsonl``: the same events as one JSON object per line,
+  suitable for timing comparisons across participants.
+
+Both files are appended and flushed at each event. A stage writes ``started``
+**before** work begins, then ``completed``, ``failed`` or ``interrupted``.
+Disabled reference, analysis filtering, ICA, resampling and optional outputs
+are explicitly marked ``skipped``. You can follow a running participant with:
+
+.. code:: bash
+
+   tail -f /path/to/run/participants/sub-41/processing.log
+
+The log includes recording dimensions, channel types and bad channels, montage
+source, event counts, filtering/reference settings, separate ICA preparation,
+fitting, classification and application timings, epoch rejection counts per
+condition, IDP availability, and output/report status. AutoReject fitting and
+transformation have their own stages. Software versions are recorded at run
+start; full settings remain in ``provenance.json``. Detailed trial-level QC
+remains in the existing QC files rather than being repeated in the log.
+
+Structured events have ``schema_version=1``, ``run_id``, ``subject``,
+``sequence``, a UTC ``timestamp``, ``stage``, ``status``, ``details``,
+``span_id`` and ``parent_span_id``. Terminal stage events also have
+``duration_seconds``, measured with a monotonic clock. A stage's elapsed time
+includes its nested work: do not sum parent and child durations. The final
+``run`` event gives total elapsed time and separate ``processing_outcome``
+and ``artifacts`` summaries. ``completed`` means the worker finished; the
+scientific outcome can still be ``partial`` or ``failed`` if IDPs are unavailable.
+An optional report failure is recorded without changing that scientific outcome.
+
+A failed stage includes the error type/message; the failed run retains the
+traceback. A forced process kill cannot write a terminal event, so its last
+``started`` event may remain unmatched. There are no periodic heartbeat events
+or estimated completion times inside an individual operation.
+
+Logging does not change processing settings, random seeds, numerical outputs,
+or the REST pipeline. It does not capture arbitrary third-party console output
+or install global logging/warning handlers. A log-write failure warns once per
+failed sink and leaves processing and the other sink running. In-memory
+``Dataset.extract_erp`` and ``extract_recording`` calls still write no files.

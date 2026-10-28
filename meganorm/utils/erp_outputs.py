@@ -12,6 +12,7 @@ import mne
 import pandas as pd
 
 from .erp import validate_erp_subject_id, write_erp_json, write_erp_table
+from .erp_logging import stage, skipped
 
 _LOG = logging.getLogger(__name__)
 
@@ -40,54 +41,59 @@ def save_erp_artifacts(
     subject = _identity(result)
     outputs = {"evokeds": {"status": "disabled"}, "report": {"status": "disabled"}}
     if save_evokeds:
-        evokeds, conditions = [], {}
-        for condition, evoked in result.evokeds.items():
-            if not isinstance(condition, str) or not condition:
-                raise ValueError("ERP condition names must be nonempty strings.")
-            conditions[condition] = None if evoked is None else len(evokeds)
-            if evoked is not None:
-                copied = evoked.copy()
-                copied.comment = condition
-                evokeds.append(copied)
-        filename = "evoked-ave.fif" if evokeds else None
-        if evokeds:
-            temporary = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    dir=directory, prefix=".erp-", suffix="-ave.fif", delete=False
-                ) as handle:
-                    temporary = Path(handle.name)
-                mne.write_evokeds(temporary, evokeds, overwrite=True, verbose=False)
-                os.replace(temporary, directory / filename)
-            finally:
-                if temporary is not None:
-                    temporary.unlink(missing_ok=True)
-        descriptor = {
-            "schema_version": 1,
-            "subject": subject,
-            "components": {
-                name: asdict(spec) for name, spec in result.components.items()
-            },
-            "conditions": conditions,
-            "feature_names": list(result.features.columns),
-            "evokeds_file": filename,
-            "feature_index_name": result.features.index.name,
-            "qc_dtypes": {
-                column: str(dtype) for column, dtype in result.qc.dtypes.items()
-            },
-        }
-        write_erp_json(directory / "erp_result.json", descriptor)
-        outputs["evokeds"] = {
-            "status": "saved" if evokeds else "empty",
-            "file": filename,
-        }
+        with stage("save_evokeds") as detail:
+            evokeds, conditions = [], {}
+            for condition, evoked in result.evokeds.items():
+                if not isinstance(condition, str) or not condition:
+                    raise ValueError("ERP condition names must be nonempty strings.")
+                conditions[condition] = None if evoked is None else len(evokeds)
+                if evoked is not None:
+                    copied = evoked.copy()
+                    copied.comment = condition
+                    evokeds.append(copied)
+            filename = "evoked-ave.fif" if evokeds else None
+            if evokeds:
+                temporary = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        dir=directory, prefix=".erp-", suffix="-ave.fif", delete=False
+                    ) as handle:
+                        temporary = Path(handle.name)
+                    mne.write_evokeds(temporary, evokeds, overwrite=True, verbose=False)
+                    os.replace(temporary, directory / filename)
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
+            descriptor = {
+                "schema_version": 1,
+                "subject": subject,
+                "components": {
+                    name: asdict(spec) for name, spec in result.components.items()
+                },
+                "conditions": conditions,
+                "feature_names": list(result.features.columns),
+                "evokeds_file": filename,
+                "feature_index_name": result.features.index.name,
+                "qc_dtypes": {
+                    column: str(dtype) for column, dtype in result.qc.dtypes.items()
+                },
+            }
+            write_erp_json(directory / "erp_result.json", descriptor)
+            outputs["evokeds"] = {
+                "status": "saved" if evokeds else "empty",
+                "file": filename,
+            }
+            detail.update(outputs["evokeds"])
+    else:
+        skipped("save_evokeds", reason="save_evokeds is False")
     if save_report or save_figures:
         try:
             from meganorm.plots.erp_report import write_erp_report
 
-            write_erp_report(
-                result, directory / "report.html", save_figures=save_figures
-            )
+            with stage("report", save_figures=save_figures, file="report.html"):
+                write_erp_report(
+                    result, directory / "report.html", save_figures=save_figures
+                )
             outputs["report"] = {"status": "saved", "file": "report.html"}
         except Exception as error:
             outputs["report"] = {"status": "failed", "error": str(error)}
@@ -95,7 +101,10 @@ def save_erp_artifacts(
             warnings.warn(
                 f"ERP report failed for {subject}: {error}", UserWarning, stacklevel=2
             )
-    write_erp_json(directory / "report_outputs.json", outputs)
+    else:
+        skipped("report", reason="save_report and save_figures are False")
+    with stage("save_artifact_status", file="report_outputs.json"):
+        write_erp_json(directory / "report_outputs.json", outputs)
     return outputs
 
 

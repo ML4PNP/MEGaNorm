@@ -2465,3 +2465,49 @@ def test_iclabel_alternative_ica_method_records_training_warning():
         )
         assert factory.call_args.kwargs["method"] == "fastica"
         assert any("extended Infomax" in warning for warning in qc["ica_warnings"])
+
+
+def test_progress_records_ica_phases_without_changing_samples(tmp_path):
+    import json
+    from meganorm.utils.erp_logging import ERPProgress
+
+    raw = ica_raw()
+    original = raw.get_data().copy()
+    config = Config(
+        analysis_type="erp",
+        which_sensor="eeg",
+        erp={},
+        apply_ica=True,
+        ica_mode="physiological",
+        ica_method="fastica",
+        rereference_method=None,
+        random_state=42,
+        ica_max_iter=50,
+    )
+    expected, expected_qc = preprocess_erp(raw, config)
+    with ERPProgress(tmp_path, "sub-ica"):
+        actual, actual_qc = preprocess_erp(raw, config)
+    np.testing.assert_array_equal(actual.get_data(), expected.get_data())
+    np.testing.assert_array_equal(raw.get_data(), original)
+    assert actual_qc == expected_qc
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "processing_events.jsonl").read_text().splitlines()
+    ]
+    completed = {e["stage"]: e for e in events if e["status"] == "completed"}
+    assert {
+        "ica_strategy",
+        "ica_fit_preparation",
+        "ica_fit",
+        "ica_classification",
+        "ica_apply",
+    } <= completed.keys()
+    assert completed["ica_strategy"]["details"]["effective_mode"] == "physiological"
+    assert (
+        completed["ica_fit"]["details"]["n_components_fitted"]
+        == actual_qc["ica_n_components"]
+    )
+    assert (
+        completed["ica_classification"]["details"]["excluded_components"]
+        == actual_qc["ica_excluded"]
+    )
