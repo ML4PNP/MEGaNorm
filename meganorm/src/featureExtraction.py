@@ -12,7 +12,7 @@ from pyrasa.utils.types import AperiodicFit
 from meganorm.layouts.layouts import load_specific_layout
 
 logger = logging.getLogger(__name__)
-
+EPS = 1e-5
 
 def abs_canonical_power(
     psd: np.ndarray, freqs: np.ndarray, fmin: Union[int, float], fmax: Union[int, float]
@@ -44,8 +44,9 @@ def abs_canonical_power(
     band_indices = np.logical_and(freqs >= fmin, freqs <= fmax)
     band_power = np.trapezoid(psd[band_indices], freqs[band_indices])
 
-    return np.log(band_power) if band_power > 0 else np.nan
-
+    if not np.isfinite(band_power):
+        return np.nan                    
+    return np.log(max(band_power, EPS))   
 
 def rel_canonical_power(
     psd: np.ndarray, freqs: np.ndarray, fmin: Union[int, float], fmax: Union[int, float]
@@ -298,9 +299,9 @@ def band_power_ratio(psd, freqs, fmin_num, fmax_num, fmin_den, fmax_den):
     power_num = np.trapezoid(psd[idx_num], freqs[idx_num])
     power_den = np.trapezoid(psd[idx_den], freqs[idx_den])
 
-    if power_num <= 0 or power_den <= 0:
+    if not (np.isfinite(power_num) and np.isfinite(power_den)):
         return np.nan
-    return np.log(power_num / power_den)
+    return np.log(max(power_num, EPS) / max(power_den, EPS))
 
 
 def compute_hemispheric_asymmetry(
