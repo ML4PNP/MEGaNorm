@@ -2257,6 +2257,9 @@ def test_unified_config_defaults_and_serialization():
         "baseline",
         "min_trials",
         "components",
+        "save_evokeds",
+        "save_report",
+        "save_figures",
     }
     assert Config.model_validate_json(config.model_dump_json()) == config
 

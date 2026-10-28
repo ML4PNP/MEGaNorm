@@ -288,8 +288,9 @@ For ERP analysis set ``analysis_type="erp"`` and ``which_sensor="eeg"``.
 Use the same top-level preprocessing fields as resting-state analysis:
 ``cutoffFreqLow``, ``cutoffFreqHigh``, ``resampling_rate``,
 ``rereference_method``, ``apply_ica``, ``ica_method`` and rejection options.
-``erp`` accepts a dictionary containing only ``tmin``, ``tmax``, ``baseline``,
-``min_trials`` and named ``components``. Component windows must lie inside the
+``erp`` accepts a dictionary containing ``tmin``, ``tmax``, ``baseline``,
+``min_trials``, named ``components``, and the output flags ``save_evokeds``,
+``save_report`` and ``save_figures``. Component windows must lie inside the
 epoch; condition, channel and metric selections must be nonempty and unique.
 Source localization is not supported for ERP.
 
@@ -329,13 +330,55 @@ are explicit overrides; an embedded montage is preserved. Montage CSV coordinate
 must be in metres in the head frame. Optional template fallback is configured
 per dataset as described below.
 Legacy dataset options and cohort raw/epoch saving are not supported for ERP;
-use the standalone API when you need access to epochs and evoked responses.
+use ``Dataset.extract_erp`` when you need in-memory single-trial epochs.
+Saved condition averages can be loaded without rerunning preprocessing.
 The same ``Config`` is passed to standalone processing and the cohort pipeline.
 Standalone extraction can read component definitions directly from
 ``config.erp.components``; no runtime configuration conversion is required.
-Pass ``event_spec=dataset.erp_events`` to the standalone ERP API; explicit
-events and annotation maps remain supported. See :doc:`erp_quickstart` for
+``dataset.extract_erp("sub-001", config=config)`` discovers the selected
+recording and applies dataset events, montage and line frequency without
+writing outputs. Use exact string participant IDs from discovery. With
+``extract_recording``, pass ``event_spec=dataset.erp_events``,
+``montage_settings=dataset.erp_montage`` and ``line_freq=dataset.line_freq``;
+explicit events and annotation maps remain supported. See :doc:`erp_quickstart` for
 local cohort and CLI examples.
+
+ERP saved outputs
+~~~~~~~~~~~~~~~~~
+
+The following flags belong inside ``Config(erp={...})`` and affect ERP
+outputs only:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Flag
+     - Default
+     - Output
+   * - ``save_evokeds``
+     - ``True``
+     - ``evoked-ave.fif`` condition averages and an ``erp_result.json`` descriptor.
+   * - ``save_report``
+     - ``True``
+     - Self-contained participant ``report.html`` and a cohort ``index.html``.
+   * - ``save_figures``
+     - ``False``
+     - Separate PNG/SVG files in each participant's ``plots/`` folder.
+
+``result.paths["report"]`` locates the cohort report index. Reports include
+annotated waveforms, saved measurements, missing/rejected reasons, trial
+counts and preprocessing metadata. ``report_outputs.json`` records artifact
+status, including nonfatal report/figure failures; core features and QC are
+retained. Failure to save requested evoked FIF data propagates as a
+participant failure through the pipeline's ``on_error`` policy.
+
+Use ``result.load_erp("sub-001")`` or ``load_erp_result(participant_directory)``
+to reopen saved responses. Saving averages does not save single-trial epochs:
+a reloaded result has ``epochs=None``. Stored feature and QC tables remain
+authoritative and are not recalculated from FIF values, which can have small
+floating point precision differences. Missing conditions and component
+specifications are retained in the descriptor.
 
 ERP ICA strategy
 ~~~~~~~~~~~~~~~~

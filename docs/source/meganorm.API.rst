@@ -26,6 +26,42 @@ existing SLURM workflow. ``Pipeline`` does not submit cluster jobs.
 .. automodule:: meganorm.API.results
    :members: FeatureDataset, NormativeResults
 
+ERP results and plotting
+------------------------
+
+``ERPResult``, ``load_erp_result`` and ``extract_recording`` are available from
+``meganorm.API``. A cohort ``FeatureDataset`` provides ``load_erp`` and
+``plot_erp`` for saved participant responses:
+
+.. code:: python
+
+   import matplotlib.pyplot as plt
+   from meganorm.API import ERPResult, extract_recording, load_erp_result
+
+   participant = result.load_erp("sub-001")
+   fig, axes = participant.plot(channels=("Cz", "Pz"), show=False)
+   plt.show()
+   # Or: fig, axes = result.plot_erp("sub-001", channels=("Cz", "Pz"), show=True)
+
+``Dataset.extract_erp("sub-001", config=config)`` returns an ``ERPResult``
+with in-memory epochs using dataset discovery, session selection and metadata.
+It writes no files. Participant IDs must be exact strings from discovery;
+numeric IDs are not converted to folder names.
+
+``ERPResult.save(directory, report=True, figures=False, overwrite=False)``
+exports condition averages, stored features/QC and component metadata, with
+optional HTML reports and figures. ``load_erp_result(directory)`` reopens
+these outputs without recalculating measurements. Reloaded ``epochs`` is
+``None`` because FIF saves averages, not trials. See :doc:`erp_quickstart`
+for output flags, report locations and standalone examples.
+
+.. autoclass:: meganorm.src.erp.ERPResult
+   :members: plot, save
+
+.. autofunction:: meganorm.API.load_erp_result
+
+.. autofunction:: meganorm.API.extract_recording
+
 Advanced dataset options
 ------------------------
 

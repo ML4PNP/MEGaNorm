@@ -4,7 +4,7 @@ Time settings are in seconds. EEG amplitudes are exported in microvolts, magneto
 in tesla, gradiometer amplitudes in tesla/metre, and latencies in milliseconds.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
 
 import mne
@@ -663,6 +663,59 @@ class ERPResult:
     epochs: mne.BaseEpochs
     evokeds: Mapping
     preprocessing_qc: dict
+    components: Mapping = field(default_factory=dict)
+
+    def plot(self, *, channels=None, show=False):
+        """Plot averages with the saved IDP measurements and QC."""
+        from meganorm.plots.plot_erp import plot_erp_result
+
+        return plot_erp_result(self, channels=channels, show=show)
+
+    def save(self, directory, *, report=True, figures=False, overwrite=False):
+        """Save reusable averages, measurements and an optional HTML report."""
+        from meganorm.utils.erp_outputs import save_erp_result
+
+        return save_erp_result(
+            self, directory, report=report, figures=figures, overwrite=overwrite
+        )
+
+
+def _prepare_erp_raw(
+    raw,
+    metadata,
+    components,
+    config,
+    *,
+    montage_settings=None,
+    line_freq=None,
+    notify=None,
+):
+    """Apply the same EEG metadata preparation in standalone and cohort paths."""
+    from meganorm.utils.eeg import read_channel_table, apply_channel_table
+    from meganorm.utils.erp import prepare_erp_montage
+
+    if metadata["channels"] is not None:
+        apply_channel_table(
+            raw,
+            read_channel_table(metadata["channels"]),
+            strict=True,
+            apply_status=True,
+        )
+    montage_qc = prepare_erp_montage(
+        raw,
+        metadata,
+        montage_settings,
+        required_channels=[
+            channel
+            for component in components.values()
+            for channel in component.channels
+        ],
+        notify=notify,
+    )
+    if raw.info.get("line_freq") is None and line_freq is not None:
+        raw.info["line_freq"] = float(line_freq)
+    config.validate_sampling_rate(raw.info["sfreq"])
+    return montage_qc
 
 
 def extract_recording(
@@ -675,49 +728,43 @@ def extract_recording(
     events=None,
     event_id=None,
     config=None,
+    montage_settings=None,
+    line_freq=None,
 ):
-    """Load an EEG recording and return ERP IDPs and QC without saving files.
+    """Extract one recording using local channel and montage sidecars.
 
-    Parameters
-    ----------
-    recording_path : str or path-like
-        A recording supported by MNE's generic read_raw reader. Channel types
-        and sensor locations must be present in the file when needed. For
-        custom metadata preparation, load the Raw object separately, use
-        existing preparation helpers, and call run_erp_pipeline instead.
-    subject_id : str
-        Subject identifier for the single-row feature table.
-    components : mapping of str to ERPComponent
-        Named component specifications.
-    annotation_map : mapping, optional
-        Condition names to exact annotation descriptions. Supply this OR
-        events and event_id, as for run_erp_pipeline.
-    events : ndarray, optional
-        Integer MNE events at the original recording sample rate.
-    event_id : mapping, optional
-        Condition names to integer event codes.
-    event_spec : ERPEventSpec or mapping, optional
-        Dataset annotation or stimulus specification. Mutually exclusive with
-        annotation_map and explicit events/event_id.
-    config : Config, optional
-        Canonical configuration with analysis_type="erp". Defaults to ERP mode defaults.
-
-    Returns
-    -------
-    ERPResult
-        Wide IDPs, separate QC, epochs and condition averages.
+    Subject IDs are exact strings. ``montage_settings`` and ``line_freq``
+    have the same meaning as in Dataset. No files are written. Sensor locations
+    required by ICA must be embedded, supplied by sidecars, or configured via
+    montage_settings; locations are never invented for unmatched channels.
     """
-    recording = mne.io.read_raw(str(recording_path), preload=True)
-    return run_erp_pipeline(
-        recording,
-        subject_id,
-        components,
-        annotation_map=annotation_map,
-        event_spec=event_spec,
-        events=events,
-        event_id=event_id,
-        config=config,
-    )
+    from meganorm.utils.erp import erp_metadata_paths, validate_erp_subject_id
+
+    validate_erp_subject_id(subject_id)
+    config = _validate_erp_config(config)
+    components = _erp_components(config) if components is None else components
+    metadata = erp_metadata_paths(recording_path)
+    with mne.io.read_raw(str(recording_path), preload=True) as recording:
+        montage_qc = _prepare_erp_raw(
+            recording,
+            metadata,
+            components,
+            config,
+            montage_settings=montage_settings,
+            line_freq=line_freq,
+        )
+        result = run_erp_pipeline(
+            recording,
+            subject_id,
+            components,
+            annotation_map=annotation_map,
+            event_spec=event_spec,
+            events=events,
+            event_id=event_id,
+            config=config,
+        )
+    result.preprocessing_qc["montage"] = montage_qc
+    return result
 
 
 def run_erp_pipeline(
@@ -857,7 +904,7 @@ def run_erp_pipeline(
         "no_retained_trials"
     )
     preprocessing_qc["drop_log"] = epochs.drop_log
-    return ERPResult(features, qc, epochs, evokeds, preprocessing_qc)
+    return ERPResult(features, qc, epochs, evokeds, preprocessing_qc, dict(components))
 
 
 def process_erp_recording(
@@ -881,7 +928,6 @@ def process_erp_recording(
     """
     from pathlib import Path
     import traceback
-    from meganorm.utils.eeg import read_channel_table, apply_channel_table
     from meganorm.utils.erp import (
         prepare_erp_montage,
         erp_metadata_paths,
@@ -906,13 +952,6 @@ def process_erp_recording(
     try:
         raw = mne.io.read_raw(str(path), preload=True, verbose=False)
         with raw:
-            if metadata["channels"] is not None:
-                apply_channel_table(
-                    raw,
-                    read_channel_table(metadata["channels"]),
-                    strict=True,
-                    apply_status=True,
-                )
 
             def notify_montage(message):
                 import warnings
@@ -921,22 +960,17 @@ def process_erp_recording(
                     handle.write(message + "\n")
                 warnings.warn(f"{subject_id}: {message}", UserWarning, stacklevel=2)
 
-            montage_qc = prepare_erp_montage(
+            components = _erp_components(config)
+            montage_qc = _prepare_erp_raw(
                 raw,
                 metadata,
-                montage_settings,
-                required_channels=[
-                    channel
-                    for component in settings.components.values()
-                    for channel in component.channels
-                ],
+                components,
+                config,
+                montage_settings=montage_settings,
+                line_freq=line_freq,
                 notify=notify_montage,
             )
             write_erp_json(directory / "montage.json", montage_qc)
-            if raw.info.get("line_freq") is None and line_freq is not None:
-                raw.info["line_freq"] = float(line_freq)
-            config.validate_sampling_rate(raw.info["sfreq"])
-            components = _erp_components(config)
             result = run_erp_pipeline(
                 raw, subject_id, components, event_spec=event_spec, config=config
             )
@@ -957,6 +991,15 @@ def process_erp_recording(
                 metadata={k: str(v) if v else None for k, v in metadata.items()},
                 line_freq=line_freq,
             ),
+        )
+        from meganorm.utils.erp_outputs import save_erp_artifacts
+
+        save_erp_artifacts(
+            result,
+            directory,
+            save_evokeds=settings.save_evokeds,
+            save_report=settings.save_report,
+            save_figures=settings.save_figures,
         )
         with log.open("a", encoding="utf-8") as handle:
             handle.write(f"Outcome: {status}\n")

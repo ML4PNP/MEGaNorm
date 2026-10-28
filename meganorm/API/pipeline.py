@@ -521,6 +521,15 @@ class Pipeline:
             )
             write_erp_table(paths["processing"], processing)
             write_erp_json(paths["summary"], summary)
+            if settings.save_report:
+                try:
+                    from meganorm.utils.erp_index import write_erp_index
+
+                    paths["report"] = write_erp_index(root, processing)
+                except Exception as error:
+                    if not paths.get("report", root / "index.html").is_file():
+                        paths.pop("report", None)
+                    _LOG.warning("Could not update ERP cohort report: %s", error)
             return processing, summary
 
         report()

@@ -203,6 +203,9 @@ class _ERPTaskSettings(_Settings):
     tmin: float = -0.2
     tmax: float = 0.8
     baseline: tuple[float | None, float | None] | None = (None, 0.0)
+    save_evokeds: bool = True
+    save_report: bool = True
+    save_figures: bool = False
     min_trials: StrictInt = Field(default=10, ge=1)
     components: dict[str, ERPComponentSettings] = Field(default_factory=dict)
 

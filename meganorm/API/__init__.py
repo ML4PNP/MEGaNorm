@@ -12,6 +12,9 @@ from .modeling import NormativeModel
 from .results import FeatureDataset, NormativeResults
 
 __all__ = [
+    "ERPResult",
+    "extract_recording",
+    "load_erp_result",
     "Config",
     "ERPComponentSettings",
     "ERPEventSpec",
@@ -22,3 +25,6 @@ __all__ = [
     "FeatureDataset",
     "NormativeResults",
 ]
+
+from meganorm.src.erp import ERPResult, extract_recording
+from meganorm.utils.erp_outputs import load_erp_result

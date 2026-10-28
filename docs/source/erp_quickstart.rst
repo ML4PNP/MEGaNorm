@@ -96,8 +96,8 @@ training used a 1–100 Hz fit filter, so a different filter produces a QC
 warning. Explicit ``physiological``, ``iclabel``, and ``none`` modes are
 also available. ``none`` disables ICA only. Shared preprocessing options
 live directly on ``Config``; ``erp`` contains only epoch timing,
-baseline, minimum trial count and component definitions. Resting-state
-segmentation and spectral options do not control ERP analysis. Review
+baseline, minimum trial count, component definitions and ERP output flags.
+Resting-state segmentation and spectral options do not control ERP analysis. Review
 the chosen settings on representative recordings.
 
 To fit ICA independently of the ERP analysis filter, set these fields in
@@ -196,9 +196,62 @@ flags before interpreting measurements.
 
 Outputs are saved automatically under ``results/erp/<run-id>/``, with a
 fresh folder for each invocation. Each participant has feature/QC
-tables, a ``preprocessing.json`` report and a processing log. Earlier
+tables, a ``preprocessing.json`` report and a processing log. By default,
+it also has reusable condition averages in ``evoked-ave.fif``, their
+``erp_result.json`` descriptor, and a self-contained ``report.html``. Earlier
 runs are retained. Keep the output directory outside your input dataset
 folder. QC is separate from ``result.feature_names``.
+
+4. Open reports and plot saved responses
+----------------------------------------
+
+Open the cohort index at ``result.paths["report"]`` in a browser. It links
+participant reports with annotated ERP curves, measurement tables, trial
+counts and preprocessing QC. Reports show missing measurements and their
+reasons as well as available IDPs.
+
+.. code:: python
+
+   print("Cohort report:", result.paths["report"])
+
+   import matplotlib.pyplot as plt
+   participant = result.load_erp("sub-001")
+   fig, axes = participant.plot(channels=("Cz", "Pz"), show=False)
+   plt.show()
+
+   # Equivalent convenience method on the cohort result:
+   fig, axes = result.plot_erp("sub-001", channels=("Cz", "Pz"), show=False)
+   plt.show()
+
+Use the exact participant folder name, including prefixes and leading
+zeros. An integer such as ``1`` is not converted to ``"sub-001"``. Request
+channels that exist in your recordings.
+
+To reopen a participant later without running preprocessing again:
+
+.. code:: python
+
+   from meganorm.API import load_erp_result
+   participant = load_erp_result(
+       result.output_dir / "participants" / "sub-001",
+   )
+   print(participant.features)
+   print(participant.qc)
+
+The FIF contains condition averages, not single trials. Reloaded results
+have ``epochs=None``; features and QC come from the stored tables and are
+not recalculated. FIF waveform values can differ slightly due to floating
+point storage precision. The descriptor preserves condition mappings,
+missing conditions, component definitions and participant identity.
+
+ERP output defaults are ``save_evokeds=True``, ``save_report=True`` and
+``save_figures=False`` inside ``config.erp``. Set these when constructing
+``Config(erp={...})``. Enable ``save_figures`` for separate PNG/SVG plots
+under each participant's ``plots/`` folder. Disabling ``save_evokeds``
+prevents later waveform reloading. These options do not change resting-state
+outputs. Core feature/QC outputs are retained if report or figure generation
+fails; inspect ``report_outputs.json`` for artifact status. Failure to save
+requested evoked FIF data is a participant processing failure.
 
 Optional AutoReject epoch cleaning
 ----------------------------------
@@ -236,8 +289,33 @@ measurements on representative real recordings.
 Optional standalone workflow
 ----------------------------
 
-For in-memory epochs and evoked waveforms, or extraction from
-already-cleaned evoked responses, see the final sections of the `ERP
+For a selected participant's in-memory epochs, run the same discovery and
+metadata preparation used by the cohort:
+
+.. code:: python
+
+   participant = dataset.extract_erp("sub-001", config=config)
+   fig, axes = participant.plot(channels=("Cz", "Pz"), show=False)
+   plt.show()
+   participant.save("participant-export", report=True, figures=False)
+
+Extraction itself writes no output files. ``save`` writes reusable condition
+averages and feature/QC tables, plus the requested report and figures;
+``overwrite=False`` protects existing outputs by default. Dataset extraction
+uses the configured session selection, events, montage and line frequency.
+For a recording path supplied directly, pass the dataset metadata explicitly:
+
+.. code:: python
+
+   from meganorm.API import extract_recording
+   participant = extract_recording(
+       "/data/oddball/sub-001/sub-001_oddball_eeg.vhdr", "sub-001",
+       config=config, event_spec=dataset.erp_events,
+       montage_settings=dataset.erp_montage, line_freq=dataset.line_freq,
+   )
+
+For extraction from already-cleaned evoked responses, see the final sections
+of the `ERP
 tutorial <https://github.com/smkia/MEGaNorm/blob/dev_erp/notebooks/erp_idp_extraction_tutorial.ipynb>`__.
 The cohort API does not currently save raw or epoch objects; keep its
 raw/epoch saving flags disabled.

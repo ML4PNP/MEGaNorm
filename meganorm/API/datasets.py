@@ -224,3 +224,35 @@ class Dataset:
             for row in rows:
                 row["erp_montage"] = self.erp_montage.model_dump(mode="json")
         return pd.DataFrame(rows)
+
+    def extract_erp(self, participant_id, *, config=None):
+        """Extract an exact participant ID with this dataset's EEG metadata."""
+        from meganorm.src.erp import extract_recording, _validate_erp_config
+        from meganorm.utils.erp import validate_erp_subject_id
+
+        validate_erp_subject_id(participant_id)
+        config = _validate_erp_config(config)
+        if self.options or self.device is not None:
+            raise ValueError(
+                "ERP extraction requires local EEG sidecars without legacy options or MEG device."
+            )
+        if self.erp_events is None:
+            raise ValueError("Dataset requires erp_events.")
+        config.erp.validate_events(self.erp_events)
+        matches = self.discover().query("participant_id == @participant_id")
+        if len(matches) != 1:
+            raise KeyError(
+                f"Unknown or ambiguous participant identifier: {participant_id!r}"
+            )
+        try:
+            path = matches.iloc[0].recording_paths[config.which_meg_session]
+        except IndexError as error:
+            raise ValueError(f"Invalid session index for {participant_id}.") from error
+        return extract_recording(
+            path,
+            participant_id,
+            config=config,
+            event_spec=self.erp_events,
+            montage_settings=self.erp_montage,
+            line_freq=self.line_freq,
+        )

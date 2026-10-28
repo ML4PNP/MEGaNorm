@@ -22,6 +22,22 @@ class FeatureDataset:
         """Return an independent copy for analysis or filtering."""
         return self.data.copy(deep=True)
 
+    def load_erp(self, participant_id):
+        """Load saved averages using an exact string participant identifier."""
+        from meganorm.utils.erp import validate_erp_subject_id
+        from meganorm.utils.erp_outputs import load_erp_result
+
+        validate_erp_subject_id(participant_id)
+        if self.summary.get("analysis_type") != "erp":
+            raise ValueError("This result is not an ERP run.")
+        if participant_id not in set(self.manifest.participant_id):
+            raise KeyError(participant_id)
+        return load_erp_result(self.output_dir / "participants" / participant_id)
+
+    def plot_erp(self, participant_id, *, channels=None, show=False):
+        """Load and plot a participant's saved averages and measurements."""
+        return self.load_erp(participant_id).plot(channels=channels, show=show)
+
 
 @dataclass
 class NormativeResults:
