@@ -39,6 +39,9 @@ def save_erp_artifacts(
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     subject = _identity(result)
+    from .erp_bootstrap_outputs import save_bootstrap
+
+    bootstrap_file = save_bootstrap(result, directory)
     outputs = {"evokeds": {"status": "disabled"}, "report": {"status": "disabled"}}
     if save_evokeds:
         with stage("save_evokeds") as detail:
@@ -78,6 +81,8 @@ def save_erp_artifacts(
                     column: str(dtype) for column, dtype in result.qc.dtypes.items()
                 },
             }
+            if bootstrap_file is not None:
+                descriptor["bootstrap_file"] = bootstrap_file
             write_erp_json(directory / "erp_result.json", descriptor)
             outputs["evokeds"] = {
                 "status": "saved" if evokeds else "empty",
@@ -125,6 +130,9 @@ def save_erp_result(result, directory, *, report=True, figures=False, overwrite=
             "erp_result.json",
             "report.html",
             "report_outputs.json",
+            "bootstrap.json",
+            "bootstrap_summary.csv",
+            "bootstrap_waveforms.npz",
         ):
             (directory / name).unlink(missing_ok=True)
         for pattern in ("erp-page-*.png", "erp-page-*.svg"):
@@ -241,4 +249,13 @@ def load_erp_result(directory):
         raise ValueError("Saved ERP condition identity does not match descriptor.")
     with (directory / "preprocessing.json").open(encoding="utf-8") as handle:
         preprocessing = json.load(handle)
-    return ERPResult(features, qc, None, evokeds, preprocessing, components=components)
+    result = ERPResult(
+        features, qc, None, evokeds, preprocessing, components=components
+    )
+    if descriptor.get("bootstrap_file") is not None:
+        from .erp_bootstrap_outputs import load_bootstrap
+
+        result.bootstrap = load_bootstrap(
+            result, directory, descriptor["bootstrap_file"]
+        )
+    return result

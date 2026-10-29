@@ -3,6 +3,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from meganorm.src.erp_bootstrap import _matching_times
+
 
 def plot_erp(evokeds, *, components=None, channels=None, show=False):
     """Plot condition waveforms and configured component windows per sensor.
@@ -126,6 +128,7 @@ def _result_channels(result):
 def _measurement_rows(result):
     """Join configured metrics to persisted values/QC, without extraction."""
     rows = []
+    bootstrap = getattr(result, "bootstrap", None)
     for name, spec in result.components.items():
         for condition in spec.conditions:
             for channel in spec.channels:
@@ -150,6 +153,23 @@ def _measurement_rows(result):
                     status = quality.get("status", "missing_qc")
                     if status == "ok" and not np.isfinite(value):
                         status = "missing_value"
+                    uncertainty = {}
+                    if bootstrap is not None:
+                        matches = bootstrap.idps.loc[bootstrap.idps["idp"] == key]
+                        summary = matches.iloc[0].to_dict() if len(matches) == 1 else {}
+                        uncertainty = {
+                            f"bootstrap_{field}": summary.get(field, np.nan)
+                            for field in (
+                                "median",
+                                "p05",
+                                "p95",
+                                "n_valid",
+                                "n_repeats",
+                            )
+                        }
+                        uncertainty["bootstrap_status"] = summary.get(
+                            "status", "unavailable"
+                        )
                     rows.append(
                         dict(
                             component=name,
@@ -163,9 +183,47 @@ def _measurement_rows(result):
                             n_events=quality.get("n_events", "unknown"),
                             n_trials=quality.get("n_trials", "unknown"),
                             window_ms=f"{spec.window[0] * 1000:g}–{spec.window[1] * 1000:g}",
+                            **uncertainty,
                         )
                     )
     return rows
+
+
+def _plot_bootstrap_band(ax, bootstrap, condition, evoked, channel, scale, color):
+    """Add a saved pointwise range, returning any uncertainty warning."""
+    if bootstrap is None:
+        return None
+    wave = bootstrap.waveforms.get(condition)
+    unavailable = f"{condition}: bootstrap uncertainty unavailable"
+    if wave is None or channel not in wave["ch_names"]:
+        return unavailable
+    times = np.asarray(wave["times"])
+    if not _matching_times(times, evoked.times):
+        return unavailable + " (time mismatch)"
+    index = list(wave["ch_names"]).index(channel)
+    low = np.asarray(wave["p05"])[index]
+    high = np.asarray(wave["p95"])[index]
+    counts = np.asarray(wave["n_valid"])[index]
+    if any(array.shape != times.shape for array in (low, high, counts)):
+        return unavailable
+    valid = np.isfinite(low) & np.isfinite(high) & (counts >= 2) & (low <= high)
+    # An isolated point cannot define an area; do not advertise a visible band.
+    if not np.any(valid[:-1] & valid[1:]):
+        return unavailable
+    ax.fill_between(
+        evoked.times * 1000,
+        low * scale,
+        high * scale,
+        where=valid,
+        color=color,
+        alpha=0.2,
+        linewidth=0,
+        label=f"{condition} bootstrap pointwise p05–p95",
+    )
+    repeats = bootstrap.provenance.get("n_repeats", counts.max())
+    if not valid.all() or np.any(counts < repeats):
+        return f"{condition}: bootstrap uncertainty partial"
+    return None
 
 
 def plot_erp_result(result, *, channels=None, show=False):
@@ -174,6 +232,8 @@ def plot_erp_result(result, *, channels=None, show=False):
     Peak markers require both saved peak metrics with valid QC. Dashed mean
     lines use saved means. No measurement is recomputed. EEG amplitudes are
     microvolts, magnetic amplitudes T or T/m, and latencies milliseconds.
+    Bootstrap shading shows descriptive pointwise central 90% ranges, not
+    calibrated confidence intervals or simultaneous bands.
     The caller owns the returned figure. Missing responses yield labelled
     panels; configured metrics and QC are available in the HTML report.
     """
@@ -219,6 +279,7 @@ def plot_erp_result(result, *, channels=None, show=False):
     try:
         for ax, channel in zip(axes, channels):
             usable = set()
+            uncertainty_flags = []
             for condition, ev in result.evokeds.items():
                 if (
                     ev is None
@@ -235,6 +296,17 @@ def plot_erp_result(result, *, channels=None, show=False):
                     color=colors[condition],
                     label=f"{condition} (n={ev.nave})",
                 )
+                warning = _plot_bootstrap_band(
+                    ax,
+                    getattr(result, "bootstrap", None),
+                    condition,
+                    ev,
+                    channel,
+                    _UNITS[types[channel]][0],
+                    colors[condition],
+                )
+                if warning:
+                    uncertainty_flags.append(warning)
                 usable.add(condition)
             for i, (name, spec) in enumerate(result.components.items()):
                 if channel not in spec.channels:
@@ -289,6 +361,7 @@ def plot_erp_result(result, *, channels=None, show=False):
                     if r["channel"] == channel and r["status"] != "ok"
                 )
             )
+            flags.extend(uncertainty_flags)
             if not usable:
                 ax.text(
                     0.5,

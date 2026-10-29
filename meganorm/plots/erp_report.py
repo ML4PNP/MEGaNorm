@@ -1,7 +1,6 @@
 """Self-contained participant ERP reports based on saved IDPs and QC."""
 
 from html import escape
-import json
 import os
 from pathlib import Path
 import tempfile
@@ -32,22 +31,26 @@ def write_erp_report(result, path, *, save_figures=False):
         na_rep="unavailable",
         float_format=lambda x: f"{x:.6g}",
     )
+    uncertainty_note = (
+        "<p>Bootstrap median and p05–p95 summarize the descriptive central 90% "
+        "range of estimates across bootstrap repetitions. Waveform shading is "
+        "pointwise. These are not "
+        "calibrated confidence intervals or simultaneous bands. Valid repetition "
+        "counts and status identify missing or partial uncertainty; original "
+        "measurements and curves remain authoritative.</p>"
+        if getattr(result, "bootstrap", None) is not None
+        else ""
+    )
     report.add_html(
         "<p>Participant: " + escape(subject) + "</p>"
         "<p>Saved measurements; no features are recomputed for this report. "
         "Peak markers require valid saved amplitude and latency. "
-        "Dashed lines show saved window means.</p>" + measurements,
+        "Dashed lines show saved window means.</p>" + uncertainty_note + measurements,
         title="Measurements and trial counts",
     )
     report.add_html(
         result.qc.to_html(index=False, escape=True, na_rep="unavailable"),
         title="Quality control",
-    )
-    details = json.dumps(
-        result.preprocessing_qc, indent=2, default=str, ensure_ascii=False
-    )
-    report.add_html(
-        "<pre>" + escape(details) + "</pre>", title="Processing and montage"
     )
     channels = _result_channels(result)
     for start in range(0, len(channels), 3):

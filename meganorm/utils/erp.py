@@ -207,6 +207,8 @@ class _ERPTaskSettings(_Settings):
     save_report: bool = True
     save_figures: bool = False
     min_trials: StrictInt = Field(default=10, ge=1)
+    bootstrap: bool = False
+    bootstrap_n_repeats: StrictInt = Field(default=100, ge=2)
     components: dict[str, ERPComponentSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")

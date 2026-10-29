@@ -371,3 +371,237 @@ def test_optional_report_error_logged_without_failing_run(
     assert failed[0]["details"]["error"] == "figure error"
     assert events[-1]["status"] == "completed"
     assert events[-1]["details"]["artifacts"]["report"]["status"] == "failed"
+
+
+@pytest.fixture
+def bootstrap_result(recording):
+    from types import SimpleNamespace
+
+    _, config, ds = recording
+    result = ds.extract_erp("sub-41", config=config)
+    rows, waveforms = [], {}
+    for row in result.qc.to_dict("records"):
+        original = result.features.loc["sub-41", row["idp"]]
+        valid = int(np.isfinite(original)) * 4
+        rows.append(
+            dict(
+                subject="sub-41",
+                condition=row["condition"],
+                idp=row["idp"],
+                original=original,
+                median=original,
+                p05=original,
+                p95=original,
+                n_valid=valid,
+                n_repeats=4,
+                n_trials=row["n_trials"],
+                status="ok" if valid else "missing_condition",
+                n_boundary_peaks=0,
+            )
+        )
+    for condition, evoked in result.evokeds.items():
+        waveforms[condition] = (
+            None
+            if evoked is None
+            else dict(
+                ch_names=tuple(evoked.ch_names),
+                times=evoked.times.copy(),
+                median=evoked.data.copy(),
+                p05=evoked.data.copy(),
+                p95=evoked.data.copy(),
+                n_valid=np.full(evoked.data.shape, 4, dtype=int),
+                n_trials=int(evoked.nave),
+            )
+        )
+    result.bootstrap = SimpleNamespace(
+        idps=pd.DataFrame(rows),
+        waveforms=waveforms,
+        provenance=dict(
+            schema_version=1,
+            subject="sub-41",
+            n_repeats=4,
+            random_state=0,
+            min_trials=1,
+            quantiles=[5, 50, 95],
+            quantile_method="linear",
+            method="within_condition",
+            seed_scheme="sha256",
+        ),
+    )
+    return result
+
+
+def test_bootstrap_storage_roundtrip_and_stale_cleanup(bootstrap_result, tmp_path):
+    from meganorm.API import load_erp_result
+
+    folder = tmp_path / "saved"
+    bootstrap_result.save(folder, report=False)
+    descriptor = json.loads((folder / "erp_result.json").read_text())
+    assert descriptor["bootstrap_file"] == "bootstrap.json"
+    with np.load(folder / "bootstrap_waveforms.npz", allow_pickle=False) as archive:
+        assert archive.files
+        assert all(archive[key].dtype.kind in "fiu" for key in archive.files)
+    loaded = load_erp_result(folder)
+    pd.testing.assert_frame_equal(
+        loaded.bootstrap.idps, bootstrap_result.bootstrap.idps
+    )
+    assert loaded.bootstrap.provenance == bootstrap_result.bootstrap.provenance
+    np.testing.assert_array_equal(
+        loaded.bootstrap.waveforms["target"]["median"],
+        bootstrap_result.bootstrap.waveforms["target"]["median"],
+    )
+    bootstrap_result.bootstrap = None
+    bootstrap_result.save(folder, report=False, overwrite=True)
+    assert load_erp_result(folder).bootstrap is None
+    assert not list(folder.glob("bootstrap*"))
+
+
+def test_bootstrap_saved_without_evokeds_and_failures_propagate(
+    bootstrap_result, tmp_path, monkeypatch
+):
+    from meganorm.utils.erp_outputs import save_erp_artifacts
+
+    save_erp_artifacts(
+        bootstrap_result, tmp_path, save_evokeds=False, save_report=False
+    )
+    assert (tmp_path / "bootstrap.json").is_file()
+    assert not (tmp_path / "evoked-ave.fif").exists()
+
+    def fail(*a, **k):
+        raise OSError("bootstrap disk full")
+
+    monkeypatch.setattr(np, "savez_compressed", fail)
+    with pytest.raises(OSError, match="bootstrap disk full"):
+        save_erp_artifacts(
+            bootstrap_result, tmp_path, save_evokeds=False, save_report=False
+        )
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["subject", "original", "counts", "quantiles", "times", "channels", "seed"],
+)
+def test_bootstrap_rejects_corruption(bootstrap_result, tmp_path, damage):
+    from meganorm.utils.erp_outputs import save_erp_artifacts
+
+    summary = bootstrap_result.bootstrap
+    if damage == "subject":
+        summary.idps.loc[0, "subject"] = "other"
+    elif damage == "original":
+        summary.idps.loc[0, "original"] += 1
+    elif damage == "counts":
+        summary.idps.loc[0, "n_valid"] = 5
+    elif damage == "quantiles":
+        summary.waveforms["target"]["p05"] += 1
+    elif damage == "times":
+        summary.waveforms["target"]["times"] += 1
+    elif damage == "channels":
+        summary.waveforms["target"]["ch_names"] = ("wrong", "Pz")
+    else:
+        summary.provenance["random_state"] = -1
+    with pytest.raises(ValueError, match="bootstrap|Bootstrap"):
+        save_erp_artifacts(
+            bootstrap_result, tmp_path, save_evokeds=False, save_report=False
+        )
+
+
+def test_bootstrap_load_rejects_saved_corruption_and_ignores_stale(
+    bootstrap_result, tmp_path
+):
+    from meganorm.API import load_erp_result
+
+    folder = tmp_path / "saved"
+    bootstrap_result.save(folder, report=False)
+    path = folder / "bootstrap_summary.csv"
+    frame = pd.read_csv(path)
+    frame.loc[0, "n_valid"] = 100
+    frame.to_csv(path, index=False)
+    with pytest.raises(ValueError, match="bootstrap"):
+        load_erp_result(folder)
+    descriptor_path = folder / "erp_result.json"
+    descriptor = json.loads(descriptor_path.read_text())
+    descriptor.pop("bootstrap_file")
+    descriptor_path.write_text(json.dumps(descriptor))
+    assert load_erp_result(folder).bootstrap is None
+
+
+def test_bootstrap_one_trial_waveform_unavailable_is_valid(bootstrap_result, tmp_path):
+    from meganorm.utils.erp_outputs import save_erp_artifacts
+
+    summary = bootstrap_result.bootstrap
+    condition = "target"
+    bootstrap_result.evokeds[condition].nave = 1
+    selected = summary.idps["condition"].eq(condition)
+    summary.idps.loc[selected, ["median", "p05", "p95"]] = np.nan
+    summary.idps.loc[selected, "n_valid"] = 0
+    summary.idps.loc[selected, "n_trials"] = 1
+    summary.idps.loc[selected, "status"] = "insufficient_trials"
+    bootstrap_result.qc.loc[
+        bootstrap_result.qc["condition"].eq(condition), "n_trials"
+    ] = 1
+    summary.waveforms[condition] = None
+    save_erp_artifacts(
+        bootstrap_result, tmp_path, save_evokeds=False, save_report=False
+    )
+    assert (
+        json.loads((tmp_path / "bootstrap.json").read_text())["conditions"][condition]
+        is None
+    )
+
+
+def test_real_bootstrap_saved_roundtrip(recording, tmp_path):
+    from meganorm.API import load_erp_result
+
+    _, config, ds = recording
+    config.erp.bootstrap = True
+    config.erp.bootstrap_n_repeats = 5
+    result = ds.extract_erp("sub-41", config=config)
+    assert result.bootstrap is not None
+    folder = tmp_path / "real-bootstrap"
+    result.save(folder, report=False)
+    loaded = load_erp_result(folder)
+    pd.testing.assert_frame_equal(result.bootstrap.idps, loaded.bootstrap.idps)
+    for condition, wave in result.bootstrap.waveforms.items():
+        restored = loaded.bootstrap.waveforms[condition]
+        if wave is None:
+            assert restored is None
+        else:
+            assert restored["ch_names"] == wave["ch_names"]
+            for key in ("times", "median", "p05", "p95", "n_valid"):
+                np.testing.assert_array_equal(restored[key], wave[key])
+
+
+def test_bootstrap_roundtrip_noninteger_sampling_rate_preserves_bands(tmp_path):
+    from meganorm.API import load_erp_result
+    from meganorm.src.erp_bootstrap import bootstrap_erp
+    from matplotlib.collections import PolyCollection
+    import matplotlib.pyplot as plt
+
+    epochs = mne.EpochsArray(
+        np.random.default_rng(5).normal(1e-6, 2e-6, (3, 1, 512)),
+        mne.create_info(["Cz"], 512.3, "eeg"),
+        tmin=-0.2,
+        events=np.array([[0, 0, 1], [1000, 0, 1], [2000, 0, 1]]),
+        event_id={"target": 1},
+        verbose=False,
+    )
+    components = {"P": erp.ERPComponent(("target",), ("Cz",), (0.1, 0.3), "pos")}
+    evokeds = erp.compute_evokeds(epochs)
+    features, qc = erp.extract_erp_idps("s", evokeds, components)
+    result = erp.ERPResult(
+        features,
+        qc,
+        epochs,
+        evokeds,
+        {},
+        components,
+        bootstrap_erp(epochs, "s", components, n_repeats=3, random_state=0),
+    )
+    folder = result.save(tmp_path / "fractional", report=False)
+    loaded = load_erp_result(folder)
+    fig, axes = loaded.plot()
+    try:
+        assert any(isinstance(c, PolyCollection) for c in axes[0].collections)
+        assert not any("mismatch" in t.get_text() for t in axes[0].texts)
+    finally:
+        plt.close(fig)

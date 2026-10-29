@@ -90,7 +90,8 @@ def test_report_html_escaping_measurements_export_and_closure(tmp_path):
     assert "person&lt;script&gt;" in html
     assert "P&lt;script&gt;" in html
     assert "peak_amplitude" in html and "42" in html
-    assert "n_events" in html and "montage" in html
+    assert "n_events" in html and "Quality control" in html
+    assert "Processing and montage" not in html
     assert "person<script>" not in html
     assert len(list((tmp_path / "plots").glob("*.png"))) == 1
     assert len(list((tmp_path / "plots").glob("*.svg"))) == 1
@@ -166,3 +167,106 @@ def test_other_sensor_units_and_different_component_windows():
         assert np.max(axes[0].lines[0].get_ydata()) == 8e-12
     finally:
         plt.close(fig)
+
+
+def bootstrap_fixture():
+    result = result_fixture()
+    ev = result.evokeds["target"]
+    result.bootstrap = SimpleNamespace(
+        idps=pd.DataFrame(
+            [
+                dict(
+                    idp=key,
+                    median=10.0,
+                    p05=8.0,
+                    p95=12.0,
+                    n_valid=9,
+                    n_repeats=10,
+                    status="partial",
+                )
+                for key in result.features.columns
+            ]
+        ),
+        waveforms={
+            "target": dict(
+                ch_names=("other", "Cz"),
+                times=ev.times + 1e-10,
+                median=np.vstack([ev.data, ev.data]),
+                p05=np.vstack([ev.data - 99e-6, ev.data - 1e-6]),
+                p95=np.vstack([ev.data + 99e-6, ev.data + 2e-6]),
+                n_valid=np.full((2, len(ev.times)), 10),
+                n_trials=12,
+            )
+        },
+        provenance={"n_repeats": 10},
+    )
+    return result
+
+
+def test_bootstrap_band_uses_sensor_names_units_and_original_values():
+    from matplotlib.collections import PolyCollection
+    from matplotlib.colors import to_rgba
+    from meganorm.plots.plot_erp import plot_erp_result
+
+    result = bootstrap_fixture()
+    fig, axes = plot_erp_result(result)
+    try:
+        bands = [c for c in axes[0].collections if isinstance(c, PolyCollection)]
+        assert len(bands) == 1
+        points = bands[0].get_paths()[0].vertices
+        assert points[:, 1].min() == pytest.approx(-1)
+        assert points[:, 1].max() == pytest.approx(10)
+        assert bands[0].get_facecolor()[0, :3] == pytest.approx(
+            to_rgba(axes[0].lines[0].get_color())[:3]
+        )
+        assert axes[0].lines[0].get_ydata().max() == pytest.approx(8)
+        peak = next(line for line in axes[0].lines if line.get_marker() == "o")
+        assert peak.get_ydata()[0] == 42
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("mode", ["missing", "partial", "single", "wrong_times"])
+def test_bootstrap_unavailable_or_partial_bands_flagged(mode):
+    from matplotlib.collections import PolyCollection
+    from meganorm.plots.plot_erp import plot_erp_result
+
+    result = bootstrap_fixture()
+    wave = result.bootstrap.waveforms["target"]
+    if mode == "missing":
+        result.bootstrap.waveforms["target"] = None
+    elif mode == "partial":
+        wave["n_valid"][1, 1] = 5
+    elif mode == "single":
+        wave["p05"][1, 1:] = np.nan
+    else:
+        wave["times"] = wave["times"] + 0.001
+    fig, axes = plot_erp_result(result)
+    try:
+        assert any("bootstrap" in t.get_text().lower() for t in axes[0].texts)
+        bands = [c for c in axes[0].collections if isinstance(c, PolyCollection)]
+        assert len(bands) == (1 if mode == "partial" else 0)
+    finally:
+        plt.close(fig)
+
+
+def test_report_bootstrap_summary_and_scope(tmp_path):
+    from meganorm.plots.erp_report import write_erp_report
+
+    html = write_erp_report(
+        bootstrap_fixture(), tmp_path / "bootstrap.html"
+    ).read_text()
+    for text in (
+        "bootstrap_median",
+        "bootstrap_p05",
+        "bootstrap_p95",
+        "bootstrap_n_valid",
+        "bootstrap_n_repeats",
+        "bootstrap_status",
+        "partial",
+        "Quality control",
+        "central 90%",
+        "simultaneous",
+    ):
+        assert text in html
+    assert "Processing and montage" not in html

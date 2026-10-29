@@ -396,3 +396,61 @@ or the REST pipeline. It does not capture arbitrary third-party console output
 or install global logging/warning handlers. A log-write failure warns once per
 failed sink and leaves processing and the other sink running. In-memory
 ``Dataset.extract_erp`` and ``extract_recording`` calls still write no files.
+Optional bootstrap uncertainty
+------------------------------
+
+Enable bootstrap on your existing ERP configuration before running the
+dataset pipeline (or ``Dataset.extract_erp``):
+
+.. code-block:: python
+
+   config.random_state = 42
+   config.erp.bootstrap = True
+   config.erp.bootstrap_n_repeats = 100
+
+Preprocessing, ICA and epoch rejection run once. Each repetition resamples
+the retained trials within each condition, with replacement, keeping the
+original trial count and using the same sampled trials for all sensors.
+Participant and condition streams derive deterministically from the global
+seed and exact identifiers, independent of worker or traversal order.
+Changing the global seed can also affect stochastic preprocessing. Repeating
+an experiment requires the same inputs, configuration and software versions.
+
+The original averaged ERP and original IDPs remain the authoritative outputs,
+including the values used for normative modeling. There is no option to
+substitute a bootstrap estimate. ``result.bootstrap`` is ``None`` when disabled;
+otherwise it contains ``idps``, ``waveforms`` and ``provenance`` summaries.
+
+The HTML report retains trial and rejection QC and omits the Processing and
+montage block; detailed processing information remains in the saved metadata
+and logs. With bootstrap enabled, measurement tables add the median, 5th and
+95th percentiles, valid repetition counts and bootstrap status. Original ERP
+curves gain pointwise 5th–95th percentile shading in both the report and
+``result.plot()``. These are descriptive central 90% bootstrap ranges, not
+calibrated confidence intervals or simultaneous waveform confidence bands.
+They quantify variation from resampling retained trials, conditional on the
+preprocessing already applied; they do not quantify preprocessing uncertainty.
+
+Invalid or nonfinite IDP repetitions are excluded from their quantiles and
+their valid counts are reported. Peak summaries may therefore describe only
+the repetitions with a valid signed peak. Boundary peaks remain valid and
+are counted separately. A condition needs at least ``max(2, min_trials)``
+retained trials for bootstrap summaries. Missing/insufficient conditions and
+unavailable or partial uncertainty are explicitly indicated.
+
+Saved summaries use three files: ``bootstrap_summary.csv`` for IDPs,
+``bootstrap_waveforms.npz`` for compressed numeric waveform arrays, and
+``bootstrap.json`` for provenance and condition/channel metadata. They contain
+summary statistics only, never individual repetitions or epochs. Final array
+dimensions do not grow with the repetition count. Summaries are saved even
+when ``save_evokeds=False``; convenient ``load_erp_result`` and plotting still
+require the original saved evokeds. Old saved results load with
+``bootstrap=None``.
+
+Exact waveform percentiles are calculated using one temporary disk-backed
+array per condition, reduced in bounded memory chunks. Temporary space is
+approximately ``8 * repetitions * channels * time_samples`` bytes for the
+largest condition, in addition to retained epochs and small IDP arrays in RAM.
+The temporary file is removed on completion or failure. Increase repetitions
+with this temporary disk requirement and computation time in mind; the final
+saved files contain only summaries.

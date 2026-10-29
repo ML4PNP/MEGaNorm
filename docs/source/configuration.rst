@@ -294,6 +294,14 @@ Use the same top-level preprocessing fields as resting-state analysis:
 epoch; condition, channel and metric selections must be nonempty and unique.
 Source localization is not supported for ERP.
 
+Optional ``erp.bootstrap=True`` enables trial bootstrap uncertainty after
+preprocessing. ``erp.bootstrap_n_repeats`` defaults to 100 and must be an
+integer of at least 2. Bootstrap is disabled by default and uses the existing
+top-level ``random_state`` seed, also used by ERP ICA and AutoReject.
+The original ERP and IDPs always remain the primary outputs; bootstrap
+summaries never replace modeling features. See :doc:`erp_quickstart` for
+summary files, uncertainty interpretation and temporary disk requirements.
+
 Defaults depend on the analysis type. Existing resting-state defaults are
 unchanged. ERP defaults are a 0.1–35 Hz analysis filter, no resampling, average
 reference, Infomax ICA, and a 150 µV peak-to-peak rejection threshold with no
@@ -368,7 +376,8 @@ outputs only:
 
 ``result.paths["report"]`` locates the cohort report index. Reports include
 annotated waveforms, saved measurements, missing/rejected reasons, trial
-counts and preprocessing metadata. ``report_outputs.json`` records artifact
+counts and quality control. Detailed preprocessing metadata remains in
+``preprocessing.json`` and the participant logs. ``report_outputs.json`` records artifact
 status, including nonfatal report/figure failures; core features and QC are
 retained. Failure to save requested evoked FIF data propagates as a
 participant failure through the pipeline's ``on_error`` policy.

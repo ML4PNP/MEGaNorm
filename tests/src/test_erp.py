@@ -26,6 +26,190 @@ from meganorm.utils.IO import Config
 from meganorm.utils.erp import ERPEventSpec
 
 
+def bootstrap_fixture():
+    info = mne.create_info(["Cz", "Pz"], 10, "eeg")
+    data = np.random.default_rng(13).normal(2e-6, 3e-6, (8, 2, 5))
+    events = np.column_stack([np.arange(8) * 10, np.zeros(8, int), [1] * 4 + [2] * 4])
+    epochs = mne.EpochsArray(
+        data,
+        info,
+        events=events,
+        event_id={"a": 1, "b": 2, "absent": 3},
+        on_missing="ignore",
+        verbose=False,
+    )
+    components = {
+        "P": ERPComponent(
+            ("a", "b", "absent"),
+            ("Cz", "Pz"),
+            (0, 0.4),
+            "pos",
+            ("mean_amplitude", "peak_amplitude", "peak_latency"),
+        )
+    }
+    return epochs, components
+
+
+def test_bootstrap_settings_are_opt_in_and_strict():
+    config = Config(analysis_type="erp", which_sensor="eeg")
+    assert config.erp.bootstrap is False
+    assert config.erp.bootstrap_n_repeats == 100
+    for value in (0, 1, True, 2.5, "10"):
+        with pytest.raises(ValueError):
+            Config(
+                analysis_type="erp",
+                which_sensor="eeg",
+                erp={"bootstrap_n_repeats": value},
+            )
+
+
+def test_bootstrap_matches_direct_resampling_preserves_inputs():
+    import hashlib
+    from meganorm.src.erp_bootstrap import bootstrap_erp
+
+    epochs, components = bootstrap_fixture()
+    before = epochs.get_data().copy()
+    evokeds = compute_evokeds(epochs)
+    features, _ = extract_erp_idps("001", evokeds, components)
+    state = np.random.get_state()
+    summary = bootstrap_erp(epochs, "001", components, n_repeats=17, random_state=42)
+    np.testing.assert_array_equal(before, epochs.get_data())
+    np.testing.assert_array_equal(state[1], np.random.get_state()[1])
+    for condition, code in [("a", 1), ("b", 2)]:
+        seed = hashlib.sha256(
+            json.dumps(
+                [42, "001", condition], separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).digest()
+        rng = np.random.default_rng(int.from_bytes(seed, "big"))
+        data = before[epochs.events[:, 2] == code]
+        waves, idps = [], []
+        selected = {
+            name: replace(spec, conditions=(condition,))
+            for name, spec in components.items()
+        }
+        for _ in range(17):
+            wave = data[rng.integers(len(data), size=len(data))].mean(axis=0)
+            ev = evokeds[condition].copy()
+            ev.data[:] = wave
+            values, _ = extract_erp_idps("001", {condition: ev}, selected)
+            waves.append(wave)
+            idps.append(values.iloc[0])
+        expected = np.quantile(waves, [0.05, 0.5, 0.95], axis=0)
+        for key, value in zip(("p05", "median", "p95"), expected):
+            np.testing.assert_allclose(
+                summary.waveforms[condition][key], value, atol=1e-20
+            )
+        for key in idps[0].index:
+            row = summary.idps.set_index("idp").loc[key]
+            values = np.array([v[key] for v in idps])
+            finite = values[np.isfinite(values)]
+            assert row.n_valid == len(finite)
+            assert row.original == features.loc["001", key]
+            np.testing.assert_allclose(
+                row[["p05", "median", "p95"]].to_numpy(float),
+                np.quantile(finite, [0.05, 0.5, 0.95]),
+            )
+    assert summary.waveforms["absent"] is None
+    assert (
+        summary.idps.loc[summary.idps.condition == "absent", "status"]
+        == "missing_condition"
+    ).all()
+
+
+def test_bootstrap_order_seed_low_trials_and_nonfinite():
+    from meganorm.src.erp_bootstrap import bootstrap_erp
+
+    epochs, components = bootstrap_fixture()
+    first = bootstrap_erp(epochs, "s", components, n_repeats=20, random_state=2)
+    epochs.event_id = dict(reversed(list(epochs.event_id.items())))
+    other = bootstrap_erp(epochs, "s", components, n_repeats=20, random_state=2)
+    pd.testing.assert_frame_equal(first.idps, other.idps)
+    different = bootstrap_erp(epochs, "s", components, n_repeats=20, random_state=3)
+    assert not np.array_equal(
+        first.waveforms["a"]["median"], different.waveforms["a"]["median"]
+    )
+    low = bootstrap_erp(
+        epochs, "s", components, n_repeats=20, random_state=2, min_trials=5
+    )
+    assert low.waveforms["a"] is None
+    assert set(low.idps.status) == {"insufficient_trials", "missing_condition"}
+    epochs._data[0, 0, :] = np.nan
+    partial = bootstrap_erp(epochs, "s", components, n_repeats=100, random_state=2)
+    assert 0 < partial.waveforms["a"]["n_valid"][0, 0] < 100
+    assert partial.waveforms["a"]["n_valid"][1, 0] == 100
+
+
+def test_bootstrap_pipeline_preserves_original_outputs():
+    fixture = TestERP()
+    fixture.setUp()
+    raw, events, config = fixture.make_raw()
+    components = {
+        "P": ERPComponent(
+            ("target", "standard"),
+            ("Cz",),
+            (0.1, 0.3),
+            "pos",
+            ("mean_amplitude", "peak_amplitude", "peak_latency"),
+        )
+    }
+    kwargs = dict(events=events, event_id={"target": 1, "standard": 2}, config=config)
+    original = run_erp_pipeline(raw, "s", components, **kwargs)
+    assert original.bootstrap is None
+    config.erp.bootstrap = True
+    config.erp.bootstrap_n_repeats = 7
+    with patch("meganorm.src.erp.preprocess_erp", wraps=preprocess_erp) as preprocess:
+        actual = run_erp_pipeline(raw, "s", components, **kwargs)
+    assert preprocess.call_count == 1
+    pd.testing.assert_frame_equal(original.features, actual.features)
+    pd.testing.assert_frame_equal(original.qc, actual.qc)
+    assert original.preprocessing_qc == actual.preprocessing_qc
+    for condition in original.evokeds:
+        np.testing.assert_array_equal(
+            original.evokeds[condition].data, actual.evokeds[condition].data
+        )
+    assert actual.bootstrap.provenance["n_repeats"] == 7
+
+
+def test_bootstrap_invalid_peaks_and_temporary_cleanup(tmp_path, monkeypatch):
+    from meganorm.src.erp_bootstrap import bootstrap_erp
+    import meganorm.src.erp_bootstrap as module
+    import meganorm.src.erp as erp_module
+
+    epochs, components = bootstrap_fixture()
+    epochs._data[:4] = -1e-6
+    epochs._data[0] = 2e-6
+    summary = bootstrap_erp(epochs, "s", components, n_repeats=100, random_state=42)
+    rows = summary.idps[summary.idps.condition == "a"]
+    peaks = rows[rows.idp.str.contains("peak_")]
+    means = rows[rows.idp.str.contains("mean_amplitude")]
+    assert ((peaks.n_valid > 0) & (peaks.n_valid < 100)).all()
+    assert (peaks.status == "partial").all()
+    assert (means.n_valid == 100).all()
+    assert (means.n_boundary_peaks == 0).all()
+    assert (peaks.n_boundary_peaks == peaks.n_valid).all()
+
+    # Failure after allocating a disk-backed waveform array must remove it.
+    factory = tempfile.TemporaryDirectory
+    monkeypatch.setattr(
+        module.tempfile, "TemporaryDirectory", lambda **kw: factory(dir=tmp_path, **kw)
+    )
+    extractor = erp_module.extract_erp_idps
+    calls = 0
+
+    def fail_draw(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected extraction failure")
+        return extractor(*args, **kwargs)
+
+    monkeypatch.setattr(erp_module, "extract_erp_idps", fail_draw)
+    with pytest.raises(RuntimeError, match="injected"):
+        bootstrap_erp(epochs, "s", components, n_repeats=5, random_state=42)
+    assert list(tmp_path.iterdir()) == []
+
+
 class TestERP(unittest.TestCase):
 
     def test_demo_fixture_reproducible(self):
@@ -2260,6 +2444,8 @@ def test_unified_config_defaults_and_serialization():
         "save_evokeds",
         "save_report",
         "save_figures",
+        "bootstrap",
+        "bootstrap_n_repeats",
     }
     assert Config.model_validate_json(config.model_dump_json()) == config
 

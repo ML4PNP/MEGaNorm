@@ -5,6 +5,7 @@ in tesla, gradiometer amplitudes in tesla/metre, and latencies in milliseconds.
 """
 
 from dataclasses import dataclass, field
+from .erp_bootstrap import ERPBootstrapSummary
 from typing import Mapping
 from meganorm.utils.erp_logging import (
     ERPProgress,
@@ -767,6 +768,7 @@ class ERPResult:
     evokeds: Mapping
     preprocessing_qc: dict
     components: Mapping = field(default_factory=dict)
+    bootstrap: ERPBootstrapSummary | None = None
 
     def plot(self, *, channels=None, show=False):
         """Plot averages with the saved IDP measurements and QC."""
@@ -1056,7 +1058,28 @@ def run_erp_pipeline(
         ),
     )
     preprocessing_qc["drop_log"] = epochs.drop_log
-    return ERPResult(features, qc, epochs, evokeds, preprocessing_qc, dict(components))
+    bootstrap = None
+    if config.erp.bootstrap:
+        from .erp_bootstrap import bootstrap_erp
+
+        with stage(
+            "bootstrap",
+            n_repeats=config.erp.bootstrap_n_repeats,
+            random_state=config.random_state,
+        ):
+            bootstrap = bootstrap_erp(
+                epochs,
+                subject_id,
+                components,
+                n_repeats=config.erp.bootstrap_n_repeats,
+                random_state=config.random_state,
+                min_trials=config.erp.min_trials,
+                evokeds=evokeds,
+                features=features,
+            )
+    return ERPResult(
+        features, qc, epochs, evokeds, preprocessing_qc, dict(components), bootstrap
+    )
 
 
 def process_erp_recording(
