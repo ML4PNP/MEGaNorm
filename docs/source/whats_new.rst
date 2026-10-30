@@ -1,5 +1,21 @@
+What's new
+==========
+
+Unreleased: EEG ERP analysis
+----------------------------
+
+The ERP workflow supports local dataset-level EEG processing, configurable
+component measurements, explicit QC, reusable saved averages and HTML reports.
+Optional bootstrap summaries quantify variation across resampled retained
+trials; the original IDPs always remain the modeling values. The existing
+global random seed controls stochastic ERP processing and bootstrap sampling.
+
+See :doc:`erp_quickstart` for a complete workflow and :doc:`configuration` for
+settings. Resting-state defaults and processing are unchanged. ERP source
+localization and execution through the existing SLURM runner are not supported.
+
 Changes in v0.2.2
-=================
+-----------------
 
 Local cohort workflow
 ----------------------

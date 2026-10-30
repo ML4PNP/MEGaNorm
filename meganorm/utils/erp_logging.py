@@ -20,6 +20,7 @@ _CURRENT = ContextVar("meganorm_erp_progress", default=None)
 
 
 def _json_default(value):
+    """Convert scalar-like values or fall back to their string representation."""
     if hasattr(value, "item"):
         return value.item()
     return str(value)
@@ -28,12 +29,24 @@ def _json_default(value):
 class ERPProgress:
     """Append flushed text/JSONL events for a single ERP worker invocation.
 
+    Parameters
+    ----------
+    directory : path-like
+        Existing directory for processing.log and processing_events.jsonl.
+    subject : str
+        Participant identifier attached to every event.
+    **details : object
+        Initial run metadata; mutable via the details attribute.
+
+    Notes
+    -----
     A sink failure disables only that sink and emits one logging warning.
     Progress output must never replace a scientific exception. The caller owns
     directory creation and the completion marker for scientific outputs.
     """
 
     def __init__(self, directory, subject, **details):
+        """Initialize context state; output begins on context entry."""
         self.directory = Path(directory)
         self.subject = subject
         self.details = details
@@ -44,6 +57,7 @@ class ERPProgress:
         self._stack = [0]
 
     def _append(self, filename, text):
+        """Append and flush text, disabling a sink after its first write failure."""
         if filename in self._disabled:
             return
         try:
@@ -65,6 +79,28 @@ class ERPProgress:
         parent_span_id=None,
     ):
         # Serialize once before writing either sink so both describe one event.
+        """Append one structured event to the enabled progress sinks.
+
+        Parameters
+        ----------
+        stage : str
+            Operation name.
+        status : str
+            Event status such as started, completed, failed or info.
+        details : dict, optional
+            Structured event metadata.
+        duration : float, optional
+            Elapsed seconds, including nested work.
+        span_id : int, optional
+            Identifier of this operation span.
+        parent_span_id : int, optional
+            Enclosing span identifier.
+
+        Returns
+        -------
+        None
+            This function is called for its side effects.
+        """
         try:
             self._sequence += 1
             entry = dict(
@@ -102,6 +138,7 @@ class ERPProgress:
                 _LOG.warning("Could not serialize ERP progress event: %s", error)
 
     def __enter__(self):
+        """Activate this progress context and return it after recording run start."""
         self._start = time.perf_counter()
         self._token = _CURRENT.set(self)
         self._append(
@@ -112,6 +149,7 @@ class ERPProgress:
         return self
 
     def __exit__(self, error_type, error, tb):
+        """Record the terminal outcome, restore context and propagate exceptions."""
         try:
             details = dict(self.details)
             status = "completed"
@@ -144,7 +182,25 @@ class ERPProgress:
 
 @contextmanager
 def stage(name, **details):
-    """Emit a live start and a terminal event; yield mutable completion details."""
+    """Emit a live start and a terminal event; yield mutable completion details.
+
+    Parameters
+    ----------
+    name : str
+        Operation name.
+    **details : object
+        Initial structured metadata.
+
+    Yields
+    ------
+    details : dict
+        Mutable metadata included in the terminal event.
+
+    Notes
+    -----
+    Outside an active ERPProgress context no events are written. Exceptions
+    from the body are recorded and re-raised.
+    """
     progress = _CURRENT.get()
     if progress is None:
         yield details
@@ -186,14 +242,40 @@ def stage(name, **details):
 
 
 def event(name, **details):
-    """Record a concise summary or warning in the active ERP context."""
+    """Record a concise summary or warning in the active ERP context.
+
+    Parameters
+    ----------
+    name : str
+        Summary or warning name.
+    **details : object
+        Structured metadata attached to the event.
+
+    Returns
+    -------
+    None
+        This function is called for its side effects.
+    """
     progress = _CURRENT.get()
     if progress is not None:
         progress.emit(name, "info", details=details, parent_span_id=progress._stack[-1])
 
 
 def skipped(name, *, reason):
-    """Distinguish a configured omission from an unobserved operation."""
+    """Distinguish a configured omission from an unobserved operation.
+
+    Parameters
+    ----------
+    name : str
+        Name of the omitted operation.
+    reason : str
+        Explanation of the configured omission.
+
+    Returns
+    -------
+    None
+        This function is called for its side effects.
+    """
     progress = _CURRENT.get()
     if progress is not None:
         progress.emit(
@@ -205,7 +287,13 @@ def skipped(name, *, reason):
 
 
 def runtime_versions():
-    """Record installed versions without importing optional scientific backends."""
+    """Record installed versions without importing optional scientific backends.
+
+    Returns
+    -------
+    versions : dict of str to str
+        Python and distribution versions, with explicit markers for missing packages.
+    """
     from importlib.metadata import PackageNotFoundError, version
     import platform
 

@@ -1,20 +1,31 @@
-# Unreleased
-
-- Add local EEG ERP cohort execution and single-participant CLI dispatch with validated event specifications.
-- Isolate ERP runs, persist participant features/QC/provenance atomically, and report complete, partial, failed and interrupted outcomes.
-
-- Resolve ERP annotation/stimulus event specifications in the standalone API, with exact condition matching and explicit timing checks.
-- Flag boundary peaks without discarding their values and separate recording-edge, annotation and amplitude/flatness trial losses in QC.
-
-- Add validated EEG ERP settings and per-dataset event specifications, with JSON persistence. Legacy configurations default to resting-state analysis.
-- Reject ERP execution in existing local and cluster runners until ERP dispatch is implemented; the standalone ERP API remains available.
-- Correct tutorial fixture references and exclude the local architecture review from source packaging.
-
 # Changelog
 
-This file provides a summary of notable changes to **MEGaNorm** across released versions.
+This file summarizes notable changes to **MEGaNorm**. Detailed release notes are
+available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) page.
 
-Detailed release notes for each version are available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) page.
+## Unreleased
+
+### EEG ERP analysis
+
+- Add local dataset-level ERP extraction and a single-participant CLI, with
+  validated annotation/stimulus event mappings and exact participant IDs.
+- Support EEG channel metadata and electrode montages, continuous preprocessing,
+  physiological/ICLabel ICA selection, and fixed-threshold or AutoReject epoch
+  cleaning with explicit trial-loss and interpolation QC.
+- Extract configurable component mean amplitudes, signed peak amplitudes and
+  peak latencies. Preserve missing/invalid measurements with QC reasons and
+  flag peaks at component-window boundaries.
+- Save reusable condition averages, original IDPs, QC, provenance, and detailed
+  timing logs. Add participant HTML reports, a cohort index, and Python helpers
+  for loading and plotting saved results without repeating preprocessing.
+- Add optional reproducible within-condition trial bootstrap using the global
+  random seed. Save compact median and 5th–95th percentile summaries and show
+  pointwise waveform ranges. Original IDPs remain the modeling outputs.
+- Consolidate ERP storage and reporting utilities while retaining compatibility
+  imports. Document the complete workflow, configuration, outputs and a runnable
+  synthetic tutorial. Resting-state defaults and processing remain unchanged.
+- ERP remains limited to local sensor-space EEG processing; the existing SLURM
+  extraction runner and ERP source localization are not supported.
 
 ## [0.2.2] - 2026-10-07
 

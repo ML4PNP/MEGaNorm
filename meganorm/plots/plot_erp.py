@@ -30,6 +30,12 @@ def plot_erp(evokeds, *, components=None, channels=None, show=False):
         One-dimensional array of axes, one per requested sensor. Bad and
         missing sensors are omitted; a panel with no usable data is labelled.
 
+    Raises
+    ------
+    ValueError
+        If no averages exist, channel names are empty or duplicated, or sensor
+        types are inconsistent or unsupported.
+
     Notes
     -----
     EEG is displayed in microvolts, magnetometers in tesla and gradiometers in
@@ -110,6 +116,7 @@ _UNITS = {"eeg": (1e6, "uV"), "mag": (1.0, "T"), "grad": (1.0, "T_per_m")}
 
 
 def _result_channels(result):
+    """Choose ordered component sensors, falling back to evoked channels."""
     channels = list(
         dict.fromkeys(ch for spec in result.components.values() for ch in spec.channels)
     )
@@ -229,6 +236,29 @@ def _plot_bootstrap_band(ax, bootstrap, condition, evoked, channel, scale, color
 def plot_erp_result(result, *, channels=None, show=False):
     """Plot saved ERP waveforms and IDPs, one vertically stacked sensor per panel.
 
+    Parameters
+    ----------
+    result : ERPResult
+        Saved or freshly computed measurements, QC, averages and component definitions.
+    channels : sequence of str, optional
+        Unique sensor names in panel order; defaults to sensors in the result.
+    show : bool, default=False
+        Display the figure with pyplot.show().
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure owned by the caller.
+    axes : numpy.ndarray
+        One-dimensional array of sensor axes.
+
+    Raises
+    ------
+    ValueError
+        If channels are empty or duplicated, or sensor types are inconsistent.
+
+    Notes
+    -----
     Peak markers require both saved peak metrics with valid QC. Dashed mean
     lines use saved means. No measurement is recomputed. EEG amplitudes are
     microvolts, magnetic amplitudes T or T/m, and latencies milliseconds.

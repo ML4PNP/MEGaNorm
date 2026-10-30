@@ -12,8 +12,22 @@ import pandas as pd
 
 
 def read_channel_table(path, *, legacy=False):
-    """Read a channel TSV; legacy mode preserves pandas' default decoding.
+    """Read a channel TSV with an explicit decoding policy.
 
+    Parameters
+    ----------
+    path : path-like
+        Channel table with name and type columns and optional status.
+    legacy : bool, default=False
+        Retain pandas default decoding and dtype inference when True.
+
+    Returns
+    -------
+    table : pandas.DataFrame
+        Parsed channel metadata; strict mode requests string channel names.
+
+    Notes
+    -----
     Strict-workflow reading accepts UTF-8/BOM and warns on a Windows-1252
     fallback. Parsing and decoding errors are never silently discarded.
     """
@@ -35,6 +49,29 @@ def read_channel_table(path, *, legacy=False):
 def apply_channel_table(raw, table, *, strict=True, apply_status=True):
     """Apply channel types and optional bad status without changing samples.
 
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording whose channel metadata are updated in place.
+    table : pandas.DataFrame
+        Channel names and types, with an optional status column.
+    strict : bool, default=True
+        Require unique nonmissing names and reject names absent from raw.
+    apply_status : bool, default=True
+        Append channels labelled bad to existing bad-channel markings.
+
+    Returns
+    -------
+    None
+        Metadata are updated in place.
+
+    Raises
+    ------
+    ValueError
+        If strict validation fails or MNE rejects channel names or types.
+
+    Notes
+    -----
     Legacy callers disable both flags to retain last-row duplicate handling,
     MNE's name/type errors, and existing bad-channel markings.
     """
@@ -56,7 +93,27 @@ def apply_channel_table(raw, table, *, strict=True, apply_status=True):
 def read_montage_positions(path, *, strict=True):
     """Read Channel/X/Y/Z positions in head-frame metres.
 
+    Parameters
+    ----------
+    path : path-like
+        CSV with Channel, X, Y and Z columns.
+    strict : bool, default=True
+        Require unique nonmissing channel names and finite numeric coordinates.
+
+    Returns
+    -------
+    positions : dict
+        Channel names mapped to three head-coordinate values in metres.
+
+    Raises
+    ------
+    ValueError
+        If strict-mode columns, names or coordinates are invalid.
+
+    Notes
+    -----
     Legacy parsing intentionally retains pandas inference and last-row wins.
+    Coordinates are neither transformed nor rescaled.
     """
     if not strict:
         table = pd.read_csv(path)
@@ -80,13 +137,58 @@ def read_montage_positions(path, *, strict=True):
 
 
 def set_head_montage(raw, positions, *, allow_missing=False):
-    """Assign head-frame metre coordinates with an explicit missing policy."""
+    """Assign head-frame metre coordinates with an explicit missing policy.
+
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording to update in place.
+    positions : mapping of str to array-like
+        Channel names and three-dimensional head coordinates in metres.
+    allow_missing : bool, default=False
+        Ignore recording channels missing from the montage when True.
+
+    Returns
+    -------
+    None
+        The montage is assigned to raw.
+
+    Raises
+    ------
+    ValueError
+        If MNE rejects the montage or required channel positions are missing.
+    """
     montage = mne.channels.make_dig_montage(ch_pos=positions, coord_frame="head")
     raw.set_montage(montage, on_missing="ignore" if allow_missing else "raise")
 
 
 def eeg_metadata_paths(recording_path):
-    """Find unambiguous local sidecars using the existing EEG conventions."""
+    """Find unambiguous local sidecars using the existing EEG conventions.
+
+    Parameters
+    ----------
+    recording_path : path-like
+        Recording path used to match adjacent sidecars.
+
+    Returns
+    -------
+    metadata : dict
+        Channel TSV, montage CSV, BIDS electrodes TSV and coordinate-system JSON
+        paths under channels, montage, electrodes and coordsystem. Unmatched
+        paths are None; bids_error records ambiguous electrodes or missing JSON.
+
+    Raises
+    ------
+    ValueError
+        If channel tables or montage CSV candidates are ambiguous.
+
+    Notes
+    -----
+    Exact channel/montage filenames take precedence over directory fallbacks.
+    BIDS electrodes match recording entities, allowing a space entity, and the
+    most specific matching set is selected. BIDS errors are deferred so callers
+    can prefer embedded positions without using invalid sidecars.
+    """
     from pathlib import Path
 
     path = Path(recording_path)
@@ -157,8 +259,44 @@ def prepare_eeg_montage(
 ):
     """Apply supplied or explicitly selected template positions, in memory.
 
-    BIDS support covers adjacent electrode/coordinate-system pairs in CapTrak
-    head coordinates. Other frames require an explicit external transformation.
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording whose montage and bad-channel markings are updated in place.
+    metadata : dict
+        Sidecar paths and deferred BIDS errors from eeg_metadata_paths.
+    template : str or None, optional
+        Explicit standard montage fallback when supplied positions are absent.
+        The auto/standard_1005/colin27_1005 choices prefer colin27_1005 when available.
+    exclude_channels : sequence of str, optional
+        EEG channels to mark bad and exclude from position requirements.
+    supplied_kind : {'unknown', 'measured', 'template'}, default='unknown'
+        Provenance label for embedded or sidecar positions.
+    required_channels : sequence of str, optional
+        Requested measurement sensors; these cannot be explicitly excluded.
+    notify : callable, optional
+        Callback receiving a notice string for template positions or exclusions.
+        Defaults to emitting a UserWarning.
+
+    Returns
+    -------
+    qc : dict
+        Position source, kind, template aliases, matched/excluded channels,
+        coordinate frame, units and final bad-channel markings.
+
+    Raises
+    ------
+    ValueError
+        If usable positions are incomplete, unsupported or invalid, template
+        mappings collide, or exclusions include required measurement sensors.
+
+    Notes
+    -----
+    Embedded positions take precedence over BIDS positions, then montage CSV,
+    then the explicit template. BIDS support covers adjacent electrode and
+    coordinate-system pairs in CapTrak head coordinates, with m/cm/mm units.
+    Other frames require an explicit external transformation. No source leaves
+    positions unset; sources are never mixed or written back to input files.
     """
     import json
     import warnings
@@ -191,6 +329,7 @@ def prepare_eeg_montage(
     )
 
     def valid_names():
+        """Return usable EEG channels with finite nonzero coordinates."""
         return [
             name
             for name in usable

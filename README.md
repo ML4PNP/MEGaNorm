@@ -40,6 +40,7 @@ MEGaNorm supports processing on high-performance computing (HPC) infrastructure 
 * Integration with MNE-Python, PCNToolkit, and SpecParam
 * EEG and MEG support with BIDS integration
 * A local Python API for cohort feature extraction and normative modeling
+* Sensor-space EEG ERP measurements, QC reports, saved-response plotting, and optional bootstrap uncertainty
 * High-performance computing workflows for SLURM clusters
 * Reproducible deployment using Docker
 

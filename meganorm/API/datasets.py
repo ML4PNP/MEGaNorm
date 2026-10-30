@@ -226,7 +226,37 @@ class Dataset:
         return pd.DataFrame(rows)
 
     def extract_erp(self, participant_id, *, config=None):
-        """Extract an exact participant ID with this dataset's EEG metadata."""
+        """Extract one participant's ERP using this dataset's EEG metadata.
+
+        Parameters
+        ----------
+        participant_id : str
+            Exact participant identifier returned by :meth:`discover`.
+            Leading zeros and prefixes are significant.
+        config : Config or None, optional
+            ERP configuration with component definitions. When None, use ERP
+            defaults; components must still be supplied in a valid configuration
+            for IDP extraction. ``which_meg_session`` selects a recording from
+            the participant's sorted recording paths.
+
+        Returns
+        -------
+        ERPResult
+            Original features, QC, retained epochs and condition averages,
+            with optional bootstrap summaries. No output files are written.
+
+        Raises
+        ------
+        KeyError
+            If the participant identifier is unknown or ambiguous.
+        ValueError
+            If the configuration, event specification, EEG metadata or selected
+            session is invalid, or legacy dataset options are supplied.
+
+        See Also
+        --------
+        Pipeline.run : Extract features for a whole dataset and save outputs.
+        """
         from meganorm.src.erp import extract_recording, _validate_erp_config
         from meganorm.utils.erp import validate_erp_subject_id
 

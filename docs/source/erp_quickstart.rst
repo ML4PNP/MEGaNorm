@@ -3,8 +3,7 @@ EEG ERP analysis
 
 Use the local API to process EEG recordings and collect amplitude and
 latency IDPs in one participant-by-feature table. For a runnable example
-without a data download, open the `ERP
-tutorial <https://github.com/smkia/MEGaNorm/blob/dev_erp/notebooks/erp_idp_extraction_tutorial.ipynb>`__.
+without a data download, open the :download:`ERP tutorial <../../notebooks/erp_idp_extraction_tutorial.ipynb>`.
 
 1. Describe your recordings and events
 --------------------------------------
@@ -61,7 +60,7 @@ seconds; rejection thresholds are in volts.
 .. code:: python
 
    config = Config(
-       analysis_type="erp", which_sensor="eeg",
+       analysis_type="erp", which_sensor="eeg", random_state=42,
        cutoffFreqLow=0.1, cutoffFreqHigh=30, resampling_rate=250,
        rereference_method="average",
        ica_mode="auto", ica_l_freq=1, ica_h_freq=100, ica_resample_sfreq=250,
@@ -100,21 +99,11 @@ baseline, minimum trial count, component definitions and ERP output flags.
 Resting-state segmentation and spectral options do not control ERP analysis. Review
 the chosen settings on representative recordings.
 
-To fit ICA independently of the ERP analysis filter, set these fields in
-``Config`` (the recording must have a sample rate above 200 Hz):
-
-.. code:: python
-
-   Config(
-       analysis_type="erp", which_sensor="eeg",
-       cutoffFreqLow=0.1, cutoffFreqHigh=30, resampling_rate=250,
-       ica_l_freq=1, ica_h_freq=100, ica_resample_sfreq=250,
-   )
-
-This fits ICA on a 1–100 Hz copy and applies the cleaning to the 0.1–30
-Hz ERP data. Event timing follows the analysis sample rate. By default,
-``ica_h_freq=None`` inherits ``cutoffFreqHigh``, while
-``ica_resample_sfreq=None`` keeps the original sample rate for fitting.
+The example fits ICA on a separate 1–100 Hz copy and applies it to the
+0.1–30 Hz analysis data. Both the original and ICA-fit sample rates must
+exceed 200 Hz for that fit filter. ``ica_h_freq=None`` instead inherits the
+analysis high cutoff; ``ica_resample_sfreq=None`` keeps the original rate
+for fitting. See :doc:`configuration` for the full ICA and rejection settings.
 
 Electrode positions
 ~~~~~~~~~~~~~~~~~~~
@@ -184,8 +173,13 @@ can be supplied through
 
 EEG amplitudes are in µV and latencies in ms. A column such as
 ``ERP__target__P300__peak_amplitude_uV__Pz`` identifies the condition,
-component, measurement and sensor. Amplitudes retain their sign. Peaks
-are window extrema; tied peaks use the earliest sample.
+component, measurement and sensor. Amplitudes retain their sign. ``pos`` selects the largest strictly positive
+sample, ``neg`` the most negative sample, and ``abs`` the largest absolute
+nonzero sample. Peaks are window extrema, not necessarily local maxima;
+ties use the earliest sample. If the requested polarity has no eligible
+sample, both peak measurements are ``NaN`` with
+``no_peak_with_requested_polarity`` QC. The window mean can still be available.
+``min_trials`` applies to retained trials per condition after rejection.
 
 Missing conditions/sensors and insufficient trials produce ``NaN`` with
 a QC reason. Complete and partial participant rows enter the table;
@@ -253,6 +247,72 @@ outputs. Core feature/QC outputs are retained if report or figure generation
 fails; inspect ``report_outputs.json`` for artifact status. Failure to save
 requested evoked FIF data is a participant processing failure.
 
+Optional bootstrap uncertainty
+------------------------------
+
+Bootstrap is disabled by default. Enable it on your existing ERP
+configuration before running the dataset pipeline (or ``Dataset.extract_erp``):
+
+.. code-block:: python
+
+   config.random_state = 42
+   config.erp.bootstrap = True
+   config.erp.bootstrap_n_repeats = 100  # integer >= 2; default 100
+   participant = dataset.extract_erp("sub-001", config=config)
+   print(participant.bootstrap.idps[
+       ["idp", "original", "median", "p05", "p95", "n_valid", "status"]
+   ])
+   fig, axes = participant.plot(channels=("Cz", "Pz"), show=False)
+   plt.show()
+
+Preprocessing, ICA and epoch rejection run once. Each repetition resamples
+the retained trials within each condition, with replacement, keeping the
+original trial count and using the same sampled trials for all sensors.
+Participant and condition streams derive deterministically from the global
+seed and exact identifiers, independent of worker or traversal order.
+Changing the global seed can also affect stochastic preprocessing. Repeating
+an experiment requires the same inputs, configuration and software versions.
+
+The original averaged ERP and original IDPs remain the authoritative outputs,
+including the values used for normative modeling. There is no option to
+substitute a bootstrap estimate. ``ERPResult.bootstrap`` (for example,
+``participant.bootstrap`` after loading a participant) is ``None`` when
+disabled; otherwise it contains ``idps``, ``waveforms`` and ``provenance``
+summaries.
+
+Detailed preprocessing information remains in the saved metadata and logs.
+With bootstrap enabled, measurement tables add the median, 5th and
+95th percentiles, valid repetition counts and bootstrap status. Original ERP
+curves gain pointwise 5th–95th percentile shading in both the report and
+``participant.plot()``. These are descriptive central 90% bootstrap ranges, not
+calibrated confidence intervals or simultaneous waveform confidence bands.
+They quantify variation from resampling retained trials, conditional on the
+preprocessing already applied; they do not quantify preprocessing uncertainty.
+
+Invalid or nonfinite IDP repetitions are excluded from their quantiles and
+their valid counts are reported. Peak summaries may therefore describe only
+the repetitions with a valid signed peak. Boundary peaks remain valid and
+are counted separately. A condition needs at least ``max(2, min_trials)``
+retained trials for bootstrap summaries. Missing/insufficient conditions and
+unavailable or partial uncertainty are explicitly indicated.
+
+Saved summaries use three files: ``bootstrap_summary.csv`` for IDPs,
+``bootstrap_waveforms.npz`` for compressed numeric waveform arrays, and
+``bootstrap.json`` for provenance and condition/channel metadata. They contain
+summary statistics only, never individual repetitions or epochs. Final array
+dimensions do not grow with the repetition count. Summaries are saved even
+when ``save_evokeds=False``; convenient ``load_erp_result`` and plotting still
+require the original saved evokeds. Old saved results load with
+``bootstrap=None``.
+
+Exact waveform percentiles are calculated using one temporary disk-backed
+array per condition, reduced in bounded memory chunks. Temporary space is
+approximately ``8 * repetitions * channels * time_samples`` bytes for the
+largest condition, in addition to retained epochs and small IDP arrays in RAM.
+The temporary file is removed on completion or failure. Increase repetitions
+with this temporary disk requirement and computation time in mind; the final
+saved files contain only summaries.
+
 Optional AutoReject epoch cleaning
 ----------------------------------
 
@@ -315,8 +375,7 @@ For a recording path supplied directly, pass the dataset metadata explicitly:
    )
 
 For extraction from already-cleaned evoked responses, see the final sections
-of the `ERP
-tutorial <https://github.com/smkia/MEGaNorm/blob/dev_erp/notebooks/erp_idp_extraction_tutorial.ipynb>`__.
+of the :download:`ERP tutorial <../../notebooks/erp_idp_extraction_tutorial.ipynb>`.
 The cohort API does not currently save raw or epoch objects; keep its
 raw/epoch saving flags disabled.
 
@@ -350,107 +409,31 @@ This uses the same participant worker as the local cohort API. For a
 cohort, prefer ``Pipeline.run()`` so that discovery, collection and
 processing reports are handled together.
 
-Live participant progress and timing
----------------------------------------
+Troubleshooting and progress
+----------------------------
 
-ERP participant workers now write two files in each participant directory:
+* No recordings found: check the root, exact participant folder names, task
+  text and extension against ``dataset.discover()``. Multiple candidates are
+  not concatenated automatically; select the intended session/recording.
+* Missing condition: compare logical component conditions with the dataset
+  map and actual annotation text or stimulus codes. External ``events.tsv``
+  is not loaded automatically.
+* Missing IDPs: inspect ``result.processing`` and the separate QC table.
+  Check retained trials, bad/missing channels, polarity and window boundaries
+  before changing a threshold or component definition.
+* ICA or AutoReject failure: inspect ``preprocessing.json`` and
+  ``processing.log`` for channel types, usable channels, positions, rank,
+  sample rates and effective settings. Fix metadata or choose an appropriate
+  explicit method; these methods do not silently fall back.
+* Cannot reopen responses: confirm ``save_evokeds=True`` and use the exact
+  participant ID or participant directory, not the cohort directory.
+* Missing report/figure: inspect ``report_outputs.json``. Core features/QC
+  survive optional rendering failures, but requested FIF saving failures
+  fail participant processing.
 
-* ``processing.log``: readable progress, applied settings, QC summaries and failures.
-* ``processing_events.jsonl``: the same events as one JSON object per line,
-  suitable for timing comparisons across participants.
-
-Both files are appended and flushed at each event. A stage writes ``started``
-**before** work begins, then ``completed``, ``failed`` or ``interrupted``.
-Disabled reference, analysis filtering, ICA, resampling and optional outputs
-are explicitly marked ``skipped``. You can follow a running participant with:
-
-.. code:: bash
-
-   tail -f /path/to/run/participants/sub-41/processing.log
-
-The log includes recording dimensions, channel types and bad channels, montage
-source, event counts, filtering/reference settings, separate ICA preparation,
-fitting, classification and application timings, epoch rejection counts per
-condition, IDP availability, and output/report status. AutoReject fitting and
-transformation have their own stages. Software versions are recorded at run
-start; full settings remain in ``provenance.json``. Detailed trial-level QC
-remains in the existing QC files rather than being repeated in the log.
-
-Structured events have ``schema_version=1``, ``run_id``, ``subject``,
-``sequence``, a UTC ``timestamp``, ``stage``, ``status``, ``details``,
-``span_id`` and ``parent_span_id``. Terminal stage events also have
-``duration_seconds``, measured with a monotonic clock. A stage's elapsed time
-includes its nested work: do not sum parent and child durations. The final
-``run`` event gives total elapsed time and separate ``processing_outcome``
-and ``artifacts`` summaries. ``completed`` means the worker finished; the
-scientific outcome can still be ``partial`` or ``failed`` if IDPs are unavailable.
-An optional report failure is recorded without changing that scientific outcome.
-
-A failed stage includes the error type/message; the failed run retains the
-traceback. A forced process kill cannot write a terminal event, so its last
-``started`` event may remain unmatched. There are no periodic heartbeat events
-or estimated completion times inside an individual operation.
-
-Logging does not change processing settings, random seeds, numerical outputs,
-or the REST pipeline. It does not capture arbitrary third-party console output
-or install global logging/warning handlers. A log-write failure warns once per
-failed sink and leaves processing and the other sink running. In-memory
-``Dataset.extract_erp`` and ``extract_recording`` calls still write no files.
-Optional bootstrap uncertainty
-------------------------------
-
-Enable bootstrap on your existing ERP configuration before running the
-dataset pipeline (or ``Dataset.extract_erp``):
-
-.. code-block:: python
-
-   config.random_state = 42
-   config.erp.bootstrap = True
-   config.erp.bootstrap_n_repeats = 100
-
-Preprocessing, ICA and epoch rejection run once. Each repetition resamples
-the retained trials within each condition, with replacement, keeping the
-original trial count and using the same sampled trials for all sensors.
-Participant and condition streams derive deterministically from the global
-seed and exact identifiers, independent of worker or traversal order.
-Changing the global seed can also affect stochastic preprocessing. Repeating
-an experiment requires the same inputs, configuration and software versions.
-
-The original averaged ERP and original IDPs remain the authoritative outputs,
-including the values used for normative modeling. There is no option to
-substitute a bootstrap estimate. ``result.bootstrap`` is ``None`` when disabled;
-otherwise it contains ``idps``, ``waveforms`` and ``provenance`` summaries.
-
-The HTML report retains trial and rejection QC and omits the Processing and
-montage block; detailed processing information remains in the saved metadata
-and logs. With bootstrap enabled, measurement tables add the median, 5th and
-95th percentiles, valid repetition counts and bootstrap status. Original ERP
-curves gain pointwise 5th–95th percentile shading in both the report and
-``result.plot()``. These are descriptive central 90% bootstrap ranges, not
-calibrated confidence intervals or simultaneous waveform confidence bands.
-They quantify variation from resampling retained trials, conditional on the
-preprocessing already applied; they do not quantify preprocessing uncertainty.
-
-Invalid or nonfinite IDP repetitions are excluded from their quantiles and
-their valid counts are reported. Peak summaries may therefore describe only
-the repetitions with a valid signed peak. Boundary peaks remain valid and
-are counted separately. A condition needs at least ``max(2, min_trials)``
-retained trials for bootstrap summaries. Missing/insufficient conditions and
-unavailable or partial uncertainty are explicitly indicated.
-
-Saved summaries use three files: ``bootstrap_summary.csv`` for IDPs,
-``bootstrap_waveforms.npz`` for compressed numeric waveform arrays, and
-``bootstrap.json`` for provenance and condition/channel metadata. They contain
-summary statistics only, never individual repetitions or epochs. Final array
-dimensions do not grow with the repetition count. Summaries are saved even
-when ``save_evokeds=False``; convenient ``load_erp_result`` and plotting still
-require the original saved evokeds. Old saved results load with
-``bootstrap=None``.
-
-Exact waveform percentiles are calculated using one temporary disk-backed
-array per condition, reduced in bounded memory chunks. Temporary space is
-approximately ``8 * repetitions * channels * time_samples`` bytes for the
-largest condition, in addition to retained epochs and small IDP arrays in RAM.
-The temporary file is removed on completion or failure. Increase repetitions
-with this temporary disk requirement and computation time in mind; the final
-saved files contain only summaries.
+During processing, follow ``participants/<id>/processing.log`` for stage
+starts, completions, skips and failures. ``processing_events.jsonl`` provides
+structured events and elapsed times; parent stages include their children,
+so do not sum nested durations. A finished worker can still have a partial
+or failed scientific outcome. Detailed settings and versions are retained
+in ``provenance.json``. In-memory extraction does not write logs or outputs.

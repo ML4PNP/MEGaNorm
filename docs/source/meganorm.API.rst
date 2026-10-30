@@ -55,6 +55,15 @@ these outputs without recalculating measurements. Reloaded ``epochs`` is
 ``None`` because FIF saves averages, not trials. See :doc:`erp_quickstart`
 for output flags, report locations and standalone examples.
 
+``ERPResult.features`` contains the original IDPs; ``qc`` explains trial
+counts and unavailable measurements. With ``config.erp.bootstrap=True``,
+``ERPResult.bootstrap`` holds ``idps``, ``waveforms`` and ``provenance``;
+it is otherwise ``None``. The top-level ``config.random_state`` controls
+sampling. Saved summaries reload with the participant and appear in plots
+and reports. Their median/p05/p95 are descriptive bootstrap summaries and
+never replace original feature values. A cohort ``FeatureDataset`` exposes
+these through ``load_erp(participant_id).bootstrap``.
+
 .. autoclass:: meganorm.src.erp.ERPResult
    :members: plot, save
 

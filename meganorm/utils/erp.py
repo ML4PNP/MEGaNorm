@@ -9,6 +9,20 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 def make_demo_recording(seed=42):
     """Return deterministic synthetic EEG Raw and absolute-sample events.
 
+    Parameters
+    ----------
+    seed : int, default=42
+        Seed passed to NumPy default_rng for additive noise.
+
+    Returns
+    -------
+    raw : mne.io.RawArray
+        Two-channel EEG recording with a standard montage.
+    events : ndarray of int, shape (40, 3)
+        Absolute-sample events with alternating codes 1 and 2.
+
+    Notes
+    -----
     Two sensors (Cz, Pz), 250 Hz, first_samp=500 and 40 alternating trials
     (codes 1=standard, 2=target). Negative peaks occur at 100 ms; positive
     peaks at 300 ms have Pz amplitudes 3/6 microvolts by condition. A small
@@ -43,6 +57,7 @@ def make_demo_recording(seed=42):
 
 
 def _name(value):
+    """Validate and return a trimmed name without reserved separators."""
     if not value or value != value.strip() or "__" in value:
         raise ValueError(
             "Names must be nonempty, trimmed and contain no double underscore."
@@ -51,6 +66,7 @@ def _name(value):
 
 
 def _names(values):
+    """Validate a nonempty sequence of unique names."""
     if not values or len(values) != len(set(values)):
         raise ValueError("Names must be nonempty and unique.")
     for value in values:
@@ -58,11 +74,28 @@ def _names(values):
 
 
 class _Settings(BaseModel):
+    """Forbid unknown configuration fields and nonfinite numeric values."""
+
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class ERPMontageSettings(_Settings):
-    """Dataset-level position fallback; inputs are never rewritten."""
+    """Dataset-level position fallback; inputs are never rewritten.
+
+    Parameters
+    ----------
+    template : str or None, optional
+        Built-in or supported template fallback; None disables the fallback.
+    exclude_channels : tuple of str, optional
+        EEG channels marked bad and excluded from position requirements.
+    supplied_kind : {"unknown", "measured", "template"}, default="unknown"
+        Provenance label for supplied positions.
+
+    Raises
+    ------
+    ValueError
+        If the template is unknown or excluded names are invalid.
+    """
 
     template: str | None = None
     exclude_channels: tuple[str, ...] = ()
@@ -70,6 +103,18 @@ class ERPMontageSettings(_Settings):
 
     @model_validator(mode="after")
     def validate_montage(self):
+        """Validate the configured montage policy.
+
+        Returns
+        -------
+        self : ERPMontageSettings
+            The validated settings instance.
+
+        Raises
+        ------
+        ValueError
+            If the configured names or settings violate the schema.
+        """
         if self.template is not None:
             available = mne.channels.get_builtin_montages()
             if self.template not in {
@@ -85,7 +130,28 @@ class ERPMontageSettings(_Settings):
 
 
 class ERPComponentSettings(_Settings):
-    """One EEG component and its ordered condition, channel and metric selections."""
+    """One EEG component and its ordered condition, channel and metric selections.
+
+    Parameters
+    ----------
+    conditions : tuple of str
+        Unique logical condition names.
+    channels : tuple of str
+        Unique EEG sensors, measured individually in this order.
+    window : tuple of float
+        Finite increasing inclusive measurement interval in seconds.
+    polarity : {"pos", "neg", "abs"}
+        Positive, negative or absolute peak selection; amplitudes remain signed.
+    metrics : tuple of str, optional
+        Peak amplitude, peak latency and/or mean amplitude; defaults to both peaks.
+    sensor_type : {"eeg"}, default="eeg"
+        Sensor type supported by the raw ERP workflow.
+
+    Raises
+    ------
+    ValueError
+        If selections are empty, duplicated or invalid, or the window is not increasing.
+    """
 
     conditions: tuple[str, ...]
     channels: tuple[str, ...]
@@ -99,6 +165,18 @@ class ERPComponentSettings(_Settings):
 
     @model_validator(mode="after")
     def validate_component(self):
+        """Validate the configured component selections.
+
+        Returns
+        -------
+        self : ERPComponentSettings
+            The validated settings instance.
+
+        Raises
+        ------
+        ValueError
+            If the configured names or settings violate the schema.
+        """
         _names(self.conditions)
         _names(self.channels)
         _names(self.metrics)
@@ -108,7 +186,25 @@ class ERPComponentSettings(_Settings):
 
 
 def resolve_ica_settings(config):
-    """Return the validated canonical ICA mode and scientific QC thresholds."""
+    """Return the validated canonical ICA mode and scientific QC thresholds.
+
+    Parameters
+    ----------
+    config : Config
+        Validated configuration with ICA settings.
+
+    Returns
+    -------
+    mode : str
+        Requested strategy, or "none" when ICA is disabled.
+    thresholds : dict
+        Correlation and label-probability thresholds.
+
+    Raises
+    ------
+    ValueError
+        If disabled ICA conflicts with an explicit strategy.
+    """
     mode = config.ica_mode
     if not config.apply_ica:
         if mode not in ("auto", "none"):
@@ -121,7 +217,25 @@ def resolve_ica_settings(config):
 
 
 def resolve_ica_fit_settings(config, sfreq=None):
-    """Validate the ICA fit copy independently of analysis resampling."""
+    """Validate the ICA fit copy independently of analysis resampling.
+
+    Parameters
+    ----------
+    config : Config
+        Validated configuration with ICA filter and resampling settings.
+    sfreq : float, optional
+        Original recording sampling rate in Hz.
+
+    Returns
+    -------
+    high : float or None
+        Configured ICA fit low-pass cutoff in Hz.
+
+    Raises
+    ------
+    ValueError
+        If enabled ICA has unordered cutoffs or a cutoff reaches Nyquist.
+    """
     high = config.ica_h_freq
     if resolve_ica_settings(config)[0] != "none":
         if high is not None and config.ica_l_freq >= high:
@@ -138,6 +252,32 @@ def resolve_ica_fit_settings(config, sfreq=None):
 class ERPEventSpec(_Settings):
     """Dataset-specific mapping from logical conditions to acquisition events.
 
+    Parameters
+    ----------
+    mode : {"annotations", "stim"}
+        Source of recording events.
+    annotation_map : dict of str to str or None, optional
+        Logical conditions to unique exact descriptions; required for annotations.
+    event_id : dict of str to int or None, optional
+        Logical conditions to unique nonnegative trigger codes; required for stim.
+    stim_channel : str or None, optional
+        Trigger channel required for stim mode.
+    consecutive : bool or {"increasing"}, default="increasing"
+        MNE stimulus transition policy.
+    shortest_event : int, default=2
+        Minimum event length in samples for MNE stimulus detection.
+    min_duration : float, default=0.0
+        Minimum stimulus event duration in seconds.
+    initial_event : bool, default=False
+        Detect an event at the first sample when the stimulus channel is nonzero.
+
+    Raises
+    ------
+    ValueError
+        If mappings are missing, conflicting or duplicated, or options are invalid.
+
+    Notes
+    -----
     Annotation maps run from logical condition to exact annotation description.
     Stimulus maps run from logical condition to integer trigger code.
     """
@@ -153,6 +293,18 @@ class ERPEventSpec(_Settings):
 
     @model_validator(mode="after")
     def validate_mapping(self):
+        """Validate the configured event mapping.
+
+        Returns
+        -------
+        self : ERPEventSpec
+            The validated settings instance.
+
+        Raises
+        ------
+        ValueError
+            If the configured names or settings violate the schema.
+        """
         if self.mode == "annotations":
             if (
                 not self.annotation_map
@@ -192,6 +344,13 @@ class ERPEventSpec(_Settings):
 
     @property
     def conditions(self):
+        """Return the logical condition names.
+
+        Returns
+        -------
+        conditions : tuple of str
+            Logical condition names in mapping insertion order.
+        """
         return tuple(
             self.annotation_map if self.mode == "annotations" else self.event_id
         )
@@ -213,6 +372,7 @@ class _ERPTaskSettings(_Settings):
 
     @model_validator(mode="after")
     def validate_task(self):
+        """Validate epoch, baseline and component-window consistency."""
         if self.tmin >= self.tmax:
             raise ValueError("tmin must be smaller than tmax.")
         if self.baseline is not None:
@@ -229,6 +389,18 @@ class _ERPTaskSettings(_Settings):
         return self
 
     def validate_events(self, spec: ERPEventSpec):
+        """Check that every component condition has an event mapping.
+
+        Parameters
+        ----------
+        spec : ERPEventSpec
+            Dataset-level annotation or stimulus event specification.
+
+        Raises
+        ------
+        ValueError
+            If any component condition is absent from the specification.
+        """
         missing = {
             condition
             for component in self.components.values()
@@ -241,7 +413,25 @@ class _ERPTaskSettings(_Settings):
 
 
 def require_rest_runner(config):
-    """Prevent ERP settings entering a runner before ERP dispatch is implemented."""
+    """Reject non-rest configurations in rest-only runners.
+
+    Parameters
+    ----------
+    config : Config
+        Configuration whose analysis_type is checked.
+
+    Returns
+    -------
+    None
+        This function is called for its side effects.
+
+    Raises
+    ------
+    NotImplementedError
+        If ERP execution is requested for a rest-only runner.
+    ValueError
+        If analysis_type is neither rest nor erp.
+    """
     if config.analysis_type == "erp":
         raise NotImplementedError(
             "This runner does not support ERP execution. Use the local Pipeline API or the single-participant CLI with --erp_events."
@@ -253,6 +443,28 @@ def require_rest_runner(config):
 def resolve_erp_events(raw, spec):
     """Resolve requested conditions without changing the recording.
 
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording with EEG channel types and required sensor locations already set.
+    spec : ERPEventSpec or mapping
+        Validated annotation or stimulus event mapping.
+
+    Returns
+    -------
+    events : ndarray of int, shape (n_events, 3)
+        Selected events at original absolute sample indices.
+    event_id : dict of str to int
+        Complete logical condition mapping, including conditions without events.
+
+    Raises
+    ------
+    ValueError
+        If no requested events exist, samples are invalid, a stimulus channel
+        is missing, or stimulus onset detection is asked to detect code zero.
+
+    Notes
+    -----
     Returns an integer MNE events array at absolute original samples and the
     complete logical condition-to-code mapping, including absent conditions.
     Annotation descriptions match exactly. Stimulus mode uses MNE onset
@@ -302,7 +514,23 @@ def resolve_erp_events(raw, spec):
 
 
 def validate_erp_subject_id(subject_id):
-    """Require a literal participant identifier safe for a single directory."""
+    """Require a literal participant identifier safe for a single directory.
+
+    Parameters
+    ----------
+    subject_id : str
+        Exact participant identifier used for the feature row.
+
+    Returns
+    -------
+    subject_id : str
+        The unchanged identifier.
+
+    Raises
+    ------
+    ValueError
+        If the identifier is empty, untrimmed or unsafe as a directory name.
+    """
     if (
         not isinstance(subject_id, str)
         or not subject_id.strip()
@@ -315,17 +543,56 @@ def validate_erp_subject_id(subject_id):
 
 
 def erp_metadata_paths(recording_path):
-    """Find unambiguous local sidecars for the ERP workflow."""
+    """Find unambiguous local sidecars for the ERP workflow.
+
+    Parameters
+    ----------
+    recording_path : path-like
+        Recording whose local sidecars should be located.
+
+    Returns
+    -------
+    metadata : dict
+        Paths under channels, montage, electrodes and coordsystem, with None
+        for absent sidecars; bids_error describes ambiguous or incomplete BIDS
+        coordinate metadata when present.
+
+    Raises
+    ------
+    ValueError
+        If local channel tables or montage CSV files are ambiguous.
+    """
     from .eeg import eeg_metadata_paths
 
     return eeg_metadata_paths(recording_path)
 
 
 def write_erp_json(path, value):
-    """Publish strict JSON atomically, including NumPy QC values."""
+    """Publish strict JSON atomically, including NumPy QC values.
+
+    Parameters
+    ----------
+    path : path-like
+        Destination in an existing parent directory.
+    value : object
+        JSON-compatible data; NumPy scalars and arrays are supported.
+
+    Returns
+    -------
+    None
+        This function is called for its side effects.
+
+    Raises
+    ------
+    TypeError
+        If a value is not serializable.
+    ValueError
+        If a value contains NaN or infinity.
+    """
     import json
 
     def encode(value):
+        """Convert NumPy values to JSON-compatible Python values."""
         if isinstance(value, np.generic):
             return value.item()
         if isinstance(value, np.ndarray):
@@ -341,11 +608,27 @@ def write_erp_json(path, value):
 
 
 def write_erp_table(path, table, *, index=True):
-    """Publish a CSV atomically."""
+    """Publish a CSV atomically.
+
+    Parameters
+    ----------
+    path : path-like
+        CSV destination in an existing parent directory.
+    table : pandas.DataFrame
+        Table to serialize.
+    index : bool, default=True
+        Include row labels in the CSV.
+
+    Returns
+    -------
+    None
+        This function is called for its side effects.
+    """
     _write_erp_atomic(path, lambda handle: table.to_csv(handle, index=index))
 
 
 def _write_erp_atomic(path, writer):
+    """Write text to a temporary sibling and atomically replace the target."""
     import os
     import tempfile
     from pathlib import Path
@@ -373,7 +656,31 @@ def _write_erp_atomic(path, writer):
 def prepare_erp_montage(
     raw, metadata, settings=None, *, required_channels=(), notify=None
 ):
-    """Validate ERP dataset policy and apply shared EEG position handling."""
+    """Validate ERP dataset policy and apply shared EEG positions in place.
+
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording with EEG channel types and required sensor locations already set.
+    metadata : dict
+        Channel and montage sidecar paths.
+    settings : ERPMontageSettings or mapping, optional
+        Position fallback policy; None uses defaults.
+    required_channels : sequence of str, optional
+        Sensors whose position availability is reported.
+    notify : callable, optional
+        Callback accepting a position-handling notice string.
+
+    Returns
+    -------
+    qc : dict
+        Position-source and availability information from shared EEG preparation.
+
+    Raises
+    ------
+    ValueError
+        If montage settings or supplied metadata are invalid.
+    """
     from .eeg import prepare_eeg_montage
 
     settings = ERPMontageSettings.model_validate(settings or {})

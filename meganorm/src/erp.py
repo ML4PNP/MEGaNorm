@@ -27,11 +27,13 @@ from meganorm.utils.erp import (
 
 
 def _name(value):
+    """Validate a nonempty feature name without reserved separators."""
     if not isinstance(value, str) or not value or "__" in value:
         raise ValueError("Names must be nonempty strings without '__'.")
 
 
 def _window(value):
+    """Validate two finite increasing window bounds."""
     if len(value) != 2 or not np.all(np.isfinite(value)) or value[0] >= value[1]:
         raise ValueError("Windows must contain two finite, increasing times.")
 
@@ -55,6 +57,12 @@ class ERPComponent:
         Any combination of peak_amplitude, peak_latency and mean_amplitude.
     sensor_type : {'eeg', 'mag', 'grad'}
         Expected type of every requested sensor; determines amplitude units.
+
+    Raises
+    ------
+    ValueError
+        If names or selections are invalid, the window is not increasing, or
+        polarity, metrics or sensor type are unsupported.
     """
 
     conditions: tuple[str, ...]
@@ -65,6 +73,7 @@ class ERPComponent:
     sensor_type: str = "eeg"
 
     def __post_init__(self):
+        """Validate component names, window, polarity, metrics and sensor type."""
         for values in (self.conditions, self.channels, self.metrics):
             if isinstance(values, str) or not values or len(set(values)) != len(values):
                 raise ValueError(
@@ -105,6 +114,7 @@ def _erp_components(config):
 
 
 def _validate_events(raw, events, event_id):
+    """Validate absolute event samples and codes, then return an array copy."""
     if not event_id:
         raise ValueError("Provide an explicit condition-to-integer event_id mapping.")
     for name, code in event_id.items():
@@ -132,6 +142,27 @@ def _validate_events(raw, events, event_id):
 def preprocess_erp(raw, config=None):
     """Return an automatically cleaned EEG copy and a preprocessing QC dict.
 
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording with EEG channel types and required sensor locations already set.
+    config : Config or mapping, optional
+        Canonical ERP configuration. None constructs the default ERP configuration.
+
+    Returns
+    -------
+    cleaned : mne.io.BaseRaw
+        Loaded, rereferenced, filtered and optionally ICA-cleaned copy.
+    qc : dict
+        ICA strategy, fitted rank, component decisions and existing bad channels.
+
+    Raises
+    ------
+    ValueError
+        If configuration, EEG samples, auxiliary signals, montage or ICA rank are invalid.
+
+    Notes
+    -----
     Reuses MEGaNorm's physiological correlation helper. Existing bad-channel
     markings, annotations and auxiliary channels are retained. Channel types
     and montage should already be set by the loader or prepare_eeg_data().
@@ -413,6 +444,27 @@ def preprocess_erp(raw, config=None):
 def reject_erp_epochs(epochs, config=None):
     """Clean a copy of existing event-locked epochs and return rejection QC.
 
+    Parameters
+    ----------
+    epochs : mne.BaseEpochs
+        Event-locked epochs with condition codes in ``event_id``.
+    config : Config or mapping, optional
+        Canonical ERP configuration. None constructs the default ERP configuration.
+
+    Returns
+    -------
+    cleaned : mne.BaseEpochs
+        Loaded copy after configured rejection and optional interpolation.
+    qc : dict
+        Retained counts, rejected event indices and per-trial interpolation details.
+
+    Raises
+    ------
+    ValueError
+        If configuration or the data required for AutoReject are invalid.
+
+    Notes
+    -----
     Times, baseline, events, metadata and original selection indices are kept.
     AutoReject replaces fixed amplitude rejection; flat thresholds still apply
     before fitting. Inputs already dropped by a caller cannot be recovered.
@@ -582,6 +634,33 @@ def reject_erp_epochs(epochs, config=None):
 def epoch_erp(raw, events, event_id, config=None, *, return_qc=False):
     """Build and clean EEG event-locked epochs at absolute event samples.
 
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording with EEG channel types and required sensor locations already set.
+    events : ndarray of int, shape (n_events, 3)
+        MNE events with unique increasing absolute sample indices.
+    event_id : mapping of str to int
+        Logical condition names and unique nonnegative event codes.
+    config : Config or mapping, optional
+        Canonical ERP configuration. None constructs the default ERP configuration.
+    return_qc : bool, default=False
+        Include the epoch-rejection QC dictionary in the return value.
+
+    Returns
+    -------
+    epochs : mne.Epochs
+        Baseline-corrected EEG epochs after annotation, edge and configured rejection.
+    qc : dict
+        Rejection details; returned only when ``return_qc=True``.
+
+    Raises
+    ------
+    ValueError
+        If events are invalid, no requested events exist, or configuration is invalid.
+
+    Notes
+    -----
     Return Epochs by default, or (Epochs, rejection QC) with return_qc=True.
     Missing conditions remain in the event mapping for downstream IDP reporting.
     """
@@ -640,7 +719,18 @@ def epoch_erp(raw, events, event_id, config=None, *, return_qc=False):
 
 
 def compute_evokeds(epochs):
-    """Average each exact event code, retaining absent conditions as None."""
+    """Average each exact event code, retaining absent conditions as None.
+
+    Parameters
+    ----------
+    epochs : mne.BaseEpochs
+        Event-locked epochs with condition codes in ``event_id``.
+
+    Returns
+    -------
+    evokeds : dict of str to mne.Evoked or None
+        Exact-code averages in event mapping order; None for absent conditions.
+    """
     return {
         condition: (
             epochs[epochs.events[:, 2] == code].average()
@@ -654,6 +744,34 @@ def compute_evokeds(epochs):
 def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
     """Return (wide subject DataFrame, per-IDP QC DataFrame).
 
+    Parameters
+    ----------
+    subject_id : str
+        Exact participant identifier used for the feature row.
+    evokeds : mapping of str to mne.Evoked or None
+        Prepared condition averages, with native SI amplitudes.
+    components : mapping of str to ERPComponent
+        Named measurements in output order.
+    min_trials : int, default=1
+        Minimum ``nave`` required for measurements.
+
+    Returns
+    -------
+    features : pandas.DataFrame
+        One participant row with ordered ``ERP__`` feature columns. EEG amplitudes
+        are in microvolts, MEG amplitudes in T or T/m, and latencies in ms.
+    qc : pandas.DataFrame
+        One row per feature, including status, trial count and boundary-peak flag.
+
+    Raises
+    ------
+    ValueError
+        If identifiers, minimum trials, windows or sensor types are invalid.
+    TypeError
+        If a component is not an ERPComponent.
+
+    Notes
+    -----
     components maps arbitrary names to ERPComponent objects. evokeds maps exact
     condition names to MNE Evoked objects (or None). Missing conditions, bad or
     absent sensors, nonfinite waveforms and too few trials yield NaN with a QC
@@ -760,7 +878,25 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
 
 @dataclass
 class ERPResult:
-    """IDPs and separate QC, with epochs/evokeds available for optional saving."""
+    """IDPs and separate QC, with epochs/evokeds available for optional saving.
+
+    Parameters
+    ----------
+    features : pandas.DataFrame
+        One participant row of authoritative measurements.
+    qc : pandas.DataFrame
+        Per-feature statuses and trial counts.
+    epochs : mne.BaseEpochs or None
+        Retained epochs, or None for a result loaded from disk.
+    evokeds : mapping
+        Condition names to averages or None for unavailable conditions.
+    preprocessing_qc : dict
+        Preprocessing decisions and rejection details.
+    components : mapping, optional
+        Named ERPComponent definitions; defaults to an empty mapping.
+    bootstrap : ERPBootstrapSummary or None, optional
+        Descriptive uncertainty summaries, if computed.
+    """
 
     features: pd.DataFrame
     qc: pd.DataFrame
@@ -771,13 +907,57 @@ class ERPResult:
     bootstrap: ERPBootstrapSummary | None = None
 
     def plot(self, *, channels=None, show=False):
-        """Plot averages with the saved IDP measurements and QC."""
+        """Plot averages with the saved IDP measurements and QC.
+
+        Parameters
+        ----------
+        channels : sequence of str, optional
+            Unique sensor names in panel order; defaults to sensors in the result.
+        show : bool, default=False
+            Display the figure with pyplot.show().
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            Figure owned by the caller.
+        axes : numpy.ndarray
+            One-dimensional array of sensor axes.
+
+        Raises
+        ------
+        ValueError
+            If channel names are empty or duplicated, or sensor types are inconsistent.
+        """
         from meganorm.plots.plot_erp import plot_erp_result
 
         return plot_erp_result(self, channels=channels, show=show)
 
     def save(self, directory, *, report=True, figures=False, overwrite=False):
-        """Save reusable averages, measurements and an optional HTML report."""
+        """Save reusable averages, measurements and an optional HTML report.
+
+        Parameters
+        ----------
+        directory : path-like
+            Output directory.
+        report : bool, default=True
+            Generate an HTML report.
+        figures : bool, default=False
+            Also export PNG/SVG figures; this enables report generation.
+        overwrite : bool, default=False
+            Permit reuse of an existing directory and remove known stale artifacts.
+
+        Returns
+        -------
+        directory : pathlib.Path
+            Directory containing saved measurements and reusable averages.
+
+        Raises
+        ------
+        FileExistsError
+            If the directory exists and overwrite is False.
+        ValueError
+            If subject identity or bootstrap summaries are inconsistent.
+        """
         from meganorm.utils.erp_outputs import save_erp_result
 
         return save_erp_result(
@@ -838,6 +1018,41 @@ def extract_recording(
 ):
     """Extract one recording using local channel and montage sidecars.
 
+    Parameters
+    ----------
+    recording_path : path-like
+        EEG recording supported by mne.io.read_raw.
+    subject_id : str
+        Exact participant identifier used for the feature row.
+    components : mapping of str to ERPComponent, optional
+        Named measurements; defaults to components in config.erp.
+    events : ndarray of int, shape (n_events, 3), optional
+        Explicit absolute-sample MNE events; requires event_id.
+    event_id : mapping of str to int, optional
+        Logical conditions and unique nonnegative codes for explicit events.
+    annotation_map : mapping of str to str, optional
+        Logical conditions mapped to exact annotation descriptions.
+    event_spec : ERPEventSpec or mapping, optional
+        Annotation or stimulus extraction settings. Supply only one event source.
+    config : Config or mapping, optional
+        Canonical ERP configuration. None constructs the default ERP configuration.
+    montage_settings : ERPMontageSettings or mapping, optional
+        Template fallback and channel exclusions for missing positions.
+    line_freq : float, optional
+        Line frequency in Hz, assigned only when the recording has none.
+
+    Returns
+    -------
+    result : ERPResult
+        Extracted measurements and QC, including montage provenance.
+
+    Raises
+    ------
+    ValueError
+        If the participant identifier, metadata, events or ERP settings are invalid.
+
+    Notes
+    -----
     Subject IDs are exact strings. ``montage_settings`` and ``line_freq``
     have the same meaning as in Dataset. No files are written. Sensor locations
     required by ICA must be embedded, supplied by sidecars, or configured via
@@ -885,6 +1100,40 @@ def run_erp_pipeline(
 ):
     """Run automatic EEG preparation, epoching and multi-component extraction.
 
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Recording with EEG channel types and required sensor locations already set.
+    subject_id : str
+        Exact participant identifier used for the feature row.
+    components : mapping of str to ERPComponent, optional
+        Named measurements; defaults to components in config.erp.
+    events : ndarray of int, shape (n_events, 3), optional
+        Explicit absolute-sample MNE events; requires event_id.
+    event_id : mapping of str to int, optional
+        Logical conditions and unique nonnegative codes for explicit events.
+    annotation_map : mapping of str to str, optional
+        Logical conditions mapped to exact annotation descriptions.
+    event_spec : ERPEventSpec or mapping, optional
+        Annotation or stimulus extraction settings. Supply only one event source.
+    config : Config or mapping, optional
+        Canonical ERP configuration. None constructs the default ERP configuration.
+
+    Returns
+    -------
+    result : ERPResult
+        Features, QC, retained epochs, condition averages and optional bootstrap.
+
+    Raises
+    ------
+    ValueError
+        If event sources conflict, events are invalid or collide after resampling,
+        components lie outside the epoch, or preprocessing requirements are unmet.
+    TypeError
+        If a component is not an ERPComponent.
+
+    Notes
+    -----
     Supply event_spec, events plus condition-to-integer event_id, or annotation_map
     mapping condition names to exact annotation descriptions. Events are read
     before cleaning; optional resampling updates Raw and events together.
@@ -1095,6 +1344,37 @@ def process_erp_recording(
 ):
     """Process and publish one EEG participant in a fresh run directory.
 
+    Parameters
+    ----------
+    recording_path : path-like
+        EEG recording supported by mne.io.read_raw.
+    subject_id : str
+        Exact participant identifier used for the feature row.
+    config : Config or mapping
+        Canonical ERP configuration with component definitions.
+    event_spec : ERPEventSpec or mapping
+        Dataset annotation or stimulus mapping.
+    output_root : path-like
+        Run root; creates participants/<subject_id> beneath it.
+    montage_settings : ERPMontageSettings or mapping, optional
+        Template fallback and channel exclusions for missing positions.
+    line_freq : float, optional
+        Line frequency in Hz, assigned only when the recording has none.
+
+    Returns
+    -------
+    result : ERPResult
+        Computed measurements and QC; artifacts are written before completion.
+
+    Raises
+    ------
+    FileExistsError
+        If the participant directory already exists.
+    ValueError
+        If participant identity, event settings or scientific inputs are invalid.
+
+    Notes
+    -----
     Sidecar channel types/status are explicit overrides; an embedded montage
     is preserved. Montage CSV coordinates follow the existing head/metre
     convention (Channel, X, Y, Z). Optional template assignment is recorded in QC.
@@ -1145,6 +1425,7 @@ def process_erp_recording(
         with raw:
 
             def notify_montage(message):
+                """Record a montage notice and emit a participant-labelled warning."""
                 import warnings
 
                 progress_event("montage_notice", message=message)

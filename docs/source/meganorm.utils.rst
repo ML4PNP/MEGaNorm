@@ -20,6 +20,20 @@ For normal use, prefer the entry points in :doc:`meganorm.API` and the
 ``meganorm.utils.erp_bootstrap_outputs`` and ``meganorm.utils.erp_index``
 remain available through compatibility modules.
 
+.. automodule:: meganorm.utils.erp
+   :members: ERPEventSpec, ERPComponentSettings, ERPMontageSettings, make_demo_recording, resolve_ica_settings, resolve_ica_fit_settings, resolve_erp_events, validate_erp_subject_id, erp_metadata_paths, write_erp_json, write_erp_table, prepare_erp_montage, require_rest_runner
+
+.. automodule:: meganorm.utils.erp_bootstrap
+   :members: ERPBootstrapSummary, bootstrap_erp
+
+.. automodule:: meganorm.utils.erp_outputs
+   :members: save_erp_result, save_erp_artifacts, validate_bootstrap, save_bootstrap, load_bootstrap
+
+``load_erp_result`` is documented in :doc:`meganorm.API`.
+
+.. automodule:: meganorm.utils.erp_logging
+   :members: ERPProgress, stage, event, skipped, runtime_versions
+
 meganorm.utils.IO module
 ------------------------
 

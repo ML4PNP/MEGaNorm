@@ -17,6 +17,27 @@ from .plot_erp import _measurement_rows, _result_channels, plot_erp_result
 def write_erp_report(result, path, *, save_figures=False):
     """Atomically write an MNE HTML report; never open a browser or recompute IDPs.
 
+    Parameters
+    ----------
+    result : ERPResult
+        Saved or freshly computed measurements, QC, averages and component definitions.
+    path : path-like
+        Destination HTML path; parent directories are created.
+    save_figures : bool, default=False
+        Export PNG and SVG copies alongside the report.
+
+    Returns
+    -------
+    path : pathlib.Path
+        Written HTML report path.
+
+    Raises
+    ------
+    OSError
+        If report or figure output cannot be written.
+
+    Notes
+    -----
     Waveform figures contain at most three channels each. Optional PNG and SVG
     copies are saved in a sibling ``plots`` directory. All internally allocated
     figures are closed even when export fails. An existing report is replaced
@@ -90,7 +111,26 @@ def write_erp_report(result, path, *, save_figures=False):
 
 
 def write_erp_index(root, processing):
-    """Write an escaped index without changing processing outcomes or tables."""
+    """Write an escaped index without changing processing outcomes or tables.
+
+    Parameters
+    ----------
+    root : path-like
+        Existing run directory containing participant outputs.
+    processing : pandas.DataFrame
+        Participant-indexed processing outcomes, with optional dataset, status
+        and error_message columns.
+
+    Returns
+    -------
+    path : pathlib.Path
+        Written index.html path.
+
+    Raises
+    ------
+    OSError
+        If the index cannot be written.
+    """
     root = Path(root)
     rows = []
     for participant, row in processing.iterrows():

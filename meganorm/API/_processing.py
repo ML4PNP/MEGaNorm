@@ -49,7 +49,37 @@ def process_participant(info, *, participant_id, config_path, temp_dir):
 
 
 def process_erp_participant(info, *, participant_id, config, output_root):
-    """Run the shared ERP worker using the preflight-selected recording."""
+    """Run the shared ERP worker using the preflight-selected recording.
+
+    Parameters
+    ----------
+    info : dict
+        Preflight metadata containing selected_recording and erp_events, with
+        optional erp_montage dictionary and line_freq in Hz.
+    participant_id : str
+        Exact participant identifier used for outputs and feature rows.
+    config : Config or mapping
+        Canonical ERP configuration with component definitions.
+    output_root : path-like
+        Run root beneath which participants/<participant_id> is created.
+
+    Returns
+    -------
+    result : ERPResult
+        Extracted measurements, QC, retained epochs and condition averages.
+
+    Raises
+    ------
+    FileExistsError
+        If the participant output directory already exists.
+    ValueError
+        If metadata, event settings or scientific inputs fail validation.
+
+    Notes
+    -----
+    The worker publishes participant artifacts and a completion record. This
+    adapter preserves the selected recording and does not rediscover inputs.
+    """
     from meganorm.src.erp import process_erp_recording
 
     return process_erp_recording(

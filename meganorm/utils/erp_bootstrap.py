@@ -18,7 +18,18 @@ from meganorm.utils.erp_logging import event as progress_event
 
 @dataclass
 class ERPBootstrapSummary:
-    """IDP and waveform summaries, with reproducibility metadata."""
+    """IDP and waveform summaries, with reproducibility metadata.
+
+    Parameters
+    ----------
+    idps : pandas.DataFrame
+        Original values, median, p05, p95, validity counts and per-IDP status.
+    waveforms : dict
+        Per-condition channel/time axes and pointwise quantiles in native SI
+        units, or None when there are insufficient trials.
+    provenance : dict
+        Seed, repeat count, trial threshold, quantile method and interpretation.
+    """
 
     idps: pd.DataFrame
     waveforms: dict
@@ -26,6 +37,7 @@ class ERPBootstrapSummary:
 
 
 def _condition_rng(seed, subject, condition):
+    """Derive a stable random generator from seed, participant and condition."""
     payload = json.dumps(
         [seed, subject, condition], ensure_ascii=False, separators=(",", ":")
     )
@@ -60,6 +72,7 @@ def _waveform_summary(draws):
 
 
 def _validate_bootstrap_settings(n_repeats, random_state, min_trials):
+    """Require integer repetitions, seed and trial threshold in valid ranges."""
     for name, value, minimum in (
         ("n_repeats", n_repeats, 2),
         ("random_state", random_state, 0),
@@ -83,6 +96,41 @@ def bootstrap_erp(
 ):
     """Resample retained trials once per condition and repetition.
 
+    Parameters
+    ----------
+    epochs : mne.BaseEpochs
+        Event-locked epochs with condition codes in ``event_id``.
+    subject_id : str
+        Exact participant identifier used for the feature row.
+    components : mapping of str to ERPComponent
+        Named measurements in output order.
+    n_repeats : int
+        Number of bootstrap draws, at least two.
+    random_state : int
+        Nonnegative seed combined with participant and condition identifiers.
+    min_trials : int, default=1
+        Measurement threshold; uncertainty additionally requires two trials.
+    evokeds : mapping
+        Original condition averages.
+    features : pandas.DataFrame, optional
+        Authoritative features; must equal extraction from the original averages.
+    extract_idps : callable
+        Accepts (subject_id, evokeds, components, min_trials) and returns feature
+        and QC DataFrames.
+
+    Returns
+    -------
+    summary : ERPBootstrapSummary
+        Original IDPs, bootstrap quantiles, valid counts, waveform summaries and
+        reproducibility metadata. Ranges are descriptive, not calibrated intervals.
+
+    Raises
+    ------
+    ValueError
+        If repetitions, seed or minimum trials are invalid, or original features differ.
+
+    Notes
+    -----
     Seeds are stable across participant/condition traversal order. All sensors
     share a trial draw. Peak summaries exclude invalid measurements and expose
     their valid count. Waveform quantiles are pointwise, in native SI units.

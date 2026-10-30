@@ -20,7 +20,38 @@ def bootstrap_erp(
     evokeds=None,
     features=None,
 ):
-    """Preserve the original standalone bootstrap call signature."""
+    """Bootstrap retained trials through the standalone compatibility API.
+
+    Parameters
+    ----------
+    epochs : mne.BaseEpochs
+        Event-locked epochs with condition codes in ``event_id``.
+    subject_id : str
+        Exact participant identifier used for the feature row.
+    components : mapping of str to ERPComponent
+        Named measurements in output order.
+    n_repeats : int
+        Number of bootstrap draws, at least two.
+    random_state : int
+        Nonnegative seed combined with participant and condition identifiers.
+    min_trials : int, default=1
+        Measurement threshold; uncertainty additionally requires two trials.
+    evokeds : mapping, optional
+        Original condition averages; computed from epochs when omitted.
+    features : pandas.DataFrame, optional
+        Authoritative features; must equal extraction from the original averages.
+
+    Returns
+    -------
+    summary : ERPBootstrapSummary
+        Original IDPs, bootstrap quantiles, valid counts, waveform summaries and
+        reproducibility metadata. Ranges are descriptive, not calibrated intervals.
+
+    Raises
+    ------
+    ValueError
+        If repetitions, seed or minimum trials are invalid, or original features differ.
+    """
     from .erp import compute_evokeds, extract_erp_idps
 
     _validate_bootstrap_settings(n_repeats, random_state, min_trials)

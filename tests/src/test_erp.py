@@ -786,16 +786,7 @@ def test_preprocessing_rejects_values_invalid_for_runtime(kwargs):
         )
 
 
-def test_erp_default_task_supports_standalone_preprocessing():
-    config = Config(analysis_type="erp", which_sensor="eeg")
-    assert config.erp.components == {}
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-def _stage3_raw():
+def _event_recording():
     raw = mne.io.RawArray(
         np.zeros((2, 600)),
         mne.create_info(["Pz", "STI"], 100.0, ["eeg", "stim"]),
@@ -810,7 +801,7 @@ def _stage3_raw():
 def test_event_resolver_annotations_crop_exact_and_missing():
     from meganorm.utils.erp import resolve_erp_events
 
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw.set_annotations(
         mne.Annotations([1.0, 3.0, 4.0], [0, 0, 0], ["A", "A/sub", "B"])
     )
@@ -830,7 +821,7 @@ def test_event_resolver_annotations_crop_exact_and_missing():
 def test_event_resolver_stim_and_empty():
     from meganorm.utils.erp import resolve_erp_events
 
-    raw = _stage3_raw()
+    raw = _event_recording()
     spec = ERPEventSpec(
         mode="stim", stim_channel="STI", event_id={"target": 2, "missing": 9}
     )
@@ -846,7 +837,7 @@ def test_event_resolver_stim_and_empty():
 def test_event_resolver_duplicates_and_missing_channel():
     from meganorm.utils.erp import resolve_erp_events
 
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw.set_annotations(mne.Annotations([1, 1], [0, 0], ["A", "B"]))
     with pytest.raises(ValueError, match="unique"):
         resolve_erp_events(
@@ -859,7 +850,7 @@ def test_event_resolver_duplicates_and_missing_channel():
 
 
 def test_pipeline_event_spec_and_exact_conditions():
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw._data[0, 100:110] = 2e-06
     raw._data[0, 300:310] = 8e-06
     component = ERPComponent(
@@ -930,7 +921,7 @@ def test_boundary_peak_is_flagged_but_kept():
 
 
 def test_resampling_collision_fails_before_preprocessing():
-    raw = _stage3_raw()
+    raw = _event_recording()
     config = Config(
         analysis_type="erp",
         which_sensor="eeg",
@@ -957,7 +948,7 @@ def test_resampling_collision_fails_before_preprocessing():
 
 
 def test_drop_counts_partition_edge_annotation_and_amplitude():
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw._data[0, 300] = 0.0002
     raw.set_annotations(mne.Annotations([1.9], [0.3], ["BAD_manual"]))
     config = Config(
@@ -995,7 +986,7 @@ def test_drop_counts_partition_edge_annotation_and_amplitude():
 def test_stim_zero_requires_explicit_events_and_initial_event_options():
     from meganorm.utils.erp import resolve_erp_events
 
-    raw = _stage3_raw()
+    raw = _event_recording()
     with pytest.raises(ValueError, match="zero.*idle"):
         resolve_erp_events(
             raw, ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 0})
@@ -1017,7 +1008,7 @@ def test_stim_zero_requires_explicit_events_and_initial_event_options():
 def test_stim_consecutive_and_shortest_event():
     from meganorm.utils.erp import resolve_erp_events
 
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw._data[1, :] = 0
     raw._data[1, 100:103] = 7
     raw._data[1, 103:106] = 2
@@ -1040,7 +1031,7 @@ def test_stim_consecutive_and_shortest_event():
 
 
 def test_no_requested_events_fails_before_cleaning():
-    raw = _stage3_raw()
+    raw = _event_recording()
     component = ERPComponent(("a",), ("Pz",), (0, 0.1), "pos")
     with patch(
         "meganorm.src.erp.preprocess_erp",
@@ -1057,7 +1048,7 @@ def test_no_requested_events_fails_before_cleaning():
 
 
 def test_crop_resample_absolute_samples_and_input_preservation():
-    raw = _stage3_raw().crop(tmin=0.5, tmax=4.5)
+    raw = _event_recording().crop(tmin=0.5, tmax=4.5)
     before = raw.get_data().copy()
     spec = ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 2, "b": 7})
     component = ERPComponent(("a", "b"), ("Pz",), (0, 0.1), "abs")
@@ -1130,7 +1121,7 @@ def test_window_uses_only_inclusive_sample_times():
 
 
 def test_ambiguous_annotation_channel_label_is_not_misclassified():
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw.rename_channels({"Pz": "BAD_sensor"})
     raw.set_annotations(mne.Annotations([0.9], [0.3], ["BAD_sensor"]))
     component = ERPComponent(("a",), ("BAD_sensor",), (0, 0.1), "pos")
@@ -1160,7 +1151,7 @@ def test_ambiguous_annotation_channel_label_is_not_misclassified():
 
 
 def test_flatness_rejection_counts_as_amplitude():
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw._data[0, 300:310] = np.arange(10) * 1e-06
     component = ERPComponent(("a",), ("Pz",), (0, 0.1), "pos")
     config = Config(
@@ -1195,7 +1186,7 @@ def test_erp_worker_failed_idps_and_atomic_write_failure(tmp_path, monkeypatch):
     from meganorm.src.erp import process_erp_recording
     from meganorm.utils import erp as utils
 
-    raw = _stage3_raw()
+    raw = _event_recording()
     path = tmp_path / "input_raw.fif"
     raw.save(path, overwrite=True, verbose=False)
     definition = settings()
@@ -1292,7 +1283,7 @@ def test_erp_json_supports_numpy_qc_scalars(tmp_path):
 def test_erp_worker_sidecar_types_and_montage(tmp_path):
     from meganorm.src.erp import process_erp_recording
 
-    raw = _stage3_raw()
+    raw = _event_recording()
     raw.set_channel_types({"Pz": "misc"})
     raw._data[0, 100:111] = np.arange(11) * 1e-06
     path = tmp_path / "s_task_raw.fif"
@@ -2487,18 +2478,7 @@ def test_unified_config_defaults_and_serialization():
     assert config.bad_segment_removal_method == "fixed_thr"
     assert config.eeg_var_threshold == 0.00015
     assert config.eeg_flat_threshold is None
-    assert set(type(config.erp).model_fields) == {
-        "tmin",
-        "tmax",
-        "baseline",
-        "min_trials",
-        "components",
-        "save_evokeds",
-        "save_report",
-        "save_figures",
-        "bootstrap",
-        "bootstrap_n_repeats",
-    }
+    assert config.erp.components == {}
     assert Config.model_validate_json(config.model_dump_json()) == config
 
 

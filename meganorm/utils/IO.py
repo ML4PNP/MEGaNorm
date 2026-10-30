@@ -43,10 +43,34 @@ class BandRatio(BaseModel):
 class Config(BaseModel):
     """
     Configuration for preprocessing, artifact correction, source localization,
-    and spectral feature extraction of neurophysiological signals (MEG/EEG/OPM).
+    and spectral or ERP feature extraction of neurophysiological signals.
 
     Parameters
     ----------
+    analysis_type : {'rest', 'erp'}, default='rest'
+        Analysis workflow. ERP raw-data processing requires ``which_sensor='eeg'``.
+        Defaults listed below describe resting-state analysis unless stated
+        otherwise. ERP resolves its own defaults for shared preprocessing fields;
+        explicit values override them. See the configuration guide for details.
+    erp : dict or None, optional
+        ERP epoch settings (``tmin``, ``tmax``, ``baseline``), ``min_trials``,
+        named ``components``, output flags, and optional ``bootstrap`` and
+        ``bootstrap_n_repeats``. Only valid with ``analysis_type='erp'``.
+        Bootstrap is disabled by default; the default repetition count is 100.
+        Original measurements remain the primary IDPs when it is enabled.
+    ica_mode : {'auto', 'physiological', 'iclabel', 'none'}, default='auto'
+        ERP component-selection strategy. Auto chooses physiological channels
+        when usable, otherwise ICLabel. ``apply_ica=False`` disables ICA.
+    ica_l_freq : float, default=1.0
+        ERP ICA fitting-copy high-pass cutoff in Hz, separate from the analysis
+        filter. ICLabel requires at least 1 Hz.
+    ica_h_freq : float or None, optional
+        ERP ICA fitting-copy low-pass cutoff in Hz. None follows the resolved
+        analysis low-pass setting.
+    ica_resample_sfreq : float or None, optional
+        ERP ICA fitting-copy sampling rate in Hz. None preserves its input rate.
+    ica_label_threshold : float, default=0.8
+        ERP ICLabel artifact probability threshold in (0, 1].
     which_meg_session : int, default=0
         Index of the MEG session to process.
     which_layout : {"all", "lobe", None}, default="all"
@@ -501,6 +525,7 @@ class Config(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def resolve_analysis_defaults(cls, values):
+        """Apply ERP defaults or validate legacy REST input constraints before parsing."""
         if not isinstance(values, dict):
             return values
         values = dict(values)
@@ -555,7 +580,27 @@ class Config(BaseModel):
         return values
 
     def validate_sampling_rate(self, sfreq, *, include_ica=True):
-        """Validate ERP analysis and fit filters against recording Nyquist."""
+        """Validate analysis and ICA fit filters against recording Nyquist.
+
+        Parameters
+        ----------
+        sfreq : float
+            Sampling rate in Hz; must be finite and positive.
+        include_ica : bool, default=True
+            Also validate the ICA fit cutoffs against this rate and the configured
+            ICA resampling rate. False checks only enabled analysis filtering.
+
+        Returns
+        -------
+        None
+            Validation succeeds without modifying the configuration.
+
+        Raises
+        ------
+        ValueError
+            If the rate is invalid, an enabled filter cutoff reaches Nyquist, or
+            enabled ICA fit settings are inconsistent.
+        """
         if not np.isfinite(sfreq) or sfreq <= 0:
             raise ValueError("Sampling rate must be finite and positive.")
         if include_ica:
@@ -568,6 +613,7 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def analysis_settings_mv(self):
+        """Validate cross-field analysis, ERP preprocessing and rejection settings."""
         if self.analysis_type == "rest" and self.erp is not None:
             raise ValueError("ERP settings require analysis_type='erp'.")
         if self.analysis_type == "erp":

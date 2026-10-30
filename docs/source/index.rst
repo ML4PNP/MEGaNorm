@@ -64,6 +64,8 @@ MEGaNorm supports:
 * **MEG and EEG processing** using established MNE-Python workflows.
 * **Functional IDP extraction** from electrophysiological recordings.
 * **Spectral characterization** of oscillatory brain activity.
+* **EEG ERP analysis** with configurable component measurements, QC reports,
+  saved-response plotting, and optional bootstrap uncertainty.
 * **Normative modeling** using PCNToolkit.
 * **Individual deviation mapping** relative to normative reference models.
 * **BIDS-compatible workflows** for standardized neuroimaging datasets.
@@ -99,6 +101,7 @@ Getting Started
 For a local workflow covering feature extraction and normative modeling for a
 cohort, see the :doc:`Getting Started guide <getting_started>`. The
 :doc:`configuration` guide explains how to choose and save processing settings.
+For task EEG, see the :doc:`ERP analysis guide <erp_quickstart>`.
 
 For large datasets, advanced configuration, and SLURM-based processing,
 see the full example notebooks:

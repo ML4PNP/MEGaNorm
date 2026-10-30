@@ -24,6 +24,7 @@ _LOG = logging.getLogger(__name__)
 
 
 def _identity(result):
+    """Validate the single subject and unique features, returning its identifier."""
     if len(result.features) != 1:
         raise ValueError("ERP results require exactly one subject row.")
     subject = validate_erp_subject_id(result.features.index[0])
@@ -39,6 +40,31 @@ def save_erp_artifacts(
 ):
     """Write optional artifacts; report errors remain separate from scientific IDPs.
 
+    Parameters
+    ----------
+    result : ERPResult
+        Saved or freshly computed measurements, QC, averages and component definitions.
+    directory : path-like
+        Output directory.
+    save_evokeds : bool, default=True
+        Save FIF averages and the reload descriptor.
+    save_report : bool, default=True
+        Generate an HTML report.
+    save_figures : bool, default=False
+        Export PNG/SVG figures and generate a report.
+
+    Returns
+    -------
+    outputs : dict
+        Evoked and report statuses, also written to report_outputs.json.
+
+    Raises
+    ------
+    ValueError
+        If identity, condition names or bootstrap summaries are inconsistent.
+
+    Notes
+    -----
     FIF and descriptor failures propagate. Report failures are logged and stored
     in report_outputs.json; interrupts always propagate. Returns that status map.
     """
@@ -120,6 +146,33 @@ def save_erp_artifacts(
 def save_erp_result(result, directory, *, report=True, figures=False, overwrite=False):
     """Save reusable averages and unchanged IDPs; never save individual epochs.
 
+    Parameters
+    ----------
+    result : ERPResult
+        Saved or freshly computed measurements, QC, averages and component definitions.
+    directory : path-like
+        Output directory.
+    report : bool, default=True
+        Generate an HTML report.
+    figures : bool, default=False
+        Also export PNG/SVG figures; this enables report generation.
+    overwrite : bool, default=False
+        Permit reuse of an existing directory and remove known stale artifacts.
+
+    Returns
+    -------
+    directory : pathlib.Path
+        Saved result directory.
+
+    Raises
+    ------
+    FileExistsError
+        If directory exists and overwrite is False.
+    ValueError
+        If result identity or bootstrap summaries are inconsistent.
+
+    Notes
+    -----
     FIF stores floating-point waveforms with MNE's standard single precision.
     CSV feature values remain authoritative for all subsequent annotations.
     """
@@ -150,7 +203,25 @@ def save_erp_result(result, directory, *, report=True, figures=False, overwrite=
 
 
 def load_erp_result(directory):
-    """Load saved IDPs, QC and averages without filtering or re-extraction."""
+    """Load saved IDPs, QC and averages without filtering or re-extraction.
+
+    Parameters
+    ----------
+    directory : path-like
+        Directory containing erp_result.json and its referenced artifacts.
+
+    Returns
+    -------
+    result : ERPResult
+        Restored features, QC, evokeds and optional bootstrap; epochs is None.
+
+    Raises
+    ------
+    ValueError
+        If saved schemas, identities, features or waveform axes are inconsistent.
+    OSError
+        If a required artifact cannot be read.
+    """
     from meganorm.src.erp import ERPComponent, ERPResult, extract_erp_idps
 
     directory = Path(directory)
@@ -281,10 +352,12 @@ BOOTSTRAP_COLUMNS = (
 
 
 def _bootstrap_error(message):
+    """Raise a consistently prefixed bootstrap validation error."""
     raise ValueError("Invalid ERP bootstrap " + message)
 
 
 def _integer(value, minimum=0):
+    """Check for a non-boolean integer at or above the given minimum."""
     return (
         isinstance(value, (int, np.integer))
         and not isinstance(value, (bool, np.bool_))
@@ -293,6 +366,7 @@ def _integer(value, minimum=0):
 
 
 def _quantiles(values, counts):
+    """Validate numeric quantile shapes, finite counts and ordering."""
     low, median, high = (np.asarray(values[key]) for key in ("p05", "median", "p95"))
     if any(
         a.dtype.kind not in "fiu" or a.shape != counts.shape
@@ -310,7 +384,25 @@ def _quantiles(values, counts):
 
 
 def validate_bootstrap(summary, result):
-    """Validate against authoritative features, QC and original evoked axes."""
+    """Validate against authoritative features, QC and original evoked axes.
+
+    Parameters
+    ----------
+    summary : ERPBootstrapSummary
+        Summary to validate.
+    result : ERPResult
+        Saved or freshly computed measurements, QC, averages and component definitions.
+
+    Returns
+    -------
+    None
+        This function is called for its side effects.
+
+    Raises
+    ------
+    ValueError
+        If schema, identities, quantiles, trial counts or waveform axes disagree.
+    """
     subject = result.features.index[0]
     p = summary.provenance
     if (
@@ -412,7 +504,25 @@ def validate_bootstrap(summary, result):
 
 
 def save_bootstrap(result, directory):
-    """Write numeric NPZ, summary CSV and JSON metadata; propagate failures."""
+    """Write numeric NPZ, summary CSV and JSON metadata; propagate failures.
+
+    Parameters
+    ----------
+    result : ERPResult
+        Saved or freshly computed measurements, QC, averages and component definitions.
+    directory : path-like
+        Output directory.
+
+    Returns
+    -------
+    filename : str or None
+        "bootstrap.json" when saved, or None if result has no bootstrap.
+
+    Raises
+    ------
+    ValueError
+        If the summary fails validation.
+    """
     summary = getattr(result, "bootstrap", None)
     if summary is None:
         return None
@@ -451,7 +561,27 @@ def save_bootstrap(result, directory):
 
 
 def load_bootstrap(result, directory, filename):
-    """Only load the descriptor's explicit pointer; ignore unrelated stale files."""
+    """Only load the descriptor's explicit pointer; ignore unrelated stale files.
+
+    Parameters
+    ----------
+    result : ERPResult
+        Saved or freshly computed measurements, QC, averages and component definitions.
+    directory : path-like
+        Directory containing the saved bootstrap artifacts.
+    filename : str
+        Explicit descriptor pointer; must be "bootstrap.json".
+
+    Returns
+    -------
+    summary : ERPBootstrapSummary
+        Loaded and validated summary; numeric arrays are loaded without pickle.
+
+    Raises
+    ------
+    ValueError
+        If the pointer, metadata, arrays or summary validation are invalid.
+    """
     from .erp_bootstrap import ERPBootstrapSummary
 
     if filename != BOOTSTRAP_FILES[0]:

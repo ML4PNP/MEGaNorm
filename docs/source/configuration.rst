@@ -290,9 +290,14 @@ Use the same top-level preprocessing fields as resting-state analysis:
 ``rereference_method``, ``apply_ica``, ``ica_method`` and rejection options.
 ``erp`` accepts a dictionary containing ``tmin``, ``tmax``, ``baseline``,
 ``min_trials``, named ``components``, and the output flags ``save_evokeds``,
-``save_report`` and ``save_figures``. Component windows must lie inside the
+``save_report`` and ``save_figures``, plus optional bootstrap settings. Component windows must lie inside the
 epoch; condition, channel and metric selections must be nonempty and unique.
-Source localization is not supported for ERP.
+Epoch/baseline/component windows use seconds, and fixed EEG rejection
+thresholds use volts. EEG IDPs use µV and ms. ``min_trials`` (default 10)
+counts retained trials per condition. ``pos``, ``neg`` and ``abs`` select
+signed window extrema; an unavailable signed peak produces NaN peak metrics
+while a window mean may remain available. Source localization is not supported
+for ERP. Start with :doc:`erp_quickstart` for a complete workflow.
 
 Optional ``erp.bootstrap=True`` enables trial bootstrap uncertainty after
 preprocessing. ``erp.bootstrap_n_repeats`` defaults to 100 and must be an
@@ -388,6 +393,18 @@ a reloaded result has ``epochs=None``. Stored feature and QC tables remain
 authoritative and are not recalculated from FIF values, which can have small
 floating point precision differences. Missing conditions and component
 specifications are retained in the descriptor.
+
+When bootstrap is enabled, ``bootstrap_summary.csv`` stores original IDPs,
+median/p05/p95, valid repetition counts and status;
+``bootstrap_waveforms.npz`` and ``bootstrap.json`` store waveform summaries
+and provenance. No individual draws or epochs are saved. These files are
+written even with ``save_evokeds=False``, but convenient reloading/plotting
+requires evokeds. The original feature table remains authoritative.
+Bootstrap requires ``max(2, min_trials)`` retained trials per condition;
+invalid draws are excluded and counted. Ranges are descriptive central 90%
+ranges conditional on preprocessing, not calibrated confidence intervals.
+Waveform ranges are pointwise, not simultaneous bands. See
+:doc:`erp_quickstart` for temporary disk requirements.
 
 ERP ICA strategy
 ~~~~~~~~~~~~~~~~
