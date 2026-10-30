@@ -603,7 +603,9 @@ def erp_cohort(tmp_path):
         for index, code in enumerate(codes):
             start = 100 + index * 100
             data[1, start : start + 3] = code
-            data[0, start : start + 11] = np.arange(11) * 1e-6
+            data[0, start : start + 11] = (
+                np.array([0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 0]) * 1e-6
+            )
         raw = mne.io.RawArray(
             data, mne.create_info(["Pz", "STI"], 100, ["eeg", "stim"]), verbose=False
         )

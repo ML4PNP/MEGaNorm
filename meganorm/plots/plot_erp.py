@@ -186,6 +186,9 @@ def _measurement_rows(result):
                             unit=unit,
                             value=value,
                             status=status,
+                            peak_method=quality.get(
+                                "peak_method", "legacy/unspecified"
+                            ),
                             boundary_peak=bool(quality.get("boundary_peak", False)),
                             n_events=quality.get("n_events", "unknown"),
                             n_trials=quality.get("n_trials", "unknown"),

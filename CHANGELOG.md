@@ -7,6 +7,12 @@ available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) 
 
 ### EEG ERP analysis
 
+- Replace window extrema with two-sided local ERP peaks. Monotonic/constant
+  windows now yield missing peak metrics with explicit QC; means are unchanged.
+  Use the same detector in bootstrap draws and record `local_extremum_v1` in
+  QC/provenance and reports. Saved older results remain readable unchanged;
+  recompute peak IDPs consistently before pooling measurement methods.
+
 - Add local dataset-level ERP extraction and a single-participant CLI, with
   validated annotation/stimulus event mappings and exact participant IDs.
 - Support EEG channel metadata and electrode montages, continuous preprocessing,

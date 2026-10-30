@@ -18,6 +18,7 @@ from meganorm.utils.erp_logging import (
 import mne
 import numpy as np
 import pandas as pd
+from scipy.signal import find_peaks
 from meganorm.utils.erp import (
     ERPEventSpec,
     resolve_erp_events,
@@ -51,8 +52,9 @@ class ERPComponent:
     window : tuple of float
         Inclusive measurement window in seconds relative to the event.
     polarity : {'pos', 'neg', 'abs'}
-        Select the largest positive, most negative, or largest absolute sample.
-        Amplitude remains signed. Ties select the earliest sample.
+        Select the largest positive, most negative, or largest absolute local peak.
+        Amplitude remains signed. Peaks require support on both sides inside
+        the window. Flat tops use their midpoint; ties select the earlier peak.
     metrics : tuple of str
         Any combination of peak_amplitude, peak_latency and mean_amplitude.
     sensor_type : {'eeg', 'mag', 'grad'}
@@ -777,9 +779,12 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
     absent sensors, nonfinite waveforms and too few trials yield NaN with a QC
     reason. Invalid windows or sensor-type mismatches raise ValueError. Window
     means do not depend on peak polarity. No eligible signed peak yields NaN
-    for both peak metrics. Boundary peaks retain their values and have
-    boundary_peak=True in peak-metric QC rows (False for means or unavailable
-    peaks). Input objects are never modified.
+    for both peak metrics. Peaks require lower polarity-adjusted samples on both
+    sides within the inclusive window; endpoints cannot qualify. Flat tops use
+    their midpoint sample (rounded down); equal extrema use the earlier peak.
+    The strongest eligible local extremum is selected without extra smoothing
+    or prominence thresholds. QC records peak_method="local_extremum_v1".
+    The legacy boundary_peak column remains False. Input objects are unchanged.
     """
     if not isinstance(subject_id, str) or not subject_id:
         raise ValueError("subject_id must be a nonempty string.")
@@ -800,7 +805,6 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
             for channel in component.channels:
                 reason = "ok"
                 measures = {}
-                boundary_peak = False
                 if evoked is None:
                     reason = "missing_condition"
                 elif nave < min_trials:
@@ -826,26 +830,15 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
                         reason = "nonfinite_data"
                     else:
                         measures["mean_amplitude"] = signal.mean() * scale
-                        peak = (
-                            int(np.argmax(np.abs(signal)))
+                        score = (
+                            np.abs(signal)
                             if component.polarity == "abs"
-                            else (
-                                int(np.argmax(signal))
-                                if component.polarity == "pos"
-                                else int(np.argmin(signal))
-                            )
+                            else signal if component.polarity == "pos" else -signal
                         )
-                        valid = (
-                            signal[peak] > 0
-                            if component.polarity == "pos"
-                            else (
-                                signal[peak] < 0
-                                if component.polarity == "neg"
-                                else signal[peak] != 0
-                            )
-                        )
-                        if valid:
-                            boundary_peak = peak in (0, len(signal) - 1)
+                        candidates, _ = find_peaks(score)
+                        candidates = candidates[score[candidates] > 0]
+                        if candidates.size:
+                            peak = candidates[np.argmax(score[candidates])]
                             measures.update(
                                 peak_amplitude=signal[peak] * scale,
                                 peak_latency=times[peak] * 1e3,
@@ -855,7 +848,7 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
                     column = f"ERP__{condition}__{name}__{metric}_{unit}__{channel}"
                     values[column] = measures.get(metric, np.nan)
                     status = (
-                        "no_peak_with_requested_polarity"
+                        "no_local_peak_with_requested_polarity"
                         if reason == "ok" and metric not in measures
                         else reason
                     )
@@ -866,9 +859,8 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
                             "idp": column,
                             "status": status,
                             "n_trials": nave,
-                            "boundary_peak": (
-                                boundary_peak if metric.startswith("peak_") else False
-                            ),
+                            "peak_method": "local_extremum_v1",
+                            "boundary_peak": False,
                         }
                     )
     return pd.DataFrame([values], index=[subject_id], dtype=float), pd.DataFrame(
@@ -1472,6 +1464,7 @@ def process_erp_recording(
             write_erp_json(
                 directory / "provenance.json",
                 dict(
+                    peak_method="local_extremum_v1",
                     recording=str(path),
                     montage=montage_qc,
                     settings=config.model_dump(mode="json"),

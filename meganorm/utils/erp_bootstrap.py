@@ -259,6 +259,11 @@ def bootstrap_erp(
             quantiles=[5, 50, 95],
             quantile_method="linear",
             method="trial bootstrap within condition",
+            peak_method=(
+                sorted(quality["peak_method"].unique().tolist())
+                if "peak_method" in quality
+                else ["unspecified"]
+            ),
             seed_scheme="sha256-json-seed-subject-condition-v1",
             interpretation="Descriptive central 90% bootstrap range; waveform ranges are pointwise, not simultaneous confidence bands.",
         ),

@@ -68,6 +68,9 @@ def write_erp_report(result, path, *, save_figures=False):
         "<p>Participant: " + escape(subject) + "</p>"
         "<p>Saved measurements; no features are recomputed for this report. "
         "Peak markers require valid saved amplitude and latency. "
+        "For local_extremum_v1, peaks require support on both sides inside the "
+        "component window; unavailable peaks have no marker. Older saved "
+        "measurements retain their original method. "
         "Dashed lines show saved window means.</p>" + uncertainty_note + measurements,
         title="Measurements and trial counts",
     )

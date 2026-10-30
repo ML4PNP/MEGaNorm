@@ -295,7 +295,8 @@ epoch; condition, channel and metric selections must be nonempty and unique.
 Epoch/baseline/component windows use seconds, and fixed EEG rejection
 thresholds use volts. EEG IDPs use µV and ms. ``min_trials`` (default 10)
 counts retained trials per condition. ``pos``, ``neg`` and ``abs`` select
-signed window extrema; an unavailable signed peak produces NaN peak metrics
+signed local extrema with support on both sides inside the window; an
+unavailable local peak produces NaN peak metrics
 while a window mean may remain available. Source localization is not supported
 for ERP. Start with :doc:`erp_quickstart` for a complete workflow.
 

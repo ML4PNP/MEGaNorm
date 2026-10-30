@@ -173,20 +173,27 @@ can be supplied through
 
 EEG amplitudes are in µV and latencies in ms. A column such as
 ``ERP__target__P300__peak_amplitude_uV__Pz`` identifies the condition,
-component, measurement and sensor. Amplitudes retain their sign. ``pos`` selects the largest strictly positive
-sample, ``neg`` the most negative sample, and ``abs`` the largest absolute
-nonzero sample. Peaks are window extrema, not necessarily local maxima;
-ties use the earliest sample. If the requested polarity has no eligible
-sample, both peak measurements are ``NaN`` with
-``no_peak_with_requested_polarity`` QC. The window mean can still be available.
+component, measurement and sensor. Amplitudes retain their sign. Peaks are
+local extrema with support on both sides inside the inclusive component
+window. ``pos`` selects the largest strictly positive local maximum, ``neg``
+the most negative local minimum, and ``abs`` the strongest nonzero local
+maximum of absolute amplitude. Flat tops use the midpoint sample (rounded
+down); ties between peaks use the earlier peak. No extra smoothing or
+prominence threshold is applied. Endpoints and monotonic or constant windows
+cannot supply a peak. Both peak measurements are then ``NaN`` with
+``no_local_peak_with_requested_polarity`` QC, while the window mean remains
+available. QC and provenance record ``local_extremum_v1``. Previously saved
+window-extremum measurements are loaded unchanged; recompute ERP peak IDPs
+consistently before combining old and new results for modeling.
 ``min_trials`` applies to retained trials per condition after rejection.
 
 Missing conditions/sensors and insufficient trials produce ``NaN`` with
 a QC reason. Complete and partial participant rows enter the table;
 failures are recorded in ``result.processing``. If no participant has
 usable IDPs, the run raises an error. ``on_error="raise"`` stops at the
-first failed participant. Inspect trial counts and ``boundary_peak``
-flags before interpreting measurements.
+first failed participant. Inspect trial counts and QC status before interpreting
+measurements. The legacy ``boundary_peak`` field is retained for old files;
+new local peaks always have this flag set to False.
 
 Outputs are saved automatically under ``results/erp/<run-id>/``, with a
 fresh folder for each invocation. Each participant has feature/QC
@@ -291,8 +298,9 @@ preprocessing already applied; they do not quantify preprocessing uncertainty.
 
 Invalid or nonfinite IDP repetitions are excluded from their quantiles and
 their valid counts are reported. Peak summaries may therefore describe only
-the repetitions with a valid signed peak. Boundary peaks remain valid and
-are counted separately. A condition needs at least ``max(2, min_trials)``
+the repetitions with a valid local peak. Repetitions without one are excluded
+from peak summaries but retain valid means. The legacy boundary-peak count
+is zero for newly computed summaries. A condition needs at least ``max(2, min_trials)``
 retained trials for bootstrap summaries. Missing/insufficient conditions and
 unavailable or partial uncertainty are explicitly indicated.
 

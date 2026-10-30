@@ -157,7 +157,9 @@ def test_bootstrap_matches_direct_resampling_preserves_inputs():
             values = np.array([v[key] for v in idps])
             finite = values[np.isfinite(values)]
             assert row.n_valid == len(finite)
-            assert row.original == features.loc["001", key]
+            np.testing.assert_allclose(
+                row.original, features.loc["001", key], equal_nan=True
+            )
             np.testing.assert_allclose(
                 row[["p05", "median", "p95"]].to_numpy(float),
                 np.quantile(finite, [0.05, 0.5, 0.95]),
@@ -230,8 +232,9 @@ def test_bootstrap_invalid_peaks_and_temporary_cleanup(tmp_path, monkeypatch):
 
     epochs, components = bootstrap_fixture()
     epochs._data[:4] = -1e-6
-    epochs._data[0] = 2e-6
+    epochs._data[0] = np.array([0, 1, 2, 1, 0]) * 1e-6
     summary = bootstrap_erp(epochs, "s", components, n_repeats=100, random_state=42)
+    assert summary.provenance["peak_method"] == ["local_extremum_v1"]
     rows = summary.idps[summary.idps.condition == "a"]
     peaks = rows[rows.idp.str.contains("peak_")]
     means = rows[rows.idp.str.contains("mean_amplitude")]
@@ -239,7 +242,7 @@ def test_bootstrap_invalid_peaks_and_temporary_cleanup(tmp_path, monkeypatch):
     assert (peaks.status == "partial").all()
     assert (means.n_valid == 100).all()
     assert (means.n_boundary_peaks == 0).all()
-    assert (peaks.n_boundary_peaks == peaks.n_valid).all()
+    assert (peaks.n_boundary_peaks == 0).all()
 
     # Failure after allocating a disk-backed waveform array must remove it.
     factory = tempfile.TemporaryDirectory
@@ -385,7 +388,7 @@ class TestERP(unittest.TestCase):
         self.assertTrue(features.iloc[0, :2].isna().all())
         self.assertTrue(np.isfinite(features.iloc[0, 2]))
         self.assertEqual(
-            qc.status.tolist(), ["no_peak_with_requested_polarity"] * 2 + ["ok"]
+            qc.status.tolist(), ["no_local_peak_with_requested_polarity"] * 2 + ["ok"]
         )
         mag = mne.EvokedArray(
             np.full((1, 1101), 2e-13),
@@ -393,10 +396,11 @@ class TestERP(unittest.TestCase):
             tmin=-0.2,
             nave=10,
         )
+        mag.data[0, 350] = 3e-13
         spec = ERPComponent(("target",), ("M1",), (0.1, 0.2), "pos", sensor_type="mag")
         features, _ = extract_erp_idps("s", {"target": mag}, {"field": spec})
         self.assertIn("amplitude_T", features.columns[0])
-        self.assertAlmostEqual(features.iloc[0, 0] / 1e-13, 2)
+        self.assertAlmostEqual(features.iloc[0, 0] / 1e-13, 3)
 
     def test_validation(self):
         with self.assertRaises(ValueError):
@@ -897,7 +901,7 @@ def test_pipeline_event_spec_and_exact_conditions():
         )
 
 
-def test_boundary_peak_is_flagged_but_kept():
+def test_boundary_extrema_are_unavailable_but_mean_is_kept():
     evoked = mne.EvokedArray(
         np.array([[3.0, 1.0, 3.0]]) * 1e-6,
         mne.create_info(["Pz"], 100.0, "eeg"),
@@ -914,9 +918,11 @@ def test_boundary_peak_is_flagged_but_kept():
     )
     before = evoked.data.copy()
     features, qc = extract_erp_idps("s", {"a": evoked}, {"P": component})
-    np.testing.assert_allclose(features.iloc[0], [3, 0, 7 / 3])
-    assert qc.boundary_peak.tolist() == [True, True, False]
-    assert qc.status.tolist() == ["ok"] * 3
+    np.testing.assert_allclose(
+        features.iloc[0], [np.nan, np.nan, 7 / 3], equal_nan=True
+    )
+    assert not qc.boundary_peak.any()
+    assert qc.status.tolist() == ["no_local_peak_with_requested_polarity"] * 2 + ["ok"]
     np.testing.assert_array_equal(evoked.data, before)
 
 
@@ -1074,7 +1080,7 @@ def test_crop_resample_absolute_samples_and_input_preservation():
 @pytest.mark.parametrize(
     "signal,status",
     [
-        ([0, 0, 0], "no_peak_with_requested_polarity"),
+        ([0, 0, 0], "no_local_peak_with_requested_polarity"),
         ([np.nan, 1, 2], "nonfinite_data"),
     ],
 )
@@ -1112,8 +1118,8 @@ def test_window_uses_only_inclusive_sample_times():
         ("peak_amplitude", "peak_latency", "mean_amplitude"),
     )
     features, qc = extract_erp_idps("s", {"a": evoked}, {"P": component})
-    np.testing.assert_allclose(features.iloc[0], [3, 20, 2])
-    assert qc.boundary_peak.tolist() == [True, True, False]
+    np.testing.assert_allclose(features.iloc[0], [np.nan, np.nan, 2], equal_nan=True)
+    assert not qc.boundary_peak.any()
     with pytest.raises(ValueError, match="no samples"):
         extract_erp_idps(
             "s", {"a": evoked}, {"P": replace(component, window=(0.001, 0.002))}
@@ -1285,7 +1291,7 @@ def test_erp_worker_sidecar_types_and_montage(tmp_path):
 
     raw = _event_recording()
     raw.set_channel_types({"Pz": "misc"})
-    raw._data[0, 100:111] = np.arange(11) * 1e-06
+    raw._data[0, 100:111] = np.array([0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 0]) * 1e-06
     path = tmp_path / "s_task_raw.fif"
     raw.save(path, overwrite=True, verbose=False)
     (tmp_path / "s_task_channels.tsv").write_text(
@@ -2729,3 +2735,40 @@ def test_progress_records_ica_phases_without_changing_samples(tmp_path):
         completed["ica_classification"]["details"]["excluded_components"]
         == actual_qc["ica_excluded"]
     )
+
+
+@pytest.mark.parametrize(
+    "signal,polarity,amplitude,latency",
+    [
+        ([0, 2, 1, 3, 4], "pos", 2, 10),
+        ([0, -2, -1, -3, -4], "neg", -2, 10),
+        ([0, 2, 1, -3, 0], "abs", -3, 30),
+        ([0, 3, 3, 0, 4], "pos", 3, 10),
+        ([0, 2, 0, 2, 0], "pos", 2, 10),
+        ([0, 1, 2, 3, 4], "pos", np.nan, np.nan),
+        ([2, 2, 2, 2, 2], "pos", np.nan, np.nan),
+    ],
+)
+def test_local_peak_requires_two_sided_support(signal, polarity, amplitude, latency):
+    evoked = mne.EvokedArray(
+        np.array([signal]) * 1e-6,
+        mne.create_info(["Pz"], 100, "eeg"),
+        nave=10,
+        verbose=False,
+    )
+    component = ERPComponent(
+        ("a",),
+        ("Pz",),
+        (0, 0.04),
+        polarity,
+        ("peak_amplitude", "peak_latency", "mean_amplitude"),
+    )
+    features, qc = extract_erp_idps("s", {"a": evoked}, {"P": component})
+    np.testing.assert_allclose(
+        features.iloc[0], [amplitude, latency, np.mean(signal)], equal_nan=True
+    )
+    assert not qc.boundary_peak.any()
+    assert qc.peak_method.eq("local_extremum_v1").all()
+    assert qc.status.iloc[-1] == "ok"
+    if np.isnan(amplitude):
+        assert qc.status.iloc[:2].eq("no_local_peak_with_requested_polarity").all()
