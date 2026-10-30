@@ -50,6 +50,58 @@ def bootstrap_fixture():
     return epochs, components
 
 
+def test_bootstrap_utility_callback_and_legacy_import_agree():
+    from meganorm.utils.erp_bootstrap import bootstrap_erp as utility_bootstrap
+    from meganorm.src.erp_bootstrap import bootstrap_erp as legacy_bootstrap
+    from meganorm.utils.erp_bootstrap import ERPBootstrapSummary
+    from meganorm.src.erp_bootstrap import ERPBootstrapSummary as LegacySummary
+
+    epochs, components = bootstrap_fixture()
+    evokeds = compute_evokeds(epochs)
+    calls = []
+
+    def extractor(*args, **kwargs):
+        calls.append(args[0])
+        return extract_erp_idps(*args, **kwargs)
+
+    actual = utility_bootstrap(
+        epochs,
+        "001",
+        components,
+        n_repeats=5,
+        random_state=42,
+        evokeds=evokeds,
+        extract_idps=extractor,
+    )
+    expected = legacy_bootstrap(epochs, "001", components, n_repeats=5, random_state=42)
+    assert calls == ["001"] * 11  # Original plus five draws per present condition.
+    assert LegacySummary is ERPBootstrapSummary
+    pd.testing.assert_frame_equal(actual.idps, expected.idps)
+    assert actual.provenance == expected.provenance
+    for condition in actual.waveforms:
+        wave = actual.waveforms[condition]
+        if wave is None:
+            assert expected.waveforms[condition] is None
+        else:
+            for key in ("times", "median", "p05", "p95", "n_valid"):
+                np.testing.assert_array_equal(
+                    wave[key], expected.waveforms[condition][key]
+                )
+
+
+@pytest.mark.parametrize(
+    "invalid", [{"n_repeats": 0}, {"random_state": -1}, {"min_trials": 0}]
+)
+def test_legacy_bootstrap_validates_before_averaging(invalid):
+    from meganorm.src.erp_bootstrap import bootstrap_erp
+
+    settings = dict(n_repeats=5, random_state=42, min_trials=1)
+    settings.update(invalid)
+    # Even an unusable epochs input must not be read before settings validation.
+    with pytest.raises(ValueError, match=next(iter(invalid))):
+        bootstrap_erp(None, "s", {}, **settings)
+
+
 def test_bootstrap_settings_are_opt_in_and_strict():
     config = Config(analysis_type="erp", which_sensor="eeg")
     assert config.erp.bootstrap is False
@@ -173,7 +225,7 @@ def test_bootstrap_pipeline_preserves_original_outputs():
 
 def test_bootstrap_invalid_peaks_and_temporary_cleanup(tmp_path, monkeypatch):
     from meganorm.src.erp_bootstrap import bootstrap_erp
-    import meganorm.src.erp_bootstrap as module
+    import meganorm.utils.erp_bootstrap as module
     import meganorm.src.erp as erp_module
 
     epochs, components = bootstrap_fixture()

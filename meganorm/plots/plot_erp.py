@@ -3,7 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from meganorm.src.erp_bootstrap import _matching_times
+from meganorm.utils.erp import _matching_times
 
 
 def plot_erp(evokeds, *, components=None, channels=None, show=False):

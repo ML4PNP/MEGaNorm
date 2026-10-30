@@ -384,3 +384,16 @@ def prepare_erp_montage(
         required_channels=required_channels,
         notify=notify,
     )
+
+
+def _matching_times(times, reference):
+    """Allow FIF float32 sampling-rate roundoff, but not a different grid."""
+    times, reference = np.asarray(times), np.asarray(reference)
+    if times.shape != reference.shape or not times.size:
+        return False
+    if not np.isfinite(times).all() or not np.isfinite(reference).all():
+        return False
+    # FIF stores sfreq in float32. Its relative rounding error propagates to
+    # every sample's time, including a nonzero epoch start.
+    tolerance = max(1e-8, np.finfo(np.float32).eps * np.max(np.abs(reference)))
+    return np.allclose(times, reference, atol=tolerance, rtol=0)

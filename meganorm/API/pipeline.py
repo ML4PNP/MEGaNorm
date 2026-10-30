@@ -523,7 +523,7 @@ class Pipeline:
             write_erp_json(paths["summary"], summary)
             if settings.save_report:
                 try:
-                    from meganorm.utils.erp_index import write_erp_index
+                    from meganorm.plots.erp_report import write_erp_index
 
                     paths["report"] = write_erp_index(root, processing)
                 except Exception as error:

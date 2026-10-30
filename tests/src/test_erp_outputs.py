@@ -15,6 +15,16 @@ from meganorm.utils.erp import make_demo_recording, ERPEventSpec
 pytestmark = pytest.mark.unit
 
 
+def test_reorganized_output_and_report_imports_remain_compatible():
+    from meganorm.utils import erp_outputs, erp_bootstrap_outputs, erp_index
+    from meganorm.plots import erp_report
+
+    assert erp_bootstrap_outputs.save_bootstrap is erp_outputs.save_bootstrap
+    assert erp_bootstrap_outputs.load_bootstrap is erp_outputs.load_bootstrap
+    assert erp_bootstrap_outputs.validate_bootstrap is erp_outputs.validate_bootstrap
+    assert erp_index.write_erp_index is erp_report.write_erp_index
+
+
 @pytest.fixture
 def recording(tmp_path):
     raw, events = make_demo_recording()
