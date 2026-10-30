@@ -81,7 +81,12 @@ def apply_channel_table(raw, table, *, strict=True, apply_status=True):
         or table.name.duplicated().any()
     ):
         raise ValueError("Channel sidecar requires unique name and type columns.")
-    mapping = table.set_index("name")["type"].str.lower().to_dict()
+
+    channel_types = table.set_index("name")["type"].str.lower()
+    if strict:
+        channel_types = channel_types.replace({"trig": "stim"})
+    mapping = channel_types.to_dict()
+    
     if strict and set(mapping) - set(raw.ch_names):
         raise ValueError("Channel sidecar names do not match recording channels.")
     raw.set_channel_types(mapping)
