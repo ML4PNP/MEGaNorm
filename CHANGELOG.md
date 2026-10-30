@@ -21,9 +21,12 @@ available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) 
 - Add optional reproducible within-condition trial bootstrap using the global
   random seed. Save compact median and 5th–95th percentile summaries and show
   pointwise waveform ranges. Original IDPs remain the modeling outputs.
-- Consolidate ERP storage and reporting utilities while retaining compatibility
-  imports. Document the complete workflow, configuration, outputs and a runnable
-  synthetic tutorial. Resting-state defaults and processing remain unchanged.
+- Consolidate ERP storage and reporting utilities. Remove the temporary
+  `utils.erp_bootstrap_outputs` and `utils.erp_index` import aliases; use
+  `utils.erp_outputs` and `plots.erp_report`, respectively. The
+  `src.erp_bootstrap` compatibility import remains available. Document the
+  complete workflow, configuration, outputs and a runnable synthetic tutorial.
+  Resting-state defaults and processing remain unchanged.
 - ERP remains limited to local sensor-space EEG processing; the existing SLURM
   extraction runner and ERP source localization are not supported.
 
