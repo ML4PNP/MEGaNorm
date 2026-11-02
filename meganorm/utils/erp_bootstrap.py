@@ -141,7 +141,11 @@ def bootstrap_erp(
     min_trials), returning the original feature/QC table pair. Keeping this
     dependency explicit lets this utility run without importing the pipeline.
     """
+    from meganorm.utils.erp import add_erp_regions
+
     _validate_bootstrap_settings(n_repeats, random_state, min_trials)
+    epochs = add_erp_regions(epochs, components)
+    evokeds = {key: add_erp_regions(ev, components) for key, ev in evokeds.items()}
     original, quality = extract_idps(subject_id, evokeds, components, min_trials)
     if features is not None:
         if not features.equals(original):

@@ -558,3 +558,21 @@ A warning reports template use and explicit exclusions. The participant's
 provenance kind, actual template, aliases, matched channels and bad channels;
 ``processing.log`` retains the notification. Input files and resting-state
 processing are unchanged.
+
+
+ERP event groups and scalp regions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ERPEventSpec.event_id`` accepts integers or nonempty sequences of integers
+per logical condition; ``annotation_map`` accepts strings or nonempty
+sequences of exact descriptions. Acquisition identifiers cannot be repeated
+within or across conditions. Trials are pooled before averaging and bootstrap
+resampling. Scalar mappings preserve their existing behavior.
+
+Each ERP component accepts optional ``regions={name: [channel, ...]}``,
+including mappings from ``load_specific_layout``. Select ``channels``,
+``regions``, or both. Regions are EEG-only, equal-weight averages of available
+non-bad members, measured after spatial averaging. Output identifiers use
+``ROI:name``; no usable members gives missing IDPs with explicit QC. Reports
+record member coverage. See :doc:`erp_quickstart` for the language-task and
+layout examples. This does not change resting-state ``which_layout``.

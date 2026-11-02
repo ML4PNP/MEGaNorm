@@ -7,6 +7,12 @@ available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) 
 
 ### EEG ERP analysis
 
+- Pool multiple trigger codes or annotation descriptions into each ERP condition.
+- Measure ERP IDPs from named scalp-region summary waveforms using existing
+  layout dictionaries or custom EEG channel groups. Include regional bootstrap
+  uncertainty, saved averages, plots and channel-coverage QC without changing
+  resting-state processing.
+
 - Replace window extrema with two-sided local ERP peaks. Monotonic/constant
   windows now yield missing peak metrics with explicit QC; means are unchanged.
   Use the same detector in bootstrap draws and record `local_extremum_v1` in

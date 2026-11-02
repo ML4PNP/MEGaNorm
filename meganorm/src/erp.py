@@ -21,6 +21,10 @@ import pandas as pd
 from scipy.signal import find_peaks
 from meganorm.utils.erp import (
     ERPEventSpec,
+    validate_erp_regions,
+    erp_region_definitions,
+    region_channel_coverage,
+    add_erp_regions,
     resolve_erp_events,
     resolve_ica_settings,
     resolve_ica_fit_settings,
@@ -47,8 +51,12 @@ class ERPComponent:
     ----------
     conditions : tuple of str
         Exact condition keys in the evoked dictionary.
-    channels : tuple of str
-        Individual sensors to measure, in output order. No spatial averaging.
+    channels : tuple of str, optional
+        Individual physical sensors to measure, in output order.
+    regions : dict of str to sequence of str, optional
+        Named EEG scalp groups. Average present, non-bad EEG members first,
+        then measure their summary waveform. Derived names use ROI:name.
+        At least one channel or region must be selected.
     window : tuple of float
         Inclusive measurement window in seconds relative to the event.
     polarity : {'pos', 'neg', 'abs'}
@@ -68,21 +76,30 @@ class ERPComponent:
     """
 
     conditions: tuple[str, ...]
-    channels: tuple[str, ...]
-    window: tuple[float, float]
-    polarity: str
+    channels: tuple[str, ...] = ()
+    window: tuple[float, float] | None = None
+    polarity: str | None = None
     metrics: tuple[str, ...] = ("peak_amplitude", "peak_latency")
     sensor_type: str = "eeg"
+    regions: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate component names, window, polarity, metrics and sensor type."""
-        for values in (self.conditions, self.channels, self.metrics):
+        for values in (self.conditions, self.metrics):
             if isinstance(values, str) or not values or len(set(values)) != len(values):
                 raise ValueError(
                     "Conditions, channels and metrics must be nonempty unique sequences."
                 )
             for value in values:
                 _name(value)
+        validate_erp_regions(self.channels, self.regions, self.sensor_type)
+        object.__setattr__(
+            self,
+            "regions",
+            {name: tuple(members) for name, members in self.regions.items()},
+        )
+        if self.window is None:
+            raise ValueError("Component window is required.")
         _window(self.window)
         if self.polarity not in ("pos", "neg", "abs"):
             raise ValueError("polarity must be pos, neg or abs.")
@@ -90,6 +107,17 @@ class ERPComponent:
             raise ValueError("sensor_type must be eeg, mag or grad.")
         if set(self.metrics) - {"peak_amplitude", "peak_latency", "mean_amplitude"}:
             raise ValueError("Unknown ERP metric.")
+
+    @property
+    def measurement_channels(self):
+        """Return individual sensor names followed by derived ROI channel names.
+
+        Returns
+        -------
+        channels : tuple of str
+            Ordered identifiers used in features, plots and saved waveforms.
+        """
+        return (*self.channels, *(f"ROI:{name}" for name in self.regions))
 
 
 def _validate_erp_config(config):
@@ -763,7 +791,8 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
         One participant row with ordered ``ERP__`` feature columns. EEG amplitudes
         are in microvolts, MEG amplitudes in T or T/m, and latencies in ms.
     qc : pandas.DataFrame
-        One row per feature, including status, trial count and boundary-peak flag.
+        One row per feature, including status, trial count, channel coverage
+        and boundary-peak flag.
 
     Raises
     ------
@@ -785,6 +814,9 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
     The strongest eligible local extremum is selected without extra smoothing
     or prominence thresholds. QC records peak_method="local_extremum_v1".
     The legacy boundary_peak column remains False. Input objects are unchanged.
+    Regions use equal-weight EEG channel means before any measurement. Empty
+    regions yield no_usable_region_channels; used and excluded members are
+    recorded in QC. Individual-channel extraction is unchanged.
     """
     if not isinstance(subject_id, str) or not subject_id:
         raise ValueError("subject_id must be a nonempty string.")
@@ -792,6 +824,8 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
         raise ValueError("min_trials must be a positive integer.")
     if not components:
         raise ValueError("At least one component is required.")
+    definitions = erp_region_definitions(components)
+    evokeds = {key: add_erp_regions(ev, components) for key, ev in evokeds.items()}
     values, quality = {}, []
     units = {"eeg": (1e6, "uV"), "mag": (1.0, "T"), "grad": (1.0, "T_per_m")}
     for name, component in components.items():
@@ -802,13 +836,26 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
         for condition in component.conditions:
             evoked = evokeds.get(condition)
             nave = 0 if evoked is None else evoked.nave
-            for channel in component.channels:
+            for channel in component.measurement_channels:
+                if channel in definitions:
+                    used, excluded = region_channel_coverage(
+                        evoked, definitions[channel]
+                    )
+                else:
+                    usable = (
+                        evoked is not None
+                        and channel in evoked.ch_names
+                        and channel not in evoked.info["bads"]
+                    )
+                    used, excluded = ([channel], []) if usable else ([], [channel])
                 reason = "ok"
                 measures = {}
                 if evoked is None:
                     reason = "missing_condition"
                 elif nave < min_trials:
                     reason = "insufficient_trials"
+                elif channel in definitions and not used:
+                    reason = "no_usable_region_channels"
                 elif channel not in evoked.ch_names:
                     reason = "missing_channel"
                 elif channel in evoked.info["bads"]:
@@ -859,6 +906,8 @@ def extract_erp_idps(subject_id, evokeds, components, min_trials=1):
                             "idp": column,
                             "status": status,
                             "n_trials": nave,
+                            "channels_used": ", ".join(used),
+                            "channels_excluded": ", ".join(excluded),
                             "peak_method": "local_extremum_v1",
                             "boundary_peak": False,
                         }
@@ -1140,6 +1189,7 @@ def run_erp_pipeline(
                 raise ValueError(
                     "Supply one event source: event_spec OR annotation_map OR events and event_id."
                 )
+            detail["event_spec"] = ERPEventSpec.model_validate(event_spec).model_dump()
             events, event_id = resolve_erp_events(raw, event_spec)
         elif annotation_map is not None:
             if events is not None or event_id is not None:
@@ -1199,7 +1249,10 @@ def run_erp_pipeline(
     epochs, rejection_qc = epoch_erp(cleaned, events, event_id, config, return_qc=True)
     preprocessing_qc["epoch_rejection"] = rejection_qc
     with stage("average_conditions") as detail:
-        evokeds = compute_evokeds(epochs)
+        evokeds = {
+            key: add_erp_regions(ev, components)
+            for key, ev in compute_evokeds(epochs).items()
+        }
         detail["n_trials"] = {
             name: 0 if evoked is None else evoked.nave
             for name, evoked in evokeds.items()
@@ -1211,6 +1264,7 @@ def run_erp_pipeline(
             name: dict(
                 conditions=spec.conditions,
                 channels=spec.channels,
+                regions=spec.regions,
                 window_seconds=spec.window,
                 metrics=spec.metrics,
                 polarity=spec.polarity,

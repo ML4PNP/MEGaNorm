@@ -605,3 +605,52 @@ def test_bootstrap_roundtrip_noninteger_sampling_rate_preserves_bands(tmp_path):
         assert not any("mismatch" in t.get_text() for t in axes[0].texts)
     finally:
         plt.close(fig)
+
+
+def test_grouped_regional_pipeline_roundtrip(recording, tmp_path):
+    from meganorm.utils.erp_outputs import load_erp_result
+    from meganorm.utils.erp import ERPComponentSettings
+    from meganorm.layouts.layouts import load_specific_layout
+
+    path, config, ds = recording
+    # Reuse an existing layout mapping, restricted to the recording's sensors.
+    layout = load_specific_layout("BDF", "BDF_EEG_ALL")
+    members = tuple(ch for ch in layout["EEG_ALL"] if ch in ("Cz", "Pz"))
+    config.erp.components = {
+        "P300": ERPComponentSettings(
+            conditions=("pooled",),
+            regions={"central": members},
+            window=(0.25, 0.5),
+            polarity="pos",
+            metrics=("mean_amplitude", "peak_amplitude", "peak_latency"),
+        )
+    }
+    config.erp.bootstrap = True
+    config.erp.bootstrap_n_repeats = 5
+    result = erp.extract_recording(
+        path,
+        "sub-41",
+        config=config,
+        event_spec={
+            "mode": "annotations",
+            "annotation_map": {"pooled": ["standard", "target"]},
+        },
+        montage_settings=ds.erp_montage,
+    )
+    assert result.evokeds["pooled"].nave == 40
+    ev = result.evokeds["pooled"]
+    np.testing.assert_allclose(
+        ev.data[ev.ch_names.index("ROI:central")],
+        ev.data[[ev.ch_names.index(ch) for ch in members]].mean(axis=0),
+    )
+    assert "ROI:central" not in result.epochs.ch_names
+    folder = result.save(tmp_path / "regions", report=True)
+    loaded = load_erp_result(folder)
+    pd.testing.assert_frame_equal(result.features, loaded.features)
+    pd.testing.assert_frame_equal(result.bootstrap.idps, loaded.bootstrap.idps)
+    assert "ROI:central" in (folder / "report.html").read_text()
+    fig, axes = loaded.plot(channels=("ROI:central",))
+    import matplotlib.pyplot as plt
+
+    assert axes[0].get_title() == "ROI:central"
+    plt.close(fig)

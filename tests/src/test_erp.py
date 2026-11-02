@@ -2772,3 +2772,215 @@ def test_local_peak_requires_two_sided_support(signal, polarity, amplitude, late
     assert qc.status.iloc[-1] == "ok"
     if np.isnan(amplitude):
         assert qc.status.iloc[:2].eq("no_local_peak_with_requested_polarity").all()
+
+
+def test_grouped_stim_events_preserve_onsets_and_pool_codes():
+    from meganorm.utils.erp import resolve_erp_events
+
+    data = np.zeros((2, 100))
+    data[1, [10, 30, 50, 70]] = [110, 210, 120, 220]
+    raw = mne.io.RawArray(
+        data,
+        mne.create_info(["Cz", "Status"], 100, ["eeg", "stim"]),
+        first_samp=400,
+        verbose=False,
+    )
+    events, ids = resolve_erp_events(
+        raw,
+        dict(
+            mode="stim",
+            stim_channel="Status",
+            shortest_event=1,
+            event_id={
+                "grammatical": [110, 210],
+                "ungrammatical": [120, 220],
+                "absent": 99,
+            },
+        ),
+    )
+    np.testing.assert_array_equal(events[:, 0], [410, 430, 450, 470])
+    np.testing.assert_array_equal(
+        events[:, 2],
+        [
+            ids["grammatical"],
+            ids["grammatical"],
+            ids["ungrammatical"],
+            ids["ungrammatical"],
+        ],
+    )
+    assert ids["absent"] == 99
+    assert raw.get_data()[1, 30] == 210
+
+
+def test_grouped_annotation_events():
+    from meganorm.utils.erp import resolve_erp_events
+
+    raw = mne.io.RawArray(
+        np.zeros((1, 100)), mne.create_info(["Cz"], 100, "eeg"), verbose=False
+    )
+    raw.set_annotations(
+        mne.Annotations([0.1, 0.3, 0.5], [0, 0, 0], ["S110", "S210", "S120"])
+    )
+    events, ids = resolve_erp_events(
+        raw,
+        dict(
+            mode="annotations", annotation_map={"good": ["S110", "S210"], "bad": "S120"}
+        ),
+    )
+    np.testing.assert_array_equal(events[:, 2], [ids["good"], ids["good"], ids["bad"]])
+
+
+@pytest.mark.parametrize(
+    "mapping",
+    [{"a": []}, {"a": [1, 1]}, {"a": [1, 2], "b": 2}, {"a": [True]}, {"a": [-1]}],
+)
+def test_grouped_event_mapping_rejects_invalid_values(mapping):
+    with pytest.raises(ValueError):
+        ERPEventSpec(mode="stim", stim_channel="Status", event_id=mapping)
+
+
+def test_regional_idps_measure_summary_waveform_and_coverage():
+    ev = mne.EvokedArray(
+        np.array([[0, 8, 0, 0, 0], [0, 0, 0, 4, 0], [0, 90, 0, 0, 0]]) * 1e-6,
+        mne.create_info(["Cz", "Pz", "Fz"], 10, "eeg"),
+        nave=10,
+        verbose=False,
+    )
+    ev.info["bads"] = ["Fz"]
+    component = ERPComponent(
+        conditions=("a",),
+        regions={"central": ("Cz", "Pz", "Fz", "missing"), "empty": ("absent",)},
+        window=(0, 0.4),
+        polarity="pos",
+        metrics=("mean_amplitude", "peak_amplitude", "peak_latency"),
+    )
+    features, qc = extract_erp_idps("001", {"a": ev}, {"P": component})
+    assert features.loc[
+        "001", "ERP__a__P__peak_amplitude_uV__ROI:central"
+    ] == pytest.approx(4)
+    assert features.loc[
+        "001", "ERP__a__P__peak_latency_ms__ROI:central"
+    ] == pytest.approx(100)
+    assert set(qc.loc[qc.idp.str.endswith("ROI:empty"), "status"]) == {
+        "no_usable_region_channels"
+    }
+    assert qc.iloc[0].channels_used == "Cz, Pz"
+    assert ev.ch_names == ["Cz", "Pz", "Fz"]
+
+
+def test_regional_bootstrap_uses_joint_trial_draws():
+    from meganorm.src.erp_bootstrap import bootstrap_erp
+    from meganorm.utils.erp import add_erp_regions
+    from meganorm.utils.erp_bootstrap import _condition_rng
+
+    epochs, _ = bootstrap_fixture()
+    components = {
+        "P": ERPComponent(
+            conditions=("a",),
+            regions={"central": ("Cz", "Pz")},
+            window=(0, 0.4),
+            polarity="pos",
+            metrics=("mean_amplitude",),
+        )
+    }
+    evokeds = {
+        key: add_erp_regions(ev, components)
+        for key, ev in compute_evokeds(epochs).items()
+    }
+    summary = bootstrap_erp(
+        epochs, "001", components, evokeds=evokeds, n_repeats=7, random_state=42
+    )
+    rng = _condition_rng(42, "001", "a")
+    data = epochs.get_data()[:4]
+    expected = np.array(
+        [data[rng.integers(4, size=4)].mean(axis=(0, 1)) for _ in range(7)]
+    )
+    wave = summary.waveforms["a"]
+    index = wave["ch_names"].index("ROI:central")
+    np.testing.assert_allclose(wave["p05"][index], np.quantile(expected, 0.05, axis=0))
+    np.testing.assert_allclose(wave["p95"][index], np.quantile(expected, 0.95, axis=0))
+    assert summary.idps.iloc[0]["median"] == pytest.approx(
+        np.median(expected.mean(axis=1)) * 1e6
+    )
+    assert epochs.ch_names == ["Cz", "Pz"]
+
+
+@pytest.mark.parametrize(
+    "regions",
+    [
+        {"x": ()},
+        {"x": ("Cz", "Cz")},
+        {"x": "Cz"},
+        {"x": ("ROI:y",)},
+        {"bad__name": ("Cz",)},
+    ],
+)
+def test_regions_validate_at_config_and_standalone_boundaries(regions):
+    from meganorm.utils.erp import ERPComponentSettings
+
+    for cls in (ERPComponent, ERPComponentSettings):
+        with pytest.raises(ValueError):
+            cls(conditions=("a",), regions=regions, window=(0, 0.4), polarity="pos")
+
+
+def test_conflicting_region_definitions_are_rejected():
+    components = {
+        name: ERPComponent(
+            conditions=("a",),
+            regions={"central": members},
+            window=(0, 0.4),
+            polarity="pos",
+        )
+        for name, members in [("P", ("Cz",)), ("N", ("Pz",))]
+    }
+    with pytest.raises(ValueError, match="Conflicting"):
+        extract_erp_idps("001", {}, components)
+
+
+def test_regional_bootstrap_with_no_retained_epochs():
+    from meganorm.src.erp_bootstrap import bootstrap_erp
+
+    epochs, _ = bootstrap_fixture()
+    epochs.drop(list(range(len(epochs))), verbose=False)
+    component = ERPComponent(
+        conditions=("a",),
+        regions={"central": ("Cz", "Pz")},
+        window=(0, 0.4),
+        polarity="pos",
+    )
+    summary = bootstrap_erp(
+        epochs, "001", {"P": component}, n_repeats=3, random_state=42
+    )
+    assert set(summary.idps.status) == {"missing_condition"}
+
+
+def test_regional_component_roundtrip_preserves_definitions():
+    from dataclasses import asdict
+
+    definition = dict(
+        conditions=("a",),
+        regions={"central": ("Cz", "Pz")},
+        window=(0, 0.4),
+        polarity="pos",
+    )
+    component = ERPComponent(**definition)
+    restored = ERPComponent(**json.loads(json.dumps(asdict(component))))
+    assert restored.regions == component.regions
+
+
+def test_individual_channel_selection_rejects_bare_string():
+    with pytest.raises(ValueError):
+        ERPComponent(conditions=("a",), channels="Cz", window=(0, 0.4), polarity="pos")
+
+
+def test_individual_meg_measurement_reports_used_sensor():
+    ev = mne.EvokedArray(
+        np.array([[0, 2, 0, 1, 0]]) * 1e-12,
+        mne.create_info(["MEG001"], 10, "mag"),
+        nave=10,
+        verbose=False,
+    )
+    component = ERPComponent(("a",), ("MEG001",), (0, 0.4), "pos", sensor_type="mag")
+    _, qc = extract_erp_idps("001", {"a": ev}, {"P": component})
+    assert qc.iloc[0].channels_used == "MEG001"
+    assert qc.iloc[0].channels_excluded == ""

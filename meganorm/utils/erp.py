@@ -136,8 +136,12 @@ class ERPComponentSettings(_Settings):
     ----------
     conditions : tuple of str
         Unique logical condition names.
-    channels : tuple of str
+    channels : tuple of str, optional
         Unique EEG sensors, measured individually in this order.
+    regions : dict of str to tuple of str, optional
+        Scalp region names to EEG members, including dictionaries returned by
+        load_specific_layout. Available non-bad members are averaged before
+        measurement. Select channels, regions, or both.
     window : tuple of float
         Finite increasing inclusive measurement interval in seconds.
     polarity : {"pos", "neg", "abs"}
@@ -154,7 +158,8 @@ class ERPComponentSettings(_Settings):
     """
 
     conditions: tuple[str, ...]
-    channels: tuple[str, ...]
+    channels: tuple[str, ...] = ()
+    regions: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     window: tuple[float, float]
     polarity: Literal["pos", "neg", "abs"]
     metrics: tuple[Literal["peak_amplitude", "peak_latency", "mean_amplitude"], ...] = (
@@ -178,7 +183,7 @@ class ERPComponentSettings(_Settings):
             If the configured names or settings violate the schema.
         """
         _names(self.conditions)
-        _names(self.channels)
+        validate_erp_regions(self.channels, self.regions, self.sensor_type)
         _names(self.metrics)
         if self.window[0] >= self.window[1]:
             raise ValueError("Component window must be increasing.")
@@ -256,10 +261,12 @@ class ERPEventSpec(_Settings):
     ----------
     mode : {"annotations", "stim"}
         Source of recording events.
-    annotation_map : dict of str to str or None, optional
-        Logical conditions to unique exact descriptions; required for annotations.
-    event_id : dict of str to int or None, optional
-        Logical conditions to unique nonnegative trigger codes; required for stim.
+    annotation_map : dict of str to str or sequence of str, optional
+        Logical conditions to one or more exact descriptions. Descriptions must
+        be unique across and within groups; required for annotations.
+    event_id : dict of str to int or sequence of int, optional
+        Logical conditions to one or more nonnegative trigger codes. Codes must
+        be unique across and within groups; required for stim.
     stim_channel : str or None, optional
         Trigger channel required for stim mode.
     consecutive : bool or {"increasing"}, default="increasing"
@@ -279,12 +286,13 @@ class ERPEventSpec(_Settings):
     Notes
     -----
     Annotation maps run from logical condition to exact annotation description.
-    Stimulus maps run from logical condition to integer trigger code.
+    Stimulus maps run from logical condition to one or more integer trigger codes.
+    Groups pool retained trials with equal weight per trial, not per source code.
     """
 
     mode: Literal["annotations", "stim"]
-    annotation_map: dict[str, str] | None = None
-    event_id: dict[str, StrictInt] | None = None
+    annotation_map: dict[str, str | tuple[str, ...]] | None = None
+    event_id: dict[str, StrictInt | tuple[StrictInt, ...]] | None = None
     stim_channel: str | None = None
     consecutive: bool | Literal["increasing"] = "increasing"
     shortest_event: StrictInt = Field(default=2, ge=1)
@@ -321,7 +329,11 @@ class ERPEventSpec(_Settings):
                 raise ValueError(
                     "Stimulus extraction options are invalid for annotations."
                 )
-            values = list(self.annotation_map.values())
+            values = [
+                item
+                for value in self.annotation_map.values()
+                for item in event_values(value)
+            ]
             if any(not value for value in values):
                 raise ValueError("Annotation descriptions must be nonempty.")
             mapping = self.annotation_map
@@ -334,9 +346,13 @@ class ERPEventSpec(_Settings):
                 raise ValueError("Stim mode requires event_id and stim_channel only.")
             _name(self.stim_channel)
             mapping = self.event_id
-            values = list(mapping.values())
+            values = [
+                item for value in mapping.values() for item in event_values(value)
+            ]
             if any(value < 0 for value in values):
                 raise ValueError("Trigger codes must be nonnegative.")
+        if any(not event_values(value) for value in mapping.values()):
+            raise ValueError("Event groups must be nonempty.")
         _names(tuple(mapping))
         if len(values) != len(set(values)):
             raise ValueError("Each logical condition must have a unique event mapping.")
@@ -456,6 +472,7 @@ def resolve_erp_events(raw, spec):
         Selected events at original absolute sample indices.
     event_id : dict of str to int
         Complete logical condition mapping, including conditions without events.
+        Stimulus groups use their first code as the internal condition code.
 
     Raises
     ------
@@ -476,7 +493,8 @@ def resolve_erp_events(raw, spec):
         event_id = {name: i + 1 for i, name in enumerate(spec.annotation_map)}
         descriptions = {
             description: event_id[name]
-            for name, description in spec.annotation_map.items()
+            for name, descriptions in spec.annotation_map.items()
+            for description in event_values(descriptions)
         }
         if not any(
             description in descriptions for description in raw.annotations.description
@@ -486,8 +504,10 @@ def resolve_erp_events(raw, spec):
             raw, event_id=descriptions, regexp=None, use_rounding=True, verbose=False
         )
     else:
-        event_id = dict(spec.event_id)
-        if 0 in event_id.values():
+        event_id = {
+            name: event_values(value)[0] for name, value in spec.event_id.items()
+        }
+        if any(0 in event_values(value) for value in spec.event_id.values()):
             raise ValueError(
                 "Stimulus onset detection treats code zero as idle; supply explicit events and event_id for zero-coded conditions."
             )
@@ -503,6 +523,14 @@ def resolve_erp_events(raw, spec):
             initial_event=spec.initial_event,
             verbose=False,
         )
+        # Select from original codes before recoding: replacements must not cascade.
+        source_codes = events[:, 2].copy()
+        selected = np.zeros(len(events), dtype=bool)
+        for name, codes in spec.event_id.items():
+            matches = np.isin(source_codes, event_values(codes))
+            selected |= matches
+            events[matches, 2] = event_id[name]
+        events = events[selected]
     events = events[np.isin(events[:, 2], list(event_id.values()))]
     if not len(events):
         raise ValueError("No requested condition events were found.")
@@ -704,3 +732,182 @@ def _matching_times(times, reference):
     # every sample's time, including a nonzero epoch start.
     tolerance = max(1e-8, np.finfo(np.float32).eps * np.max(np.abs(reference)))
     return np.allclose(times, reference, atol=tolerance, rtol=0)
+
+
+def event_values(value):
+    """Return a scalar event mapping as a one-item tuple, or an existing group.
+
+    Parameters
+    ----------
+    value : int, str or tuple
+        Acquisition code, annotation description, or validated group.
+
+    Returns
+    -------
+    values : tuple
+        Ordered acquisition identifiers.
+    """
+    return value if isinstance(value, tuple) else (value,)
+
+
+def validate_erp_regions(channels, regions, sensor_type):
+    """Validate individual sensors and optional EEG region definitions.
+
+    Parameters
+    ----------
+    channels : sequence of str
+        Individual physical sensors to measure.
+    regions : mapping of str to sequence of str
+        Named groups, for example a dictionary from load_specific_layout.
+    sensor_type : str
+        Expected sensor type. Regional averaging currently supports EEG only.
+
+    Raises
+    ------
+    ValueError
+        If selections are empty, duplicated, invalid or not EEG regions.
+    """
+    if isinstance(channels, str):
+        raise ValueError("channels must be a sequence of names, not a string.")
+    if not channels and not regions:
+        raise ValueError("Select channels or regions for each ERP component.")
+    if channels:
+        _names(channels)
+    if not isinstance(regions, dict):
+        raise ValueError("regions must be a dictionary of named channel groups.")
+    if regions and sensor_type != "eeg":
+        raise ValueError("ERP regions currently support EEG only.")
+    for name, members in regions.items():
+        _name(name)
+        if isinstance(members, str):
+            raise ValueError("Region members must be a sequence of channel names.")
+        _names(members)
+    if any(
+        ch.startswith("ROI:")
+        for ch in (*channels, *(ch for members in regions.values() for ch in members))
+    ):
+        raise ValueError("ROI: is reserved for derived regional waveforms.")
+
+
+def erp_region_definitions(components):
+    """Collect region definitions, rejecting inconsistent reuse of a name.
+
+    Parameters
+    ----------
+    components : mapping
+        Component names to ERPComponent instances.
+
+    Returns
+    -------
+    regions : dict
+        Derived channel names (ROI:name) mapped to physical EEG channels.
+
+    Raises
+    ------
+    ValueError
+        If the same region name has conflicting channel membership.
+    """
+    regions = {}
+    for component in components.values():
+        for name, members in component.regions.items():
+            key = f"ROI:{name}"
+            members = tuple(members)
+            if key in regions and regions[key] != members:
+                raise ValueError(f"Conflicting definitions for region {name!r}.")
+            regions[key] = members
+    return regions
+
+
+def region_channel_coverage(inst, members):
+    """Identify usable EEG members and excluded members of a scalp region.
+
+    Parameters
+    ----------
+    inst : mne.Evoked or mne.BaseEpochs or None
+        Sensor data used for regional averaging.
+    members : sequence of str
+        Requested physical channels.
+
+    Returns
+    -------
+    used, excluded : list of str
+        Present, non-bad EEG channels and all remaining requested members.
+    """
+    types = {} if inst is None else dict(zip(inst.ch_names, inst.get_channel_types()))
+    bads = () if inst is None else inst.info["bads"]
+    used = [ch for ch in members if types.get(ch) == "eeg" and ch not in bads]
+    return used, [ch for ch in members if ch not in used]
+
+
+def add_erp_regions(inst, components):
+    """Append regional mean waveforms to a copy of epochs or an average.
+
+    Parameters
+    ----------
+    inst : mne.BaseEpochs, mne.Evoked or None
+        Cleaned sensor data. Raw preprocessing and rejection must finish first.
+    components : mapping
+        Component definitions containing optional named EEG regions.
+
+    Returns
+    -------
+    result : mne.BaseEpochs, mne.Evoked or None
+        Data with ROI:name channels. Empty regions contain NaN. With no regions,
+        the input is returned unchanged; otherwise physical data are copied.
+
+    Notes
+    -----
+    Regional samples are equal-weight means of present, non-bad EEG members.
+    Previously derived channels are recomputed from physical sensors. This also
+    makes spatial averaging identical for original and bootstrap ERPs.
+    """
+    definitions = erp_region_definitions(components)
+    if (
+        inst is None
+        or not definitions
+        or (isinstance(inst, mne.BaseEpochs) and len(inst) == 0)
+    ):
+        return inst
+    result = inst.copy()
+    existing = [ch for ch in definitions if ch in result.ch_names]
+    if existing:
+        result.drop_channels(existing)
+    data = (
+        result.get_data(copy=False)
+        if isinstance(result, mne.BaseEpochs)
+        else result.data
+    )
+    waveforms = []
+    for members in definitions.values():
+        used, _ = region_channel_coverage(result, members)
+        indices = [result.ch_names.index(ch) for ch in used]
+        shape = (*data.shape[:-2], 1, data.shape[-1])
+        waveforms.append(
+            data[..., indices, :].mean(axis=-2, keepdims=True)
+            if indices
+            else np.full(shape, np.nan)
+        )
+    values = np.concatenate(waveforms, axis=-2)
+    info = mne.create_info(list(definitions), result.info["sfreq"], "eeg")
+    if isinstance(result, mne.BaseEpochs):
+        extra = mne.EpochsArray(
+            values,
+            info,
+            events=result.events,
+            event_id=result.event_id,
+            tmin=result.tmin,
+            baseline=None,
+            on_missing="ignore",
+            verbose=False,
+        )
+    else:
+        extra = mne.EvokedArray(
+            values,
+            info,
+            tmin=result.tmin,
+            nave=result.nave,
+            comment=result.comment,
+            verbose=False,
+        )
+    result.add_channels([extra], force_update_info=True)
+    return result

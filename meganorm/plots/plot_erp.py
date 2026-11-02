@@ -3,7 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from meganorm.utils.erp import _matching_times
+from meganorm.utils.erp import _matching_times, add_erp_regions
 
 
 def plot_erp(evokeds, *, components=None, channels=None, show=False):
@@ -42,6 +42,9 @@ def plot_erp(evokeds, *, components=None, channels=None, show=False):
     tesla/metre. Times are milliseconds. This shows evoked waveforms and windows,
     not extracted peak markers. Conditions can have different time axes.
     """
+    evokeds = {
+        name: add_erp_regions(ev, components or {}) for name, ev in evokeds.items()
+    }
     available = {name: evoked for name, evoked in evokeds.items() if evoked is not None}
     if not available:
         raise ValueError("No evoked responses are available to plot.")
@@ -50,7 +53,9 @@ def plot_erp(evokeds, *, components=None, channels=None, show=False):
         channels = (
             list(
                 dict.fromkeys(
-                    ch for spec in components.values() for ch in spec.channels
+                    ch
+                    for spec in components.values()
+                    for ch in spec.measurement_channels
                 )
             )
             if components
@@ -82,6 +87,8 @@ def plot_erp(evokeds, *, components=None, channels=None, show=False):
                 continue
             scale, unit = units[sensor_types[channel]]
             index = evoked.ch_names.index(channel)
+            if not np.isfinite(evoked.data[index]).all():
+                continue
             ax.plot(
                 evoked.times * 1000,
                 evoked.data[index] * scale,
@@ -90,7 +97,9 @@ def plot_erp(evokeds, *, components=None, channels=None, show=False):
             )
             plotted.add(condition)
         for i, (name, spec) in enumerate(components.items()):
-            if channel in spec.channels and plotted.intersection(spec.conditions):
+            if channel in spec.measurement_channels and plotted.intersection(
+                spec.conditions
+            ):
                 ax.axvspan(
                     np.asarray(spec.window)[0] * 1000,
                     np.asarray(spec.window)[1] * 1000,
@@ -118,7 +127,11 @@ _UNITS = {"eeg": (1e6, "uV"), "mag": (1.0, "T"), "grad": (1.0, "T_per_m")}
 def _result_channels(result):
     """Choose ordered component sensors, falling back to evoked channels."""
     channels = list(
-        dict.fromkeys(ch for spec in result.components.values() for ch in spec.channels)
+        dict.fromkeys(
+            ch
+            for spec in result.components.values()
+            for ch in spec.measurement_channels
+        )
     )
     if not channels:
         channels = list(
@@ -138,7 +151,7 @@ def _measurement_rows(result):
     bootstrap = getattr(result, "bootstrap", None)
     for name, spec in result.components.items():
         for condition in spec.conditions:
-            for channel in spec.channels:
+            for channel in spec.measurement_channels:
                 for metric in spec.metrics:
                     unit = (
                         "ms"
@@ -183,6 +196,8 @@ def _measurement_rows(result):
                             condition=condition,
                             channel=channel,
                             metric=metric,
+                            channels_used=quality.get("channels_used", channel),
+                            channels_excluded=quality.get("channels_excluded", ""),
                             unit=unit,
                             value=value,
                             status=status,
@@ -300,7 +315,7 @@ def plot_erp_result(result, *, channels=None, show=False):
         found.update(
             spec.sensor_type
             for spec in result.components.values()
-            if channel in spec.channels
+            if channel in spec.measurement_channels
         )
         if len(found) > 1 or found - _UNITS.keys():
             raise ValueError(f"Inconsistent or unsupported sensor type for {channel}.")
@@ -342,7 +357,7 @@ def plot_erp_result(result, *, channels=None, show=False):
                     uncertainty_flags.append(warning)
                 usable.add(condition)
             for i, (name, spec) in enumerate(result.components.items()):
-                if channel not in spec.channels:
+                if channel not in spec.measurement_channels:
                     continue
                 lo, hi = np.asarray(spec.window) * 1000
                 ax.axvspan(

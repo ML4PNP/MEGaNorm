@@ -270,3 +270,23 @@ def test_report_bootstrap_summary_and_scope(tmp_path):
     ):
         assert text in html
     assert "Processing and montage" not in html
+
+
+def test_standalone_plot_labels_empty_region():
+    import mne
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from meganorm.src.erp import ERPComponent
+    from meganorm.plots.plot_erp import plot_erp
+
+    ev = mne.EvokedArray(
+        np.zeros((1, 5)), mne.create_info(["Cz"], 10, "eeg"), verbose=False
+    )
+    component = ERPComponent(
+        conditions=("a",), regions={"empty": ("Pz",)}, window=(0, 0.4), polarity="pos"
+    )
+    fig, axes = plot_erp({"a": ev}, components={"P": component})
+    try:
+        assert "No usable data" in [text.get_text() for text in axes[0].texts]
+    finally:
+        plt.close(fig)

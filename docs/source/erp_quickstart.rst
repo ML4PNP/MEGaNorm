@@ -445,3 +445,90 @@ structured events and elapsed times; parent stages include their children,
 so do not sum nested durations. A finished worker can still have a partial
 or failed scientific outcome. Detailed settings and versions are retained
 in ``provenance.json``. In-memory extraction does not write logs or outputs.
+
+
+Pooling events and measuring scalp regions
+------------------------------------------
+
+A condition can pool several trigger codes. For the language-task example,
+use these settings in ``Dataset(erp_events=...)``:
+
+.. code-block:: python
+
+   erp_events = {
+       "mode": "stim",
+       "stim_channel": "Status",
+       "event_id": {
+           "grammatical": [110, 210],
+           "ungrammatical": [120, 220],
+       },
+       "consecutive": True,
+       "shortest_event": 1,
+   }
+
+Annotation mode similarly accepts lists of exact descriptions in
+``annotation_map``. Existing scalar mappings remain valid. Groups must be
+nonempty and each code or description can belong to only one condition.
+Events retain their original onset samples. Stimulus groups use their first
+code internally; acquisition mappings remain in dataset settings and logs.
+The explicit ``events``/``event_id`` low-level interface still expects one
+integer code per logical condition; use ``event_spec`` for grouped acquisition
+codes.
+
+All retained trials in a pooled condition receive equal weight. This is not
+an equal-weight average of SVO and VSO condition averages when their retained
+trial counts differ. Minimum-trial checks and bootstrap resampling operate on
+the pooled condition.
+
+To use MEGaNorm's existing layout groups, pass a layout dictionary (or selected
+entries) as a component's ``regions``:
+
+.. code-block:: python
+
+   from meganorm.layouts.layouts import load_specific_layout
+
+   layout = load_specific_layout("BDF", "BDF_EEG_LOBE")
+   if layout is None:
+       raise ValueError("Requested EEG layout is unavailable")
+
+   p600 = {
+       "conditions": ["grammatical", "ungrammatical"],
+       "regions": {name: layout[name] for name in
+                   ("parietal_lh_", "parietal_rh_")},
+       "window": (0.5, 0.8),
+       "polarity": "pos",
+       "metrics": ["mean_amplitude", "peak_amplitude", "peak_latency"],
+   }
+   # Use erp={..., "components": {"P600": p600}} in Config.
+   # For every region in the layout, use "regions": layout instead.
+
+Each region produces a separate summary ERP. Its available, non-bad EEG
+channels are averaged before extracting IDPs. ``channels`` can be omitted
+for regional analysis, or supplied alongside ``regions`` for additional
+individual-sensor measurements. Custom mappings such as
+``{"centroparietal": ["CP1", "CP2", "P3", "Pz", "P4"]}`` are also accepted.
+Region names reused across components must have the same ordered membership.
+
+These are scalp sensor groups, not source-localized anatomical lobes. Check
+layout membership against the actual cap: the bundled BDF layout is not a
+universal BioSemi montage. Missing, bad and non-EEG members are excluded;
+``channels_used`` and ``channels_excluded`` record coverage in IDP QC and
+reports. Even a single usable member is accepted, so inspect coverage before
+comparing participants. Empty regions produce missing IDPs with status
+``no_usable_region_channels``. No missing sensors are invented.
+
+Regional waveforms are named ``ROI:<region>`` in feature columns, saved FIF
+averages, bootstrap summaries and plots. This prefix is reserved for derived
+waveforms. For example:
+
+.. code-block:: python
+
+   fig, axes = participant.plot(channels=("ROI:parietal_lh_",), show=False)
+
+Preprocessing and epoch rejection use physical channels only. Original epochs
+remain available unchanged in ``participant.epochs``. Bootstrap repetitions
+resample trials jointly across sensors and form regional summary ERPs before
+extracting IDPs; bands are computed from regional draws, never by averaging
+sensor percentile bands. Only summaries are saved, and original IDPs remain
+the authoritative values for normative modeling. Resting-state behavior and
+``which_layout`` are unaffected by these ERP component selections.
