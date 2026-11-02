@@ -1,5 +1,8 @@
 """Sensor-space evoked waveform inspection, independent of pipeline execution."""
 
+import textwrap
+import warnings
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -112,10 +115,9 @@ def plot_erp(evokeds, *, components=None, channels=None, show=False):
         ax.set(title=channel, xlabel="Time from event (ms)")
         if plotted:
             ax.set_ylabel(f"Amplitude ({units[sensor_types[channel]][1]})")
-            ax.legend(fontsize=8)
         else:
             ax.text(0.5, 0.5, "No usable data", transform=ax.transAxes, ha="center")
-    fig.tight_layout()
+    _layout_erp_legends(fig, axes, ncols=len(axes))
     if show:
         plt.show()
     return fig, axes
@@ -284,6 +286,9 @@ def plot_erp_result(result, *, channels=None, show=False):
     calibrated confidence intervals or simultaneous bands.
     The caller owns the returned figure. Missing responses yield labelled
     panels; configured metrics and QC are available in the HTML report.
+    Legends occupy dedicated space below each panel. Missing-peak reasons stay
+    in QC tables; unavailable or partial bootstrap bands emit UserWarning.
+    Plotting areas retain their physical height as legend content grows.
     """
     channels = _result_channels(result) if channels is None else channels
     if (
@@ -402,14 +407,8 @@ def plot_erp_result(result, *, channels=None, show=False):
                             linestyles="dashed",
                             label=f"{condition} {name} mean",
                         )
-            flags = list(
-                dict.fromkeys(
-                    f"{r['condition']} / {r['component']}: {r['status']}"
-                    for r in rows
-                    if r["channel"] == channel and r["status"] != "ok"
-                )
-            )
-            flags.extend(uncertainty_flags)
+            for warning in dict.fromkeys(uncertainty_flags):
+                warnings.warn(f"{channel}: {warning}", UserWarning, stacklevel=2)
             if not usable:
                 ax.text(
                     0.5,
@@ -417,15 +416,6 @@ def plot_erp_result(result, *, channels=None, show=False):
                     "No usable evoked data",
                     transform=ax.transAxes,
                     ha="center",
-                )
-            if flags:
-                ax.text(
-                    1.01,
-                    0.98,
-                    "\n".join(flags),
-                    transform=ax.transAxes,
-                    va="top",
-                    fontsize=8,
                 )
             ax.axvline(0, color="0.6", linewidth=0.7)
             ax.axhline(0, color="0.6", linewidth=0.7)
@@ -437,12 +427,78 @@ def plot_erp_result(result, *, channels=None, show=False):
                 xlabel="Time from event (ms)",
                 ylabel=f"Amplitude ({unit})",
             )
-            if ax.get_legend_handles_labels()[0]:
-                ax.legend(fontsize=8, loc="best")
-        fig.tight_layout()
+        _layout_erp_legends(fig, axes, ncols=1)
         if show:
             plt.show()
         return fig, axes
     except BaseException:
         plt.close(fig)
         raise
+
+
+def _layout_erp_legends(fig, axes, *, ncols):
+    """Reserve space below ERP panels for wrapped legends without shrinking data.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure containing the waveform panels.
+    axes : sequence of matplotlib.axes.Axes
+        Waveform panels in row-major order.
+    ncols : int
+        Number of waveform columns, either one or the number of panels.
+
+    Notes
+    -----
+    Legend heights are measured using the active renderer. The figure grows
+    vertically to accommodate them while retaining 3.2-inch plotting areas.
+    The caller may subsequently adjust the figure or axes positions.
+    """
+    fig.set_layout_engine(None)
+    width = fig.get_figwidth()
+    left, right, gap = 0.8, 0.25, 0.8
+    plot_height, label_space, row_gap, top, bottom = 3.2, 0.6, 0.5, 0.45, 0.2
+    plot_width = (width - left - right - gap * (ncols - 1)) / ncols
+    legend_columns = 2 if plot_width >= 7 else 1
+    wrap_width = max(20, min(44, int((plot_width / legend_columns - 0.6) * 15)))
+    legends = []
+    for ax in axes:
+        handles, labels = ax.get_legend_handles_labels()
+        legend = None
+        if handles:
+            legend = ax.legend(
+                handles,
+                [textwrap.fill(label, width=wrap_width) for label in labels],
+                fontsize=8,
+                ncols=legend_columns,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -label_space / plot_height),
+                borderaxespad=0,
+            )
+        legends.append(legend)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    heights = [
+        0 if legend is None else legend.get_window_extent(renderer).height / fig.dpi
+        for legend in legends
+    ]
+    rows = [max(heights[start : start + ncols]) for start in range(0, len(axes), ncols)]
+    total = (
+        top
+        + bottom
+        + sum(plot_height + label_space + height for height in rows)
+        + row_gap * (len(rows) - 1)
+    )
+    fig.set_size_inches(width, total, forward=True)
+    cursor = total - top
+    for row, legend_height in enumerate(rows):
+        for column, ax in enumerate(axes[row * ncols : (row + 1) * ncols]):
+            ax.set_position(
+                [
+                    (left + column * (plot_width + gap)) / width,
+                    (cursor - plot_height) / total,
+                    plot_width / width,
+                    plot_height / total,
+                ]
+            )
+        cursor -= plot_height + label_space + legend_height + row_gap

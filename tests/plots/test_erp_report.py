@@ -241,9 +241,10 @@ def test_bootstrap_unavailable_or_partial_bands_flagged(mode):
         wave["p05"][1, 1:] = np.nan
     else:
         wave["times"] = wave["times"] + 0.001
-    fig, axes = plot_erp_result(result)
+    with pytest.warns(UserWarning, match="bootstrap uncertainty"):
+        fig, axes = plot_erp_result(result)
     try:
-        assert any("bootstrap" in t.get_text().lower() for t in axes[0].texts)
+        assert not any("bootstrap" in t.get_text().lower() for t in axes[0].texts)
         bands = [c for c in axes[0].collections if isinstance(c, PolyCollection)]
         assert len(bands) == (1 if mode == "partial" else 0)
     finally:
@@ -288,5 +289,28 @@ def test_standalone_plot_labels_empty_region():
     fig, axes = plot_erp({"a": ev}, components={"P": component})
     try:
         assert "No usable data" in [text.get_text() for text in axes[0].texts]
+    finally:
+        plt.close(fig)
+
+
+def test_plot_warning_does_not_change_axes_and_legend_is_below():
+    from meganorm.plots.plot_erp import plot_erp_result
+
+    result = result_fixture()
+    fig, axes = plot_erp_result(result)
+    fig.canvas.draw()
+    original = axes[0].get_window_extent().bounds
+    plt.close(fig)
+    result.qc.loc[0:1, "status"] = "no_local_peak_with_requested_polarity"
+    fig, axes = plot_erp_result(result)
+    try:
+        fig.canvas.draw()
+        ax = axes[0]
+        assert not any("no_local_peak" in text.get_text() for text in ax.texts)
+        assert ax.get_window_extent().width == pytest.approx(original[2])
+        assert ax.get_window_extent().height == pytest.approx(original[3])
+        legend = ax.get_legend().get_window_extent()
+        assert legend.y1 < ax.get_window_extent().y0
+        assert legend.y0 >= fig.bbox.y0
     finally:
         plt.close(fig)
