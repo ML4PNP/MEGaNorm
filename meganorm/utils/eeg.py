@@ -11,6 +11,23 @@ import numpy as np
 import pandas as pd
 
 
+def make_standard_1020_montage():
+    """Construct the standard 10–20 template across supported MNE versions.
+
+    Returns
+    -------
+    montage : mne.channels.DigMontage
+        Colin27 10–20 electrode coordinates, using the legacy name only when
+        the renamed montage is unavailable. No recording is modified.
+    """
+    name = (
+        "colin27_1020"
+        if "colin27_1020" in mne.channels.get_builtin_montages()
+        else "standard_1020"
+    )
+    return mne.channels.make_standard_montage(name)
+
+
 def read_channel_table(path, *, legacy=False):
     """Read a channel TSV with an explicit decoding policy.
 
@@ -86,7 +103,7 @@ def apply_channel_table(raw, table, *, strict=True, apply_status=True):
     if strict:
         channel_types = channel_types.replace({"trig": "stim"})
     mapping = channel_types.to_dict()
-    
+
     if strict and set(mapping) - set(raw.ch_names):
         raise ValueError("Channel sidecar names do not match recording channels.")
     raw.set_channel_types(mapping)

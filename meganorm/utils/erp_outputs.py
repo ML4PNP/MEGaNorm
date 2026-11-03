@@ -245,7 +245,7 @@ def load_erp_result(directory):
         keep_default_na=False,
     )
     features = features.set_index(header)
-    features = features.replace("", float("nan"))
+    features = features.mask(features.eq(""), float("nan"))
     # Preserve the exact participant identifier, including leading zeros.
     if list(features.index) != [subject]:
         raise ValueError(

@@ -1,5 +1,6 @@
 """Metadata behavior contracts for legacy REST and strict ERP policies."""
 
+from meganorm.utils.eeg import make_standard_1020_montage
 import mne
 import numpy as np
 import pytest
@@ -34,7 +35,8 @@ def test_rest_types_ignore_bad_status_and_preserve_signal(tmp_path):
     raw = raw_eeg()
     original = raw.copy()
     raw.info["bads"] = ["Pz"]
-    assert prepare_eeg_data(raw, path) is raw
+    with pytest.warns(RuntimeWarning, match="unit for channel.*EOG.*NA to V"):
+        assert prepare_eeg_data(raw, path) is raw
     assert raw.get_channel_types() == ["eeg", "eeg", "eog"]
     assert raw.info["bads"] == ["Pz"]
     np.testing.assert_array_equal(raw.get_data(), original.get_data())
@@ -44,7 +46,8 @@ def test_rest_types_ignore_bad_status_and_preserve_signal(tmp_path):
 
 def test_rest_duplicate_names_use_last_type(tmp_path):
     path = sidecars(tmp_path, "name\ttype\nEOG\tMISC\nEOG\tEOG\n")
-    raw = prepare_eeg_data(raw_eeg(), path)
+    with pytest.warns(RuntimeWarning, match="unit for channel.*EOG.*NA to V"):
+        raw = prepare_eeg_data(raw_eeg(), path)
     assert raw.get_channel_types()[-1] == "eog"
 
 
@@ -78,7 +81,7 @@ def test_rest_missing_invalid_or_incomplete_montage_warns(tmp_path, content, cap
 
 def test_rest_embedded_montage_is_preserved(tmp_path):
     raw = raw_eeg()
-    raw.set_montage(mne.channels.make_standard_montage("standard_1020"))
+    raw.set_montage(make_standard_1020_montage())
     before = raw.get_montage().get_positions()["ch_pos"]
     (tmp_path / "cap_montage.csv").write_text("invalid")
     prepare_eeg_data(raw, sidecars(tmp_path))
@@ -107,7 +110,8 @@ def test_rest_uses_first_glob_match_not_recording_specific_priority(
             else [str(montage)]
         ),
     )
-    raw = prepare_eeg_data(raw_eeg(), sidecars(tmp_path))
+    with pytest.warns(RuntimeWarning, match="unit for channel.*EOG.*NA to V"):
+        raw = prepare_eeg_data(raw_eeg(), sidecars(tmp_path))
     assert raw.get_channel_types()[-1] == "eog"
     np.testing.assert_allclose(raw.info["chs"][1]["loc"][:3], [0, -0.05, 0.08])
 
@@ -124,7 +128,8 @@ def test_shared_channel_policy_preserves_input_and_merges_bad_status(tmp_path):
         table = read_channel_table(path, legacy=False)
     raw = raw_eeg()
     raw.info["bads"] = ["Pz"]
-    apply_channel_table(raw, table, strict=True, apply_status=True)
+    with pytest.warns(RuntimeWarning, match="unit for channel.*EOG.*NA to V"):
+        apply_channel_table(raw, table, strict=True, apply_status=True)
     assert raw.info["bads"] == ["Pz", "Cz"]
     assert raw.get_channel_types()[-1] == "eog"
     assert path.read_bytes() == original
@@ -157,3 +162,44 @@ def test_shared_csv_policy_keeps_legacy_duplicate_semantics(tmp_path):
     assert read_montage_positions(path, strict=False)["Cz"] == [0, 0, 0.2]
     with pytest.raises(ValueError, match="unique"):
         read_montage_positions(path, strict=True)
+
+
+def test_standard_1020_montage_uses_supported_name(monkeypatch):
+    from meganorm.utils.eeg import make_standard_1020_montage
+
+    calls = []
+    sentinel = object()
+    monkeypatch.setattr(
+        mne.channels,
+        "make_standard_montage",
+        lambda name: (calls.append(name), sentinel)[1],
+    )
+    for names, expected in [
+        (["colin27_1020", "standard_1020"], "colin27_1020"),
+        (["standard_1020"], "standard_1020"),
+    ]:
+        monkeypatch.setattr(mne.channels, "get_builtin_montages", lambda: names)
+        assert make_standard_1020_montage() is sentinel
+        assert calls[-1] == expected
+
+
+def test_standard_1020_montage_preserves_coordinates():
+    import warnings
+    from meganorm.utils.eeg import make_standard_1020_montage
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Montage name 'standard_1020' is deprecated",
+            category=FutureWarning,
+        )
+        name = (
+            "standard_1020"
+            if "standard_1020" in mne.channels.get_builtin_montages()
+            else "colin27_1020"
+        )
+        expected = mne.channels.make_standard_montage(name).get_positions()
+    actual = make_standard_1020_montage().get_positions()
+    assert actual["coord_frame"] == expected["coord_frame"]
+    for name, position in expected["ch_pos"].items():
+        np.testing.assert_array_equal(actual["ch_pos"][name], position)

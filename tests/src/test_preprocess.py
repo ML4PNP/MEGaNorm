@@ -76,6 +76,7 @@ def test_eeg_ica_without_physiological_channels_uses_compatible_fit(
         mne.create_info(["Fz", "Cz", "Pz", "Oz"], 100.0, "eeg"),
         verbose=False,
     )
+    raw.filter(l_freq=1.0, h_freq=None, verbose=False)
     fitted = []
 
     def classify(data, ica, method):
@@ -160,6 +161,7 @@ def test_auto_ica_with_mean_accepts_its_default_sensor_dictionary(monkeypatch):
         mne.create_info([f"MEG{i}" for i in range(4)], 100.0, "mag"),
         verbose=False,
     )
+    raw.filter(l_freq=1.0, h_freq=None, verbose=False)
     monkeypatch.setattr(
         mne.preprocessing.ICA, "find_bads_ecg", lambda *a, **k: ([], np.zeros(2))
     )

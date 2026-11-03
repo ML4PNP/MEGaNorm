@@ -1,5 +1,6 @@
 """Numerical contracts for fitting AutoReject on existing epochs."""
 
+from meganorm.utils.eeg import make_standard_1020_montage
 import mne
 import numpy as np
 import pandas as pd
@@ -15,7 +16,7 @@ def sample_epochs():
     values = rng.normal(0, 1e-6, (12, 4, 81))
     values[2, 0, 35:40] += 30e-6
     info = mne.create_info(["Fz", "Cz", "Pz", "Oz"], 100, "eeg")
-    info.set_montage("standard_1020")
+    info.set_montage(make_standard_1020_montage())
     events = np.array([[100 + i * 200, 0, 1 + i % 2] for i in range(12)])
     epochs = mne.EpochsArray(
         values,

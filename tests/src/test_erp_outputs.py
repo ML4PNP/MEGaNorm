@@ -18,7 +18,6 @@ pytestmark = pytest.mark.unit
 @pytest.fixture
 def recording(tmp_path):
     raw, events = make_demo_recording()
-    raw.set_montage(None)
     raw.set_annotations(
         mne.Annotations(
             (events[:, 0] - raw.first_samp) / raw.info["sfreq"],
@@ -32,7 +31,7 @@ def recording(tmp_path):
     path = folder / "sub-41_task-oddball_eeg.fif"
     raw.save(path, fmt="double", overwrite=True, verbose=False)
     (folder / "sub-41_task-oddball_channels.tsv").write_text(
-        "name\ttype\tunits\nCz\tEEG\tµV\nPz\tEEG\tµV\n", encoding="cp1252"
+        "name\ttype\tunits\nCz\tEEG\tµV\nPz\tEEG\tµV\n", encoding="utf-8"
     )
     config = Config(
         analysis_type="erp",
@@ -76,11 +75,14 @@ def recording(tmp_path):
 
 def test_dataset_extraction_prepares_metadata_and_matches_worker(recording, tmp_path):
     path, config, ds = recording
-    with pytest.warns(UserWarning):
+    raw = mne.io.read_raw_fif(path, preload=True, verbose=False)
+    raw.set_montage(None)
+    raw.save(path, fmt="double", overwrite=True, verbose=False)
+    with pytest.warns(UserWarning, match="EEG montage source=template"):
         single = ds.extract_erp("sub-41", config=config)
     # Disable reports for this scientific parity check.
     config.erp.save_report = False
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="EEG montage source=template"):
         cohort = erp.process_erp_recording(
             path,
             "sub-41",
@@ -173,14 +175,15 @@ def test_report_failure_preserves_scientific_outputs(recording, tmp_path, monkey
         "write_erp_report",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("plot failed")),
     )
-    result = erp.process_erp_recording(
-        path,
-        "sub-41",
-        config=config,
-        event_spec=ds.erp_events,
-        montage_settings=ds.erp_montage,
-        output_root=tmp_path / "out",
-    )
+    with pytest.warns(UserWarning, match="ERP report failed.*plot failed"):
+        result = erp.process_erp_recording(
+            path,
+            "sub-41",
+            config=config,
+            event_spec=ds.erp_events,
+            montage_settings=ds.erp_montage,
+            output_root=tmp_path / "out",
+        )
     directory = tmp_path / "out" / "participants" / "sub-41"
     status = json.loads((directory / "report_outputs.json").read_text())
     assert status["report"]["status"] == "failed"
@@ -306,7 +309,7 @@ def test_worker_progress_is_detailed_and_numerically_observational(recording, tm
         "run",
     } <= completed.keys()
     assert completed["load_recording"]["details"]["n_channels"] == 2
-    assert completed["prepare_metadata"]["details"]["montage"]["source"] == "template"
+    assert completed["prepare_metadata"]["details"]["montage"]["source"] == "embedded"
     assert completed["resolve_events"]["details"]["condition_counts"] == {
         "standard": 20,
         "target": 20,
@@ -357,14 +360,15 @@ def test_optional_report_error_logged_without_failing_run(
         raise RuntimeError("figure error")
 
     monkeypatch.setattr(report_module, "write_erp_report", fail)
-    erp.process_erp_recording(
-        path,
-        "sub-41",
-        config=config,
-        event_spec=ds.erp_events,
-        montage_settings=ds.erp_montage,
-        output_root=tmp_path / "out",
-    )
+    with pytest.warns(UserWarning, match="ERP report failed.*figure error"):
+        erp.process_erp_recording(
+            path,
+            "sub-41",
+            config=config,
+            event_spec=ds.erp_events,
+            montage_settings=ds.erp_montage,
+            output_root=tmp_path / "out",
+        )
     events = _progress_events(tmp_path / "out/participants/sub-41")
     failed = [e for e in events if e["status"] == "failed"]
     assert len(failed) == 1 and failed[0]["stage"] == "report"
@@ -654,3 +658,20 @@ def test_grouped_regional_pipeline_roundtrip(recording, tmp_path):
 
     assert axes[0].get_title() == "ROI:central"
     plt.close(fig)
+
+
+def test_saved_numeric_features_load_without_downcasting_warning(tmp_path):
+    import warnings
+    from meganorm.API import load_erp_result
+
+    components = {"P": erp.ERPComponent(("target",), ("Pz",), (0.2, 0.5), "pos")}
+    features, qc = erp.extract_erp_idps("001", {"target": None}, components)
+    result = erp.ERPResult(
+        features, qc, None, {"target": None}, {}, components=components
+    )
+    result.save(tmp_path / "saved", report=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        loaded = load_erp_result(tmp_path / "saved")
+    pd.testing.assert_frame_equal(loaded.features, features)
+    assert loaded.features.index.tolist() == ["001"]

@@ -4,6 +4,7 @@ import mne
 import numpy as np
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from meganorm.utils.eeg import make_standard_1020_montage
 
 
 def make_demo_recording(seed=42):
@@ -52,7 +53,7 @@ def make_demo_recording(seed=42):
         events.append([sample + first_samp, 0, event_code])
     info = mne.create_info(["Cz", "Pz"], sfreq, ch_types="eeg")
     raw = mne.io.RawArray(data, info, first_samp=first_samp, verbose=False)
-    raw.set_montage("standard_1020")
+    raw.set_montage(make_standard_1020_montage())
     return raw, np.asarray(events, dtype=int)
 
 

@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from dataclasses import replace
 from unittest.mock import patch
+from meganorm.utils.eeg import make_standard_1020_montage
 import mne
 import numpy as np
 import pandas as pd
@@ -490,14 +491,15 @@ class TestERP(unittest.TestCase):
 
     def test_rejection_and_all_rejected_qc(self):
         raw, events, config = self.make_raw()
-        epochs = epoch_erp(
-            raw,
-            events,
-            {"target": 1, "standard": 2},
-            Config.model_validate(
-                {**config.model_dump(), **dict(eeg_var_threshold=1e-06)}
-            ),
-        )
+        with pytest.warns(RuntimeWarning, match="All epochs were dropped"):
+            epochs = epoch_erp(
+                raw,
+                events,
+                {"target": 1, "standard": 2},
+                Config.model_validate(
+                    {**config.model_dump(), **dict(eeg_var_threshold=1e-06)}
+                ),
+            )
         self.assertEqual(len(epochs), 0)
         features, qc = extract_erp_idps("s", compute_evokeds(epochs), self.components)
         self.assertTrue(features.isna().all().all())
@@ -1290,7 +1292,8 @@ def test_erp_worker_sidecar_types_and_montage(tmp_path):
     from meganorm.src.erp import process_erp_recording
 
     raw = _event_recording()
-    raw.set_channel_types({"Pz": "misc"})
+    with pytest.warns(RuntimeWarning, match="unit for channel.*Pz.*V to NA"):
+        raw.set_channel_types({"Pz": "misc"})
     raw._data[0, 100:111] = np.array([0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 0]) * 1e-06
     path = tmp_path / "s_task_raw.fif"
     raw.save(path, overwrite=True, verbose=False)
@@ -1318,13 +1321,14 @@ def test_erp_worker_sidecar_types_and_montage(tmp_path):
         apply_ica=False,
         eeg_var_threshold=None,
     )
-    result = process_erp_recording(
-        path,
-        "s",
-        config=definition,
-        event_spec=ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 2}),
-        output_root=tmp_path / "out",
-    )
+    with pytest.warns(RuntimeWarning, match="unit for channel.*Pz.*NA to V"):
+        result = process_erp_recording(
+            path,
+            "s",
+            config=definition,
+            event_spec=ERPEventSpec(mode="stim", stim_channel="STI", event_id={"a": 2}),
+            output_root=tmp_path / "out",
+        )
     assert np.isfinite(result.features.to_numpy()).all()
     assert result.epochs.get_montage() is not None
     assert mne.io.read_raw_fif(path, verbose=False).get_channel_types()[0] == "misc"
@@ -1364,14 +1368,16 @@ def test_ica_settings_roundtrip_with_distinct_thresholds():
 
 
 def ica_raw(aux="good", montage=False):
+    # Forty seconds accommodates the default 0.1-Hz FIR; independent
+    # non-Gaussian sources give ICA an identifiable synthetic mixture.
     rng = np.random.default_rng(12)
     raw = mne.io.RawArray(
-        rng.normal(size=(4, 2000)) * 1e-6,
+        (np.eye(4) + 0.2) @ rng.laplace(size=(4, 8000)) * 1e-6,
         mne.create_info(["Fz", "Cz", "Pz", "Oz"], 200, "eeg"),
         verbose=False,
     )
     if aux is not None:
-        signal = np.sin(np.arange(2000) / 10)[None, :] * 1e-4
+        signal = np.sin(np.arange(8000) / 10)[None, :] * 1e-4
         if aux == "flat":
             signal[:] = 0
         elif aux == "nonfinite":
@@ -1384,7 +1390,7 @@ def ica_raw(aux="good", montage=False):
             ]
         )
     if montage:
-        raw.set_montage("standard_1020")
+        raw.set_montage(make_standard_1020_montage())
     return raw
 
 
@@ -1433,17 +1439,23 @@ def test_ica_rank_guard_and_reference_consistency():
                 analysis_type="erp", which_sensor="eeg", erp=dict(), ica_n_component=4
             ),
         )
-    raw._data[:4] = raw._data[0]
-    with pytest.raises(ValueError, match="rank"):
-        preprocess_erp(
-            raw,
-            Config(
-                analysis_type="erp",
-                which_sensor="eeg",
-                erp=dict(),
-                rereference_method=None,
-            ),
-        )
+    # Test the guard against a known estimator result. Near-singular numerical
+    # rank estimates can differ across BLAS/LAPACK implementations.
+    with (
+        patch("mne.compute_rank", return_value={"eeg": 1}),
+        patch("mne.preprocessing.ICA.fit") as fit,
+    ):
+        with pytest.raises(ValueError, match="rank=1"):
+            preprocess_erp(
+                raw,
+                Config(
+                    analysis_type="erp",
+                    which_sensor="eeg",
+                    erp=dict(),
+                    rereference_method=None,
+                ),
+            )
+        fit.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1558,8 +1570,8 @@ def test_physiological_omits_bad_annotation_samples():
             ),
         )
     assert qc["ica_auxiliary"]["EOG"] == "usable"
-    assert correlation.call_args.args[1].n_times == 1960
-    assert len(correlation.call_args.args[2]) == 1960
+    assert correlation.call_args.args[1].n_times == raw.n_times - 40
+    assert len(correlation.call_args.args[2]) == raw.n_times - 40
     assert np.isfinite(correlation.call_args.args[2]).all()
 
 
@@ -1581,13 +1593,15 @@ def test_iclabel_checks_every_usable_sensor_location():
 
 def test_real_iclabel_explicit_mode_with_auxiliary():
     _, qc = preprocess_erp(
-        ica_raw(montage=True),
+        ica_raw(montage=True).resample(500, verbose=False),
         Config(
             analysis_type="erp",
             which_sensor="eeg",
             erp=dict(),
             ica_mode="iclabel",
             cutoffFreqLow=1,
+            ica_l_freq=1,
+            ica_h_freq=100,
         ),
     )
     assert qc["ica_mode_effective"] == "iclabel"
@@ -1703,7 +1717,7 @@ def ar_epochs(n_epochs=12, n_channels=6, montage=True):
         verbose=False,
     )
     if montage:
-        epochs.set_montage("standard_1020")
+        epochs.set_montage(make_standard_1020_montage())
     return epochs
 
 
@@ -1827,7 +1841,7 @@ def ar_pipeline_raw():
         mne.create_info(["Fz", "Cz", "Pz", "Oz", "C3", "C4"], 100, "eeg"),
         verbose=False,
     )
-    raw.set_montage("standard_1020")
+    raw.set_montage(make_standard_1020_montage())
     events = np.column_stack(
         [np.arange(9) * 500, np.zeros(9, int), 1 + np.arange(9) % 2]
     )
@@ -2091,6 +2105,8 @@ def test_average_reference_caps_overestimated_numerical_rank():
 
 def test_average_reference_rank_bound_excludes_bad_channels():
     raw = ica_raw()
+    # Filter before excluding Oz so MNE can update the global high-pass metadata.
+    raw.filter(l_freq=1.0, h_freq=None, verbose=False)
     raw.info["bads"] = ["Oz"]
     with patch("mne.compute_rank", return_value={"eeg": 3}):
         _, qc = preprocess_erp(
@@ -2696,6 +2712,9 @@ def test_progress_records_ica_phases_without_changing_samples(tmp_path):
     from meganorm.utils.erp_logging import ERPProgress
 
     raw = ica_raw()
+    rng = np.random.default_rng(123)
+    sources = rng.laplace(size=(4, raw.n_times))
+    raw._data[:4] = (np.eye(4) + 0.2) @ sources * 1e-6
     original = raw.get_data().copy()
     config = Config(
         analysis_type="erp",
@@ -2706,7 +2725,9 @@ def test_progress_records_ica_phases_without_changing_samples(tmp_path):
         ica_method="fastica",
         rereference_method=None,
         random_state=42,
-        ica_max_iter=50,
+        ica_max_iter=500,
+        cutoffFreqLow=1,
+        ica_l_freq=1,
     )
     expected, expected_qc = preprocess_erp(raw, config)
     with ERPProgress(tmp_path, "sub-ica"):
