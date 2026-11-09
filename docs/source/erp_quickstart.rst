@@ -532,3 +532,64 @@ extracting IDPs; bands are computed from regional draws, never by averaging
 sensor percentile bands. Only summaries are saved, and original IDPs remain
 the authoritative values for normative modeling. Resting-state behavior and
 ``which_layout`` are unaffected by these ERP component selections.
+
+EEG reference for P600 and other ERPs
+------------------------------------
+
+Use the existing ``rereference_method`` setting. Average reference remains the
+default; resting-state configuration and processing are unchanged::
+
+    config = Config(
+        analysis_type="erp", which_sensor="eeg",
+        rereference_method="average",
+    )
+
+For an offline digital mastoid reference, replace BOTH placeholders below with
+the recording's verified left and right mastoid labels::
+
+    config = Config(
+        analysis_type="erp", which_sensor="eeg",
+        rereference_method=["REPLACE_WITH_LEFT_MASTOID", "REPLACE_WITH_RIGHT_MASTOID"],
+    )
+
+The arithmetic mean of the selected signals is subtracted from every scalp EEG
+channel. This is not hardware linking or a bipolar left-minus-right derivation.
+A single explicit reference or more than two electrodes can also be selected.
+Names are exact and case-sensitive; montage aliases do not resolve reference
+names. ``None`` retains the input reference and existing ICA restrictions.
+
+Verify electrode placement from the acquisition log or channel metadata. Names
+such as M1/M2, TP9/TP10 or EXG1/EXG2 alone do not establish mastoid placement.
+Selected channels must be recorded voltage electrodes, in volts after loading,
+with the same acquisition reference as scalp EEG. Missing, duplicated, marked-bad,
+flat, nonfinite or unsuitable channels cause an error; there is no fallback.
+
+Selecting exact EEG or ``misc`` channels explicitly assigns their reference-only
+role. Only selected EEG electrodes are retyped to ``misc`` before montage
+preparation; no EXG naming rule is used. EOG, ECG, stim and other channel types
+are rejected. If acquisition metadata incorrectly label verified mastoids as
+EOG/ECG, correct only those labels in ``channels.tsv`` or explicitly call
+``raw.set_channel_types({"VERIFIED_LABEL": "misc"})`` before the raw pipeline.
+Do not retype genuine physiological signals or all EXG channels. Reference-only
+channels need no scalp montage positions and are removed from the working copy
+after subtraction, excluding them from scalp regions, topographies and IDPs.
+The input recording file is not modified.
+
+With explicit references and ICA enabled, the ICA fit copy and application copy
+both use average-referenced scalp EEG. ICLabel retains its existing location,
+filter and algorithm requirements. Rank is estimated without pending projections
+and capped at the scalp channel count minus one. After ICA application, the
+filtered scalp-mean-minus-selected-reference offset is restored before epoching.
+This preserves the requested final reference; the common-mode offset itself is
+not ICA-cleaned, so clean reference electrodes remain essential. No extra
+average-reference projector is left pending. Existing pending average-reference
+projectors are removed; active or other projectors are rejected for explicit
+references. Reload unprojected data in that case.
+
+The requested setting, resolved labels, applied reference and ICA basis are saved
+under ``reference`` in ``preprocessing.json`` and shown in the participant report.
+``load_erp_result()`` preserves these details when plotting or reporting saved
+ERPs; loading does not re-reference the saved waveforms. Older results without
+this provenance are reported as unavailable, never assumed to use average
+reference. Feature extraction directly from independently prepared evokeds
+cannot recover an undocumented reference.

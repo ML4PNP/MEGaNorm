@@ -169,6 +169,62 @@ def _validate_events(raw, events, event_id):
     return events.copy()
 
 
+def _prepare_reference_channels(raw, config):
+    """Validate explicit electrode roles; selected EEG/misc channels are references.
+
+    Names are exact recording labels, never inferred from EXG or montage aliases.
+    Input voltage channels must share the acquisition reference and be in volts.
+    Only selected EEG channels are retyped; physiological channels are rejected.
+    """
+    reference = config.rereference_method
+    if reference is None or reference == "average":
+        return []
+    if isinstance(reference, str):
+        raise ValueError(
+            "ERP reference must be 'average', None, or a list of channel names."
+        )
+    names = list(reference)
+    if not names or len(set(names)) != len(names):
+        raise ValueError("Reference channels must be nonempty and distinct.")
+    missing = set(names) - set(raw.ch_names)
+    if missing:
+        raise ValueError(
+            f"Reference channels missing from recording: {sorted(missing)}."
+        )
+    bad = set(names) & set(raw.info["bads"])
+    if bad:
+        raise ValueError(f"Reference channels marked bad: {sorted(bad)}.")
+    types = dict(zip(raw.ch_names, raw.get_channel_types()))
+    unsuitable = {
+        name: types[name] for name in names if types[name] not in {"eeg", "misc"}
+    }
+    if unsuitable:
+        raise ValueError(
+            f"Unsuitable reference channel types: {unsuitable}. Verify electrode placement "
+            "and explicitly correct metadata to EEG or misc; EOG/ECG are not inferred mastoids."
+        )
+    from mne.io.constants import FIFF
+
+    for projector in raw.info["projs"]:
+        if projector["active"] or projector["kind"] != FIFF.FIFFV_PROJ_ITEM_EEG_AVREF:
+            raise ValueError(
+                "Explicit ERP reference requires unprojected input without SSP projectors; "
+                "reload the original recording. Only pending average-reference projectors "
+                "can be removed safely."
+            )
+    signals = raw.get_data(picks=names)
+    if not np.isfinite(signals).all() or np.any(np.ptp(signals, axis=1) == 0):
+        raise ValueError(
+            "Reference channels must contain finite, non-flat voltage signals."
+        )
+    # Prevent template-montage requirements and scalp/ICA picks from treating
+    # reference-only electrodes as scalp sensors. No signal samples are changed.
+    mapping = {name: "misc" for name in names if types[name] == "eeg"}
+    if mapping:
+        raw.set_channel_types(mapping, on_unit_change="ignore", verbose=False)
+    return names
+
+
 def preprocess_erp(raw, config=None):
     """Return an automatically cleaned EEG copy and a preprocessing QC dict.
 
@@ -205,6 +261,7 @@ def preprocess_erp(raw, config=None):
     mode, thresholds = resolve_ica_settings(config)
     fit_h_freq = resolve_ica_fit_settings(config, raw.info["sfreq"])
     data = raw.copy().load_data()
+    reference_channels = _prepare_reference_channels(data, config)
     eeg = mne.pick_types(data.info, meg=False, eeg=True, exclude="bads")
     if not len(eeg):
         raise ValueError(
@@ -221,10 +278,26 @@ def preprocess_erp(raw, config=None):
             else config.rereference_method
         )
         with stage("reference", reference=reference):
+            # MNE computes the arithmetic mean of the explicit signals. Include
+            # marked-bad scalp channels in this subtraction, retaining their status.
+            bads = list(data.info["bads"])
+            if reference_channels:
+                data.info["bads"] = []
             data.set_eeg_reference(reference, projection=False, verbose=False)
+            data.info["bads"] = bads
+            if reference_channels:
+                data.drop_channels(reference_channels)
+                eeg = mne.pick_types(data.info, meg=False, eeg=True, exclude="bads")
     else:
         skipped("reference", reason="rereference_method is None")
     fit_data = data.copy() if mode != "none" else None
+    ica_reference = (
+        "average"
+        if reference_channels and mode != "none"
+        else config.rereference_method
+    )
+    if reference_channels and fit_data is not None:
+        fit_data.set_eeg_reference("average", projection=False, verbose=False)
     if config.digital_filter and (
         config.cutoffFreqLow is not None or config.cutoffFreqHigh is not None
     ):
@@ -241,7 +314,37 @@ def preprocess_erp(raw, config=None):
         skipped(
             "analysis_filter", reason="digital_filter disabled or both cutoffs unset"
         )
+    # Keep the filtered scalp mean relative to the selected reference. ICA sees
+    # identical average-reference bases in its fit and application copies; after
+    # cleaning, restore this offset so the final ERP does not become average-referenced.
+    reference_offset = None
+    if reference_channels and fit_data is not None:
+        reference_offset = data.get_data(picks=eeg).mean(axis=0)
+        data.set_eeg_reference("average", projection=False, verbose=False)
     qc = {
+        "reference": {
+            "requested": (
+                list(config.rereference_method)
+                if reference_channels
+                else config.rereference_method
+            ),
+            "resolved_channels": reference_channels
+            or (
+                [data.ch_names[p] for p in eeg]
+                if config.rereference_method == "average"
+                else []
+            ),
+            "applied": (
+                "channel_mean"
+                if reference_channels
+                else (
+                    "average" if config.rereference_method == "average" else "unchanged"
+                )
+            ),
+            "reference_channels_excluded_from_scalp": reference_channels,
+            "ica_basis": ica_reference if mode != "none" else None,
+            "offset_restored_after_ica": reference_offset is not None,
+        },
         "ica_applied": False,
         "ica_excluded": [],
         "ica_method": None,
@@ -256,7 +359,7 @@ def preprocess_erp(raw, config=None):
         "ica_rank_estimated": None,
         "ica_fit_sfreq": None,
         "ica_n_components": None,
-        "ica_reference": config.rereference_method,
+        "ica_reference": ica_reference,
         "ica_fit_filter": None,
         "bad_channel_detection": "not_performed",
         "bad_channels": list(data.info["bads"]),
@@ -315,7 +418,7 @@ def preprocess_erp(raw, config=None):
                         "ICLabel requires finite EEG sensor locations for every "
                         f"usable EEG channel; auxiliary quality: {qc['ica_auxiliary']}."
                     )
-                if config.rereference_method != "average" or config.ica_l_freq < 1:
+                if ica_reference != "average" or config.ica_l_freq < 1:
                     raise ValueError(
                         "ICLabel requires reference='average' and ica_l_freq >= 1 Hz."
                     )
@@ -364,7 +467,7 @@ def preprocess_erp(raw, config=None):
             qc["ica_rank_estimated"] = rank
             # Average referencing imposes an exact dependency on the usable EEG
             # channels, even when numerical rank estimation misses that dependency.
-            if config.rereference_method == "average":
+            if ica_reference == "average":
                 rank = min(rank, len(eeg) - 1)
             qc["ica_rank"] = rank
             n_components = config.ica_n_component
@@ -467,6 +570,16 @@ def preprocess_erp(raw, config=None):
             qc.update(ica_applied=True, ica_excluded=ica.exclude.copy())
     else:
         skipped("ica", reason="disabled by configuration")
+    if reference_offset is not None:
+        # Remove numerical common-mode residuals from ICA reconstruction before
+        # restoring the original filtered offset. Bad channels were not ICA picks.
+        data.set_eeg_reference("average", projection=False, verbose=False)
+        data.apply_function(
+            lambda values: values + reference_offset,
+            picks=eeg,
+            channel_wise=False,
+            verbose=False,
+        )
     progress_event("preprocessing_summary", **qc)
     return data, qc
 
@@ -1027,6 +1140,7 @@ def _prepare_erp_raw(
             strict=True,
             apply_status=True,
         )
+    _prepare_reference_channels(raw, config)
     montage_qc = prepare_erp_montage(
         raw,
         metadata,

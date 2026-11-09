@@ -78,6 +78,15 @@ def write_erp_report(result, path, *, save_figures=False):
         result.qc.to_html(index=False, escape=True, na_rep="unavailable"),
         title="Quality control",
     )
+    reference = result.preprocessing_qc.get("reference")
+    report.add_html(
+        (
+            "<pre>" + escape(json.dumps(reference, indent=2)) + "</pre>"
+            if reference is not None
+            else "<p>Reference provenance unavailable in this saved result; not inferred.</p>"
+        ),
+        title="EEG reference",
+    )
     channels = _result_channels(result)
     for start in range(0, len(channels), 3):
         fig = None

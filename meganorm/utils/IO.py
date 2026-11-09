@@ -145,7 +145,9 @@ class Config(BaseModel):
     EEG Reference & Bad-Segment Rejection
     ----------------------------------------
     rereference_method : {"average", "REST", None}, default="average"
-        EEG re-referencing scheme.
+        EEG re-referencing scheme. ERP also accepts a sequence of exact EEG/misc
+        reference-electrode names; their arithmetic mean is subtracted and the
+        reference-only channels are excluded from scalp analysis.
     bad_segment_removal_method : {"autoreject", "fixed_thr", None}, default="autoreject"
         Method for rejecting bad data segments.
     mag_var_threshold, grad_var_threshold, eeg_var_threshold : float
