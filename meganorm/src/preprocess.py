@@ -19,7 +19,6 @@ from meganorm.src.source_localization import corregistration, forward_solution
 from autoreject import AutoReject, Ransac, set_matplotlib_defaults
 import autoreject
 
-warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
 

@@ -73,3 +73,9 @@ def test_valid_custom_settings_roundtrip_as_json(tmp_path):
 def test_irasa_config_retains_bandwidth_needed_for_resampling():
     config = Config(psd_parametrization_method="irasa", cutoffFreqHigh=80)
     assert config.cutoffFreqHigh == 80
+
+
+@pytest.mark.parametrize("reference", ["REST", "Cz", "unknown"])
+def test_erp_rejects_unsupported_reference_strings_at_configuration(reference):
+    with pytest.raises(ValidationError, match="ERP reference"):
+        Config(analysis_type="erp", which_sensor="eeg", rereference_method=reference)

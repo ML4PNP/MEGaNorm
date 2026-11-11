@@ -7,6 +7,15 @@ available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) 
 
 ### EEG ERP analysis
 
+- Support explicit EEG reference-electrode selection, including the offline
+  arithmetic mean of verified left/right mastoids. Validate reference signals,
+  exclude reference-only electrodes from scalp measurements, preserve the final
+  reference through ICA, and retain reference provenance in saved results/reports.
+  Average reference remains the default; unsupported ERP reference strings fail
+  at configuration creation.
+- Use readable multi-page ERP waveform plots with saved feature annotations.
+
+
 - Pool multiple trigger codes or annotation descriptions into each ERP condition.
 - Measure ERP IDPs from named scalp-region summary waveforms using existing
   layout dictionaries or custom EEG channel groups. Include regional bootstrap
@@ -41,6 +50,17 @@ available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) 
   Resting-state defaults and processing remain unchanged.
 - ERP remains limited to local sensor-space EEG processing; the existing SLURM
   extraction runner and ERP source localization are not supported.
+
+### Reliability and release preparation
+
+- Fit specparam channel models serially to avoid forking multithreaded Python
+  processes and nested all-core worker pools. Scientific fitting settings and
+  outputs are unchanged; large channel sets may fit more slowly.
+
+- Stop suppressing all Python warnings when importing MEGaNorm. Scientific and
+  dependency warnings remain visible according to the application's warning policy.
+- Include a version-independent release checklist in the documentation and source
+  distribution; remove the manifest's dependency on an untracked local release guide.
 
 ## [0.2.2] - 2026-10-07
 

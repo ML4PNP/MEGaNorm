@@ -666,7 +666,10 @@ class Config(BaseModel):
             ):
                 raise ValueError("ICA correlation threshold must be in (0, 1].")
             if isinstance(self.rereference_method, str):
-                _name(self.rereference_method)
+                if self.rereference_method != "average":
+                    raise ValueError(
+                        "ERP reference must be 'average', None, or a list of channel names."
+                    )
             elif self.rereference_method is not None:
                 _names(self.rereference_method)
             for value in (self.eeg_var_threshold, self.eeg_flat_threshold):

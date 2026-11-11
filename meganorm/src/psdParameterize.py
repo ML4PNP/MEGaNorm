@@ -114,6 +114,7 @@ def fit_specparam(
     -------
     spectral_models : specparam.SpectralGroupModel
         Fitted SpectralGroupModel containing one spectral model per channel.
+        Channels are fitted serially to avoid forking multithreaded applications.
     psds : np.ndarray
         Original power spectral density values.
     freqs : np.ndarray
@@ -127,7 +128,10 @@ def fit_specparam(
         peak_threshold=peak_threshold,
         aperiodic_mode=aperiodic_mode,
     )
-    spectral_models.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=-1)
+    # specparam's parallel path uses multiprocessing.Pool with the platform
+    # default start method. Forking after numerical threads have started can
+    # deadlock; fit channels serially without changing global process settings.
+    spectral_models.fit(freqs, psds, [freq_range_low, freq_range_high], n_jobs=1)
 
     return spectral_models, psds, freqs
 
