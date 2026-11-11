@@ -534,7 +534,7 @@ the authoritative values for normative modeling. Resting-state behavior and
 ``which_layout`` are unaffected by these ERP component selections.
 
 EEG reference for P600 and other ERPs
-------------------------------------
+----------------------------------------
 
 Use the existing ``rereference_method`` setting. Average reference remains the
 default; resting-state configuration and processing are unchanged::
