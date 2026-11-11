@@ -121,7 +121,6 @@ Documentation
    erp_quickstart
    meganorm.API
    whats_new
-   releasing
 
 .. toctree::
    :maxdepth: 2
