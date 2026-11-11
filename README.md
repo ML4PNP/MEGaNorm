@@ -13,6 +13,7 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14128/badge)](https://www.bestpractices.dev/projects/14128)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/meganorm?period=month\&units=international_system\&left_text=downloads/month\&left_color=grey\&right_color=brightgreen)](https://pypi.org/project/meganorm/)
 [![Last Commit](https://img.shields.io/github/last-commit/ML4PNP/MEGaNorm?logo=github\&color=informational)](https://github.com/ML4PNP/MEGaNorm/commits/main)
+[![status](https://joss.theoj.org/papers/fbba3a25b76419748904644b46c550a6/status.svg)](https://joss.theoj.org/papers/fbba3a25b76419748904644b46c550a6)
 <!-- END MEGANORM METADATA: badges -->
 
 <p align="center">
