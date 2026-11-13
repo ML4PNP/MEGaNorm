@@ -76,6 +76,7 @@ def test_eeg_ica_without_physiological_channels_uses_compatible_fit(
         mne.create_info(["Fz", "Cz", "Pz", "Oz"], 100.0, "eeg"),
         verbose=False,
     )
+    raw.filter(l_freq=1.0, h_freq=None, verbose=False)
     fitted = []
 
     def classify(data, ica, method):
@@ -160,6 +161,7 @@ def test_auto_ica_with_mean_accepts_its_default_sensor_dictionary(monkeypatch):
         mne.create_info([f"MEG{i}" for i in range(4)], 100.0, "mag"),
         verbose=False,
     )
+    raw.filter(l_freq=1.0, h_freq=None, verbose=False)
     monkeypatch.setattr(
         mne.preprocessing.ICA, "find_bads_ecg", lambda *a, **k: ([], np.zeros(2))
     )
@@ -1067,3 +1069,22 @@ def test_chpi_usable_bti_delegates_to_kit_extractor(monkeypatch):
     monkeypatch.setattr(mne.chpi, "extract_chpi_locs_kit", unavailable)
     assert not _chpi_usable(raw, "BTI")
     assert not _chpi_usable(raw, "UNKNOWN")
+
+
+def test_import_preserves_application_warning_visibility():
+    """Importing the package must not hide downstream scientific warnings."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import warnings; warnings.simplefilter('always'); import meganorm; "
+            "warnings.warn('scientific-warning-probe', RuntimeWarning)",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "RuntimeWarning: scientific-warning-probe" in result.stderr

@@ -7,7 +7,8 @@ are also available at the package root. Local extraction is sequential and
 continues after participant failures by default; use ``on_error="raise"`` to
 stop at the first processing failure. See :doc:`getting_started` for
 multi-dataset examples, result interpretation, and rerun cleanup behavior.
-See :doc:`configuration` for processing settings and JSON configuration files.
+See :doc:`configuration` for processing settings and JSON configuration files,
+and :doc:`erp_quickstart` for EEG ERP extraction.
 
 The local API and the SLURM runner share the processing configuration. Use the
 local API for sequential cohort processing; use the cluster notebook for the
@@ -24,6 +25,51 @@ existing SLURM workflow. ``Pipeline`` does not submit cluster jobs.
 
 .. automodule:: meganorm.API.results
    :members: FeatureDataset, NormativeResults
+
+ERP results and plotting
+------------------------
+
+``ERPResult``, ``load_erp_result`` and ``extract_recording`` are available from
+``meganorm.API``. A cohort ``FeatureDataset`` provides ``load_erp`` and
+``plot_erp`` for saved participant responses:
+
+.. code:: python
+
+   import matplotlib.pyplot as plt
+   from meganorm.API import ERPResult, extract_recording, load_erp_result
+
+   participant = result.load_erp("sub-001")
+   fig, axes = participant.plot(channels=("Cz", "Pz"), show=False)
+   plt.show()
+   # Or: fig, axes = result.plot_erp("sub-001", channels=("Cz", "Pz"), show=True)
+
+``Dataset.extract_erp("sub-001", config=config)`` returns an ``ERPResult``
+with in-memory epochs using dataset discovery, session selection and metadata.
+It writes no files. Participant IDs must be exact strings from discovery;
+numeric IDs are not converted to folder names.
+
+``ERPResult.save(directory, report=True, figures=False, overwrite=False)``
+exports condition averages, stored features/QC and component metadata, with
+optional HTML reports and figures. ``load_erp_result(directory)`` reopens
+these outputs without recalculating measurements. Reloaded ``epochs`` is
+``None`` because FIF saves averages, not trials. See :doc:`erp_quickstart`
+for output flags, report locations and standalone examples.
+
+``ERPResult.features`` contains the original IDPs; ``qc`` explains trial
+counts and unavailable measurements. With ``config.erp.bootstrap=True``,
+``ERPResult.bootstrap`` holds ``idps``, ``waveforms`` and ``provenance``;
+it is otherwise ``None``. The top-level ``config.random_state`` controls
+sampling. Saved summaries reload with the participant and appear in plots
+and reports. Their median/p05/p95 are descriptive bootstrap summaries and
+never replace original feature values. A cohort ``FeatureDataset`` exposes
+these through ``load_erp(participant_id).bootstrap``.
+
+.. autoclass:: meganorm.src.erp.ERPResult
+   :members: plot, save
+
+.. autofunction:: meganorm.API.load_erp_result
+
+.. autofunction:: meganorm.API.extract_recording
 
 Advanced dataset options
 ------------------------

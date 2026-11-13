@@ -151,7 +151,14 @@ def test_psd_helpers_average_power_across_nonidentical_epochs(calculator):
 
 
 @pytest.mark.integration
-def test_specparam_fits_each_channel_and_recovers_alpha_peak():
+def test_specparam_fits_each_channel_and_recovers_alpha_peak(monkeypatch):
+    # Scientific fitting must work without forking a threaded application.
+    import specparam.results.utils as specparam_utils
+
+    def forbidden_pool(*args, **kwargs):
+        raise AssertionError("Spectral fitting must not create a process pool")
+
+    monkeypatch.setattr(specparam_utils, "Pool", forbidden_pool)
     freqs = np.arange(2.0, 25.5, 0.5)
     background = 1.0 / freqs
     alpha = 0.8 * np.exp(-0.5 * ((freqs - 10.0) / 0.8) ** 2)

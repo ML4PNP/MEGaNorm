@@ -19,13 +19,51 @@ from meganorm.src.source_localization import corregistration, forward_solution
 from autoreject import AutoReject, Ransac, set_matplotlib_defaults
 import autoreject
 
-warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
 
 # Constants for tSSS
 _FRAME = {1: "meg", 4: "head"}
 _REQUIRED = ("origin", "int_order", "ext_order", "frame")
+
+
+def _fit_ica(
+    data,
+    *,
+    n_components,
+    max_iter,
+    method,
+    random_state,
+    picks,
+    fit_params=None,
+    reject_by_annotation=True,
+):
+    """Fit ICA without changing the caller's signal or selecting exclusions.
+
+    Workflow owners supply picks, algorithm and fit-copy policy. The default
+    annotation policy is MNE's existing default used by resting-state routes.
+    """
+    ica = mne.preprocessing.ICA(
+        n_components=n_components,
+        max_iter=max_iter,
+        method=method,
+        random_state=random_state,
+        fit_params=fit_params,
+        verbose=False,
+    )
+    ica.fit(data, picks=picks, reject_by_annotation=reject_by_annotation, verbose=False)
+    return ica
+
+
+def _select_iclabel_components(labels, artifact_labels, threshold, *, inclusive):
+    """Select winning ICLabel classes using the workflow's threshold boundary."""
+    selected = []
+    for index, label in enumerate(labels["labels"]):
+        probability = labels["y_pred_proba"][index]
+        above = probability >= threshold if inclusive else probability > threshold
+        if label in artifact_labels and above:
+            selected.append(index)
+    return selected
 
 
 def find_ica_component(ica, data, physiological_signal, auto_ica_corr_thr):
@@ -125,14 +163,14 @@ def auto_ica_with_corr(
     )
 
     # ICA initialization
-    ica = mne.preprocessing.ICA(
+    ica = _fit_ica(
+        data,
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
         random_state=random_state,
-        verbose=False,
+        picks=["eeg", "meg", "grad", "mag"],
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg", "grad", "mag"])
 
     # Detect components correlated with physiological signal
     bad_components = []
@@ -214,14 +252,14 @@ def auto_ica_with_mean(
         ecg=True,
     )
 
-    ica = mne.preprocessing.ICA(
+    ica = _fit_ica(
+        data,
         n_components=n_components,
         max_iter=ica_max_iter,
         method=IcaMethod,
         random_state=random_state,
-        verbose=False,
+        picks=["eeg", "meg", "mag", "grad"],
     )
-    ica.fit(data, verbose=False, picks=["eeg", "meg", "mag", "grad"])
 
     ecg_indices, ecg_scores = ica.find_bads_ecg(
         data, method="correlation", threshold=auto_ica_corr_thr, measure="correlation"
@@ -272,31 +310,30 @@ def AutoIca_with_IcaLabel(
         physiological_noise_type = "eye blink"
 
     # fit ICA
-    ica = mne.preprocessing.ICA(
+    ica = _fit_ica(
+        data,
         n_components=n_components,
         max_iter=ica_max_iter,
         method="infomax",
         random_state=random_state,
+        picks=["eeg"],
         fit_params=dict(extended=True),
-        verbose=False,
     )
-    ica.fit(data, verbose=False, picks=["eeg"])
 
     # apply ICLabel
     labels = label_components(data, ica, method="iclabel")
 
     # Identify and exclude artifact components based on probability threshold of being an artifact
-    bad_components = []
-    for idx, label in enumerate(labels["labels"]):
-        probability = labels["y_pred_proba"][idx]
-        if label == physiological_noise_type and probability > iclabel_thr:
-            bad_components.append(idx)
-            logger.info(
-                "Component %d identified as %s with probability %.3f",
-                idx,
-                label,
-                probability,
-            )
+    bad_components = _select_iclabel_components(
+        labels, {physiological_noise_type}, iclabel_thr, inclusive=False
+    )
+    for idx in bad_components:
+        logger.info(
+            "Component %d identified as %s with probability %.3f",
+            idx,
+            labels["labels"][idx],
+            labels["y_pred_proba"][idx],
+        )
 
     logger.info(
         f"Number of bad Components identified by ICALabel: {len(bad_components)}"
@@ -423,6 +460,14 @@ def prepare_eeg_data(data, path):
     mne.io.Raw
         The EEG data with updated channel types and montage (if available).
     """
+    from meganorm.utils.eeg import (
+        read_channel_table,
+        apply_channel_table,
+        read_montage_positions,
+        set_head_montage,
+    )
+
+    # Preserve the legacy REST discovery and permissive montage policy.
     task = path.split("/")[-1].split("_")[-2]
     base_dir = os.path.dirname(path)
 
@@ -430,9 +475,8 @@ def prepare_eeg_data(data, path):
     search_pattern = os.path.join(base_dir, f"**_{task}_channels.tsv")
     channel_files = glob.glob(search_pattern, recursive=True)
     if channel_files:
-        channels_df = pd.read_csv(channel_files[0], sep="\t")
-        channels_types = channels_df.set_index("name")["type"].str.lower().to_dict()
-        data.set_channel_types(channels_types)
+        channels_df = read_channel_table(channel_files[0], legacy=True)
+        apply_channel_table(data, channels_df, strict=False, apply_status=False)
 
     # Set montage if not already set
     montage = data.get_montage()
@@ -444,15 +488,8 @@ def prepare_eeg_data(data, path):
             if not montage_files:
                 raise FileNotFoundError("No montage CSV file found!")
 
-            montage_df = pd.read_csv(montage_files[0])
-            ch_positions = {
-                row["Channel"]: [row["X"], row["Y"], row["Z"]]
-                for _, row in montage_df.iterrows()
-            }
-            eeg_montage = mne.channels.make_dig_montage(
-                ch_pos=ch_positions, coord_frame="head"
-            )
-            data.set_montage(eeg_montage)
+            ch_positions = read_montage_positions(montage_files[0], strict=False)
+            set_head_montage(data, ch_positions, allow_missing=False)
 
             logger.info(
                 "EEG montage set from %s with %d channel positions",
@@ -2191,6 +2228,20 @@ def _detect_bad_channels_ransac(
     return bads, bad_logs
 
 
+def _fit_autoreject_epochs(epochs, *, estimator, load_data=False, **parameters):
+    """Fit AutoReject to existing epochs using the caller's exact policy.
+
+    The estimator binding and constructor parameters come from the workflow.
+    Optional loading preserves REST's constructor/load/fit order. Epoch creation,
+    validation, transformation, annotations and reporting remain with the caller.
+    """
+    model = estimator(**parameters)
+    if load_data:
+        epochs.load_data()
+    model.fit(epochs)
+    return model
+
+
 def auto_reject_segmentation(
     raw,
     sampling_rate: float,
@@ -2342,7 +2393,10 @@ def auto_reject_segmentation(
         cv = max(2, min(10, len(epochs)))  # clamp between 2 and 10
         logger.info(f"The number of CV in autoreject was set to {cv} .")
 
-    ar = AutoReject(
+    ar = _fit_autoreject_epochs(
+        epochs,
+        estimator=AutoReject,
+        load_data=True,
         n_interpolate=n_interpolates,
         consensus=consensus_percs,
         cv=cv,
@@ -2352,9 +2406,6 @@ def auto_reject_segmentation(
         verbose=True,
     )
 
-    epochs.load_data()
-
-    ar.fit(epochs)
     logger.info(
         "AutoReject selected parameters: consensus = %s, n_interpolate = %s",
         {k: float(v) for k, v in ar.consensus_.items()},

@@ -1,5 +1,33 @@
+What's new
+==========
+
+Unreleased: EEG ERP analysis
+----------------------------
+
+The ERP workflow supports local dataset-level EEG processing, configurable
+component measurements, explicit QC, reusable saved averages and HTML reports.
+Optional bootstrap summaries quantify variation across resampled retained
+trials; the original IDPs always remain the modeling values. The existing
+global random seed controls stochastic ERP processing and bootstrap sampling.
+
+Conditions can pool trigger codes and measurements can use named scalp regions.
+ERP peak IDPs use two-sided local extrema; windows without a qualifying peak
+retain their means and report missing peak measurements with QC. Reports use
+multiple waveform pages and retain the original saved measurements.
+
+EEG referencing defaults to average reference and also supports explicitly
+selected reference electrodes, including verified mastoids. Reference metadata
+are saved and displayed in participant reports. ICA preserves the requested
+final reference. Importing MEGaNorm no longer suppresses all Python warnings.
+Specparam channel fitting now runs serially to avoid unsafe forks from threaded
+applications; large channel sets may take longer, without changing fit settings.
+
+See :doc:`erp_quickstart` for a complete workflow and :doc:`configuration` for
+settings. Resting-state defaults and processing are unchanged. ERP source
+localization and execution through the existing SLURM runner are not supported.
+
 Changes in v0.2.2
-=================
+-----------------
 
 Local cohort workflow
 ----------------------

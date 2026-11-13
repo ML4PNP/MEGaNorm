@@ -5,6 +5,7 @@ import glob
 from collections.abc import Mapping
 import pandas as pd
 from meganorm.utils.IO import merge_datasets_with_glob
+from meganorm.utils.erp import ERPEventSpec, ERPMontageSettings
 
 _PATH_OPTIONS = {
     "empty_room_path",
@@ -59,6 +60,8 @@ class Dataset:
         device: str | None = None,
         line_freq: int | None = 50,
         options: Mapping[str, object] | None = None,
+        erp_events: ERPEventSpec | Mapping | None = None,
+        erp_montage: ERPMontageSettings | Mapping | None = None,
     ):
         for label, value in [
             ("name", name),
@@ -102,6 +105,16 @@ class Dataset:
             device,
             line_freq,
         )
+        self.erp_events = (
+            ERPEventSpec.model_validate(erp_events).model_copy(deep=True)
+            if erp_events is not None
+            else None
+        )
+        self.erp_montage = (
+            ERPMontageSettings.model_validate(erp_montage).model_copy(deep=True)
+            if erp_montage is not None
+            else None
+        )
         self.options = {
             key: (
                 _path(value, self.root)
@@ -141,11 +154,23 @@ class Dataset:
             participant_id=participant_id,
             device=settings.pop("device_type", None),
             line_freq=settings.pop("line_freq", 50),
+            erp_events=settings.pop("erp_events", None),
+            erp_montage=settings.pop("erp_montage", None),
             options=settings,
         )
 
     def _settings(self):
         return dict(
+            **(
+                {"erp_montage": self.erp_montage.model_dump(mode="json")}
+                if self.erp_montage is not None
+                else {}
+            ),
+            **(
+                {"erp_events": self.erp_events.model_dump(mode="json")}
+                if self.erp_events is not None
+                else {}
+            ),
             base_dir=str(self.root),
             task=self.task,
             ending=self.extension,
@@ -192,4 +217,72 @@ class Dataset:
                     line_freq=self.line_freq,
                 )
             )
+        if self.erp_events is not None:
+            for row in rows:
+                row["erp_events"] = self.erp_events.model_dump(mode="json")
+        if self.erp_montage is not None:
+            for row in rows:
+                row["erp_montage"] = self.erp_montage.model_dump(mode="json")
         return pd.DataFrame(rows)
+
+    def extract_erp(self, participant_id, *, config=None):
+        """Extract one participant's ERP using this dataset's EEG metadata.
+
+        Parameters
+        ----------
+        participant_id : str
+            Exact participant identifier returned by :meth:`discover`.
+            Leading zeros and prefixes are significant.
+        config : Config or None, optional
+            ERP configuration with component definitions. When None, use ERP
+            defaults; components must still be supplied in a valid configuration
+            for IDP extraction. ``which_meg_session`` selects a recording from
+            the participant's sorted recording paths.
+
+        Returns
+        -------
+        ERPResult
+            Original features, QC, retained epochs and condition averages,
+            with optional bootstrap summaries. No output files are written.
+
+        Raises
+        ------
+        KeyError
+            If the participant identifier is unknown or ambiguous.
+        ValueError
+            If the configuration, event specification, EEG metadata or selected
+            session is invalid, or legacy dataset options are supplied.
+
+        See Also
+        --------
+        Pipeline.run : Extract features for a whole dataset and save outputs.
+        """
+        from meganorm.src.erp import extract_recording, _validate_erp_config
+        from meganorm.utils.erp import validate_erp_subject_id
+
+        validate_erp_subject_id(participant_id)
+        config = _validate_erp_config(config)
+        if self.options or self.device is not None:
+            raise ValueError(
+                "ERP extraction requires local EEG sidecars without legacy options or MEG device."
+            )
+        if self.erp_events is None:
+            raise ValueError("Dataset requires erp_events.")
+        config.erp.validate_events(self.erp_events)
+        matches = self.discover().query("participant_id == @participant_id")
+        if len(matches) != 1:
+            raise KeyError(
+                f"Unknown or ambiguous participant identifier: {participant_id!r}"
+            )
+        try:
+            path = matches.iloc[0].recording_paths[config.which_meg_session]
+        except IndexError as error:
+            raise ValueError(f"Invalid session index for {participant_id}.") from error
+        return extract_recording(
+            path,
+            participant_id,
+            config=config,
+            event_spec=self.erp_events,
+            montage_settings=self.erp_montage,
+            line_freq=self.line_freq,
+        )

@@ -26,6 +26,13 @@ from pydantic import (
     model_validator,
 )
 from mne.io.constants import FIFF
+from meganorm.utils.erp import (
+    _ERPTaskSettings,
+    resolve_ica_settings,
+    resolve_ica_fit_settings,
+    _names,
+    _name,
+)
 
 
 class BandRatio(BaseModel):
@@ -36,10 +43,34 @@ class BandRatio(BaseModel):
 class Config(BaseModel):
     """
     Configuration for preprocessing, artifact correction, source localization,
-    and spectral feature extraction of neurophysiological signals (MEG/EEG/OPM).
+    and spectral or ERP feature extraction of neurophysiological signals.
 
     Parameters
     ----------
+    analysis_type : {'rest', 'erp'}, default='rest'
+        Analysis workflow. ERP raw-data processing requires ``which_sensor='eeg'``.
+        Defaults listed below describe resting-state analysis unless stated
+        otherwise. ERP resolves its own defaults for shared preprocessing fields;
+        explicit values override them. See the configuration guide for details.
+    erp : dict or None, optional
+        ERP epoch settings (``tmin``, ``tmax``, ``baseline``), ``min_trials``,
+        named ``components``, output flags, and optional ``bootstrap`` and
+        ``bootstrap_n_repeats``. Only valid with ``analysis_type='erp'``.
+        Bootstrap is disabled by default; the default repetition count is 100.
+        Original measurements remain the primary IDPs when it is enabled.
+    ica_mode : {'auto', 'physiological', 'iclabel', 'none'}, default='auto'
+        ERP component-selection strategy. Auto chooses physiological channels
+        when usable, otherwise ICLabel. ``apply_ica=False`` disables ICA.
+    ica_l_freq : float, default=1.0
+        ERP ICA fitting-copy high-pass cutoff in Hz, separate from the analysis
+        filter. ICLabel requires at least 1 Hz.
+    ica_h_freq : float or None, optional
+        ERP ICA fitting-copy low-pass cutoff in Hz. None follows the resolved
+        analysis low-pass setting.
+    ica_resample_sfreq : float or None, optional
+        ERP ICA fitting-copy sampling rate in Hz. None preserves its input rate.
+    ica_label_threshold : float, default=0.8
+        ERP ICLabel artifact probability threshold in (0, 1].
     which_meg_session : int, default=0
         Index of the MEG session to process.
     which_layout : {"all", "lobe", None}, default="all"
@@ -114,7 +145,9 @@ class Config(BaseModel):
     EEG Reference & Bad-Segment Rejection
     ----------------------------------------
     rereference_method : {"average", "REST", None}, default="average"
-        EEG re-referencing scheme.
+        EEG re-referencing scheme. ERP also accepts a sequence of exact EEG/misc
+        reference-electrode names; their arithmetic mean is subtracted and the
+        reference-only channels are excluded from scalp analysis.
     bad_segment_removal_method : {"autoreject", "fixed_thr", None}, default="autoreject"
         Method for rejecting bad data segments.
     mag_var_threshold, grad_var_threshold, eeg_var_threshold : float
@@ -262,6 +295,9 @@ class Config(BaseModel):
     which_meg_session: int = 0  # the first session
 
     which_layout: Literal["all", "lobe", None] = "all"
+    analysis_type: Literal["rest", "erp"] = "rest"
+    erp: _ERPTaskSettings | None = None
+
     which_sensor: Literal["mag", "grad", "meg", "eeg", "opm"] = "meg"
 
     drop_noisy_flat_channel: bool = True
@@ -270,14 +306,14 @@ class Config(BaseModel):
 
     # ICA
     apply_ica_elbow_detection: bool = False
-    ica_n_component: Optional[PositiveInt] = None
+    ica_n_component: int | float | None = None
     ica_max_iter: PositiveInt = 800
     ica_method: Literal["fastica", "infomax", "picard"] = "fastica"
 
-    cutoffFreqLow: float = 1.0
-    cutoffFreqHigh: PositiveInt = 40
+    cutoffFreqLow: float | None = 1.0
+    cutoffFreqHigh: PositiveInt | PositiveFloat | None = 40
 
-    resampling_rate: PositiveInt = 300
+    resampling_rate: PositiveInt | PositiveFloat | None = 300
     digital_filter: bool = True
     notch_filter: bool = True
 
@@ -310,16 +346,16 @@ class Config(BaseModel):
     auto_ica_corr_thr: confloat(ge=0, le=1) = 0.5
 
     save_segmented_data: bool = False
-    rereference_method: Literal["average", "REST", None] = "average"
+    rereference_method: str | tuple[str, ...] | None = "average"
 
     bad_segment_removal_method: Literal["autoreject", "fixed_thr", None] = "autoreject"
 
     mag_var_threshold: float = 5000e-15
     grad_var_threshold: float = 5000e-13
-    eeg_var_threshold: float = 40e-6
+    eeg_var_threshold: float | None = 40e-6
     mag_flat_threshold: float = 10e-15
     grad_flat_threshold: float = 10e-13
-    eeg_flat_threshold: float = 1e-6
+    eeg_flat_threshold: float | None = 1e-6
     zscore_std_thresh: PositiveInt = 15
 
     segments_tmin: PositiveInt = 20
@@ -330,7 +366,7 @@ class Config(BaseModel):
     save_preprocessed_data: bool = False
 
     # autoreject
-    autoreject_n_interpolates: List[int] = [1, 4, 8, 16, 32]
+    autoreject_n_interpolates: List[int] | None = [1, 4, 8, 16, 32]
     autoreject_consensus_percs: List[float] = list(np.linspace(0, 1.0, 11))
     autoreject_cv: Union[int, Literal["auto"]] = "auto"
     autoreject_thresh_method: Literal["bayesian_optimization", "random_search"] = (
@@ -481,8 +517,201 @@ class Config(BaseModel):
             )
         return value
 
+    # Independent fit-copy settings are ERP-specific, never a second config.
+    ica_l_freq: PositiveFloat = 1.0
+    ica_h_freq: PositiveFloat | None = None
+    ica_resample_sfreq: PositiveFloat | None = None
+    ica_mode: Literal["auto", "physiological", "iclabel", "none"] = "auto"
+    ica_label_threshold: confloat(gt=0, le=1) = 0.8
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_analysis_defaults(cls, values):
+        """Apply ERP defaults or validate legacy REST input constraints before parsing."""
+        if not isinstance(values, dict):
+            return values
+        values = dict(values)
+        if values.get("analysis_type", "rest") == "erp":
+            defaults = dict(
+                cutoffFreqLow=0.1,
+                cutoffFreqHigh=35.0,
+                resampling_rate=None,
+                erp={},
+                notch_filter=False,
+                drop_noisy_flat_channel=False,
+                ica_method="infomax",
+                auto_ica_corr_thr=0.8,
+                bad_segment_removal_method="fixed_thr",
+                eeg_var_threshold=150e-6,
+                eeg_flat_threshold=None,
+                autoreject_cv=5,
+                autoreject_n_interpolates=None,
+                autoreject_consensus_percs=[0.2, 0.4, 0.6, 0.8, 1.0],
+            )
+            for name, default in defaults.items():
+                values.setdefault(name, default)
+            if values.get("ica_h_freq") is None:
+                values["ica_h_freq"] = values["cutoffFreqHigh"]
+        else:
+            # Preserve the established REST input constraints for widened fields.
+            from pydantic import TypeAdapter
+
+            for name in ("cutoffFreqHigh", "resampling_rate"):
+                if name in values:
+                    values[name] = TypeAdapter(PositiveInt).validate_python(
+                        values[name]
+                    )
+            if "ica_n_component" in values and values["ica_n_component"] is not None:
+                values["ica_n_component"] = TypeAdapter(PositiveInt).validate_python(
+                    values["ica_n_component"]
+                )
+            if values.get("rereference_method", "average") not in (
+                "average",
+                "REST",
+                None,
+            ):
+                raise ValueError("REST reference must be average, REST or None.")
+            for name in (
+                "cutoffFreqLow",
+                "eeg_var_threshold",
+                "eeg_flat_threshold",
+                "autoreject_n_interpolates",
+            ):
+                if name in values and values[name] is None:
+                    raise ValueError(f"{name} cannot be None for REST.")
+        return values
+
+    def validate_sampling_rate(self, sfreq, *, include_ica=True):
+        """Validate analysis and ICA fit filters against recording Nyquist.
+
+        Parameters
+        ----------
+        sfreq : float
+            Sampling rate in Hz; must be finite and positive.
+        include_ica : bool, default=True
+            Also validate the ICA fit cutoffs against this rate and the configured
+            ICA resampling rate. False checks only enabled analysis filtering.
+
+        Returns
+        -------
+        None
+            Validation succeeds without modifying the configuration.
+
+        Raises
+        ------
+        ValueError
+            If the rate is invalid, an enabled filter cutoff reaches Nyquist, or
+            enabled ICA fit settings are inconsistent.
+        """
+        if not np.isfinite(sfreq) or sfreq <= 0:
+            raise ValueError("Sampling rate must be finite and positive.")
+        if include_ica:
+            resolve_ica_fit_settings(self, sfreq)
+        if self.digital_filter and any(
+            value is not None and value >= sfreq / 2
+            for value in (self.cutoffFreqLow, self.cutoffFreqHigh)
+        ):
+            raise ValueError("Filter cutoffs must be below the Nyquist frequency.")
+
+    @model_validator(mode="after")
+    def analysis_settings_mv(self):
+        """Validate cross-field analysis, ERP preprocessing and rejection settings."""
+        if self.analysis_type == "rest" and self.erp is not None:
+            raise ValueError("ERP settings require analysis_type='erp'.")
+        if self.analysis_type == "erp":
+            if self.erp is None:
+                raise ValueError("ERP analysis requires ERP settings.")
+            if self.which_sensor != "eeg" or self.apply_source_localization:
+                raise ValueError(
+                    "Integrated ERP configuration supports EEG sensor space only."
+                )
+            if self.apply_ica_elbow_detection:
+                raise ValueError(
+                    "ERP apply_ica_elbow_detection is unsupported; set it to False."
+                )
+            if self.notch_filter or self.drop_noisy_flat_channel:
+                raise ValueError(
+                    "ERP notch_filter and drop_noisy_flat_channel are unsupported; set them to False."
+                )
+            resolve_ica_settings(self)
+            resolve_ica_fit_settings(self)
+            for value in (
+                self.cutoffFreqLow,
+                self.cutoffFreqHigh,
+                self.resampling_rate,
+                self.ica_l_freq,
+                self.ica_h_freq,
+                self.ica_resample_sfreq,
+            ):
+                if value is not None and (not np.isfinite(value) or value <= 0):
+                    raise ValueError(
+                        "Filter and sampling frequencies must be positive and finite."
+                    )
+            if (
+                self.cutoffFreqLow is not None
+                and self.cutoffFreqHigh is not None
+                and self.cutoffFreqLow >= self.cutoffFreqHigh
+            ):
+                raise ValueError("cutoffFreqLow must be below cutoffFreqHigh.")
+            n = self.ica_n_component
+            if n is not None and not (
+                type(n) is int and n >= 2 or type(n) is float and 0 < n < 1
+            ):
+                raise ValueError(
+                    "ICA components must be an integer >=2 or a fraction in (0, 1)."
+                )
+            if (
+                not np.isfinite(self.auto_ica_corr_thr)
+                or not 0 < self.auto_ica_corr_thr <= 1
+            ):
+                raise ValueError("ICA correlation threshold must be in (0, 1].")
+            if isinstance(self.rereference_method, str):
+                if self.rereference_method != "average":
+                    raise ValueError(
+                        "ERP reference must be 'average', None, or a list of channel names."
+                    )
+            elif self.rereference_method is not None:
+                _names(self.rereference_method)
+            for value in (self.eeg_var_threshold, self.eeg_flat_threshold):
+                if value is not None and (not np.isfinite(value) or value <= 0):
+                    raise ValueError(
+                        "EEG rejection thresholds must be positive and finite."
+                    )
+            if (
+                self.eeg_var_threshold is not None
+                and self.eeg_flat_threshold is not None
+                and self.eeg_flat_threshold >= self.eeg_var_threshold
+            ):
+                raise ValueError("Flat threshold must be below rejection threshold.")
+            if self.resampling_rate is not None:
+                self.validate_sampling_rate(self.resampling_rate, include_ica=False)
+            if type(self.random_state) is not int or self.random_state < 0:
+                raise ValueError("ERP random_state must be a nonnegative integer.")
+            if self.bad_segment_removal_method == "autoreject":
+                if type(self.autoreject_cv) is not int or self.autoreject_cv < 2:
+                    raise ValueError("ERP autoreject_cv must be an integer >=2.")
+                counts = self.autoreject_n_interpolates
+                if counts is not None and (
+                    not counts or min(counts) < 0 or len(set(counts)) != len(counts)
+                ):
+                    raise ValueError(
+                        "autoreject_n_interpolates must contain unique nonnegative integers."
+                    )
+                consensus = self.autoreject_consensus_percs
+                if (
+                    not consensus
+                    or len(set(consensus)) != len(consensus)
+                    or any(not np.isfinite(v) or not 0 < v <= 1 for v in consensus)
+                ):
+                    raise ValueError(
+                        "autoreject_consensus_percs must contain unique finite fractions in (0, 1]."
+                    )
+        return self
+
     @model_validator(mode="after")
     def processing_ranges_mv(self):
+        if self.analysis_type == "erp":
+            return self
         if not 0 <= self.segments_overlap < self.segments_length:
             raise ValueError(
                 "segments_overlap must be nonnegative and shorter than segments_length."

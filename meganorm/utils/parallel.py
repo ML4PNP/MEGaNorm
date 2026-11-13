@@ -10,6 +10,7 @@ import json
 import meganorm
 import meganorm.utils.parallel
 import meganorm.src.mainParallel
+from meganorm.utils.erp import require_rest_runner
 from meganorm.utils.IO import set_path, merge_datasets_with_glob
 from meganorm.utils.IO import Config
 from meganorm.utils.IO import merge_fidp_demo
@@ -672,8 +673,9 @@ def auto_parallel_feature_extraction(
       only when `combine_features_and_demographics` is True.
     """
     features_dir = os.path.join(project_dir, "Features")
-    subjects = merge_datasets_with_glob(datasets)
     conf = meganorm.utils.IO.Config.load(path=config_file_path)
+    require_rest_runner(conf)
+    subjects = merge_datasets_with_glob(datasets)
 
     from meganorm.src.source_localization import produce_aparc_a2009s_aseg
 
@@ -900,6 +902,7 @@ def sbatch_feature_extraction_runner(
         directory.
     """
 
+    require_rest_runner(config_file or Config())
     features_dir, features_log_path = set_path(project_dir)
     job_configs["log_path"] = features_log_path
 

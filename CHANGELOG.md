@@ -1,8 +1,66 @@
 # Changelog
 
-This file provides a summary of notable changes to **MEGaNorm** across released versions.
+This file summarizes notable changes to **MEGaNorm**. Detailed release notes are
+available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) page.
 
-Detailed release notes for each version are available on the [GitHub Releases](https://github.com/ML4PNP/MEGaNorm/releases) page.
+## Unreleased
+
+### EEG ERP analysis
+
+- Support explicit EEG reference-electrode selection, including the offline
+  arithmetic mean of verified left/right mastoids. Validate reference signals,
+  exclude reference-only electrodes from scalp measurements, preserve the final
+  reference through ICA, and retain reference provenance in saved results/reports.
+  Average reference remains the default; unsupported ERP reference strings fail
+  at configuration creation.
+- Use readable multi-page ERP waveform plots with saved feature annotations.
+
+
+- Pool multiple trigger codes or annotation descriptions into each ERP condition.
+- Measure ERP IDPs from named scalp-region summary waveforms using existing
+  layout dictionaries or custom EEG channel groups. Include regional bootstrap
+  uncertainty, saved averages, plots and channel-coverage QC without changing
+  resting-state processing.
+
+- Replace window extrema with two-sided local ERP peaks. Monotonic/constant
+  windows now yield missing peak metrics with explicit QC; means are unchanged.
+  Use the same detector in bootstrap draws and record `local_extremum_v1` in
+  QC/provenance and reports. Saved older results remain readable unchanged;
+  recompute peak IDPs consistently before pooling measurement methods.
+
+- Add local dataset-level ERP extraction and a single-participant CLI, with
+  validated annotation/stimulus event mappings and exact participant IDs.
+- Support EEG channel metadata and electrode montages, continuous preprocessing,
+  physiological/ICLabel ICA selection, and fixed-threshold or AutoReject epoch
+  cleaning with explicit trial-loss and interpolation QC.
+- Extract configurable component mean amplitudes, signed peak amplitudes and
+  peak latencies. Preserve missing/invalid measurements with QC reasons and
+  flag peaks at component-window boundaries.
+- Save reusable condition averages, original IDPs, QC, provenance, and detailed
+  timing logs. Add participant HTML reports, a cohort index, and Python helpers
+  for loading and plotting saved results without repeating preprocessing.
+- Add optional reproducible within-condition trial bootstrap using the global
+  random seed. Save compact median and 5th–95th percentile summaries and show
+  pointwise waveform ranges. Original IDPs remain the modeling outputs.
+- Consolidate ERP storage and reporting utilities. Remove the temporary
+  `utils.erp_bootstrap_outputs` and `utils.erp_index` import aliases; use
+  `utils.erp_outputs` and `plots.erp_report`, respectively. The
+  `src.erp_bootstrap` compatibility import remains available. Document the
+  complete workflow, configuration, outputs and a runnable synthetic tutorial.
+  Resting-state defaults and processing remain unchanged.
+- ERP remains limited to local sensor-space EEG processing; the existing SLURM
+  extraction runner and ERP source localization are not supported.
+
+### Reliability and release preparation
+
+- Fit specparam channel models serially to avoid forking multithreaded Python
+  processes and nested all-core worker pools. Scientific fitting settings and
+  outputs are unchanged; large channel sets may fit more slowly.
+
+- Stop suppressing all Python warnings when importing MEGaNorm. Scientific and
+  dependency warnings remain visible according to the application's warning policy.
+- Include a version-independent release checklist in the documentation and source
+  distribution; remove the manifest's dependency on an untracked local release guide.
 
 ## [0.2.2] - 2026-10-07
 

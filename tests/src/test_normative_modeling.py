@@ -155,13 +155,12 @@ def test_prepare_nm_data_released_pcntoolkit_filters_outliers(approach):
         (None, None),
     ],
 )
-def test_prepare_nm_data_supports_extended_pcntoolkit_outlier_contract(
+def test_prepare_nm_data_forwards_extended_pcntoolkit_outlier_options(
     monkeypatch, approach, native_approach, groups, native_groups
 ):
     from pcntoolkit import NormData
 
-    # The editable interface has these stricter arguments. Keep the actual
-    # released dataset construction and outlier removal behind that boundary.
+    # This adapter verifies forwarding only; numerical behavior is tested below.
     class ExtendedBoundary:
         @staticmethod
         def from_dataframe(
@@ -179,11 +178,19 @@ def test_prepare_nm_data_supports_extended_pcntoolkit_outlier_contract(
                 ]
                 if missing:
                     raise ValueError(f"Outlier grouping columns not found: {missing}")
+                declared = set(
+                    kwargs["covariates"]
+                    + kwargs["batch_effects"]
+                    + kwargs["response_vars"]
+                )
+                assert set(remove_outliers_group_by) <= declared
             if remove_outliers_approach not in {"iqr", "z-score"}:
                 raise ValueError("Outlier approach must be 'iqr' or 'z-score'.")
             assert remove_outliers_group_by == native_groups
             assert remove_outliers_approach == native_approach
             assert iqr_factor == 1.5
+            assert kwargs["remove_outliers"] is True
+            kwargs["remove_outliers"] = False
             return NormData.from_dataframe(**kwargs)
 
     monkeypatch.setattr(nm, "NormData", ExtendedBoundary)
@@ -201,7 +208,7 @@ def test_prepare_nm_data_supports_extended_pcntoolkit_outlier_contract(
         frame,
         ["roi"],
         ["age"],
-        ["site"],
+        ["site", "sex"],
         "subject",
         train_split_size=None,
         remove_outliers=True,
@@ -210,8 +217,8 @@ def test_prepare_nm_data_supports_extended_pcntoolkit_outlier_contract(
         iqr_factor=1.5,
     )
 
-    assert data.subject_ids.values.tolist() == [f"s{i}" for i in range(11)]
-    np.testing.assert_array_equal(data.Y.values[:, 0], np.arange(11))
+    assert data.subject_ids.values.tolist() == [f"s{i}" for i in range(12)]
+    np.testing.assert_array_equal(data.Y.values[:, 0], frame["roi"])
 
 
 @pytest.mark.integration
@@ -1135,3 +1142,60 @@ def test_training_can_disable_native_results_when_evaluation_off(
     )
     assert model.kwargs["saveresults"] is False
     assert model.kwargs["evaluate_model"] is False
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("approach", ["iqr", "zscore"])
+@pytest.mark.parametrize("groups", ["site", ["site"], ["site", "sex"]])
+def test_prepare_nm_data_grouped_outliers_differ_from_pooled(approach, groups):
+    # Each site has one outlier; the large site shift hides both when pooled.
+    frame = pd.DataFrame(
+        {
+            "subject": [f"s{i}" for i in range(24)],
+            "age": np.tile(np.arange(20, 32), 2),
+            "site": ["A"] * 12 + ["B"] * 12,
+            "sex": [0] * 24,
+            "roi": np.r_[np.r_[np.arange(11), 100], np.r_[np.arange(11), 100] + 1000],
+        }
+    )
+    outliers = {"s11", "s23"}
+    if isinstance(groups, list) and len(groups) == 2:
+        # Crossed groups require both keys: either key alone pools populations
+        # with different baselines and consequently hides their outliers.
+        second = frame.copy()
+        second["sex"] = 1
+        second["roi"] += 2000
+        frame = pd.concat([frame, second], ignore_index=True)
+        frame["subject"] = [f"s{i}" for i in range(48)]
+        outliers |= {"s35", "s47"}
+    options = dict(
+        train_split_size=None,
+        remove_outliers=True,
+        remove_outliers_approach=approach,
+        iqr_factor=1.5,
+    )
+    grouped = nm.prepare_nm_data(
+        frame,
+        ["roi"],
+        ["age"],
+        ["site", "sex"],
+        "subject",
+        remove_outliers_group_by=groups,
+        **options,
+    )
+    # Some PCNtoolkit versions warn explicitly about intentional pooled removal.
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="No grouping.*", category=UserWarning)
+        pooled = nm.prepare_nm_data(
+            frame,
+            ["roi"],
+            ["age"],
+            ["site", "sex"],
+            "subject",
+            remove_outliers_group_by=None,
+            **options,
+        )
+    assert set(grouped.subject_ids.values) == set(frame.subject) - outliers
+    assert set(pooled.subject_ids.values) == set(frame.subject)
