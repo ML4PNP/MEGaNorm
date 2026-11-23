@@ -32,3 +32,7 @@ __all__ = [
 
 from .compatibility import validate_compatibility
 from .versions import RuntimeVersions, capture_runtime_versions
+
+from .bundle import BundleLimits, export_model, validate_bundle, load_backend
+
+__all__ += ["BundleLimits", "export_model", "validate_bundle", "load_backend"]
