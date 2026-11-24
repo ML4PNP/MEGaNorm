@@ -106,16 +106,39 @@ def profile_model(profile):
     )
 
 
-def model_pattern(manifest, fitted):
-    """Configuration allowlist plus narrowly shaped learned parameters."""
+def model_pattern(manifest, fitted, state=None):
+    """Configuration allowlist plus learned parameters and optional HBR counts.
+
+    Some PCNToolkit builds serialize a parameter-dimension cache as None before
+    fitting and a dictionary afterwards. Check its known names and integer
+    counts explicitly instead of requiring equality with an unfitted template.
+    """
     profile = manifest.adapter.profile
     pattern = primitive(profile_model(profile).to_dict())
+    pattern.pop("_parameter_dimensions", None)
     name = manifest.responses[0].name if fitted else "template"
     pattern.update(
         name=name, _name=name, is_fitted=fitted, is_from_dict=False, transfered=False
     )
     batch = manifest.batch_effects[0]
     mapping = {batch.name: {c.label: c.code for c in batch.categories}}
+    if type(state) is dict and "_parameter_dimensions" in state:
+        if profile != "hbr-shashb-linear-site":
+            reject()
+        pattern["_parameter_dimensions"] = None
+        if fitted and state["_parameter_dimensions"] is not None:
+            pattern["_parameter_dimensions"] = {
+                name: COUNT
+                for name in (
+                    "slope_mu",
+                    "mu_intercept_mu",
+                    f"{batch.name}_sigma_intercept_mu",
+                    f"normalized_{batch.name}_offset_intercept_mu_zerosum__",
+                    "sigma",
+                    "epsilon",
+                    "delta",
+                )
+            }
     if profile == "blr-default-site":
         if fitted:
             pattern["basis_function_mean"].update(
@@ -201,7 +224,9 @@ def validate_state(top, regression, manifest):
         saveresults=False,
         saveplots=False,
         evaluate_model=False,
-        template_regression_model=model_pattern(manifest, False),
+        template_regression_model=model_pattern(
+            manifest, False, top.get("template_regression_model")
+        ),
         inscalers={cov: scaler_pattern()},
         is_fitted=True,
         inscaler="standardize",
@@ -222,7 +247,10 @@ def validate_state(top, regression, manifest):
     match(top, expected)
     match(
         regression,
-        {"model": model_pattern(manifest, True), "outscaler": scaler_pattern()},
+        {
+            "model": model_pattern(manifest, True, regression.get("model")),
+            "outscaler": scaler_pattern(),
+        },
     )
     for scaler in [top["inscalers"][cov], regression["outscaler"]]:
         if scaler["s"] <= 0 or scaler["min"] > scaler["max"]:

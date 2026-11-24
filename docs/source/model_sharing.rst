@@ -64,7 +64,8 @@ provide a managed adaptation workflow.
 Metadata example
 ----------------
 
-The following example describes one synthetic BLR model. Replace the values
+The following example describes one synthetic HBR model using the
+``hbr-shashb-linear-site`` profile above. Replace the values
 with the model's actual feature definitions, training provenance, preprocessing
 fingerprint, and reviewed publication information. Category codes must match
 the fitted model's encoding.
@@ -77,7 +78,7 @@ the fitted model's encoding.
        "version": "1.0.0",
        "adapter": {
            "name": "pcntoolkit", "format_version": 1,
-           "pcntoolkit_version": "1.4.0", "profile": "blr-default-site",
+           "pcntoolkit_version": "1.4.0", "profile": "hbr-shashb-linear-site",
        },
        "software": {"meganorm_version": "0.2.2", "python_version": "3.12.14"},
        "responses": [{"name": "roi", "unit": "V", "storage_key": "roi"}],

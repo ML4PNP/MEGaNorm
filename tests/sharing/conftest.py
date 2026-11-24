@@ -54,7 +54,7 @@ def hbr():
     )
 
 
-@pytest.fixture(scope="session", params=["blr", "hbr"])
+@pytest.fixture(scope="session", params=["hbr", "blr"])
 def fitted(request, tmp_path_factory):
     model = NormativeModel(
         BLR() if request.param == "blr" else hbr(),
