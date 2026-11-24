@@ -44,7 +44,7 @@ from .versions import capture_runtime_versions
 
 @dataclass(frozen=True)
 class BundleLimits:
-    """Positive actual-byte/member budgets; posterior arrays default to 512 MiB."""
+    """Positive byte/member budgets; all IDPs share a 512 MiB posterior budget."""
 
     max_archive_bytes: int = MAX_ARCHIVE_BYTES
     max_extracted_bytes: int = MAX_EXTRACTED_BYTES
@@ -302,15 +302,16 @@ def export_model(
         document = copy.deepcopy(metadata)
         if type(document) is not dict or "files" in document:
             invalid()
-        key = document["responses"][0]["storage_key"]
         names = [
             "README.md",
             "LICENSE",
             "model/normative_model.json",
-            f"model/{key}/regression_model.json",
         ]
-        if document["adapter"]["profile"] == "hbr-shashb-linear-site":
-            names.append(f"model/{key}/idata.nc")
+        for response in document["responses"]:
+            key = response["storage_key"]
+            names.append(f"model/{key}/regression_model.json")
+            if document["adapter"]["profile"] == "hbr-shashb-linear-site":
+                names.append(f"model/{key}/idata.nc")
         document["files"] = [dict(path=n, sha256="0" * 64, size_bytes=1) for n in names]
         manifest = parse_manifest(document)
         compatible(document)

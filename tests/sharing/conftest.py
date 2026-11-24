@@ -7,18 +7,21 @@ from pcntoolkit import BLR, HBR, NormData, NormativeModel, SHASHbLikelihood, mak
 from .test_schema import manifest
 
 
-def data(name="train"):
+def data(name="train", responses=("roi",)):
     rng = np.random.default_rng(2026 if name == "train" else 2027)
     frame = pd.DataFrame(
         {"age": np.tile(np.linspace(20, 70, 12), 2), "site": np.repeat(["A", "B"], 12)}
     )
-    frame["roi"] = 1 + 0.1 * frame.age + rng.normal(0, 0.3, len(frame))
+    for i, response in enumerate(responses):
+        frame[response] = (i + 1) * (
+            1 + (0.1 + 0.02 * i) * frame.age + rng.normal(0, 0.3, len(frame))
+        )
     frame["participant"] = [f"PRIVATE_{name}_{i}" for i in range(len(frame))]
     return NormData.from_dataframe(
         name,
         frame,
         covariates=["age"],
-        response_vars=["roi"],
+        response_vars=list(responses),
         batch_effects=["site"],
         subject_ids="participant",
     )

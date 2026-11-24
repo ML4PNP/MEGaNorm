@@ -106,17 +106,18 @@ def profile_model(profile):
     )
 
 
-def model_pattern(manifest, fitted, state=None):
+def model_pattern(manifest, response=None, state=None):
     """Configuration allowlist plus learned parameters and optional HBR counts.
 
     Some PCNToolkit builds serialize a parameter-dimension cache as None before
     fitting and a dictionary afterwards. Check its known names and integer
     counts explicitly instead of requiring equality with an unfitted template.
     """
+    fitted = response is not None
     profile = manifest.adapter.profile
     pattern = primitive(profile_model(profile).to_dict())
     pattern.pop("_parameter_dimensions", None)
-    name = manifest.responses[0].name if fitted else "template"
+    name = response.name if fitted else "template"
     pattern.update(
         name=name, _name=name, is_fitted=fitted, is_from_dict=False, transfered=False
     )
@@ -191,11 +192,11 @@ def normalized_model(state, name):
     return result
 
 
-def validate_state(top, regression, manifest):
-    """Check all stored JSON fields before native deserialization is permitted."""
+def validate_shared_state(top, manifest):
+    """Check the shared configuration, input scalers and aggregate site summaries."""
     if manifest.lineage.operation != "fit":
         raise CompatibilityError("Adapted-model export is not enabled by this adapter.")
-    if type(top) is not dict or type(regression) is not dict:
+    if type(top) is not dict:
         reject()
     cov = manifest.covariates[0].name
     batch = manifest.batch_effects[0]
@@ -225,7 +226,7 @@ def validate_state(top, regression, manifest):
         saveplots=False,
         evaluate_model=False,
         template_regression_model=model_pattern(
-            manifest, False, top.get("template_regression_model")
+            manifest, state=top.get("template_regression_model")
         ),
         inscalers={cov: scaler_pattern()},
         is_fitted=True,
@@ -245,22 +246,31 @@ def validate_state(top, regression, manifest):
         covariate_ranges={cov: ranges},
     )
     match(top, expected)
-    match(
-        regression,
-        {
-            "model": model_pattern(manifest, True, regression.get("model")),
-            "outscaler": scaler_pattern(),
-        },
-    )
-    for scaler in [top["inscalers"][cov], regression["outscaler"]]:
-        if scaler["s"] <= 0 or scaler["min"] > scaler["max"]:
-            reject()
+    scaler = top["inscalers"][cov]
+    if scaler["s"] <= 0 or scaler["min"] > scaler["max"]:
+        reject()
     for r in [
         top["covariate_ranges"][cov],
         *[v[cov] for v in top["batch_effect_covariate_ranges"][batch.name].values()],
     ]:
         if r["min"] > r["max"]:
             reject()
+
+
+def validate_regression(regression, manifest, response):
+    """Check one IDP's native model and output scaler against its declaration."""
+    if type(regression) is not dict:
+        reject()
+    match(
+        regression,
+        {
+            "model": model_pattern(manifest, response, regression.get("model")),
+            "outscaler": scaler_pattern(),
+        },
+    )
+    scaler = regression["outscaler"]
+    if scaler["s"] <= 0 or scaler["min"] > scaler["max"]:
+        reject()
     if manifest.adapter.profile == "blr-default-site":
         a = np.asarray(regression["model"]["A"])
         if not np.allclose(a, a.T) or np.linalg.eigvalsh(a).min() <= 0:
@@ -328,7 +338,10 @@ def posterior_dataset(ds, manifest, *, source, max_bytes):
         if not np.isfinite(values).all():
             reject()
         data[n] = (dims[n], values)
-    return xr.Dataset(data, coords=coords)
+    clean = xr.Dataset(data, coords=coords)
+    if clean.nbytes > max_bytes:
+        reject()
+    return clean
 
 
 def native_posterior(tree, manifest, max_bytes):
@@ -363,11 +376,12 @@ def export_state(model, manifest, root: Path, max_bytes):
 
     if type(model) is not NormativeModel or model.is_fitted is not True:
         raise CompatibilityError("Supply a fitted PCNToolkit NormativeModel.")
-    response = manifest.responses[0]
+    names = {response.name for response in manifest.responses}
     cls = type(profile_model(manifest.adapter.profile))
     if (
-        set(model.regression_models) != {response.name}
-        or type(model[response.name]) is not cls
+        set(model.regression_models) != names
+        or set(model.outscalers) != names
+        or any(type(model[name]) is not cls for name in names)
         or type(model.template_regression_model) is not cls
     ):
         reject()
@@ -386,24 +400,31 @@ def export_state(model, manifest, root: Path, max_bytes):
     top["template_regression_model"] = normalized_model(
         top["template_regression_model"], "template"
     )
-    regression = {
-        "model": normalized_model(model[response.name].to_dict(), response.name),
-        "outscaler": primitive(model.outscalers[response.name].to_dict()),
-    }
-    validate_state(top, regression, manifest)
-    sub = root / "model" / response.storage_key
-    sub.mkdir(parents=True)
-    for path, state in [
-        (root / "model/normative_model.json", top),
-        (sub / "regression_model.json", regression),
-    ]:
-        path.write_text(
-            json.dumps(state, sort_keys=True, separators=(",", ":"), allow_nan=False),
-            encoding="utf-8",
-        )
-    if manifest.adapter.profile == "hbr-shashb-linear-site":
-        ds = native_posterior(model[response.name].idata, manifest, max_bytes)
-        write_posterior(ds, sub / "idata.nc")
+    validate_shared_state(top, manifest)
+    (root / "model").mkdir()
+    write_json(root / "model/normative_model.json", top)
+    remaining = max_bytes
+    for response in manifest.responses:
+        regression = {
+            "model": normalized_model(model[response.name].to_dict(), response.name),
+            "outscaler": primitive(model.outscalers[response.name].to_dict()),
+        }
+        validate_regression(regression, manifest, response)
+        sub = root / "model" / response.storage_key
+        sub.mkdir()
+        write_json(sub / "regression_model.json", regression)
+        if manifest.adapter.profile == "hbr-shashb-linear-site":
+            ds = native_posterior(model[response.name].idata, manifest, remaining)
+            remaining -= ds.nbytes
+            write_posterior(ds, sub / "idata.nc")
+
+
+def write_json(path, state):
+    """Write canonical JSON from validated, data-only native state."""
+    path.write_text(
+        json.dumps(state, sort_keys=True, separators=(",", ":"), allow_nan=False),
+        encoding="utf-8",
+    )
 
 
 def write_posterior(ds, path):
@@ -439,30 +460,39 @@ def read_posterior(path, manifest, max_bytes):
 
 def validate_payload(root, manifest, read_json, max_bytes):
     """Validate model contents independently of self-declared file hashes."""
-    sub = root / "model" / manifest.responses[0].storage_key
-    validate_state(
-        read_json(root / "model/normative_model.json"),
-        read_json(sub / "regression_model.json"),
-        manifest,
-    )
-    if manifest.adapter.profile == "hbr-shashb-linear-site":
-        read_posterior(sub / "idata.nc", manifest, max_bytes)
+    validate_shared_state(read_json(root / "model/normative_model.json"), manifest)
+    remaining = max_bytes
+    for response in manifest.responses:
+        sub = root / "model" / response.storage_key
+        validate_regression(
+            read_json(sub / "regression_model.json"), manifest, response
+        )
+        if manifest.adapter.profile == "hbr-shashb-linear-site":
+            remaining -= read_posterior(sub / "idata.nc", manifest, remaining).nbytes
 
 
 def restore_backend(root, manifest, max_bytes):
     """Restore validated state and eagerly detach posterior arrays from staging."""
     from pcntoolkit import NormativeModel
 
-    posterior = None
+    posteriors = {}
+    remaining = max_bytes
     if manifest.adapter.profile == "hbr-shashb-linear-site":
-        path = root / "model" / manifest.responses[0].storage_key / "idata.nc"
-        posterior = read_posterior(path, manifest, max_bytes)
-        path.unlink()
-        xr.DataTree.from_dict({"posterior": posterior}).to_netcdf(path)
+        for response in manifest.responses:
+            path = root / "model" / response.storage_key / "idata.nc"
+            posterior = read_posterior(path, manifest, remaining)
+            remaining -= posterior.nbytes
+            posteriors[response.name] = posterior
+            path.unlink()
+            xr.DataTree.from_dict({"posterior": posterior}).to_netcdf(path)
     model = NormativeModel.load(str(root))
     model.savemodel = model.saveresults = model.saveplots = model.evaluate_model = False
-    if posterior is not None:
-        reg = model[manifest.responses[0].name]
+    # Native loading discovers subdirectories; the manifest declares IDP order.
+    model.response_vars = [response.name for response in manifest.responses]
+    model.regression_models = {name: model[name] for name in model.response_vars}
+    model.outscalers = {name: model.outscalers[name] for name in model.response_vars}
+    for name, posterior in posteriors.items():
+        reg = model[name]
         reg.idata.close()
         reg.idata = xr.DataTree.from_dict({"posterior": posterior})
     return model

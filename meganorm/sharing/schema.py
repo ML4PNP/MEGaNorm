@@ -1,9 +1,9 @@
 """Version-one metadata contracts for portable MEGaNorm model bundles.
 
-defines the structure and rules for a shared model’s metadata. It specifies 
-required fields—model identity, software versions, features, preprocessing, 
-provenance, parent model, and file inventory—and checks their consistency. 
-It rejects missing or unexpected fields, duplicate names, unsafe paths, and 
+defines the structure and rules for a shared model’s metadata. It specifies
+required fields—model identity, software versions, features, preprocessing,
+provenance, parent model, and file inventory—and checks their consistency.
+It rejects missing or unexpected fields, duplicate names, unsafe paths, and
 invalid parent references. It also produces consistent JSON bytes for later hashing.
 
 
@@ -437,14 +437,13 @@ class BundleManifest(_StrictModel):
         _unique([f.storage_key for f in self.responses])
         _unique([f.path for f in self.files], "duplicate_path")
         if (
-            len(self.responses) != 1
-            or len(self.covariates) != 1
+            len(self.covariates) != 1
             or len(self.batch_effects) != 1
             or self.covariates[0].kind != "continuous"
         ):
             raise PydanticCustomError(
                 "unsupported_configuration",
-                "The current profiles require one response, one continuous covariate and one site batch.",
+                "The current profiles require one or more responses, one continuous covariate and one site batch.",
             )
         parent = self.lineage.parent
         if parent and (parent.model_id, parent.version) == (
@@ -603,7 +602,7 @@ _MESSAGES = {
     IssueCode.INVALID_VALUE: "Use the declared field type, format, and permitted values.",
     IssueCode.UNSUPPORTED_SCHEMA: "Use a supported bundle schema version.",
     IssueCode.UNSUPPORTED_ADAPTER: "Use the audited PCNToolkit version, profile, and adapter format.",
-    IssueCode.UNSUPPORTED_CONFIGURATION: "This adapter supports one response, one continuous covariate, and one site batch.",
+    IssueCode.UNSUPPORTED_CONFIGURATION: "This adapter supports one or more responses, one continuous covariate, and one site batch.",
     IssueCode.DUPLICATE_NAME: "Names must be distinct across roles, case, and Unicode equivalents.",
     IssueCode.DUPLICATE_PATH: "File paths must be distinct across case and Unicode equivalents.",
     IssueCode.UNSAFE_PATH: "Use relative portable paths without reserved components.",

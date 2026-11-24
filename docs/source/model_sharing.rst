@@ -9,7 +9,7 @@ available through this interface.
 Supported models
 ----------------
 
-The initial adapter supports PCNToolkit 1.4.0 models with one response, one
+The initial adapter supports PCNToolkit 1.4.0 models with one or more responses, one
 continuous covariate, one site batch effect, and standard input/output scalers:
 
 * ``blr-default-site``: default, unwarped BLR with linear basis functions.
@@ -25,6 +25,37 @@ and Normal(1, 0.5) with softplus(0, 1, 0.6) for delta. It uses MCMC with the
 Unsupported configurations are rejected explicitly. Exporting already calibrated
 or extended children is not enabled yet. These are sharing-adapter restrictions,
 not limitations of PCNToolkit's modeling capabilities.
+
+Multiple IDPs in one bundle
+---------------------------
+
+Export the fitted PCNToolkit ``NormativeModel`` containing all your IDPs. List
+all response names in ``metadata["responses"]``, each with its unit and a unique
+safe ``storage_key``. The names must match the fitted models exactly; this
+interface exports the whole collection. Loading returns the same native model
+container, with response order taken from the metadata.
+
+For example, a model fitted on three responses can declare:
+
+.. code-block:: python
+
+   metadata["responses"] = [
+       {"name": "alpha_power", "unit": "V^2", "storage_key": "alpha"},
+       {"name": "beta_power", "unit": "V^2", "storage_key": "beta"},
+       {"name": "theta_power", "unit": "V^2", "storage_key": "theta"},
+   ]
+
+Each IDP retains its own native regression model and output scaler. The input
+scalers and site configuration are shared. All IDPs must satisfy the same
+supported adapter profile. Predictions still use PCNToolkit's ``model.predict``;
+no separate model container or prediction implementation is introduced.
+
+For ``p`` HBR responses, the archive holds one shared ``normative_model.json``,
+``p`` per-response ``regression_model.json`` files (including output scalers),
+and ``p`` posterior-only ``idata.nc`` files. Thus there are ``2p + 1`` model
+payload files, plus the manifest, README, and license. BLR has no posterior
+files and uses ``p + 1`` model payload files. All are packaged in one
+``model.zip``; the individual files do not need separate repository entries.
 
 Export and load
 ---------------
@@ -126,8 +157,8 @@ posterior variables, coordinates, or attributes are rejected. Known native local
 analysis state is excluded rather than copied.
 
 The archive contains ``manifest.json``, a generated ``README.md``, a ``LICENSE``
-declaration, model JSON, and (for HBR) a posterior-only NetCDF3 file. The license
-file records the publisher's declaration; it is not an automatically generated
+declaration, shared and per-response model JSON, and (for HBR) a posterior-only
+NetCDF3 file per response. The license file records the publisher's declaration; it is not an automatically generated
 copy of the license's full legal text. No pickles or arbitrary attachments are
 accepted. Portable archives are not native PCNToolkit save directories: use
 ``load_backend`` to reconstruct the native representation.
@@ -136,8 +167,8 @@ Limits and failures
 -------------------
 
 ``BundleLimits`` accepts positive limits for archive bytes, extracted bytes,
-JSON bytes, member count, and posterior array bytes. Defaults are 20 GiB,
-80 GiB, 32 MiB, 100,000 members, and 512 MiB respectively. The initial format
+JSON bytes, member count, and total posterior array bytes across all IDPs.
+Defaults are 20 GiB, 80 GiB, 32 MiB, 100,000 members, and 512 MiB respectively. The initial format
 also requires a canonical, uncompressed ZIP32 archive; ZIP64, multipart,
 compressed, linked, and manually repacked containers are not accepted. The
 container's ZIP32 limits apply even when a larger byte budget is configured.
