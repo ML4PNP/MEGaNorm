@@ -13,6 +13,8 @@ from .API import (
     NormativeModel,
     FeatureDataset,
     NormativeResults,
+    SharedNormativeModel,
+    PredictionResults,
 )
 
 __all__ += [
@@ -22,4 +24,6 @@ __all__ += [
     "NormativeModel",
     "FeatureDataset",
     "NormativeResults",
+    "SharedNormativeModel",
+    "PredictionResults",
 ]

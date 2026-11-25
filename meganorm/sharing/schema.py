@@ -15,6 +15,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol
 
@@ -577,7 +578,12 @@ class SharedNormativeModel(Protocol):
         ...
 
     def predict(
-        self, data: object, *, output_dir: Path | None = None
+        self,
+        data: object,
+        *,
+        units: Mapping[str, str],
+        participant_id: str = "participant_id",
+        output_dir: Path | None = None,
     ) -> PredictionResults:
         """Contract for computing local participant outputs from supplied data."""
         ...

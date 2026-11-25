@@ -23,6 +23,9 @@ existing SLURM workflow. ``Pipeline`` does not submit cluster jobs.
 .. automodule:: meganorm.API.modeling
    :members: NormativeModel
 
+.. automodule:: meganorm.API.pretrained
+   :members: SharedNormativeModel
+
 .. automodule:: meganorm.API.results
    :members: FeatureDataset, NormativeResults
 

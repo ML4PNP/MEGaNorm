@@ -92,6 +92,65 @@ remain in your local data object. The native backend's ``transfer`` and ``extend
 methods retain PCNToolkit's own output behavior; this interface does not yet
 provide a managed adaptation workflow.
 
+Predict with local measurements
+-------------------------------
+
+Use ``SharedNormativeModel`` for validated prediction from a DataFrame or an
+existing ``FeatureDataset``. For the single-response example below:
+
+.. code-block:: python
+
+   from meganorm.API import SharedNormativeModel
+
+   model = SharedNormativeModel.load(
+       "shared_model_v1/model.zip",
+       expected_sha256=bundle.bundle_sha256,
+   )
+   results = model.predict(
+       local_data,
+       units={"age": "years", "roi": "V"},
+   )
+   predictions = results.predictions
+   z_scores = results.z_scores
+
+``local_data`` must contain a ``participant_id`` column or named index, the
+model's covariates, site labels, and measurements for every bundled response.
+Use ``participant_id="your_id_column"`` for another identifier name. Input rows
+are preserved, IDs are normalized to strings, and result columns follow the
+manifest's response order. Column order in the input does not matter; unrelated
+columns are ignored. The input table is not modified.
+
+Declare the units your values actually use, for every response and continuous
+covariate. They must match ``model.manifest`` exactly. Convert values before
+calling ``predict`` when necessary; the interface does not infer or convert
+units. Feature definitions and preprocessing must also match the shared model.
+A matching unit declaration alone cannot verify how data were processed.
+
+The method returns both predictions and z-scores, so it requires all measured
+responses. Missing/nonfinite values, duplicate IDs/columns and unknown sites
+are rejected; no participants are dropped or measurements imputed. New-site
+calibration is not exposed by this interface yet. In the audited PCNToolkit
+1.4.0 build, HBR prediction on a single observation fails because native array
+squeezing removes its observation dimension. This needs a PCNToolkit fix;
+HBR cohort prediction is supported. BLR single-observation prediction works.
+
+By default, results remain in memory and temporary working files are cleaned
+up. To save participant-level outputs locally, pass a new directory:
+
+.. code-block:: python
+
+   results = model.predict(
+       local_data,
+       units={"age": "years", "roi": "V"},
+       output_dir="local_predictions",
+   )
+
+This writes only ``predictions.csv`` and ``z_scores.csv``. Existing output
+directories are rejected. These CSVs are local analysis results and are never
+added to the shared model archive. Prediction does not refit the model or its
+scalers, change the bundle, or contact a hosting service. The public
+``capabilities`` property currently reports only ``("predict",)``.
+
 Metadata example
 ----------------
 

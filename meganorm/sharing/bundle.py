@@ -389,7 +389,13 @@ def load_backend(path, *, expected_sha256=None, limits=DEFAULT_LIMITS):
     Posterior arrays survive temporary-staging cleanup. The native transfer/extend
     methods still have their own output behavior; the later facade will manage it.
     """
+    backend, _, _ = _load_bundle(path, expected_sha256=expected_sha256, limits=limits)
+    return backend
+
+
+def _load_bundle(path, *, expected_sha256=None, limits=DEFAULT_LIMITS):
+    """Restore backend, manifest and digest from the same validated snapshot."""
     from .pcn_adapter import restore_backend
 
-    with staged(path, limits, expected_sha256) as (root, manifest, _):
-        return restore_backend(root, manifest, limits.max_array_bytes)
+    with staged(path, limits, expected_sha256) as (root, manifest, digest):
+        return restore_backend(root, manifest, limits.max_array_bytes), manifest, digest

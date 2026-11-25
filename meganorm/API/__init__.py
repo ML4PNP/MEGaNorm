@@ -10,6 +10,7 @@ from .datasets import Dataset
 from .pipeline import Pipeline
 from .modeling import NormativeModel
 from .results import FeatureDataset, NormativeResults
+from .pretrained import SharedNormativeModel, PredictionResults
 
 __all__ = [
     "ERPResult",
@@ -24,6 +25,8 @@ __all__ = [
     "NormativeModel",
     "FeatureDataset",
     "NormativeResults",
+    "SharedNormativeModel",
+    "PredictionResults",
 ]
 
 from meganorm.src.erp import ERPResult, extract_recording
