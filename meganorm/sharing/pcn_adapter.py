@@ -21,6 +21,7 @@ from .errors import CompatibilityError, PrivacyError
 
 NUMBER = object()
 COUNT = object()
+POSITIVE = object()
 
 
 def reject():
@@ -53,6 +54,10 @@ def match(value, pattern):
     """Check an explicit bounded tree, including exact keys and array lengths."""
     if pattern is NUMBER:
         if type(value) not in (int, float) or not math.isfinite(value):
+            reject()
+    elif pattern is POSITIVE:
+        match(value, NUMBER)
+        if value <= 0:
             reject()
     elif pattern is COUNT:
         if type(value) is not int or not 0 < value <= 10**9:
@@ -112,6 +117,7 @@ def model_pattern(manifest, response=None, state=None):
     Some PCNToolkit builds serialize a parameter-dimension cache as None before
     fitting and a dictionary afterwards. Check its known names and integer
     counts explicitly instead of requiring equality with an unfitted template.
+    The transformed zero-sum site effect has one fewer free dimension than sites.
     """
     fitted = response is not None
     profile = manifest.adapter.profile
@@ -128,18 +134,25 @@ def model_pattern(manifest, response=None, state=None):
             reject()
         pattern["_parameter_dimensions"] = None
         if fitted and state["_parameter_dimensions"] is not None:
+            dimensions = state["_parameter_dimensions"]
+            zero_sum = f"normalized_{batch.name}_offset_intercept_mu_zerosum__"
+            if (
+                type(dimensions) is not dict
+                or type(dimensions.get(zero_sum)) is not int
+            ):
+                reject()
             pattern["_parameter_dimensions"] = {
                 name: COUNT
                 for name in (
                     "slope_mu",
                     "mu_intercept_mu",
                     f"{batch.name}_sigma_intercept_mu",
-                    f"normalized_{batch.name}_offset_intercept_mu_zerosum__",
                     "sigma",
                     "epsilon",
                     "delta",
                 )
             }
+            pattern["_parameter_dimensions"][zero_sum] = len(batch.categories) - 1
     if profile == "blr-default-site":
         if fitted:
             pattern["basis_function_mean"].update(
@@ -154,6 +167,22 @@ def model_pattern(manifest, response=None, state=None):
                 A=[[NUMBER, NUMBER], [NUMBER, NUMBER]],
                 m=[NUMBER, NUMBER],
             )
+            if manifest.lineage.operation == "calibrate":
+                settings = manifest.lineage.settings
+                if settings is None:
+                    reject()
+                pattern.update(
+                    transfered=True,
+                    be_maps={
+                        batch.name: {
+                            c.label: c.code for c in settings.parent_categories
+                        }
+                    },
+                    transfered_be_maps=mapping,
+                    correction_coefficients={
+                        f"({c.code},)": [NUMBER, POSITIVE] for c in batch.categories
+                    },
+                )
     else:
         for key in ["draws", "tune", "cores", "chains", "vi_iterations", "vi_draws"]:
             pattern[key] = COUNT
@@ -166,6 +195,18 @@ def model_pattern(manifest, response=None, state=None):
             sigma = copy.deepcopy(mu["intercept"]["sigma"])
             sigma["name"] = f"{batch.name}_sigma_intercept_mu"
             mu["intercept"][f"{batch.name}_sigma"] = sigma
+            if manifest.lineage.operation == "calibrate":
+                mu["basis_function"].update(compute_min=False, compute_max=False)
+                mu["slope"]["dist_params"] = [[NUMBER], [POSITIVE]]
+                for prior in [
+                    mu["intercept"]["mu"],
+                    mu["intercept"][f"{batch.name}_sigma"],
+                    *[
+                        pattern["likelihood"][key]
+                        for key in ("sigma", "epsilon", "delta")
+                    ],
+                ]:
+                    prior["dist_params"] = [NUMBER, POSITIVE]
     return pattern
 
 
@@ -194,8 +235,10 @@ def normalized_model(state, name):
 
 def validate_shared_state(top, manifest):
     """Check the shared configuration, input scalers and aggregate site summaries."""
-    if manifest.lineage.operation != "fit":
-        raise CompatibilityError("Adapted-model export is not enabled by this adapter.")
+    if manifest.lineage.operation != "fit" and manifest.lineage.settings is None:
+        raise CompatibilityError(
+            "Adapted-model export requires audited adaptation settings."
+        )
     if type(top) is not dict:
         reject()
     cov = manifest.covariates[0].name
@@ -487,10 +530,48 @@ def restore_backend(root, manifest, max_bytes):
             xr.DataTree.from_dict({"posterior": posterior}).to_netcdf(path)
     model = NormativeModel.load(str(root))
     model.savemodel = model.saveresults = model.saveplots = model.evaluate_model = False
+    # Some native loaders omit this optional cache. Preserve validated cache
+    # values so importing a model from those builds does not change re-export.
+    if manifest.adapter.profile == "hbr-shashb-linear-site":
+        template = json.loads((root / "model/normative_model.json").read_text())[
+            "template_regression_model"
+        ]
+        if "_parameter_dimensions" in template:
+            model.template_regression_model._parameter_dimensions = copy.deepcopy(
+                template["_parameter_dimensions"]
+            )
     # Native loading discovers subdirectories; the manifest declares IDP order.
     model.response_vars = [response.name for response in manifest.responses]
     model.regression_models = {name: model[name] for name in model.response_vars}
     model.outscalers = {name: model.outscalers[name] for name in model.response_vars}
+    # Native linear-basis construction drops saved fit flags/ranges; LinearPrior
+    # construction also resets its cached covariate dimensions. Restore only the
+    # already validated fields so prediction/re-export never refits that basis.
+    for response in manifest.responses:
+        state = json.loads(
+            (
+                root / "model" / response.storage_key / "regression_model.json"
+            ).read_text()
+        )["model"]
+        reg = model[response.name]
+        if manifest.adapter.profile == "hbr-shashb-linear-site":
+            if "_parameter_dimensions" in state:
+                reg._parameter_dimensions = copy.deepcopy(
+                    state["_parameter_dimensions"]
+                )
+            mu, saved = reg.likelihood.mu, state["likelihood"]["mu"]
+            mu.slope.dims = saved["slope"]["dims"]
+            mu.covariate_dims = saved["covariate_dims"]
+            mu.one_dimensional = saved["one_dimensional"]
+            bases = [(mu.basis_function, saved["basis_function"])]
+        else:
+            bases = [
+                (getattr(reg, name), state[name])
+                for name in ("basis_function_mean", "basis_function_var")
+            ]
+        for basis, saved in bases:
+            for name in ("is_fitted", "min", "max", "compute_min", "compute_max"):
+                setattr(basis, name, saved[name])
     for name, posterior in posteriors.items():
         reg = model[name]
         reg.idata.close()

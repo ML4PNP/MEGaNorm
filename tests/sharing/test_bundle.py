@@ -45,6 +45,31 @@ def test_review_and_overwrite(fitted, metadata, tmp_path):
     assert out.path.read_bytes() == before
 
 
+def test_stage3_bundle_remains_loadable(fitted, metadata, tmp_path):
+    """Adding adaptation metadata must not invalidate existing canonical archives."""
+    from meganorm.sharing import load_backend, validate_bundle
+
+    original = export(fitted[0], metadata, tmp_path / "original")
+    legacy = tmp_path / "stage3.zip"
+    with zipfile.ZipFile(original.path) as source, zipfile.ZipFile(legacy, "w") as dest:
+        for member in source.infolist():
+            content = source.read(member)
+            if member.filename == "manifest.json":
+                document = json.loads(content)
+                document["lineage"].pop("settings", None)
+                content = json.dumps(
+                    document,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                ).encode()
+            dest.writestr(member, content)
+    assert validate_bundle(legacy).valid
+    restored = load_backend(legacy)
+    assert restored.response_vars == fitted[0].response_vars
+
+
 @pytest.mark.parametrize(
     "name", ["../PRIVATE_ID", "/tmp/PRIVATE_ID", "model\\PRIVATE_ID", "extra.pkl"]
 )

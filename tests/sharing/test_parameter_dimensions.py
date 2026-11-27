@@ -21,6 +21,48 @@ DIMENSIONS = {
 }
 
 
+@pytest.mark.parametrize(
+    "sites,count,accepted",
+    [
+        (1, 0, True),
+        (2, 1, True),
+        (3, 2, True),
+        (1, 1, False),
+        (2, 0, False),
+        (3, 1, False),
+        (1, 0.0, False),
+        (1, False, False),
+        (1, -1, False),
+        (1, 10**9 + 1, False),
+        (2, "PRIVATE_ID", False),
+    ],
+)
+def test_zero_sum_dimension_matches_site_count(manifest, sites, count, accepted):
+    from meganorm.sharing.errors import PrivacyError
+    from meganorm.sharing.pcn_adapter import match, model_pattern
+    from meganorm.sharing.schema import parse_manifest
+
+    manifest["adapter"]["profile"] = "hbr-shashb-linear-site"
+    manifest["files"].append({**manifest["files"][-1], "path": "model/roi/idata.nc"})
+    manifest["batch_effects"][0]["categories"] = [
+        {"label": f"site{i}", "code": i} for i in range(sites)
+    ]
+    manifest = parse_manifest(manifest)
+    dimensions = dict(DIMENSIONS, normalized_site_offset_intercept_mu_zerosum__=count)
+
+    def validate():
+        pattern = model_pattern(
+            manifest, manifest.responses[0], {"_parameter_dimensions": dimensions}
+        )
+        match(dimensions, pattern["_parameter_dimensions"])
+
+    if accepted:
+        validate()
+    else:
+        with pytest.raises(PrivacyError):
+            validate()
+
+
 def with_dimensions(fitted, monkeypatch, constructor_has_cache):
     """Reproduce the reported fresh-None/fitted-dict native serialization."""
     from pcntoolkit import HBR
@@ -58,6 +100,8 @@ def test_parameter_dimensions_roundtrip(
         state = json.loads(z.read("model/roi/regression_model.json"))
         assert state["model"]["_parameter_dimensions"] == DIMENSIONS
     restored = load_backend(result.path)
+    restored_bundle = export(restored, metadata, tmp_path / "restored")
+    assert restored_bundle.bundle_sha256 == result.bundle_sha256
     native_data, restored_data = data("test"), data("test")
     model.predict(native_data)
     restored.predict(restored_data)

@@ -354,11 +354,27 @@ class ParentReference(_StrictModel):
     source: SourceReference | None = None
 
 
+class AdaptationSettings(_StrictModel):
+    """Record the audited native options and original site's encoding."""
+
+    parent_categories: list[Category]
+    freedom: Annotated[float, Field(gt=0)] | None = None
+    n_synth_samples: Annotated[int, Field(gt=0, le=10**9)] | None = None
+
+    @model_validator(mode="after")
+    def _definition(self) -> AdaptationSettings:
+        _categories(self.parent_categories)
+        return self
+
+
 class LineageSpec(_StrictModel):
     """Distinguish original fitting from calibration or extension of a parent."""
 
     operation: Literal["fit", "calibrate", "extend"]
     parent: ParentReference | None
+    settings: AdaptationSettings | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _parent(self) -> LineageSpec:
@@ -368,6 +384,18 @@ class LineageSpec(_StrictModel):
                 "invalid_lineage",
                 "Adaptations require a parent; original fits must not declare one.",
             )
+        if self.settings is not None:
+            if (
+                self.operation == "fit"
+                or (
+                    self.operation == "calibrate"
+                    and self.settings.n_synth_samples is not None
+                )
+                or (self.operation == "extend" and self.settings.freedom is not None)
+            ):
+                raise PydanticCustomError(
+                    "invalid_lineage", "Settings must match the adaptation method."
+                )
         return self
 
 
@@ -463,6 +491,29 @@ class BundleManifest(_StrictModel):
                 "invalid_lineage",
                 "Parent repository identity must agree with its model identity.",
             )
+        settings = self.lineage.settings
+        if settings is not None:
+            parent_sites = {c.label for c in settings.parent_categories}
+            child_sites = {c.label for c in self.batch_effects[0].categories}
+            if (
+                (
+                    self.lineage.operation == "calibrate"
+                    and {_key(label) for label in parent_sites}
+                    & {_key(label) for label in child_sites}
+                )
+                or (
+                    self.lineage.operation == "extend"
+                    and not parent_sites < child_sites
+                )
+                or (
+                    self.adapter.profile == "blr-default-site"
+                    and settings.freedom is not None
+                )
+            ):
+                raise PydanticCustomError(
+                    "invalid_lineage",
+                    "Adaptation settings must match the profile and supported sites.",
+                )
         expected = (
             {"predict", "calibrate", "extend"}
             if self.lineage.operation == "fit"
@@ -589,15 +640,41 @@ class SharedNormativeModel(Protocol):
         ...
 
     def calibrate(
-        self, data: object, *, output_dir: Path, **options: object
+        self,
+        data: object,
+        *,
+        units: Mapping[str, str],
+        output_dir: Path,
+        model_id: str,
+        version: str,
+        metadata: dict | None = None,
+        metadata_reviewed: bool = False,
+        participant_id: str = "participant_id",
+        freedom: float = 1.0,
     ) -> SharedNormativeModel:
         """Contract for producing a calibrated child without modifying its parent."""
         ...
 
     def extend(
-        self, data: object, *, output_dir: Path, **options: object
+        self,
+        data: object,
+        *,
+        units: Mapping[str, str],
+        output_dir: Path,
+        model_id: str,
+        version: str,
+        metadata: dict | None = None,
+        metadata_reviewed: bool = False,
+        participant_id: str = "participant_id",
+        n_synth_samples: int | None = None,
     ) -> SharedNormativeModel:
         """Contract for producing an extended child without modifying its parent."""
+        ...
+
+    def export(
+        self, *, output_dir: Path, metadata_reviewed: bool = False
+    ) -> ModelBundle:
+        """Contract for re-exporting the same model identity and lineage."""
         ...
 
 
@@ -629,6 +706,7 @@ _SAFE_FIELDS = {
         Category,
         PreprocessingSpec,
         PublicationMetadata,
+        AdaptationSettings,
         LineageSpec,
         ParentReference,
         HuggingFaceReference,
@@ -739,7 +817,8 @@ def canonical_manifest(document: dict) -> bytes:
     """Validate metadata and return deterministic compact UTF-8 JSON bytes.
 
     Sort object keys, file entries, and capabilities; retain semantic ordering
-    of features, categories, and authors. Include explicit defaults and nulls.
+    of features, categories, and authors. Include explicit defaults and nulls,
+    except absent adaptation settings, preserving pre-adaptation bundle bytes.
     Raise ``ManifestValidationError`` for invalid metadata.
 
     This is the MEGaNorm canonical format, not an RFC 8785 implementation.

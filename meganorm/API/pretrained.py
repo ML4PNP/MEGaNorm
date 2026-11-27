@@ -1,14 +1,17 @@
 """Local prediction from validated bundles using PCNToolkit's fitted models."""
 
 from collections.abc import Mapping
+import copy
 from pathlib import Path
+import shutil
 from tempfile import TemporaryDirectory
 
 import numpy as np
 import pandas as pd
 
-from meganorm.sharing.bundle import DEFAULT_LIMITS, _load_bundle
-from meganorm.sharing.schema import PredictionResults
+from meganorm.sharing.bundle import DEFAULT_LIMITS, _load_bundle, export_model
+from meganorm.sharing.schema import PredictionResults, parse_manifest, _key
+from meganorm.sharing.versions import capture_runtime_versions
 from ._metadata import normalize_ids
 from ._pcntoolkit import extract_test_outputs, prepare_data
 from .results import FeatureDataset
@@ -19,8 +22,8 @@ class SharedNormativeModel:
 
     Construct with :meth:`load`. Prediction reuses PCNToolkit's native model,
     scalers and output extraction. Input tables and the bundle remain unchanged.
-    This interface currently provides prediction; new-site calibration and
-    model extension are not exposed here yet.
+    Original fitted bundles support new-site calibration and extension. Their
+    children support prediction and export; repeated adaptation is not audited.
     """
 
     def __init__(self, backend, manifest, bundle_sha256):
@@ -28,6 +31,9 @@ class SharedNormativeModel:
         self._backend = backend
         self._manifest = manifest
         self._bundle_sha256 = bundle_sha256
+        self._adaptation_ids = frozenset()
+        self._bundle_path = None
+        self._limits = DEFAULT_LIMITS
 
     @classmethod
     def load(cls, path, *, expected_sha256=None, limits=DEFAULT_LIMITS):
@@ -47,7 +53,10 @@ class SharedNormativeModel:
         SharedNormativeModel
             Loaded model ready for local prediction; no network access is used.
         """
-        return cls(*_load_bundle(path, expected_sha256=expected_sha256, limits=limits))
+        model = cls(*_load_bundle(path, expected_sha256=expected_sha256, limits=limits))
+        model._bundle_path = Path(path).resolve()
+        model._limits = limits
+        return model
 
     @property
     def manifest(self):
@@ -62,9 +71,13 @@ class SharedNormativeModel:
     @property
     def capabilities(self):
         """Return the operations currently exposed by this local interface."""
-        return ("predict",)
+        return tuple(
+            c
+            for c in ("predict", "calibrate", "extend")
+            if c in self._manifest.capabilities
+        )
 
-    def _prepare(self, data, units, participant_id):
+    def _prepare(self, data, units, participant_id, *, known_sites=True):
         """Validate complete measurements, units, IDs and known site labels."""
         if isinstance(data, FeatureDataset):
             data = data.data
@@ -118,12 +131,267 @@ class SharedNormativeModel:
                 )
             frame[name] = series.astype(float)
         for spec in self._manifest.batch_effects:
-            if not frame[spec.name].isin([c.label for c in spec.categories]).all():
+            if (
+                known_sites
+                and not frame[spec.name].isin([c.label for c in spec.categories]).all()
+            ):
                 raise ValueError(
                     "Site labels must match the model's declared categories; "
                     "unknown sites require calibration before prediction."
                 )
         return frame
+
+    def calibrate(
+        self,
+        data,
+        *,
+        units,
+        output_dir,
+        model_id,
+        version,
+        metadata=None,
+        metadata_reviewed=False,
+        participant_id="participant_id",
+        freedom=1.0,
+    ):
+        """Calibrate to new sites using native PCNToolkit transfer.
+
+        Supply original-scale local measurements and explicit units, a new output
+        directory, and a distinct child model_id/version. Review inherited public
+        metadata (or replace it with the publication metadata dictionary supplied
+        as ``metadata``) and affirm ``metadata_reviewed=True``. The directory
+        receives only a validated model.zip. The returned child supports the new
+        sites only. HBR ``freedom`` must be finite and positive; BLR accepts its
+        default value only. All other native fitting settings come from the parent.
+
+        Calibration participant IDs are retained in memory to reject overlapping
+        evaluation rows. They are never exported, so this protection ends after
+        reloading. Keep calibration and evaluation participants separate locally.
+        """
+        if (
+            type(freedom) not in (int, float)
+            or not np.isfinite(freedom)
+            or freedom <= 0
+        ):
+            raise ValueError("freedom must be a finite positive number.")
+        if self._manifest.adapter.profile == "blr-default-site" and freedom != 1:
+            raise ValueError("BLR calibration does not support a freedom option.")
+        return self._adapt(
+            data,
+            operation="calibrate",
+            units=units,
+            output_dir=output_dir,
+            model_id=model_id,
+            version=version,
+            metadata=metadata,
+            metadata_reviewed=metadata_reviewed,
+            participant_id=participant_id,
+            options=(
+                {"freedom": float(freedom)}
+                if self._manifest.adapter.profile == "hbr-shashb-linear-site"
+                else {}
+            ),
+        )
+
+    def extend(
+        self,
+        data,
+        *,
+        units,
+        output_dir,
+        model_id,
+        version,
+        metadata=None,
+        metadata_reviewed=False,
+        participant_id="participant_id",
+        n_synth_samples=None,
+    ):
+        """Fit a child on new-site data plus native synthetic parent observations.
+
+        Identity, units, metadata review and output rules match :meth:`calibrate`.
+        ``n_synth_samples`` is a positive integer, or None to use the parent's
+        aggregate training count. The child supports old and new sites, but is
+        refitted: old-site predictions need not equal the parent's predictions.
+        Native synthesis and fitting are stochastic. Calibration rows, synthetic
+        rows and native reports are discarded after validated model export.
+        """
+        if n_synth_samples is not None and (
+            type(n_synth_samples) is not int or not 0 < n_synth_samples <= 10**9
+        ):
+            raise ValueError("n_synth_samples must be a positive integer or None.")
+        return self._adapt(
+            data,
+            operation="extend",
+            units=units,
+            output_dir=output_dir,
+            model_id=model_id,
+            version=version,
+            metadata=metadata,
+            metadata_reviewed=metadata_reviewed,
+            participant_id=participant_id,
+            options={"n_synth_samples": n_synth_samples},
+        )
+
+    def export(self, *, output_dir, metadata_reviewed=False):
+        """Re-export this model with unchanged identity and lineage to a new directory."""
+        document = self._manifest.model_dump(mode="json", exclude={"files"})
+        return export_model(
+            self._backend,
+            metadata=document,
+            output_dir=output_dir,
+            metadata_reviewed=metadata_reviewed,
+            limits=self._limits,
+        )
+
+    def _adapt(
+        self,
+        data,
+        *,
+        operation,
+        units,
+        output_dir,
+        model_id,
+        version,
+        metadata,
+        metadata_reviewed,
+        participant_id,
+        options,
+    ):
+        """Validate the request, isolate native side effects, and retain only a bundle."""
+        from .modeling import _validate_responses
+
+        if operation not in self.capabilities:
+            raise ValueError("Repeated adaptation of child bundles is not supported.")
+        if metadata_reviewed is not True:
+            raise ValueError(
+                "Review child public labels and metadata before adaptation."
+            )
+        try:
+            _validate_responses(
+                [response.name for response in self._manifest.responses]
+            )
+        except ValueError:
+            raise ValueError(
+                "Adaptation requires response names that are safe native model directory names."
+            ) from None
+        output = Path(output_dir).expanduser()
+        if output.is_symlink():
+            raise ValueError("Adaptation output must not be a symbolic link.")
+        output = output.resolve()
+        if output.exists() or output.is_symlink():
+            raise FileExistsError("Adaptation output directory already exists.")
+        if self._bundle_path is not None and output.is_relative_to(
+            self._bundle_path.parent
+        ):
+            raise ValueError(
+                "Choose a child output directory outside the parent bundle directory."
+            )
+        frame = self._prepare(data, units, participant_id, known_sites=False)
+        batch = self._manifest.batch_effects[0]
+        labels = frame[batch.name].unique().tolist()
+        parent_keys = {_key(c.label) for c in batch.categories}
+        if any(
+            type(label) is not str or _key(label) in parent_keys for label in labels
+        ):
+            raise ValueError(
+                "Adaptation requires distinct new site labels without parent-category collisions."
+            )
+        participant_keys = {_key(identifier) for identifier in frame.index}
+        if any(_key(label) in participant_keys for label in labels):
+            raise ValueError(
+                "Public site labels must not match calibration participant IDs."
+            )
+        if (frame.groupby(batch.name).size() < 2).any():
+            raise ValueError(
+                "Supply at least two calibration observations per new site."
+            )
+        document = self._manifest.model_dump(mode="json")
+        document.update(model_id=model_id, version=version, capabilities=["predict"])
+        runtime = capture_runtime_versions()
+        document["software"] = dict(
+            meganorm_version=runtime.meganorm_version,
+            python_version=runtime.python_version,
+        )
+        document["adapter"]["pcntoolkit_version"] = runtime.pcntoolkit_version
+        document["lineage"] = dict(
+            operation=operation,
+            parent=dict(
+                model_id=self._manifest.model_id,
+                version=self._manifest.version,
+                bundle_sha256=self._bundle_sha256,
+            ),
+            settings=dict(
+                parent_categories=[c.model_dump(mode="json") for c in batch.categories],
+                **options,
+            ),
+        )
+        if metadata is not None:
+            document["metadata"] = copy.deepcopy(metadata)
+        expected = labels + (
+            [c.label for c in batch.categories] if operation == "extend" else []
+        )
+        document["batch_effects"][0]["categories"] = [
+            dict(label=label, code=i) for i, label in enumerate(expected)
+        ]
+        # Validate identity, category normalization and metadata before fitting.
+        parse_manifest(document)
+        try:
+            with TemporaryDirectory(prefix="meganorm-adapt-") as work:
+                parent = copy.deepcopy(self._backend)
+                parent.save_dir = str(Path(work) / "parent")
+                prepared = prepare_data(
+                    frame.reset_index(),
+                    responses=[r.name for r in self._manifest.responses],
+                    covariates=[c.name for c in self._manifest.covariates],
+                    batch_effects=[batch.name],
+                    participant_id=participant_id,
+                    train_fraction=None,
+                    random_state=0,
+                )
+                method = parent.transfer if operation == "calibrate" else parent.extend
+                native = method(
+                    prepared, save_dir=str(Path(work) / "native"), **options
+                )
+                actual = native.unique_batch_effects[batch.name]
+                if set(actual) != set(expected):
+                    raise ValueError(
+                        "Native adaptation did not retain the required site coverage."
+                    )
+                document["batch_effects"][0]["categories"] = [
+                    dict(label=label, code=i) for i, label in enumerate(actual)
+                ]
+                document.pop("files")
+                bundle = export_model(
+                    native,
+                    metadata=document,
+                    output_dir=Path(work) / "bundle",
+                    metadata_reviewed=True,
+                    limits=self._limits,
+                )
+                child = type(self).load(
+                    bundle.path,
+                    expected_sha256=bundle.bundle_sha256,
+                    limits=self._limits,
+                )
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.mkdir(mode=0o700)
+                try:
+                    with (
+                        bundle.path.open("rb") as src,
+                        (output / "model.zip").open("xb") as dst,
+                    ):
+                        shutil.copyfileobj(src, dst)
+                except BaseException:
+                    (output / "model.zip").unlink(missing_ok=True)
+                    output.rmdir()
+                    raise
+                child._bundle_path = output / "model.zip"
+                child._adaptation_ids = frozenset(frame.index)
+                return child
+        except Exception:
+            raise RuntimeError(
+                "PCNToolkit adaptation or validated child export failed; the parent is unchanged."
+            ) from None
 
     def predict(self, data, *, units, participant_id="participant_id", output_dir=None):
         """Compute predictions and z-scores for every bundled response.
@@ -159,6 +427,10 @@ class SharedNormativeModel:
         they are local analysis outputs and are never added to the bundle.
         """
         frame = self._prepare(data, units, participant_id)
+        if self._adaptation_ids.intersection(frame.index):
+            raise ValueError(
+                "Evaluation participant IDs overlap the local calibration data."
+            )
         output = Path(output_dir).expanduser() if output_dir is not None else None
         if output is not None and (output.exists() or output.is_symlink()):
             raise FileExistsError("Prediction output directory already exists.")

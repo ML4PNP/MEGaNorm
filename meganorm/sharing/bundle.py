@@ -284,7 +284,7 @@ def staged(path, limits, expected_sha256=None):
 def export_model(
     model, *, metadata, output_dir, metadata_reviewed=False, limits=DEFAULT_LIMITS
 ) -> ModelBundle:
-    """Export an original fitted native model to ``output_dir/model.zip``.
+    """Export a supported fitted or adapted native model to ``output_dir/model.zip``.
 
     Supply manifest metadata without ``files``; inventory and hashes are generated.
     Affirm review of public labels/text with ``metadata_reviewed=True``. No source

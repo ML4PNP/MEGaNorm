@@ -22,9 +22,11 @@ priors; Normal(0, 1) with softplus(0, 1) for sigma; Normal(0, 0.5) for epsilon;
 and Normal(1, 0.5) with softplus(0, 1, 0.6) for delta. It uses MCMC with the
 ``pymc`` sampler and ``auto`` initialization. Sampling counts may vary.
 
-Unsupported configurations are rejected explicitly. Exporting already calibrated
-or extended children is not enabled yet. These are sharing-adapter restrictions,
-not limitations of PCNToolkit's modeling capabilities.
+Unsupported configurations are rejected explicitly. Calibration and extension of
+these original fitted profiles produce exportable children with audited state.
+Further adaptation of those children is not supported by this interface yet.
+These are sharing-adapter restrictions, not limitations of PCNToolkit's modeling
+capabilities.
 
 Multiple IDPs in one bundle
 ---------------------------
@@ -89,8 +91,8 @@ expected bytes, not publisher identity or scientific validity.
 
 Loading disables ordinary prediction output writes. Predictions and z-scores
 remain in your local data object. The native backend's ``transfer`` and ``extend``
-methods retain PCNToolkit's own output behavior; this interface does not yet
-provide a managed adaptation workflow.
+methods retain PCNToolkit's own output behavior. Use ``SharedNormativeModel``
+below to contain their working files and export validated child models.
 
 Predict with local measurements
 -------------------------------
@@ -129,7 +131,7 @@ A matching unit declaration alone cannot verify how data were processed.
 The method returns both predictions and z-scores, so it requires all measured
 responses. Missing/nonfinite values, duplicate IDs/columns and unknown sites
 are rejected; no participants are dropped or measurements imputed. New-site
-calibration is not exposed by this interface yet. In the audited PCNToolkit
+calibration is available through ``calibrate`` below. In the audited PCNToolkit
 1.4.0 build, HBR prediction on a single observation fails because native array
 squeezing removes its observation dimension. This needs a PCNToolkit fix;
 HBR cohort prediction is supported. BLR single-observation prediction works.
@@ -149,7 +151,90 @@ This writes only ``predictions.csv`` and ``z_scores.csv``. Existing output
 directories are rejected. These CSVs are local analysis results and are never
 added to the shared model archive. Prediction does not refit the model or its
 scalers, change the bundle, or contact a hosting service. The public
-``capabilities`` property currently reports only ``("predict",)``.
+``capabilities`` property reports ``("predict", "calibrate", "extend")`` for
+original fitted bundles and ``("predict",)`` for adapted children.
+
+Calibrate or extend to new sites
+--------------------------------
+
+Use calibration measurements from participants who are separate from your
+evaluation cohort. Both operations require all the original covariates and IDPs,
+the same explicit units and preprocessing, and genuinely new site labels.
+Existing site labels, including case/Unicode collisions, are rejected. Each new
+site label is also checked against the known local participant IDs; matches are
+rejected before fitting. Response names must be portable native model directory
+names because PCNToolkit's adaptation methods use them when saving temporary
+models. Path-like names are rejected even when the bundle has a safe storage key.
+Each new
+site needs at least two observations for the numerical operations; this minimum
+does not establish an adequate scientific calibration sample size.
+
+``calibrate`` calls PCNToolkit's native ``transfer``. Its child supports only the
+new sites. ``extend`` calls native ``extend``, fitting a new model on the local
+data combined with synthetic data generated from the parent. Its child supports
+old and new sites, but its old-site predictions may change because it is refitted.
+Neither operation changes the parent archive, backend or input table.
+
+.. code-block:: python
+
+   calibrated = model.calibrate(
+       calibration_data,
+       units={"age": "years", "roi": "V"},
+       output_dir="calibrated_model_v1",
+       model_id="my-lab/calibrated-model",
+       version="1.0.0",
+       metadata_reviewed=True,
+   )
+   results = calibrated.predict(
+       heldout_data, units={"age": "years", "roi": "V"},
+   )
+
+   extended = model.extend(
+       calibration_data,
+       units={"age": "years", "roi": "V"},
+       output_dir="extended_model_v1",
+       model_id="my-lab/extended-model",
+       version="1.0.0",
+       n_synth_samples=1000,
+       metadata_reviewed=True,
+   )
+
+Choose a scientifically appropriate synthesis count for your model. None uses
+the parent's aggregate fitting count. HBR calibration additionally accepts a
+finite positive ``freedom`` value (default 1.0), passed to native transfer's
+prior-factorization routine. BLR accepts only the default. Other backend options
+are rejected; sampling settings are inherited from the parent. Native fitting
+and synthesis are stochastic; this interface does not add a separate random
+seed implementation.
+
+The child model ID/version pair must differ from its parent. Publication metadata
+is inherited by default: review authorship, license, description and provenance
+for the derived model. Supply a complete publication-metadata dictionary through
+``metadata=...`` to replace those fields. ``metadata_reviewed=True`` affirms review
+of these public fields and the new site labels, not scientific validation of the
+child. Parent identity, bundle digest, original category mapping, adaptation
+method/options and current software versions are recorded automatically.
+
+The output directory must be new and outside the parent bundle directory. It
+contains only ``model.zip``; native reports, predictions, calibration rows and
+synthetic observations are temporary and removed. Necessary aggregate scalers,
+site summaries, HBR learned prior parameters and BLR correction parameters are
+retained under explicit validation. No remote publication occurs.
+
+.. code-block:: python
+
+   restored = SharedNormativeModel.load("calibrated_model_v1/model.zip")
+   copied_bundle = restored.export(
+       output_dir="calibrated_model_copy", metadata_reviewed=True,
+   )
+
+The returned child rejects prediction on identifiers present in its calibration
+data. This check is local and lasts only while that object is retained: participant
+identifiers are never included in the model archive, and a reloaded child cannot
+identify overlap with its historical calibration cohort. Changed identifiers
+cannot be recognized as the same person. Keep your calibration/evaluation split
+locally and enforce it when reloading or sharing a model. Original training
+identifiers are likewise unavailable from the parent bundle.
 
 Metadata example
 ----------------

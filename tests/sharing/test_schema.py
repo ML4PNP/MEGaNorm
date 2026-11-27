@@ -81,6 +81,33 @@ def test_valid_manifest_roundtrips_canonically(manifest):
 
 
 @pytest.mark.parametrize(
+    "problem", ["calibration_overlap", "extension_missing_parent", "blr_freedom"]
+)
+def test_adaptation_metadata_matches_profile_and_site_support(manifest, problem):
+    manifest["lineage"] = {
+        "operation": "calibrate",
+        "parent": {
+            "model_id": "publisher/parent",
+            "version": "1.0.0",
+            "bundle_sha256": HASH,
+        },
+        "settings": {
+            "parent_categories": [{"label": "A", "code": 0}, {"label": "B", "code": 1}],
+        },
+    }
+    manifest["capabilities"] = ["predict"]
+    manifest["batch_effects"][0]["categories"] = [{"label": "C", "code": 0}]
+    assert validate(manifest).valid
+    if problem == "calibration_overlap":
+        manifest["lineage"]["settings"]["parent_categories"][0]["label"] = "c"
+    elif problem == "extension_missing_parent":
+        manifest["lineage"]["operation"] = "extend"
+    else:
+        manifest["lineage"]["settings"]["freedom"] = 0.5
+    assert not validate(manifest).valid
+
+
+@pytest.mark.parametrize(
     "field",
     [
         "schema_version",
