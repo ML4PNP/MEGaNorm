@@ -37,6 +37,7 @@ setup(
     python_requires=">=3.12,<3.13",
     install_requires=load_requirements(),
     extras_require={
+        "sharing": ["huggingface_hub==1.33.0"],
         "dev": [
             "black",
             "pytest",

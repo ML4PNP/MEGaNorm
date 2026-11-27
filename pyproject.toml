@@ -28,6 +28,7 @@ markers = [
     "unit: fast tests of isolated MEGaNorm behavior",
     "integration: tests of MEGaNorm interactions with scientific dependencies",
     "slow: tests excluded from the fast pull-request suite",
+    "hf_live: opt-in synthetic writes to an explicitly configured Hugging Face test repository",
 ]
 
 [tool.meganorm]

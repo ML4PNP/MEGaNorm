@@ -129,6 +129,12 @@ Documentation
 
    modules
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Development
+
+   model_sharing_development
+
 
 Citation
 --------

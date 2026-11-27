@@ -6,6 +6,10 @@ participant records or prediction outputs. The export is a single ZIP archive;
 loading it restores a native PCNToolkit model. Remote publication is not yet
 available through this interface.
 
+Developers can test the internal Hugging Face transport described in
+:doc:`model_sharing_development`. The combined Hugging Face/Zenodo publication
+workflow is still under development.
+
 Supported models
 ----------------
 

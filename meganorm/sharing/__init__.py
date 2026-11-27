@@ -1,4 +1,4 @@
-"""Model-sharing contracts and local export/loading; transport is not yet enabled."""
+"""Model-sharing contracts and local bundles; optional transports import separately."""
 
 from .errors import ManifestValidationError, ValidationReport
 from .schema import (

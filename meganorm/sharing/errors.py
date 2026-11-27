@@ -3,7 +3,7 @@
 This file defines how problems are reported. It provides:
 - Stable error codes, such as missing fields or unsupported adapters.
 - ValidationIssue and ValidationReport, which describe validation results.
-- Exception classes for privacy, compatibility, integrity, authorization, 
+- Exception classes for privacy, compatibility, integrity, authorization,
 and publication failures.
 
 """
@@ -112,5 +112,11 @@ class VersionConflictError(SharingError):
 
 class IncompletePublicationError(SharingError):
     """Signal a publication workflow that has not reached verified completion."""
+
+    pass
+
+
+class TransportError(SharingError):
+    """Signal a sanitized provider or connection failure without claiming success."""
 
     pass
